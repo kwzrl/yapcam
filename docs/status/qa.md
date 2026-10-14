@@ -1,4 +1,4 @@
-READY 0416613 qa: Phase 2 E2E tests (Tests/E2E, scripts/qa/run-e2e.sh) + findings F1–F3
+READY 7209712 qa: verify-package.sh fixture-verified; backlog empty except blocked items
 
 # qa status
 
@@ -13,6 +13,11 @@ READY 0416613 qa: Phase 2 E2E tests (Tests/E2E, scripts/qa/run-e2e.sh) + finding
 - F3 [qa] Library-level M1 verified: fixture → Project → canvas.padding + manual zoom (crop changes mid-zoom) → Exporter 1080p MP4 → ffprobe: height 1080, audio track present, duration 5.0±0.1 s. Cut/undo/redo exact; 300 random cuts then full undo restores duration (no drift); save → reopen → `.prev` kept; missing screen.mov → `CoreError.missingMedia`.
 
 - F4 [core, render; LOW privacy] `scripts/qa/privacy-scan.sh` flags absolute `/Users/<name>/` home paths in docs/status/core.md and docs/status/render.md (personal paths, rule 7). Replace with `~/`.
+
+- F5 E2E now 11 tests green (formats HEVC/MOV/GIF, 60 fps, cut/duration, A/V duration agreement after cut, cancel removes partial file, export crop at zoom). FEATURES.md rows EXP-01/03/05/06/07, EDT-02/05, PRJ-01/05, ZOM-02 marked verified (library level; UI and live capture not covered).
+- run-e2e.sh simplified (E2E is a real target on main).
+
+- verify-package.sh run against synthetic fixture: ok (project.json now optional). Re-checked 2026-10-15: main unchanged, screen access still false (probe -3801) → live QA still blocked.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).

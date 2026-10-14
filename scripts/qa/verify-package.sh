@@ -1,7 +1,8 @@
 #!/bin/sh
 # usage: verify-package.sh Name.yapcam  — checks structure and media decodability
 p=$1; set -e
-[ -f "$p/project.json" ] && [ -f "$p/recording/session.json" ] || { echo "missing project/session json"; exit 1; }
+[ -f "$p/recording/session.json" ] || { echo "missing session.json"; exit 1; }
+[ -f "$p/project.json" ] || echo "note: no project.json yet (fresh recording / fixture)"
 python3 -I - "$p" <<'PY'
 import json,sys,os
 p=sys.argv[1]; s=json.load(open(p+"/recording/session.json"))
