@@ -1,206 +1,140 @@
-READY b75ea0a capture review fixes integrated in main 4a1cee5; capture suite green; host acceptance / follow-up review pending
+READY 9273eb6 + WORKTREE package 1 AUD-10 implementation/unit tests; real Speech host gate pending
+READY 9273eb6 + WORKTREE package 2 injected-fault verification; unit tests pass
+READY 9273eb6 + WORKTREE package 3 scale/multi-display geometry; math tests pass
 
 # capture status
 
 ## Current handoff
-- Lead checkpointed the review fixes as b75ea0a and integrated them into main
-  4a1cee5. Only this status file has local changes. Capture source/tests match main
-  exactly; the validated review fixes are preserved in the checkpoint.
-- Local HEAD remains b75ea0a. Requested `git rebase main` from the clean tree failed
-  creating .git/worktrees/capture/rebase-merge (Operation not permitted). Lead owns
-  Git rebase/push under the agreed sandbox workflow; no workaround attempted.
-- Backlog audit 2026-10-15 00:56 CEST: brief, main capture feature rows and latest
-  UI/QA status checked. No new capture review or host result. No independent capture
-  implementation item is open. Existing validation is unchanged; no tests repeated
-  for this documentation-only update. Main remains 4a1cee5, the review directory
-  still has round 1 only, and QA/UI still report the current-signing-identity TCC gate.
-- Capture has no runnable work package at this point. Resume implementation when
-  follow-up review, host capture/media findings or a changed integration contract
-  arrives; the external gates in Next cannot be closed from this sandbox.
-- Main now wires LiveEngine.openEditor to EditorWindows.open; that integration
-  request is closed. Icon/notification forwarding, format documentation, follow-up
-  independent review and real capture/media gates remain open below.
+- All three newly assigned implementation packages are ready for Lead checkpoints,
+  in the requested order. READY lines name the baseline plus uncommitted work; no
+  new commit hash is claimed. Real Speech/capture and full-suite Metal gates remain.
+- Validated against main 6d91a7f. Latest observed main 0dfab41 differs only in
+  docs/STATUS.md; source compatibility is unchanged.
+- Package 1 files: Sources/YapcamCapture/{TranscriptionService,AppleOnDeviceSpeech}.swift,
+  Tests/YapcamCaptureTests/TranscriptionTests.swift, tests README and this status.
+- Local HEAD 9273eb6. Clean-tree git rebase main failed creating rebase-merge
+  (Operation not permitted). Lead owns commits/rebase/push under the agreed sandbox
+  workflow. Only capture-owned source/tests/status changed; no new dependencies.
 
-## Review fixes / regression evidence (2026-10-15)
-- H2: pass the captured segment stop time to track finalization and call
-  AVAssetWriter.endSession(atSourceTime:) before finishing. Static screen/camera
-  tails extend to stop, while lost optional devices keep their natural truncated
-  tails. Unit regression verifies both screen and camera receive the full stop time.
-  The opt-in HEVC test now writes only three frames, ends at 2 s and reads at 1.8 s.
-- H3: start SCStream before optional devices; wait (cancellable, maximum 10 s) for
-  the first written screen frame. Its PTS becomes host_start_ns, screen offset is 0,
-  duration is stop minus that origin, and retained audio/device offsets use that
-  origin. Pre-screen samples are discarded. Input monitoring starts with the same
-  origin. A backpressured first frame cannot anchor an unwritten prefix.
-  Regression tests exercise a 40 ms startup delay at both start and resume,
-  persisted host/track/source timing and event timestamps, preroll, backpressure,
-  timeout/cancellation, and recovery before the manifest catches up.
-- M1: cadence deadlines tolerate half-frame timing jitter instead of comparing
-  strictly with the last PTS. Tests retain all 600 jittered slightly-fast 60 Hz and
-  30 Hz frames while still rejecting double-rate input and enforcing the stop cutoff.
-- M2: renumber recovered survivors to indices 0..N-1 and rebuild contiguous source
-  starts while preserving directory/file paths. Tests skip the first, middle and
-  last screen segment independently, then check continuity and idempotent recovery.
-- Input risk: CGEvent.timestamp is no longer used. Stamp input delivery from the
-  same CoreMedia host clock as media. Conversion regression uses a non-nanosecond
-  24 MHz representation (including integer rounding), checks a stationary-pointer
-  click advances time, and checks the live clock against CaptureClock.now.
+## Package 1 — AUD-10 implementation / unit validation complete
+- Public actor TranscriptionService: transcribe(package:localeIdentifier:track:)
+  returns RecordingTranscript and atomically writes recording/transcript.json.
+  Locale defaults to Locale.current.identifier. nil track prefers mic per segment,
+  otherwise system audio; explicit .microphone/.systemAudio never switches tracks.
+- Uses SFSpeechRecognizer for macOS 15 compatibility. Requires authorization,
+  supportsOnDeviceRecognition and availability, then sets requiresOnDeviceRecognition
+  on every request. Unsupported/missing local recognition returns an explicit error;
+  there is no server fallback. Apple contract:
+  [Apple on-device contract](https://developer.apple.com/documentation/speech/sfspeechrecognizer/supportsondevicerecognition).
+- Long audio uses bounded 45 s PCM windows with 1 s overlap. Midpoint ownership
+  partitions the overlap, avoiding duplicate words. Each request has a 60 s watchdog;
+  timeout/cancellation cancels the native task and resolves its continuation once.
+- Only finalized schema-1 packages with contiguous source segments are accepted.
+  Advisory package lock excludes live capture/recovery and concurrent transcription.
+  Unsafe/symlink-escaping paths are rejected. Failures/cancellation preserve previous
+  transcript; successful replacement uses fsync/atomic rename with transcript.json.prev.
+- Regressions: mic/system selection, pause removal + first-track offsets, stop clipping,
+  invalid/overflow word times, confidence sanitization, JSON round trip, previous-file
+  preservation, cancellation, active/unfinished packages, escaping paths/symlinks,
+  bounded/contiguous chunk ownership, duplicate final callbacks and timeout cleanup.
 
-## Review-fix validation
-- Signed integrated app build passed against a temporary b93ce7d export with current
-  capture source/tests overlaid: `/tmp/yapcam-capture-review-main.JPDnEz`.
-  `scripts/build-app.sh` uses an external Swift shim for --disable-sandbox and -j 4;
-  Rust uses CARGO_BUILD_JOBS=4. Tracked build scripts/manifest remain untouched.
-  Verified signature: Yapcam Dev Signing / mov.yapcam.Yapcam.
-- Capture-only suite in that integration: 59 discovered, 1 explicit HEVC skip,
-  zero failures (30/60 Hz and missing-segment tests include parameterized cases).
-- Rust: 23 passed, zero failures.
-- Full integrated Swift suite was attempted: 124 Swift Testing tests, 12 issues,
-  all editor RealStackTests reporting .metal("Metal preview unavailable"). Capture
-  tests had no failures. XCTest: 28 discovered, 14 explicit media/GPU skips, no
-  failures. Do not treat the full suite as green; Lead must run it on the host.
-- The real HEVC static-tail/seek test is compiled but remains opt-in and unverified
-  here because the command sandbox lacks the required media services. Lead should
-  run it before accepting H2. No real recordings or permission changes made here.
-- git diff --check and gitleaks scans passed. These fixes are now represented by
-  b75ea0a (Lead checkpoint). No successful local Git writes or push here.
+## Transcript format — request for Lead / FORMATS.md
+Optional UTF-8 recording/transcript.json, with no change to required session keys:
+```json
+{"schema_version":1,"engine":"apple_speech_on_device","locale":"en-US","words":[{"text":"Hello","src_start_ns":100000000,"src_end_ns":500000000,"confidence":0.9,"segment_index":0,"track":"mic"}]}
+```
+- words are ordered by src_start_ns; ranges are [src_start_ns, src_end_ns), signed
+  nonnegative Int64 nanoseconds in the pause-removed source clock. Compute each as
+  segment.src_start_ns + segment.track_start_ns[track] + recognized file time.
+  Clip words at the finalized segment end; discard invalid/empty/out-of-range words.
+- track is mic or system_audio; segment_index is the session segment index.
+  confidence is finite in [0,1]. text preserves Apple's recognized word/utterance
+  segment (no invented token timing). locale records the requested recognition locale.
+- Empty words is a valid successful no-word result. Any recognition error aborts the
+  whole update; no partial transcript is published. Unknown newer schemas must be
+  refused by consumers. transcript.json.prev is optional previous-version fallback.
+- Existing files remain untouched except transcript.json/.prev and the metadata-free
+  advisory .capture.lock. No absolute audio paths or recordings are embedded in JSON.
 
-## Verified checkpoint in place (2026-10-15 00:06 CEST)
-- Worktree `scripts/build-app.sh` passed: Rust + full integrated Swift app, signed and
-  verified using `Yapcam Dev Signing` / `mov.yapcam.Yapcam`, without keychain dialogs.
-  Temporary Swift shim adds --disable-sandbox; tracked scripts were unchanged.
-- Worktree `swift test --disable-sandbox -j 4`: 82 passed, 8 hardware/media skips,
-  zero failures (Swift Testing: 74 pass + 1 skip; XCTest: 8 pass + 7 skips).
-  Capture subset: 48 pass + 1 explicit HEVC integration skip.
-- Worktree `CARGO_BUILD_JOBS=4 cargo test --manifest-path core/Cargo.toml`: 20 pass.
-- `git diff --check` and gitleaks scans of capture source/tests passed.
-- New tests simulate device loss, optional/essential writer failures, stop cutoffs,
-  VFR caps, cancelled cleanup waiting, stationary-pointer/window reprojection, exact
-  audio durations, thumbnail sizing, preference migration, stream exclusion policy,
-  recovery timing/sidecar fallback, oversized event lines, write rollback and locks.
-  Test media sinks exercise routing; they do not count as real encoder verification.
-- Ten additional tests now exercise the real RecordingSession coordinator and disk
-  manifests: low disk during capture, revoked screen permission, source loss,
-  pause/resume, stale callbacks, cancelled cleanup during startup, failed writer
-  finalization, window resize/scale across pause, display resize refusal and missing
-  source at startup. They verify interrupted status, cleanup counts and lock release.
-- Five input translation tests verify area-relative/outside coordinates, drag/click
-  buttons, signed scroll deltas, opt-in Unicode/modifier keys, monotonic timestamps
-  and invalid-coordinate rejection without posting events or touching permissions.
+## Final validation / remaining host gate
+- Temporary export main 6d91a7f + owned source/tests at
+  /tmp/yapcam-transcription-main.pnEG9w: scripts/build-app.sh passes, signature verified
+  as Yapcam Dev Signing / mov.yapcam.Yapcam. External Swift shim adds --disable-sandbox
+  and -j 4; CARGO_BUILD_JOBS=4. No tracked build/manifest edits.
+- Capture suite after all packages: 81 discovered, 2 explicit media skips, zero
+  failures. 15 transcription tests (one opt-in real test; path cases parameterized).
+  Final audit also checks cancellation after recognition has actually started.
+- Rust: 39 passed. Full integrated Swift attempted: Swift Testing 172 tests with
+  18 editor issues (all Metal preview unavailable); XCTest 54, 22 hardware skips,
+  6 E2E failures (all Metal unavailable). Not a green full suite; host run required.
+- Real synthetic-speech test was actually attempted with
+  YAPCAM_TRANSCRIPTION_MEDIA_TESTS=1 and actualOnDeviceTranscriptionOfSaySpeech.
+  Speech preflight reported denied. say Samantha and Fred each exited 0 but created
+  zero-frame AIFFs (afinfo: audio bytes/packets 0). Opt-in test fails explicitly on
+  empty generated audio. Real synthesis/recognition is NOT verified here.
+- Lead/UI: add NSSpeechRecognitionUsageDescription to the signed app Info.plist.
+  TranscriptionService.authorizationState is read-only; requestAuthorization()
+  is explicit, validates the usage key, and must be called from a user action.
+  transcribe() and tests never prompt. The authorized host runner also needs local
+  speech assets/services; README contains the real say test command.
+- git diff --check and gitleaks source/test scans pass. No sudo, permission reset,
+  recordings, credentials or third-party dependencies added. Lead must checkpoint
+  and arrange independent review (especially native-task cancellation/chunk mapping).
 
-## M2 changes since 1f61d47
-- Window picker thumbnails from SCScreenshotManager, limited to four concurrent
-  requests. A closing window may have a nil image while source discovery still succeeds.
-- Backward-compatible recording options for desktop icon / notification capture.
-  Icon exclusion is stream-only: Finder preferences stay unchanged and folder windows
-  are retained. Filters refresh to retain newly opened Finder folders. Notification
-  exclusion targets NotificationCenter and remains subject to macOS limitations.
-- Device loss truncates future optional-track samples, warns once and resets mic
-  metering while screen capture continues. AVCapture configuration is balanced on error.
-- Fixed an AV sync bug: output PTS/DTS are converted from the session's
-  synchronizationClock, not the input port's native clock. Exact PCM durations such
-  as 1/48000 are retained, avoiding nanosecond rounding of every audio sample.
-- Stop/pause rejects later sample timestamps. Delayed callbacks belong to their
-  segment, so they cannot fail or change a resumed session. Cancel cleanup still
-  waits for in-flight work if its calling Task has already been cancelled.
-- Cursor positions update when a window moves beneath a stationary pointer.
-  Window resume accepts resize/display changes using the original fixed output
-  surface; display/area resume still refuses changed dimensions/scale.
-- Recovery keeps finalized segment durations authoritative (audio packets can extend
-  past stop), falls back to the previous sidecar, streams bounded event-tail repair,
-  retains previous logs, and rejects segment symlinks leaving the package.
-- An advisory recording/.capture.lock prevents recovery of live/paused sessions.
-  OS process death releases it automatically; an empty stale file is harmless.
-- Internal live-service injection makes session failure acceptance tests deterministic;
-  the public initializer still selects the real Apple framework implementations.
+## Package 2 — injected fault verification complete / ready for checkpoint
+- Existing production-coordinator tests verify mid-recording diskFull, revoked screen
+  permission and disappearing-source callbacks: interrupted manifest, finalized
+  prior screen data, exactly-once stream/writer cleanup and released package lease.
+- Added full-session optional-device-loss injection: both device tracks start, mic
+  meter rises, mic/camera disappear, warnings occur once, meter resets, future device
+  samples are rejected while screen samples continue, and stop completes normally.
+  Assertions cover sample counts, retained files, finalization counts and lock release.
+- Added low disk before start (no package/stream) and permission revoked during pause
+  (resume fails while the finalized earlier segment is preserved).
+- Only SessionLifecycleTests.swift changes relative to package 1. Suggested commit:
+  test(capture): verify injected device loss and lifecycle failure cleanup.
+- Main 6d91a7f validation export: capture suite now 76 discovered, 2 media skips,
+  zero failures. Signed app/Rust validation from package 1 is unchanged (test-only).
+  Test sinks exercise routing and coordinator behavior; they do not encode media.
 
-## Capture feature handoff / assumptions
-- REC-01/02/03/08/10/11, AUD-01 and CUR-01/02: implementation present; host media
-  checks pending. REC-19: full session fault simulation passes, including finalized
-  segment metadata and preserved interrupted package below 1,000,000,000 free bytes.
-- REC-12: scale/multi-display unit math passes; hardware gate remains limited.
-- REC-13/15: additive stream-filter options implemented and policy-tested; UI wiring
-  and actual Finder/banner behavior remain open. Assumption: hiding icons means
-  excluding them from the recording; desktop preferences never need restoration.
-- REC-18: recovery implementation/fixtures pass; UI relaunch prompt and real process
-  kill/reopen are external acceptance gates. CUR-10: opt-in key capture tested;
-  rendering the overlay belongs to render.
-- AUD-02/03, CAM-01/06: capture/device-loss code and simulated routing pass; actual
-  hardware timing/disconnects remain limited. REC-17 stays limited without a device;
-  an available iPhone Mirroring window uses ordinary window capture.
-- Window recordings keep the initial encoded dimensions across a resize or resume;
-  content and cursor coordinates fit that surface. Display/area geometry changes
-  across a pause require a new recording. These are reversible policy decisions.
-- FEATURES.md capture rows were rechecked after the checkpoint. QA owns the file;
-  please reconcile statuses from the evidence above.
+## Package 3 — geometry math verification complete / ready for checkpoint
+- Extracted the display-local area validation/global-coordinate conversion into
+  CaptureGeometry.area(), used directly by the production resolver. Existing valid
+  selection behavior is unchanged; tests do not request ScreenCaptureKit access.
+- Four new tests (three parameterized at scales 1 and 2): areas on primary/left/above
+  displays, windows with positive/negative global origins, cursor positions including
+  outside content, resized windows crossing scales fitted to the initial surface,
+  and invalid global/pixel/overflow/nonfinite area selections.
+- Files: CaptureGeometry.swift and GeometryMatrixTests.swift. Suggested commit:
+  test(capture): cover window and area geometry across display scales.
+- Signed app build/signature rechecked after this production refactor; all capture
+  tests pass. This is math-only evidence; real Retina/multi-display checks remain open.
 
-## Additive APIs for UI / QA
-- `CaptureSources.load()` now supplies thumbnails.
-  `load(includeWindowThumbnails: false)` avoids screenshots for device polling.
-  `thumbnail(for: windowID, maxSize: CGSize(width: 320, height: 200))` refreshes one.
-- `RecordingOptions.hideDesktopIcons` defaults false; `captureNotifications` defaults
-  true. Old serialized options decode with those defaults. UI needs to forward both.
-- `CaptureSelfTest.run` retains existing calls and additionally accepts
-  hideDesktopIcons, captureNotifications and recordKeystrokes. Existing parameters
-  cover window/area target, camera/mic, 30/60 fps, and pauseAfter.
+## Existing capture handoffs retained
+- b75ea0a implements review H2/H3/M1/M2/input-clock fixes. Host HEVC static-tail seek,
+  startup/resume flash and real input alignment still need verification/re-review.
+- Lead / FORMATS.md: optional seg-XXX/track-starts.json maps track keys to start offsets
+  (new screen=0); optional seg-XXX/host-start.json is the absolute first written screen
+  PTS as JSON Int64. Write host origin before offsets so recovery fixes a stale manifest.
+  Also document optional recording/.capture.lock (empty advisory file, not metadata).
+- Latest confirmed UI handoff: self-test flag, recovery prompt and editor open wired.
+  Icon/notification forwarding through RecordingOptions still needs UI alignment;
+  use stream filtering rather than Finder preference changes/restarts.
+- Real capture remains gated by the current signing identity's Screen Recording grant
+  (UI/QA reported SCStream -3801). No camera/mic; one non-Retina display. Unit/simulated
+  checks do not establish real device sync/loss, Retina or multi-display acceptance.
 
-## Private recording files — Request for Lead / FORMATS.md
-- Keep optional `recording/seg-XXX/track-starts.json`, for example:
-  `{"screen":0,"system_audio":10000000,"mic":20000000,"camera":30000000}`.
-- Keys are the session track keys; values are nonnegative signed Int64 nanoseconds
-  relative to that segment's host_start_ns. They use the same meaning as track_start_ns.
-- Written synchronously on the sample queue when each track's first sample is accepted,
-  using temporary file -> fsync -> atomic rename; prior version is .prev.
-  This makes offsets durable before the main-actor session.json update can run.
-- Recovery prefers valid session offsets, fills gaps from the sidecar, then its .prev.
-  Readers can ignore these optional files; session.json has no new required keys.
-- With H3, new segments always use screen offset 0; legacy segments can retain
-  nonzero screen offsets. Recovery still supports those older packages.
-- Also document optional `recording/.capture.lock`: an empty advisory lock file only,
-  never recording metadata. Its presence alone does not mean a recording is active.
-- H3 additionally needs optional `recording/seg-XXX/host-start.json`: a JSON Int64
-  containing the first written screen PTS in absolute host nanoseconds. Written
-  once atomically on the sample queue before track-starts.json. Recovery reads it
-  to correct a stale session host_start_ns and recover screen offset 0 even if the
-  offset sidecar has not been written yet. Existing packages without it still work.
-
-## Real verification / hardware limits
-- Lead runs signed --capture-selftest and YAPCAM_CAPTURE_MEDIA_TESTS=1 outside the
-  command sandbox, and appends results here. Main b93ce7d now wires the self-test flag.
-- UI/QA's host result is still a failure before capture: SCStream -3801, screen access
-  false for the new signing identity (QA F2 / UI Blockers). This is reported evidence,
-  not a new local test. Lead must resolve the grant externally; no TCC reset or
-  permission request was attempted here. No successful package verification yet.
-- Still verify display/window/area outputs, pause/resume, own-window exclusion,
-  desktop icons + visible Finder folders, notifications, first-track offsets/events,
-  kill/recover, and a resized/moved window across a pause with ffprobe/playback.
-- No camera/mic, one non-Retina display: device-loss routing and geometry are simulated;
-  actual device sync/loss, Retina and multiple-display hardware remain unverified.
-- No permission resets, sudo, recordings, credentials, new dependencies or other
-  teams' source changes. Independent Claude round 1 received; fixes need re-review.
-
-## Integration requests found on b93ce7d
-- UI: LiveEngine.Session does not forward hideDesktopIcons/captureNotifications to
-  RecordingOptions. Instead RecordingController calls DesktopIcons.hide(), which
-  writes Finder CreateDesktop and restarts Finder. Please use capture's stream-only
-  icon option and remove those global side effects; restarting Finder can terminate
-  a selected Finder source window. Keep any restoration of existing legacy markers
-  as a migration concern. Actual filter behavior still needs host acceptance.
-- Closed on main 4a1cee5: self-test wiring, recovery prompt and editor handoff
-  (LiveEngine.openEditor now calls EditorWindows.open).
-- Lead: sidecar / advisory-lock additions are still absent from FORMATS.md.
-
-## Next
-1. Lead: finish this worktree's rebase onto main 4a1cee5, arrange follow-up independent
-   review and push team/capture. Review fixes are already checkpointed/integrated as
-   b75ea0a; no new source checkpoint needed. Shared Git metadata is read-only here.
-   Full Swift suite needs the host Metal gate before marking this new commit ready.
-2. Lead: resolve the reported current-identity screen-recording grant externally,
-   then run the host checks above and opt-in HEVC static-tail/recovery test. Confirm
-   duration/seek through a static tail and no startup/resume flash. Append results here;
-   capture will fix findings. Self-test entry point is now wired on main.
-3. UI: forward icon/notification options using the capture API; align desktop-icon
-   behavior. Editor handoff is closed. Lead: document optional track/host sidecars and lock.
-   QA: reconcile feature rows from the recorded evidence.
-4. Hardware follow-up: camera/mic, Retina and a second display. No independent
-   capture implementation item remains before host results or integration feedback.
+## Next / Lead requests
+1. Checkpoint packages in order (files listed above), finish the worktree rebase and
+   push team/capture. No independent capture implementation item remains in this
+   assignment. Suggested package-1 title: feat(capture): transcribe package audio on device.
+2. Arrange independent review of the new Speech service and prior H2/H3 timing fixes.
+   Run the full Swift suite on a Metal host; sandbox editor/E2E failures are not fixed
+   or hidden by capture. No fully green full-suite claim for these checkpoints.
+3. Add the Speech usage-description key, wire explicit authorization/transcription
+   into app/captions UI, and rerun the opt-in say test on an authorized host with local
+   models. Append real results here; capture will address findings.
+4. Add transcript JSON plus the existing optional timing sidecars/lock to FORMATS.md.
+   Core/editor can consume words in source time; caption project-model/UI/render wiring
+   is outside capture ownership. QA should reconcile AUD-10 and fault/geometry rows
+   from this evidence without marking real recognition or capture as verified.

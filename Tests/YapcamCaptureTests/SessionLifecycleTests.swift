@@ -11,15 +11,24 @@ private final class FinishCounter: @unchecked Sendable {
     var count: Int { lock.withLock { value } }
 }
 
+private final class TrackSampleCounts: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: Int] = [:]
+    func append(_ key: String) { lock.withLock { values[key, default: 0] += 1 } }
+    var counts: [String: Int] { lock.withLock { values } }
+}
+
 private final class LifecycleSink: CaptureTrackSink, @unchecked Sendable {
     let url: URL
     let firstNs: Int64
     private let finishes: FinishCounter
     private let failFinish: Bool
-    init(url: URL, firstNs: Int64, finishes: FinishCounter, failFinish: Bool) {
+    private let onAppend: @Sendable () -> Void
+    init(url: URL, firstNs: Int64, finishes: FinishCounter, failFinish: Bool, onAppend: @escaping @Sendable () -> Void) {
         self.url = url; self.firstNs = firstNs; self.finishes = finishes; self.failFinish = failFinish
+        self.onAppend = onAppend
     }
-    func append(_ sample: CMSampleBuffer) throws -> Bool { true }
+    func append(_ sample: CMSampleBuffer) throws -> Bool { onAppend(); return true }
     func finish(atHostNs: Int64?) async throws {
         finishes.increment()
         if failFinish { throw CaptureError.writerFailed("Controlled finalization failure") }
@@ -39,20 +48,30 @@ private final class LifecycleSink: CaptureTrackSink, @unchecked Sendable {
     var stopCount = 0
     let barrier: StartupBarrier?
     let delayFirstFrame: Bool
+    let includeAuxiliary: Bool
     private(set) var firstFrameNs: Int64?
-    init(writer: SegmentWriter, pixels: [Int], barrier: StartupBarrier?, delayFirstFrame: Bool) {
+    init(writer: SegmentWriter, pixels: [Int], barrier: StartupBarrier?, delayFirstFrame: Bool, includeAuxiliary: Bool) {
         self.writer = writer; self.pixels = pixels; self.barrier = barrier; self.delayFirstFrame = delayFirstFrame
+        self.includeAuxiliary = includeAuxiliary
     }
     func startCapture() async throws {
         if let barrier { await barrier.wait() }
         if delayFirstFrame { try await Task.sleep(for: .milliseconds(40)) }
         let first = delayFirstFrame ? CaptureClock.now : writer.hostStartNs
         firstFrameNs = first
+        try await emitSamples(at: first, includeAuxiliary: includeAuxiliary)
+    }
+    func emitSamples(at time: Int64, includeAuxiliary: Bool) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let writer = writer
             writer.queue.async {
                 do {
-                    writer.append(try lifecycleSample(at: first), track: "screen")
+                    let sample = try lifecycleSample(at: time)
+                    writer.append(sample, track: "screen")
+                    if includeAuxiliary {
+                        writer.append(sample, track: "mic")
+                        writer.append(sample, track: "camera")
+                    }
                     continuation.resume()
                 } catch { continuation.resume(throwing: error) }
             }
@@ -95,9 +114,11 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
     var failFinish = false
     var barrier: StartupBarrier?
     var delayFirstFrame = false
+    var includeAuxiliary = false
     var eventHook: ((InputEventRecorder) throws -> Void)?
     var streams: [LifecycleStream] = []
     let finishes = FinishCounter()
+    let samples = TrackSampleCounts()
 
     init() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("capture-session-\(UUID())")
@@ -106,6 +127,7 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
     func cleanup() { try? FileManager.default.removeItem(at: directory) }
     func session(target: CaptureTarget = .display(2)) -> RecordingSession {
         let finishes = finishes
+        let samples = samples
         let services = CaptureSessionServices(permissionState: { [unowned self] _ in self.permission },
             availableBytes: { [unowned self] _ in self.freeBytes },
             prepare: { [unowned self] options in
@@ -115,15 +137,15 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
                     contentRectPoints: [self.rect.minX, self.rect.minY, self.rect.width, self.rect.height], scale: self.scale)
                 return CaptureSessionPlan(source: source, geometry: geometry) { [unowned self] writer, pixels in
                     let stream = LifecycleStream(writer: writer, pixels: pixels, barrier: self.barrier,
-                                                 delayFirstFrame: self.delayFirstFrame)
+                        delayFirstFrame: self.delayFirstFrame, includeAuxiliary: self.includeAuxiliary)
                     self.streams.append(stream)
                     return stream
                 }
             }, makeWriter: { [unowned self] directory, host, fps in
                 let failFinish = self.failFinish
-                return SegmentWriter(directory: directory, hostStartNs: host, maxFPS: fps) { url, _, sample in
+                return SegmentWriter(directory: directory, hostStartNs: host, maxFPS: fps) { url, key, sample in
                     LifecycleSink(url: url, firstNs: CaptureClock.nanoseconds(sample.presentationTimeStamp),
-                                  finishes: finishes, failFinish: failFinish)
+                                  finishes: finishes, failFinish: failFinish, onAppend: { samples.append(key) })
                 }
             }, startEvents: { [unowned self] in
                 try $0.openEventLog()
@@ -302,6 +324,61 @@ private func readSession(_ package: URL) throws -> SessionManifest {
     #expect(session.state == .failed(.sourceUnavailable))
     #expect(session.packageURL == nil)
     #expect(try FileManager.default.contentsOfDirectory(atPath: harness.directory.path).isEmpty)
+}
+
+@Test @MainActor func lifecycleDeviceLossWarnsOnceResetsMeterAndKeepsScreenRecording() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.includeAuxiliary = true
+    let session = harness.session()
+    try await session.start()
+    let stream = harness.streams[0]
+    stream.writer.onMicLevel?(0.75)
+    try await eventually { session.micLevel == 0.75 }
+    stream.writer.deviceUnavailable(.microphone, reason: "Injected microphone loss")
+    stream.writer.deviceUnavailable(.microphone, reason: "Duplicate microphone loss")
+    stream.writer.deviceUnavailable(.camera, reason: "Injected camera loss")
+    try await eventually { session.warnings.count == 2 && session.micLevel == 0 }
+    #expect(session.state == .recording)
+    try await Task.sleep(for: .milliseconds(20))
+    try await stream.emitSamples(at: CaptureClock.now, includeAuxiliary: true)
+    #expect(harness.samples.counts == ["screen": 2, "mic": 1, "camera": 1])
+    let package = try await session.stop()
+    let value = try readSession(package)
+    #expect(value.status == "complete")
+    #expect(value.segments[0].files["screen"] == "seg-000/screen.mov")
+    #expect(value.segments[0].files["mic"] == "seg-000/mic.m4a")
+    #expect(value.segments[0].files["camera"] == "seg-000/camera.mov")
+    #expect(harness.finishes.count == 3)
+    #expect(stream.stopCount == 1)
+    #expect(RecordingPackageLease.isAvailable(package))
+}
+
+@Test @MainActor func lifecycleLowDiskBeforeStartDoesNotCreatePackageOrStream() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.freeBytes = 999_999_999
+    let session = harness.session()
+    await #expect(throws: CaptureError.diskFull(availableBytes: 999_999_999)) { try await session.start() }
+    #expect(session.state == .failed(.diskFull(availableBytes: 999_999_999)))
+    #expect(session.packageURL == nil)
+    #expect(harness.streams.isEmpty)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: harness.directory.path).isEmpty)
+}
+
+@Test @MainActor func lifecyclePermissionRevokedDuringPausePreservesFinalizedSegment() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    let session = harness.session()
+    try await session.start()
+    try await session.pause()
+    let package = try #require(session.packageURL)
+    harness.permission = .denied
+    await #expect(throws: CaptureError.permissionDenied(.screen)) { try await session.resume() }
+    #expect(session.state == .failed(.permissionDenied(.screen)))
+    let value = try readSession(package)
+    #expect(value.status == "interrupted")
+    #expect(value.segments.count == 1 && value.segments[0].durationNs > 0)
+    #expect(harness.finishes.count == 1)
+    #expect(harness.streams[0].stopCount == 1)
+    #expect(RecordingPackageLease.isAvailable(package))
 }
 
 @Test @MainActor func lifecycleStartAndResumeUseFirstScreenOriginForManifestAndEvents() async throws {

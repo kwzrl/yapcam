@@ -19,6 +19,22 @@ struct CaptureGeometry: Sendable {
         pixelHeight = max(2, Int((rect.height * scale).rounded()))
     }
     func local(_ global: CGPoint) -> CGPoint { CGPoint(x: global.x - rect.minX, y: global.y - rect.minY) }
+
+    /// UI selection is display-local points; persisted/input geometry is global
+    /// top-left-origin points. Scale applies to output pixels, never the origin.
+    static func area(displayBounds: CGRect, localRect: CGRect, scale: CGFloat) throws -> CaptureGeometry {
+        guard !displayBounds.isNull, !displayBounds.isInfinite,
+              displayBounds.origin.x.isFinite, displayBounds.origin.y.isFinite,
+              displayBounds.width.isFinite, displayBounds.height.isFinite,
+              displayBounds.width > 0, displayBounds.height > 0,
+              localRect.origin.x.isFinite, localRect.origin.y.isFinite,
+              localRect.width.isFinite, localRect.height.isFinite,
+              localRect.width > 0, localRect.height > 0,
+              CGRect(origin: .zero, size: displayBounds.size).contains(localRect) else {
+            throw CaptureError.sourceUnavailable
+        }
+        return try CaptureGeometry(rect: localRect.offsetBy(dx: displayBounds.minX, dy: displayBounds.minY), scale: scale)
+    }
 }
 
 /// Maps global points into the logical coordinate system of the fixed video
@@ -61,14 +77,14 @@ struct CaptureCoordinateMapping: Sendable {
             var rect = bounds
             let kind: String
             if case .area(_, let area) = options.target {
-                guard area.origin.x.isFinite, area.origin.y.isFinite, area.width.isFinite, area.height.isFinite,
-                      area.width > 0, area.height > 0,
-                      CGRect(origin: .zero, size: bounds.size).contains(area) else { throw CaptureError.sourceUnavailable }
+                geometry = try CaptureGeometry.area(displayBounds: bounds, localRect: area, scale: scale)
                 crop = area
-                rect = area.offsetBy(dx: bounds.minX, dy: bounds.minY)
+                rect = geometry.rect
                 kind = "area"
-            } else { kind = "display" }
-            geometry = try CaptureGeometry(rect: rect, scale: scale)
+            } else {
+                kind = "display"
+                geometry = try CaptureGeometry(rect: rect, scale: scale)
+            }
             // Exclude the application as well as registered windows, so newly opened
             // Yapcam overlays cannot leak into an already-running display stream.
             filter = CaptureFilterPolicy(options: options).filter(display: display, content: content)

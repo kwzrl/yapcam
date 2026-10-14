@@ -72,3 +72,27 @@ delivery uses that clock directly instead of assuming units for CGEvent.timestam
 
 Retina and multiple-display hardware are still needed to verify the tested point/
 pixel and global-coordinate math against actual ScreenCaptureKit output.
+
+## On-device transcription
+
+`TranscriptionService().transcribe(package:localeIdentifier:track:)` writes
+`recording/transcript.json`. A nil track prefers mic per segment, falling back to
+system audio; `.microphone` and `.systemAudio` select one track explicitly. Word
+ranges use the pause-removed source clock, including each audio track's start offset.
+Finalization is atomic and retains `.prev`; errors/cancellation keep previous output.
+
+The default tests inject recognized words, exercise real manifest/output IO and
+test the recognition callback/cancellation/timeout races without Speech permission.
+They are not evidence that Apple's recognizer decoded speech.
+
+```sh
+YAPCAM_TRANSCRIPTION_MEDIA_TESTS=1 swift test -j 4 --filter actualOnDeviceTranscriptionOfSaySpeech
+```
+
+That opt-in test runs `say` with Samantha into a temporary AIFF, requires nonempty
+audio, transcribes it on device, and checks words/ranges/output. It must run on a
+host where speech synthesis, local recognition models and Speech Recognition
+authorization are available to the runner. It fails explicitly if a gate is missing.
+The test never prompts. For app onboarding, Lead/UI must add
+`NSSpeechRecognitionUsageDescription` and call
+`TranscriptionService.requestAuthorization()` from an explicit user action.
