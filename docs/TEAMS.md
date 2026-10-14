@@ -30,7 +30,7 @@ Each team also owns `docs/status/<team>.md` (its own short status) and nothing e
    an entry in your status file. No hidden TODOs in central flows.
 7. Real captures go to `~/Movies/Yapcam/QA/<team>/` and are deleted when no longer
    needed. Never commit recordings, credentials or personal paths.
-8. Every app build uses bundle id `mov.yapcam.Yapcam` signed with `Yapcam Local Dev`,
+8. Every app build uses bundle id `mov.yapcam.Yapcam` signed with `Yapcam Dev Signing`,
    so macOS permissions already granted stay valid. Do not reset TCC.
 9. A new macOS permission dialog or other blocker: note it under **Blockers** in your
    status file and continue with independent work.

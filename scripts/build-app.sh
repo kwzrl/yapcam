@@ -5,7 +5,7 @@ set -euo pipefail
 
 CONFIG="${1:-debug}"
 ROOT="${0:A:h:h}"
-IDENTITY="${YAPCAM_SIGN_IDENTITY:-Yapcam Local Dev}"
+IDENTITY="${YAPCAM_SIGN_IDENTITY:-Yapcam Dev Signing}"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 cd "$ROOT"

@@ -14,4 +14,4 @@ scripts/build-app.sh         # builds and signs build/Yapcam.app
 open build/Yapcam.app
 ```
 
-`build-app.sh` signs with a local identity named `Yapcam Local Dev` if present (stable app identity, so macOS privacy permissions survive rebuilds) and falls back to ad-hoc signing. See [docs/SETUP.md](docs/SETUP.md).
+`build-app.sh` signs with a local identity named `Yapcam Dev Signing` if present (stable app identity, so macOS privacy permissions survive rebuilds) and falls back to ad-hoc signing. See [docs/SETUP.md](docs/SETUP.md).
