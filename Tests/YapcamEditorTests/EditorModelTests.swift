@@ -114,6 +114,21 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         m.shuttle("j"); #expect(pl.currentNs == 9_000_000_000)
     }
 
+    @Test func speedChangeAltersTimelineDuration() {
+        let (m, _, _) = makeModel()
+        m.setSpeed(clipID: "c0", 2)
+        #expect(m.durationNs == 5_000_000_000)
+        m.setSpeed(clipID: "c0", 1000)
+        #expect(m.clips[0].speed == 16)
+    }
+
+    @Test func zoomFocusIsClampedInsideFrame() {
+        let (m, _, _) = makeModel()
+        m.addZoomAtPlayhead()
+        m.setZoomFocus(id: m.zooms[0].id, x: 0.0, y: 1.0)   // scale 2 → crop half = 0.25
+        #expect(m.zooms[0].focusX == 0.25 && m.zooms[0].focusY == 0.75)
+    }
+
     @Test func snapsToPlayheadAndClicksOnlyWhenEnabled() {
         let (m, p, _) = makeModel()
         p.clickTimesNs = [2_000_000_000]

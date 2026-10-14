@@ -170,6 +170,19 @@ public final class EditorModel: ObservableObject {
         do { try project.redo(); didEdit() } catch { lastError = error.localizedDescription }
     }
 
+    public func setSpeed(clipID: String, _ speed: Double) {
+        guard clips.contains(where: { $0.id == clipID }) else { return }
+        perform(.setSpeed(clipID: clipID, speed: min(max(speed, 0.1), 16)))
+    }
+
+    /// Focus point in normalized source space, clamped so the zoomed crop stays inside the frame.
+    public func setZoomFocus(id: String, x: Double, y: Double) {
+        guard let z = zooms.first(where: { $0.id == id }) else { return }
+        let half = 0.5 / max(z.scale, 1)
+        perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: nil,
+                            focusX: min(max(x, half), 1 - half), focusY: min(max(y, half), 1 - half)))
+    }
+
     // MARK: snapping
 
     public func snapTargets(excludingZoom id: String? = nil) -> [SnapTarget] {
