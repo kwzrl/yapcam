@@ -1,20 +1,27 @@
-READY 9273eb6 + WORKTREE package 1 AUD-10 implementation/unit tests; real Speech host gate pending
-READY 9273eb6 + WORKTREE package 2 injected-fault verification; unit tests pass
-READY 9273eb6 + WORKTREE package 3 scale/multi-display geometry; math tests pass
+READY 63f4abb package 1 AUD-10 implementation/unit tests; real Speech host gate pending
+READY 63f4abb package 2 injected-fault verification; unit tests pass
+READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 # capture status
 
 ## Current handoff
-- All three newly assigned implementation packages are ready for Lead checkpoints,
-  in the requested order. READY lines name the baseline plus uncommitted work; no
-  new commit hash is claimed. Real Speech/capture and full-suite Metal gates remain.
-- Validated against main 6d91a7f. Latest observed main 0dfab41 differs only in
-  docs/STATUS.md; source compatibility is unchanged.
+- Audit 2026-10-15 01:47 CEST: main remains 60902da, including checkpoint 63f4abb and
+  all three assigned implementation packages. Only this status edit is pending. No new
+  capture implementation backlog, review finding or Speech host result was found.
+  Real Speech/capture and full-suite host acceptance for this checkpoint remain open.
+  Checked current main inventory plus live UI/editor/QA status and review files;
+  remaining capture rows are hardware/permission-limited. No build/test rerun was
+  warranted because capture code and its dependencies have not changed since audit.
+- Validated against main 6d91a7f. Latest main 60902da integrates capture plus
+  other-team changes; capture source/tests and FORMATS.md/SWIFT_API.md match this
+  worktree. No new capture implementation is required by the updated inventory.
 - Package 1 files: Sources/YapcamCapture/{TranscriptionService,AppleOnDeviceSpeech}.swift,
   Tests/YapcamCaptureTests/TranscriptionTests.swift, tests README and this status.
-- Local HEAD 9273eb6. Clean-tree git rebase main failed creating rebase-merge
-  (Operation not permitted). Lead owns commits/rebase/push under the agreed sandbox
-  workflow. Only capture-owned source/tests/status changed; no new dependencies.
+- Local HEAD 63f4abb is an ancestor of main 60902da. Retried clean-tree git rebase
+  main after preserving/restoring the status edit: still cannot create rebase-merge
+  (Operation not permitted); no rebase started. Lead must fast-forward/rebase this
+  worktree and handle commits/push under the agreed read-only Git sandbox workflow.
+  Only capture-owned source/tests/status changed; no new dependencies.
 
 ## Package 1 — AUD-10 implementation / unit validation complete
 - Public actor TranscriptionService: transcribe(package:localeIdentifier:track:)
@@ -67,6 +74,9 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
 - Rust: 39 passed. Full integrated Swift attempted: Swift Testing 172 tests with
   18 editor issues (all Metal preview unavailable); XCTest 54, 22 hardware skips,
   6 E2E failures (all Metal unavailable). Not a green full suite; host run required.
+- Lead reports baseline main 6d91a7f green on the host (151 Swift + 54 XCTest +
+  39 Rust; strict render hardware 43/43) in docs/STATUS.md. Those results predate
+  checkpoint 63f4abb and do not verify its Speech service or new regressions.
 - Real synthetic-speech test was actually attempted with
   YAPCAM_TRANSCRIPTION_MEDIA_TESTS=1 and actualOnDeviceTranscriptionOfSaySpeech.
   Speech preflight reported denied. say Samantha and Fred each exited 0 but created
@@ -78,10 +88,10 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   transcribe() and tests never prompt. The authorized host runner also needs local
   speech assets/services; README contains the real say test command.
 - git diff --check and gitleaks source/test scans pass. No sudo, permission reset,
-  recordings, credentials or third-party dependencies added. Lead must checkpoint
-  and arrange independent review (especially native-task cancellation/chunk mapping).
+  recordings, credentials or third-party dependencies added. Lead checkpointed all
+  packages; independent review remains (especially native-task cancellation/chunk mapping).
 
-## Package 2 — injected fault verification complete / ready for checkpoint
+## Package 2 — injected fault verification complete / integrated
 - Existing production-coordinator tests verify mid-recording diskFull, revoked screen
   permission and disappearing-source callbacks: interrupted manifest, finalized
   prior screen data, exactly-once stream/writer cleanup and released package lease.
@@ -97,7 +107,7 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   zero failures. Signed app/Rust validation from package 1 is unchanged (test-only).
   Test sinks exercise routing and coordinator behavior; they do not encode media.
 
-## Package 3 — geometry math verification complete / ready for checkpoint
+## Package 3 — geometry math verification complete / integrated
 - Extracted the display-local area validation/global-coordinate conversion into
   CaptureGeometry.area(), used directly by the production resolver. Existing valid
   selection behavior is unchanged; tests do not request ScreenCaptureKit access.
@@ -125,9 +135,9 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   checks do not establish real device sync/loss, Retina or multi-display acceptance.
 
 ## Next / Lead requests
-1. Checkpoint packages in order (files listed above), finish the worktree rebase and
-   push team/capture. No independent capture implementation item remains in this
-   assignment. Suggested package-1 title: feat(capture): transcribe package audio on device.
+1. All three packages from 63f4abb are integrated in main 60902da. Lead must advance
+   this worktree to main (Git metadata remains read-only here) and handle push/status
+   checkpoint. No independent capture implementation item remains in this assignment.
 2. Arrange independent review of the new Speech service and prior H2/H3 timing fixes.
    Run the full Swift suite on a Metal host; sandbox editor/E2E failures are not fixed
    or hidden by capture. No fully green full-suite claim for these checkpoints.
