@@ -320,3 +320,23 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         #expect(m.filteredCommands("sil").first?.title == "Find silent parts")
     }
 }
+
+@MainActor @Suite struct AudioAndCropTests {
+    @Test func audioRangesRoundTripThroughSettings() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.seek(toNs: 2_000_000_000); m.addAudioRangeAtPlayhead(track: "system_audio")
+        #expect(m.audioRanges.count == 1 && m.audioRanges[0].startGainDb == -12 && m.audioRanges[0].span.endNs == 5_000_000_000)
+        let id = m.audioRanges[0].id
+        m.updateAudioRange(id: id, endGainDb: -200)
+        #expect(m.audioRanges[0].endGainDb == -96)
+        m.removeAudioRange(id: id); #expect(m.audioRanges.isEmpty)
+    }
+
+    @Test func cropInsetsClampAndRoundTrip() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.setCrop(left: 0.1, top: 0.2, right: 0.95, bottom: 0.0)
+        let c = m.cropInsets
+        #expect(abs(c.left - 0.1) < 1e-9 && abs(c.top - 0.2) < 1e-9 && abs(c.right - 0.8) < 1e-9)   // right clamped to 0.9 - left
+        #expect(m.numbers("canvas.crop").count == 4)
+    }
+}

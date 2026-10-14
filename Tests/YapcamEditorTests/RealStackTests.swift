@@ -119,3 +119,20 @@ private func copyFixture() throws -> URL {
         #expect(rep.pixelsWide == 1920 && rep.pixelsHigh == 1080)
     }
 }
+
+@MainActor @Suite struct RealCoreRangesTests {
+    @Test func coreAcceptsLayoutsCursorHidesAudioRangesAndCrop() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let pkg = FileManager.default.temporaryDirectory.appendingPathComponent("ranges-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: pkg); defer { try? FileManager.default.removeItem(at: pkg) }
+        let m = try EditorDocument(package: pkg).model
+        m.seek(toNs: 1_000_000_000)
+        m.addCursorHideAtPlayhead(); #expect(m.cursorHides.count == 1, "\(m.lastError ?? "")")
+        m.addAudioRangeAtPlayhead(track: "system_audio"); #expect(m.audioRanges.count == 1, "\(m.lastError ?? "")")
+        m.setCrop(left: 0.1, top: 0.1, right: 0.1, bottom: 0.1); #expect(abs(m.cropInsets.left - 0.1) < 1e-6, "\(m.lastError ?? "")")
+        m.speedUpTyping(); #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        m.regenerateAutoZooms(); #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        m.set("camera.layouts", .array([]))   // layouts need a camera track; the fixture has none
+        #expect(!m.hasCamera)
+    }
+}

@@ -135,6 +135,7 @@ struct InspectorView: View {
             if model.number("canvas.inset") > 0 { ColorRow(model: model, title: "Inset color", path: "canvas.inset_color") }
             NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1)
         }
+        CropSection(model: model)
     }
 
     private var speedPresets: [(label: String, value: String)] {
@@ -235,6 +236,28 @@ struct InspectorView: View {
             ToggleRow(model: model, title: "Mute", path: "audio.system_muted")
             NumberRow(model: model, title: "Volume", path: "audio.system_gain_db", range: -48...12, unit: "dB", format: "%.0f")
         }
+        Section("Volume changes over time") {
+            ForEach(model.audioRanges) { r in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(r.track == "mic" ? "Microphone" : "System audio").font(.callout.weight(.medium))
+                        Spacer()
+                        Text("\(formatTimecode(r.span.startNs, showFraction: false)) – \(formatTimecode(r.span.endNs, showFraction: false))")
+                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        Button(role: .destructive) { model.removeAudioRange(id: r.id) } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless).accessibilityLabel("Remove volume change")
+                    }
+                    HStack {
+                        Stepper("From \(Int(r.startGainDb)) dB", value: Binding(get: { r.startGainDb }, set: { model.updateAudioRange(id: r.id, startGainDb: $0) }), in: -96...24, step: 3)
+                        Stepper("To \(Int(r.endGainDb)) dB", value: Binding(get: { r.endGainDb }, set: { model.updateAudioRange(id: r.id, endGainDb: $0) }), in: -96...24, step: 3)
+                    }.font(.caption)
+                }
+            }
+            HStack {
+                Button("Lower system audio here") { model.addAudioRangeAtPlayhead(track: "system_audio") }
+                if model.hasMic { Button("Lower mic here") { model.addAudioRangeAtPlayhead(track: "mic") } }
+            }
+        }
         Section("Microphone") {
             if model.hasMic {
                 ToggleRow(model: model, title: "Mute", path: "audio.mic_muted")
@@ -272,6 +295,33 @@ struct CameraPositionRow: View {
                     Button(c.0) { model.set("camera.position", .array(c.1.map { .number($0) })) }
                         .buttonStyle(.bordered).accessibilityLabel("Camera corner \(c.0)")
                 }
+            }
+        }
+    }
+}
+
+struct CropSection: View {
+    @ObservedObject var model: EditorModel
+    @State private var l = 0.0
+    @State private var t = 0.0
+    @State private var r = 0.0
+    @State private var b = 0.0
+    @State private var editing = false
+    var body: some View {
+        Section("Crop recording") {
+            row("Left", $l); row("Top", $t); row("Right", $r); row("Bottom", $b)
+            Button("Reset crop") { l = 0; t = 0; r = 0; b = 0; model.setCrop(left: 0, top: 0, right: 0, bottom: 0) }
+                .disabled(l + t + r + b == 0)
+        }
+        .onAppear(perform: load)
+        .onChange(of: model.revision) { _, _ in if !editing { load() } }
+    }
+    private func load() { let c = model.cropInsets; l = c.left; t = c.top; r = c.right; b = c.bottom }
+    private func row(_ title: String, _ v: Binding<Double>) -> some View {
+        LabeledContent(title) {
+            HStack {
+                Slider(value: v, in: 0...0.9) { e in editing = e; if !e { model.setCrop(left: l, top: t, right: r, bottom: b) } }
+                Text("\(Int(v.wrappedValue * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
             }
         }
     }

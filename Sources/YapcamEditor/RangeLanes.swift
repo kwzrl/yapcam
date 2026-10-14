@@ -98,3 +98,58 @@ extension EditorModel {
         }
     }
 }
+
+public struct AudioRangeRow: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var track: String            // mic | system_audio
+    public var span: TimeSpan
+    public var startGainDb: Double, endGainDb: Double
+}
+
+/// Volume-over-time ("ducking") ranges: gain ramps linearly from start to end gain across the span.
+extension EditorModel {
+    public var audioRanges: [AudioRangeRow] {
+        guard case .array(let rows)? = value("audio.ranges") else { return [] }
+        return rows.compactMap { row in
+            guard case .object(let o) = row, case .string(let id)? = o["id"], case .string(let track)? = o["track"],
+                  case .number(let a)? = o["tl_start_ns"], case .number(let b)? = o["tl_end_ns"],
+                  case .number(let g0)? = o["start_gain_db"], case .number(let g1)? = o["end_gain_db"] else { return nil }
+            return AudioRangeRow(id: id, track: track, span: TimeSpan(startNs: Int64(a), endNs: Int64(b)), startGainDb: g0, endGainDb: g1)
+        }
+    }
+    private func write(_ rows: [AudioRangeRow]) {
+        set("audio.ranges", .array(rows.map { r in
+            .object(["id": .string(r.id), "track": .string(r.track), "tl_start_ns": .number(Double(r.span.startNs)),
+                     "tl_end_ns": .number(Double(r.span.endNs)), "start_gain_db": .number(r.startGainDb), "end_gain_db": .number(r.endGainDb)])
+        }))
+    }
+    public func addAudioRangeAtPlayhead(track: String, gainDb: Double = -12) {
+        let end = min(playheadNs + 3_000_000_000, durationNs)
+        guard end - playheadNs >= minZoomDurationNs else { lastError = "Not enough room here."; return }
+        let r = AudioRangeRow(id: "audio-" + UUID().uuidString.prefix(8).lowercased(), track: track,
+                              span: TimeSpan(startNs: playheadNs, endNs: end), startGainDb: gainDb, endGainDb: gainDb)
+        write(audioRanges + [r])
+    }
+    public func updateAudioRange(id: String, startGainDb: Double? = nil, endGainDb: Double? = nil, span: TimeSpan? = nil) {
+        write(audioRanges.map { var r = $0
+            if r.id == id {
+                if let startGainDb { r.startGainDb = min(max(startGainDb, -96), 24) }
+                if let endGainDb { r.endGainDb = min(max(endGainDb, -96), 24) }
+                if let span, span.durationNs >= minZoomDurationNs { r.span = span }
+            }
+            return r })
+    }
+    public func removeAudioRange(id: String) { write(audioRanges.filter { $0.id != id }) }
+
+    /// Crop of the recorded screen as insets (fractions of the source) → `canvas.crop` [x, y, w, h].
+    public var cropInsets: (left: Double, top: Double, right: Double, bottom: Double) {
+        let c = numbers("canvas.crop")
+        guard c.count == 4 else { return (0, 0, 0, 0) }
+        return (c[0], c[1], 1 - c[0] - c[2], 1 - c[1] - c[3])
+    }
+    public func setCrop(left: Double, top: Double, right: Double, bottom: Double) {
+        let l = min(max(left, 0), 0.9), t = min(max(top, 0), 0.9)
+        let r = min(max(right, 0), 0.9 - l), b = min(max(bottom, 0), 0.9 - t)
+        set("canvas.crop", color: [l, t, 1 - l - r, 1 - t - b])    // `color` writes a 4-number array
+    }
+}
