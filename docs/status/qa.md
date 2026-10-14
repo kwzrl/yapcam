@@ -1,4 +1,4 @@
-READY 7209712 qa: verify-package.sh fixture-verified; backlog empty except blocked items
+READY d65af2f qa: FEATURES.md audited against main 4a1cee5, backlog table added
 
 # qa status
 
@@ -18,6 +18,8 @@ READY 7209712 qa: verify-package.sh fixture-verified; backlog empty except block
 - run-e2e.sh simplified (E2E is a real target on main).
 
 - verify-package.sh run against synthetic fixture: ok (project.json now optional). Re-checked 2026-10-15: main unchanged, screen access still false (probe -3801) → live QA still blocked.
+
+- Audit vs main 4a1cee5 done: all 82 FEATURES rows re-statused (9 todo remain; backlog table at bottom of FEATURES.md). Statuses derive from team status files + test names; only E2E re-run by me.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
