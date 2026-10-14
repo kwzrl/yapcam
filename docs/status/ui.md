@@ -1,4 +1,4 @@
-READY (see commit on origin/team/ui) M1+M2 UI complete against the engine seam; end-to-end recording/editor open blocked only on capture+editor integration (Requests)
+READY (d475be3) M1+M2 UI complete against the engine seam; end-to-end recording/editor open blocked only on capture+editor integration (Requests)
 
 # ui status
 
