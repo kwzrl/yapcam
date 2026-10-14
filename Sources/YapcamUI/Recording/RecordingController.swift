@@ -250,6 +250,7 @@ enum RecordingPhase: Equatable {
     }
 
     private func finish() {
+        TeleprompterController.shared.hide()
         DesktopIcons.restoreIfNeeded()
         if settings.playSounds, session != nil { NSSound(named: "Pop")?.play() }
         session = nil; phase = .idle; elapsed = 0; micLevel = 0; warnings = []; lowDisk = false

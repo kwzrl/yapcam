@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor enum UISnapshot {
     static let expectedNames: [String] = {
         var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
-                 "popover-notes", "popover-source-display", "popover-source-window", "popover-source-area",
+                 "popover-notes", "teleprompter", "popover-source-display", "popover-source-window", "popover-source-area",
                  "recordings", "area-overlay"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
         return n
@@ -68,6 +68,7 @@ import SwiftUI
         out.append(("popover-audio", host(SystemAudioPopover(), width: 260)))
         out.append(("popover-mic", host(MicrophonePopover(), width: 280)))
         out.append(("popover-camera", host(CameraPopover(), width: 280)))
+        out.append(("teleprompter", host(TeleprompterView(close: {}).environmentObject(RecordingController.shared).frame(height: 240), width: 520)))
         out.append(("popover-notes", host(NotesPopover().environmentObject(RecordingController.shared), width: 300)))
         out.append(("recordings", host(RecentProjectsView(model: RecentProjectsWindow.shared.model).frame(height: 300), width: 560)))
         if let v = AreaSelector.shared.debugContentView { out.append(("area-overlay", v)) }
