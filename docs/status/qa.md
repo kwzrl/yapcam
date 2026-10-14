@@ -1,4 +1,4 @@
-READY HEAD qa: rebased on 0dfab41; push needs Lead (see Requests)
+READY f219e6a qa: rebased on 0dfab41; push needs Lead (see Requests)
 
 # qa status
 
