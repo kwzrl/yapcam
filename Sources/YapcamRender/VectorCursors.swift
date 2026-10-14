@@ -58,19 +58,7 @@ struct VectorCursorTexture {
     let hotspot: CGPoint
     init(style: VectorCursorStyle,device: MTLDevice) throws {
         let artwork=try VectorCursorLibrary.artwork(style)
-        let image=artwork.image
-        guard let provider=image.dataProvider,let data=provider.data else { throw RenderError.write("Cursor raster has no pixels") }
-        var pixels=Array(data as Data)
-        // Our CGContext raster has premultiplied encoded RGB. Store straight sRGB for
-        // the shader's premultiplied motion-blur accumulation, avoiding dark alpha edges.
-        for y in 0..<image.height { for x in 0..<image.width {
-            let offset=y*image.bytesPerRow+x*4, alpha=Int(pixels[offset+3])
-            if alpha>0 { for channel in 0..<3 { pixels[offset+channel]=UInt8(min(255,(Int(pixels[offset+channel])*255+alpha/2)/alpha)) } }
-        } }
-        let descriptor=MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb,width: image.width,height: image.height,mipmapped: false)
-        descriptor.usage = .shaderRead
-        guard let texture=device.makeTexture(descriptor: descriptor) else { throw RenderError.metal("Cannot create vector cursor texture") }
-        texture.replace(region: MTLRegionMake2D(0,0,image.width,image.height),mipmapLevel: 0,withBytes: pixels,bytesPerRow: image.bytesPerRow)
-        self.texture=texture; size=artwork.sizePoints; hotspot=artwork.hotspot
+        texture=try generatedSRGBTexture(artwork.image,device: device)
+        size=artwork.sizePoints; hotspot=artwork.hotspot
     }
 }

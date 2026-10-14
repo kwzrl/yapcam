@@ -14,7 +14,7 @@ extension Project: RenderProjectSource {
         try query("{\"q\":\"audio_ranges\"}",as: [RenderAudioRange].self)
     }
     public func renderEffects(atNs: Int64,canvasSize: CGSize) throws -> RenderFrameEffects {
-        var extras=try frameExtras(atNs: atNs)
+        let extras=try frameExtras(atNs: atNs)
         guard extras.cursor_style<=2, extras.highlight_count<=YC_MAX_FRAME_HIGHLIGHTS else {
             throw RenderError.invalidSettings("Core returned unsupported frame effects")
         }
@@ -27,19 +27,11 @@ extension Project: RenderProjectSource {
         configuration.cameraBackgroundRemoval=extras.camera_background_removal != 0
         configuration.cameraFaceFraming=extras.camera_face_framing != 0
         configuration.cameraShadowRadius=extras.camera_shadow_radius
-        func color(_ value: (Float,Float,Float,Float)) -> SIMD4<Float> { SIMD4(value.0,value.1,value.2,value.3) }
-        let count=Int(extras.highlight_count)
-        var layers=withUnsafePointer(to: &extras.highlights) { tuple in
-            let highlights=UnsafeRawPointer(tuple).assumingMemoryBound(to: YcFrameHighlight.self)
-            return (0..<count).map { index in
-                let h=highlights[index]
-                return RenderLayer(content: .highlight(dimOpacity: h.dim_opacity,fill: color(h.fill),stroke: color(h.stroke),strokeWidth: h.stroke_width),rect: CGRect(x: h.rect.x,y: h.rect.y,width: h.rect.w,height: h.rect.h),cornerRadius: h.corner_radius,opacity: h.opacity)
-            }
-        }
         guard extras.fade_opacity.isFinite, (0...1).contains(extras.fade_opacity) else { throw RenderError.invalidSettings("Core returned invalid fade opacity") }
-        if extras.fade_opacity>0 {
-            layers.append(RenderLayer(content: .highlight(dimOpacity: 0,fill: SIMD4(0,0,0,1),stroke: .zero,strokeWidth: 0),rect: CGRect(origin: .zero,size: canvasSize),opacity: extras.fade_opacity))
-        }
+        // UTF-8 text/emoji payloads use Core's evaluated cold layers. This complete list
+        // includes annotation/caption backgrounds, highlights and the final fade once.
+        let rows=try query("{\"q\":\"layers_at\",\"tl_ns\":\(atNs)}",as: [CoreDrawingLayer].self)
+        let layers=try rows.map { try $0.drawingLayer() }
         return RenderFrameEffects(configuration: configuration,layers: layers)
     }
 }
