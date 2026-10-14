@@ -1,4 +1,4 @@
-READY HEAD qa: verify-package.sh fixture-verified; backlog empty except blocked items
+READY 7209712 qa: verify-package.sh fixture-verified; backlog empty except blocked items
 
 # qa status
 
