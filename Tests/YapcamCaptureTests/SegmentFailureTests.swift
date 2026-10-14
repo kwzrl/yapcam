@@ -5,23 +5,130 @@ import Testing
 
 private final class TestCaptureSink: CaptureTrackSink, @unchecked Sendable {
     let url: URL
-    let firstNs: Int64
+    private let initialNs: Int64
     private let lock = NSLock()
     private var times: [Int64] = []
+    private var stopNs: Int64?
     private let failAppend: Bool
     private let failFinish: Bool
-    init(url: URL, firstNs: Int64, failAppend: Bool = false, failFinish: Bool = false) {
-        self.url = url; self.firstNs = firstNs; self.failAppend = failAppend; self.failFinish = failFinish
+    private var rejectNext: Bool
+    init(url: URL, firstNs: Int64, failAppend: Bool = false, failFinish: Bool = false, rejectFirst: Bool = false) {
+        self.url = url; self.initialNs = firstNs; self.failAppend = failAppend; self.failFinish = failFinish
+        self.rejectNext = rejectFirst
     }
+    var firstNs: Int64 { lock.withLock { times.first ?? initialNs } }
     func append(_ sample: CMSampleBuffer) throws -> Bool {
         if failAppend { throw CaptureError.writerFailed("Simulated device writer failure") }
-        lock.withLock { times.append(CaptureClock.nanoseconds(sample.presentationTimeStamp)) }
-        return true
+        return lock.withLock {
+            if rejectNext { rejectNext = false; return false }
+            times.append(CaptureClock.nanoseconds(sample.presentationTimeStamp))
+            return true
+        }
     }
-    func finish() async throws {
+    func finish(atHostNs: Int64?) async throws {
+        lock.withLock { stopNs = atHostNs }
         if failFinish { throw CaptureError.writerFailed("Simulated writer finalization failure") }
     }
     var sampleTimes: [Int64] { lock.withLock { times } }
+    var finishedAt: Int64? { lock.withLock { stopNs } }
+}
+
+@Test func staticScreenAndCameraWritersReceiveFullSegmentEnd() async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let observer = TestWriterObserver()
+    let host: Int64 = 1_000_000_000
+    let writer = SegmentWriter(directory: dir, hostStartNs: host, maxFPS: 60) { url, key, first in
+        let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
+        observer.sink(key, sink); return sink
+    }
+    try await enqueue(writer, key: "screen", ns: host)
+    try await enqueue(writer, key: "camera", ns: host + 100_000_000)
+    // No frames arrive during the remaining five seconds.
+    writer.end(at: host + 5_100_000_000)
+    let result = await writer.finish()
+    #expect(result.error == nil)
+    #expect(observer.sinks["screen"]?.finishedAt == host + 5_100_000_000)
+    #expect(observer.sinks["camera"]?.finishedAt == host + 5_100_000_000)
+}
+
+@Test func firstScreenFrameDefinesOriginAndDropsDevicePreroll() async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let observer = TestWriterObserver()
+    let host: Int64 = 2_000_000_000
+    let origin = host + 750_000_000
+    let writer = SegmentWriter(directory: dir, hostStartNs: host, maxFPS: 60) { url, key, first in
+        let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
+        observer.sink(key, sink); return sink
+    }
+    try await enqueue(writer, key: "system_audio", ns: host + 100_000_000)
+    try await enqueue(writer, key: "camera", ns: host + 200_000_000)
+    try await enqueue(writer, key: "screen", ns: origin)
+    try await enqueue(writer, key: "system_audio", ns: origin - 1) // queued preroll
+    try await enqueue(writer, key: "system_audio", ns: origin + 10_000_000)
+    try await enqueue(writer, key: "camera", ns: origin + 20_000_000)
+    #expect(try await writer.firstScreenStart() == origin)
+    writer.end(at: origin + 1_000_000_000)
+    let result = await writer.finish()
+    #expect(result.error == nil)
+    #expect(result.hostStartNs == origin)
+    #expect(result.starts == ["screen": 0, "system_audio": 10_000_000, "camera": 20_000_000])
+    #expect(observer.sinks["system_audio"]?.sampleTimes == [origin + 10_000_000])
+    #expect(observer.sinks["camera"]?.sampleTimes == [origin + 20_000_000])
+    #expect(try JSONDecoder().decode(Int64.self, from: Data(contentsOf: dir.appendingPathComponent("host-start.json"))) == origin)
+}
+
+@Test func missingFirstScreenFrameHasBoundedAndCancellableWait() async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let writer = SegmentWriter(directory: dir, hostStartNs: 0, maxFPS: 60)
+    await #expect(throws: CaptureError.self) { try await writer.firstScreenStart(timeout: .milliseconds(1)) }
+    let waiting = Task { try await writer.firstScreenStart() }
+    waiting.cancel()
+    await #expect(throws: CancellationError.self) { try await waiting.value }
+    #expect(await writer.finish().error != nil)
+}
+
+@Test func backpressureDoesNotAnchorSegmentToADroppedFirstFrame() async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let writer = SegmentWriter(directory: dir, hostStartNs: 0, maxFPS: 60) { url, _, first in
+        TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp), rejectFirst: true)
+    }
+    try await enqueue(writer, key: "screen", ns: 100_000_000)
+    await #expect(throws: CaptureError.self) { try await writer.firstScreenStart(timeout: .milliseconds(1)) }
+    try await enqueue(writer, key: "screen", ns: 200_000_000)
+    #expect(try await writer.firstScreenStart() == 200_000_000)
+    let result = await writer.finish()
+    #expect(result.hostStartNs == 200_000_000)
+    #expect(result.starts["screen"] == 0)
+}
+
+@Test(arguments: [30, 60]) func nominalDisplayCadenceToleratesFasterClockAndJitter(fps: Int) async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let observer = TestWriterObserver()
+    let host: Int64 = 3_000_000_000
+    let writer = SegmentWriter(directory: dir, hostStartNs: host, maxFPS: fps) { url, key, first in
+        let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
+        observer.sink(key, sink); return sink
+    }
+    let step: Int64 = fps == 60 ? 16_666_000 : 33_332_000
+    for index in 0..<600 {
+        let jitter: Int64 = index % 2 == 0 ? 0 : 1_000
+        try await enqueue(writer, key: "screen", ns: host + Int64(index) * step + jitter)
+    }
+    let result = await writer.finish()
+    #expect(result.error == nil)
+    #expect(observer.sinks["screen"]?.sampleTimes.count == 600)
+}
+
+@Test func frameLimiterStillRejectsDoubleRateInput() async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let observer = TestWriterObserver()
+    let writer = SegmentWriter(directory: dir, hostStartNs: 0, maxFPS: 60) { url, key, first in
+        let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
+        observer.sink(key, sink); return sink
+    }
+    for index in 0..<120 { try await enqueue(writer, key: "screen", ns: Int64(index) * 8_333_333) }
+    #expect(await writer.finish().error == nil)
+    #expect(observer.sinks["screen"]?.sampleTimes.count == 60)
 }
 
 private final class TestWriterObserver: @unchecked Sendable {

@@ -57,6 +57,53 @@ private func recoveryFixture() throws -> (root: URL, package: URL, manifest: Ses
     #expect(recovered.segments[0].durationNs == 150)
 }
 
+@Test(arguments: [0, 1, 2]) func recoveryRenumbersSegmentsAfterUnreadableScreen(missing: Int) throws {
+    let fixture = try recoveryFixture(); defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var value = fixture.manifest
+    for index in 0..<3 {
+        let segment = SegmentMetadata(index: index, dir: String(format: "seg-%03d", index),
+            srcStartNs: Int64(index) * 777, hostStartNs: Int64(index + 1) * 10_000, trackStartNs: ["screen": 0])
+        value.segments.append(segment)
+        try FileManager.default.createDirectory(at: fixture.package.appendingPathComponent("recording/\(segment.dir)"),
+                                               withIntermediateDirectories: true)
+    }
+    try PackageIO.write(value, to: fixture.package.appendingPathComponent("recording/session.json"))
+    _ = try Recovery.recover(fixture.package) { url, _ in
+        let directory = url.deletingLastPathComponent().lastPathComponent
+        guard url.lastPathComponent == "screen.mov", directory != value.segments[missing].dir else {
+            throw CaptureError.sourceUnavailable
+        }
+        let index = try #require(value.segments.firstIndex { $0.dir == directory })
+        return Int64(index + 1) * 100
+    }
+    let recovered = try PackageIO.readManifest(at: fixture.package.appendingPathComponent("recording/session.json"))
+    let survivors = value.segments.filter { $0.index != missing }
+    #expect(recovered.status == "complete")
+    #expect(recovered.segments.map(\.index) == [0, 1])
+    #expect(recovered.segments.map(\.dir) == survivors.map(\.dir))
+    #expect(recovered.segments.map(\.srcStartNs) == [0, Int64(survivors[0].index + 1) * 100])
+    #expect(recovered.segments.map { $0.files["screen"] } == survivors.map { "\($0.dir)/screen.mov" })
+    #expect(try RecordingSession.recover(fixture.package) == fixture.package)
+}
+
+@Test func recoveryUsesDurableScreenOriginBeforeManifestOrOffsetSidecarCatchesUp() throws {
+    let fixture = try recoveryFixture(); defer { try? FileManager.default.removeItem(at: fixture.root) }
+    var value = fixture.manifest
+    value.segments = [SegmentMetadata(index: 0, dir: "seg-000", srcStartNs: 0, hostStartNs: 10_000)]
+    let directory = fixture.package.appendingPathComponent("recording/seg-000")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try PackageIO.write(value, to: fixture.package.appendingPathComponent("recording/session.json"))
+    try PackageIO.write(Int64(750_010_000), to: directory.appendingPathComponent("host-start.json"))
+    _ = try Recovery.recover(fixture.package) { url, _ in
+        guard url.lastPathComponent == "screen.mov" else { throw CaptureError.sourceUnavailable }
+        return 100
+    }
+    let recovered = try PackageIO.readManifest(at: fixture.package.appendingPathComponent("recording/session.json"))
+    #expect(recovered.segments[0].hostStartNs == 750_010_000)
+    #expect(recovered.segments[0].trackStartNs == ["screen": 0])
+    #expect(recovered.segments[0].durationNs == 100)
+}
+
 @Test func recoveryRejectsSegmentSymlinkOutsidePackage() throws {
     let fixture = try recoveryFixture()
     defer { try? FileManager.default.removeItem(at: fixture.root) }

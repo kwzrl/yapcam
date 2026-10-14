@@ -45,6 +45,15 @@ enum Recovery {
             guard directory.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(packageRoot) else {
                 throw CaptureError.writerFailed("Segment directory leaves the recording package")
             }
+            let originURL = directory.appendingPathComponent("host-start.json")
+            if originURL.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(packageRoot),
+               let data = try? Data(contentsOf: originURL),
+               let origin = try? JSONDecoder().decode(Int64.self, from: data), origin >= 0 {
+                segment.hostStartNs = origin
+                // Written before the offset sidecar, so screen zero is recoverable
+                // even if the process dies between the two atomic writes.
+                segment.trackStartNs["screen"] = 0
+            }
             for sidecar in ["track-starts.json", "track-starts.json.prev"] {
                 let url = directory.appendingPathComponent(sidecar)
                 guard url.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(packageRoot) else { continue }
@@ -68,6 +77,7 @@ enum Recovery {
             // An audio-only segment cannot be opened as a screen recording.
             guard files["screen"] != nil else { continue }
             segment.files = files; segment.trackStartNs = starts
+            segment.index = recovered.count
             segment.srcStartNs = sourceOffset
             // A finalized segment's stop time is authoritative. Audio packets can
             // straddle it; extending the segment would shift every later segment.

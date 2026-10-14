@@ -1,4 +1,5 @@
 import AppKit
+import CoreMedia
 import Foundation
 import Testing
 @testable import YapcamCapture
@@ -63,4 +64,20 @@ import Testing
     ])
     #expect(events.map(\.t) == [0, 30, 30])
     #expect(events.map(\.type) == ["move", "down", "up"])
+}
+
+@Test @MainActor func inputDeliveryConvertsSampleHostClockUnitsToEventNanoseconds() throws {
+    // A 24 MHz host-clock representation deliberately differs from nanoseconds.
+    let origin = CaptureClock.inputEventTime(receivedAt: CMTime(value: 36_000_000, timescale: 24_000_000))
+    let click = CaptureClock.inputEventTime(receivedAt: CMTime(value: 48_000_000, timescale: 24_000_000))
+    #expect(origin == 1_500_000_000)
+    #expect(click == 2_000_000_000)
+    #expect(CaptureClock.inputEventTime(receivedAt: CMTime(value: 1, timescale: 24_000_000)) == 42)
+    // A parked pointer need not emit a move for subsequent clicks to advance time.
+    let events = try translate(keys: false, [InputEventSnapshot(type: .leftMouseDown, hostNs: click)])
+    #expect(events[0].t == 1_999_999_900)
+    let before = CaptureClock.now
+    let delivered = CaptureClock.inputEventTime()
+    let after = CaptureClock.now
+    #expect(delivered >= before && delivered <= after)
 }

@@ -127,7 +127,7 @@ func actualHEVCWriterAndInterruptedRecovery() async throws {
     let writer = SegmentWriter(directory: segment, hostStartNs: host, maxFPS: 30)
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
         writer.queue.async {
-            for i in 0..<10 {
+            for i in 0..<3 {
                 var pixel: CVPixelBuffer?
                 guard CVPixelBufferCreate(kCFAllocatorDefault, 64, 64, kCVPixelFormatType_32BGRA,
                     nil, &pixel) == kCVReturnSuccess, let pixel else { continue }
@@ -148,12 +148,27 @@ func actualHEVCWriterAndInterruptedRecovery() async throws {
             continuation.resume()
         }
     }
+    writer.end(at: host + 20_000_000 + 2_000_000_000)
     let result = await writer.finish()
     #expect(result.error == nil)
     #expect(result.files["screen"] == "screen.mov")
-    #expect(result.starts["screen"] == 20_000_000)
+    #expect(result.starts["screen"] == 0)
+    #expect(result.hostStartNs == host + 20_000_000)
     let mediaDuration = try Recovery.inspect(segment.appendingPathComponent("screen.mov"), video: true)
-    #expect(mediaDuration > 500_000_000)
+    #expect(abs(mediaDuration - 2_000_000_000) < 1_000_000)
+    // The last changing frame is at 0.2 s. A seek in the static tail must still
+    // produce video, rather than failing with "No video samples at requested time".
+    let asset = AVURLAsset(url: segment.appendingPathComponent("screen.mov"))
+    let video = try #require(try await asset.loadTracks(withMediaType: .video).first)
+    let reader = try AVAssetReader(asset: asset)
+    let output = AVAssetReaderTrackOutput(track: video,
+        outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+    reader.add(output)
+    reader.timeRange = CMTimeRange(start: CMTime(seconds: 1.8, preferredTimescale: 600),
+                                  duration: CMTime(seconds: 0.1, preferredTimescale: 600))
+    #expect(reader.startReading())
+    #expect(output.copyNextSampleBuffer() != nil)
+    reader.cancelReading()
     var value = manifest()
     value.segments = [SegmentMetadata(index: 0, dir: "seg-000", srcStartNs: 0, hostStartNs: host)]
     try PackageIO.write(value, to: package.appendingPathComponent("recording/session.json"))
@@ -162,8 +177,9 @@ func actualHEVCWriterAndInterruptedRecovery() async throws {
     #expect(try RecordingSession.recover(package) == package)
     let recovered = try PackageIO.readManifest(at: package.appendingPathComponent("recording/session.json"))
     #expect(recovered.status == "complete")
-    #expect(recovered.segments[0].trackStartNs["screen"] == 20_000_000)
-    #expect(recovered.segments[0].durationNs == mediaDuration + 20_000_000)
+    #expect(recovered.segments[0].hostStartNs == host + 20_000_000)
+    #expect(recovered.segments[0].trackStartNs["screen"] == 0)
+    #expect(recovered.segments[0].durationNs == mediaDuration)
     #expect(RecordingSession.interruptedPackages(in: directory).isEmpty)
 }
 
