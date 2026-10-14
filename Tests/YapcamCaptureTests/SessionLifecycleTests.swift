@@ -20,7 +20,7 @@ private final class LifecycleSink: CaptureTrackSink, @unchecked Sendable {
         self.url = url; self.firstNs = firstNs; self.finishes = finishes; self.failFinish = failFinish
     }
     func append(_ sample: CMSampleBuffer) throws -> Bool { true }
-    func finish() async throws {
+    func finish(atHostNs: Int64?) async throws {
         finishes.increment()
         if failFinish { throw CaptureError.writerFailed("Controlled finalization failure") }
     }
@@ -38,16 +38,21 @@ private final class LifecycleSink: CaptureTrackSink, @unchecked Sendable {
     let pixels: [Int]
     var stopCount = 0
     let barrier: StartupBarrier?
-    init(writer: SegmentWriter, pixels: [Int], barrier: StartupBarrier?) {
-        self.writer = writer; self.pixels = pixels; self.barrier = barrier
+    let delayFirstFrame: Bool
+    private(set) var firstFrameNs: Int64?
+    init(writer: SegmentWriter, pixels: [Int], barrier: StartupBarrier?, delayFirstFrame: Bool) {
+        self.writer = writer; self.pixels = pixels; self.barrier = barrier; self.delayFirstFrame = delayFirstFrame
     }
     func startCapture() async throws {
         if let barrier { await barrier.wait() }
+        if delayFirstFrame { try await Task.sleep(for: .milliseconds(40)) }
+        let first = delayFirstFrame ? CaptureClock.now : writer.hostStartNs
+        firstFrameNs = first
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let writer = writer
             writer.queue.async {
                 do {
-                    writer.append(try lifecycleSample(at: writer.hostStartNs), track: "screen")
+                    writer.append(try lifecycleSample(at: first), track: "screen")
                     continuation.resume()
                 } catch { continuation.resume(throwing: error) }
             }
@@ -89,6 +94,8 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
     var prepareError: CaptureError?
     var failFinish = false
     var barrier: StartupBarrier?
+    var delayFirstFrame = false
+    var eventHook: ((InputEventRecorder) throws -> Void)?
     var streams: [LifecycleStream] = []
     let finishes = FinishCounter()
 
@@ -107,7 +114,8 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
                 let source = SourceMetadata(kind: "display", displayID: 2,
                     contentRectPoints: [self.rect.minX, self.rect.minY, self.rect.width, self.rect.height], scale: self.scale)
                 return CaptureSessionPlan(source: source, geometry: geometry) { [unowned self] writer, pixels in
-                    let stream = LifecycleStream(writer: writer, pixels: pixels, barrier: self.barrier)
+                    let stream = LifecycleStream(writer: writer, pixels: pixels, barrier: self.barrier,
+                                                 delayFirstFrame: self.delayFirstFrame)
                     self.streams.append(stream)
                     return stream
                 }
@@ -117,7 +125,10 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
                     LifecycleSink(url: url, firstNs: CaptureClock.nanoseconds(sample.presentationTimeStamp),
                                   finishes: finishes, failFinish: failFinish)
                 }
-            }, startEvents: { try $0.openEventLog() }, automaticHealthChecks: false)
+            }, startEvents: { [unowned self] in
+                try $0.openEventLog()
+                try self.eventHook?($0)
+            }, automaticHealthChecks: false)
         return RecordingSession(options: RecordingOptions(target: target, systemAudio: false, outputDirectory: directory), services: services)
     }
 }
@@ -291,4 +302,36 @@ private func readSession(_ package: URL) throws -> SessionManifest {
     #expect(session.state == .failed(.sourceUnavailable))
     #expect(session.packageURL == nil)
     #expect(try FileManager.default.contentsOfDirectory(atPath: harness.directory.path).isEmpty)
+}
+
+@Test @MainActor func lifecycleStartAndResumeUseFirstScreenOriginForManifestAndEvents() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.delayFirstFrame = true
+    var eventTimes: [Int64] = []
+    harness.eventHook = { recorder in
+        let now = CaptureClock.inputEventTime()
+        eventTimes.append(now)
+        recorder.record(InputEventSnapshot(type: .leftMouseDown, hostNs: now, location: .zero))
+    }
+    let session = harness.session()
+    try await session.start()
+    try await session.pause()
+    try await session.resume()
+    let package = try await session.stop()
+    let value = try readSession(package)
+    #expect(value.segments.count == 2)
+    for index in value.segments.indices {
+        let segment = value.segments[index]
+        let stream = harness.streams[index]
+        let origin = try #require(stream.firstFrameNs)
+        #expect(segment.hostStartNs == origin)
+        #expect(origin - stream.writer.hostStartNs >= 30_000_000)
+        #expect(segment.trackStartNs["screen"] == 0)
+        let events = try Data(contentsOf: package.appendingPathComponent("recording/\(segment.dir)/events.jsonl"))
+            .split(separator: 0x0a).map { try JSONDecoder().decode(CaptureEvent.self, from: Data($0)) }
+        #expect(events.count == 1)
+        #expect(events[0].t == eventTimes[index] - origin)
+        #expect(events[0].t <= segment.durationNs)
+    }
+    #expect(value.segments[1].srcStartNs == value.segments[0].durationNs)
 }

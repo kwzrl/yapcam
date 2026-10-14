@@ -16,8 +16,10 @@ swift test -j 4 --filter YapcamCaptureTests
 YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter actualHEVCWriterAndInterruptedRecovery
 ```
 
-The opt-in test writes real 64×64 HEVC samples, reopens their track, checks the
-first-sample offset, and recovers an interrupted manifest. It needs working
+The opt-in test writes three real 64×64 HEVC frames, ends the writer at 2 s,
+checks the full track duration and reads a frame at 1.8 s in the static tail. It
+also checks a zero screen offset and recovery before the manifest catches up.
+It needs working
 VideoToolbox/IOSurface services and fails in restricted command sandboxes. Run it
 from a regular terminal; skipping it is not evidence that recording works.
 
@@ -34,6 +36,8 @@ After a successful self-test:
 2. Compare movie packet timestamps plus `track_start_ns` to the segment-relative
    timestamps in `events.jsonl`. Verify monotonic event times, cursor assets, and
    clicks aligned with a visible action in the screen track.
+   Each segment's host_start_ns is its first written screen PTS; screen's
+   track_start_ns must be zero. Device/system-audio preroll is discarded.
 3. Repeat via `CaptureSelfTest.run(seconds: 5, maxFPS: 30, pauseAfter: 2)` and at
    60 fps. Check two segment directories and that segment 1's source start equals
    segment 0's duration (the 0.5 s test pause is absent).
@@ -56,6 +60,15 @@ resets to zero after a disconnect and that the screen track continues.
 An advisory `recording/.capture.lock` excludes a live/paused recording from
 recovery. The OS releases it on a crash. `seg-XXX/track-starts.json` is an optional
 crash sidecar containing segment-relative first-track offsets; `.prev` is a fallback.
+The additional optional `seg-XXX/host-start.json` is a JSON Int64 containing the
+first written screen PTS in host nanoseconds. It is written before track offsets,
+so recovery can establish screen offset zero even before session.json is updated.
+
+Review regressions cover full stop-time propagation, a delayed first frame at both
+start and resume (including event timestamps), jittered 30/60 Hz cadence, double-rate
+input rejection, dropping first/middle/last unreadable segments during recovery,
+and input delivery timestamps converted from the CoreMedia host clock. Real input
+delivery uses that clock directly instead of assuming units for CGEvent.timestamp.
 
 Retina and multiple-display hardware are still needed to verify the tested point/
 pixel and global-coordinate math against actual ScreenCaptureKit output.

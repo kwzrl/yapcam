@@ -155,7 +155,7 @@ struct InputEventSnapshot: Sendable {
     }
 
     private func consume(_ event: CGEvent, type: CGEventType) {
-        var snapshot = InputEventSnapshot(type: type, hostNs: Int64(clamping: event.timestamp), location: event.location,
+        var snapshot = InputEventSnapshot(type: type, hostNs: CaptureClock.inputEventTime(), location: event.location,
             button: event.getIntegerValueField(.mouseEventButtonNumber),
             dx: event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2),
             dy: event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1),

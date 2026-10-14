@@ -7,7 +7,7 @@ protocol CaptureTrackSink: AnyObject, Sendable {
     var url: URL { get }
     var firstNs: Int64 { get }
     func append(_ sample: CMSampleBuffer) throws -> Bool
-    func finish() async throws
+    func finish(atHostNs: Int64?) async throws
 }
 
 /// All mutable writer state is confined to queue, including AV capture callbacks.
@@ -15,6 +15,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     typealias TrackFactory = @Sendable (URL, String, CMSampleBuffer) throws -> any CaptureTrackSink
     let queue = DispatchQueue(label: "mov.yapcam.capture.samples", qos: .userInitiated)
     let directory: URL
+    /// Startup lower bound only; Result.hostStartNs is the actual screen origin.
     let hostStartNs: Int64
     let maxFPS: Int
     private let makeTrack: TrackFactory
@@ -23,6 +24,9 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     private var accepting = true
     private var unavailableTracks: Set<String> = []
     private var lastScreenNs: Int64?
+    private var nextScreenNs: Int64?
+    private var screenStartNs: Int64?
+    private var startedTracks: Set<String> = []
     private var endHostNs: Int64?
     var onWarning: (@Sendable (String) -> Void)?
     var onFailure: (@Sendable (CaptureError) -> Void)?
@@ -38,6 +42,25 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
 
     func end(at hostNs: Int64) {
         queue.async { self.endHostNs = hostNs }
+    }
+
+    /// SCStream start can finish before its first frame arrives. Bound this wait,
+    /// propagate writer errors, and let cancellation clean up a stalled startup.
+    func firstScreenStart(timeout: Duration = .seconds(10)) async throws -> Int64 {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while true {
+            try Task.checkCancellation()
+            let result: Swift.Result<Int64, CaptureError>? = await withCheckedContinuation { continuation in
+                queue.async {
+                    if let failure = self.failure { continuation.resume(returning: .failure(failure)) }
+                    else if let start = self.screenStartNs { continuation.resume(returning: .success(start)) }
+                    else { continuation.resume(returning: nil) }
+                }
+            }
+            if let result { return try result.get() }
+            guard ContinuousClock.now < deadline else { throw CaptureError.writerFailed("Timed out waiting for the first screen frame") }
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     /// Called from device notifications, which may arrive on arbitrary queues.
@@ -75,7 +98,11 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        onFailure?(.from(error))
+        let error = CaptureError.from(error)
+        queue.async {
+            self.failure = self.failure ?? error
+            self.onFailure?(error)
+        }
     }
 
     /// Caller must deliver samples on queue. AVCapture sample clocks are converted before this call.
@@ -84,7 +111,16 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         let pts = sample.presentationTimeStamp
         let ns = CaptureClock.nanoseconds(pts)
         guard pts.isNumeric, ns >= hostStartNs, endHostNs == nil || ns < endHostNs! else { return }
-        if key == "screen", let lastScreenNs, ns - lastScreenNs < 1_000_000_000 / Int64(maxFPS) { return }
+        // Drop audio/device preroll instead of giving the source timeline a blank
+        // screen lead-in. Every retained track starts at/after the first screen PTS.
+        guard key == "screen" || (screenStartNs != nil && ns >= screenStartNs!) else { return }
+        let interval = 1_000_000_000 / Int64(maxFPS)
+        if key == "screen" {
+            if let lastScreenNs, ns <= lastScreenNs { return }
+            // Compare against a cadence deadline with half-frame tolerance. Using
+            // the prior PTS alone drops alternate frames on slightly fast 60 Hz panels.
+            if let nextScreenNs, ns <= nextScreenNs - interval / 2 { return }
+        }
         do {
             let track: any CaptureTrackSink
             if let existing = tracks[key] { track = existing }
@@ -92,11 +128,23 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                 let filename = key == "system_audio" ? "system.m4a" : key == "mic" ? "mic.m4a" : "\(key).mov"
                 track = try makeTrack(directory.appendingPathComponent(filename), key, sample)
                 tracks[key] = track
-                let starts = tracks.mapValues { $0.firstNs - hostStartNs }
-                try PackageIO.write(starts, to: directory.appendingPathComponent("track-starts.json"))
-                onTrackStarted?(key, track.firstNs - hostStartNs)
             }
-            if try track.append(sample), key == "screen" { lastScreenNs = ns }
+            guard try track.append(sample) else { return }
+            if key == "screen" {
+                if screenStartNs == nil {
+                    // Durable origin closes the crash window before session.json
+                    // catches up on the main actor. No new required manifest keys.
+                    try PackageIO.write(track.firstNs, to: directory.appendingPathComponent("host-start.json"))
+                    screenStartNs = track.firstNs
+                }
+                lastScreenNs = ns
+                nextScreenNs = max((nextScreenNs ?? ns) + interval, ns + interval)
+            }
+            if startedTracks.insert(key).inserted, let origin = screenStartNs {
+                let starts = tracks.filter { startedTracks.contains($0.key) }.mapValues { $0.firstNs - origin }
+                try PackageIO.write(starts, to: directory.appendingPathComponent("track-starts.json"))
+                onTrackStarted?(key, track.firstNs - origin)
+            }
             if key == "mic" { onMicLevel?(Self.level(sample)) }
         } catch {
             let error = CaptureError.writerFailed(error.localizedDescription)
@@ -130,6 +178,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     struct Result: Sendable {
         var files: [String: String]
         var starts: [String: Int64]
+        var hostStartNs: Int64?
         var error: CaptureError?
     }
 
@@ -139,22 +188,25 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                 self.accepting = false
                 let tracks = self.tracks
                 let initialFailure = self.failure
+                let origin = self.screenStartNs
+                let end = self.endHostNs ?? CaptureClock.now
+                let unavailable = self.unavailableTracks
                 Task {
                     var files: [String: String] = [:]
                     var starts: [String: Int64] = [:]
                     var error = initialFailure
                     for (key, track) in tracks {
                         do {
-                            try await track.finish()
+                            try await track.finish(atHostNs: unavailable.contains(key) ? nil : end)
                             files[key] = track.url.lastPathComponent
-                            starts[key] = track.firstNs - self.hostStartNs
+                            if let origin { starts[key] = track.firstNs - origin }
                         } catch let caught {
                             if key == "screen" || key == "system_audio" { error = .writerFailed(caught.localizedDescription) }
                             else { self.onWarning?("\(key) track could not be finalized: \(caught.localizedDescription)") }
                         }
                     }
                     if files["screen"] == nil, error == nil { error = .writerFailed("No screen frames were captured") }
-                    continuation.resume(returning: Result(files: files, starts: starts, error: error))
+                    continuation.resume(returning: Result(files: files, starts: starts, hostStartNs: origin, error: error))
                 }
             }
         }
@@ -163,7 +215,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
 
 private final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
     let url: URL
-    let firstNs: Int64
+    private(set) var firstNs: Int64
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private var lastPTS: CMTime?
@@ -195,23 +247,33 @@ private final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
         guard writer.canAdd(input) else { throw CaptureError.writerFailed("Unsupported \(key) format") }
         writer.add(input)
         guard writer.startWriting() else { throw writer.error ?? CaptureError.writerFailed("Cannot start \(key) writer") }
-        writer.startSession(atSourceTime: sample.presentationTimeStamp)
     }
 
     @discardableResult func append(_ sample: CMSampleBuffer) throws -> Bool {
         if writer.status == .failed { throw writer.error ?? CaptureError.writerFailed("Media writer failed") }
         guard lastPTS == nil || sample.presentationTimeStamp > lastPTS! else { return false }
         guard input.isReadyForMoreMediaData else { return false }
+        if !appended {
+            firstNs = CaptureClock.nanoseconds(sample.presentationTimeStamp)
+            writer.startSession(atSourceTime: sample.presentationTimeStamp)
+        }
         guard input.append(sample) else { throw writer.error ?? CaptureError.writerFailed("Cannot append media sample") }
         lastPTS = sample.presentationTimeStamp
         appended = true
         return true
     }
 
-    func finish() async throws {
+    func finish(atHostNs end: Int64?) async throws {
+        guard appended else {
+            if writer.status == .writing { writer.cancelWriting() }
+            throw writer.error ?? CaptureError.writerFailed("No media samples were written")
+        }
+        if writer.status == .writing, let end {
+            writer.endSession(atSourceTime: CMTime(value: max(firstNs + 1, end), timescale: 1_000_000_000))
+        }
         input.markAsFinished()
         await writer.finishWriting()
-        guard appended, writer.status == .completed else {
+        guard writer.status == .completed else {
             throw writer.error ?? CaptureError.writerFailed("Media writer did not finish")
         }
     }

@@ -27,6 +27,7 @@ import ScreenCaptureKit
     private var pendingFailure: CaptureError?
     private var completedNs: Int64 = 0
     private var activeStartNs: Int64?
+    private var activeHostStartNs: Int64?
 
     public convenience init(options: RecordingOptions) { self.init(options: options, services: .live) }
 
@@ -181,7 +182,16 @@ import ScreenCaptureKit
         }
         self.writer = writer
         let outputSize = CGSize(width: manifest.source.contentRectPoints[2], height: manifest.source.contentRectPoints[3])
-        let events = InputEventRecorder(directory: directory, rect: resolved.geometry.rect, hostStartNs: start,
+        // Start the screen before auxiliary-device setup can delay it. Nothing is
+        // exposed as recording until an actual written screen frame defines t=0.
+        let stream = try resolved.makeStream(writer, manifest.tracks.screen.pixelSize)
+        self.stream = stream
+        try await stream.startCapture()
+        let origin = try await writer.firstScreenStart()
+        activeHostStartNs = origin
+        self.manifest?.segments[index].hostStartNs = origin
+        try persist()
+        let events = InputEventRecorder(directory: directory, rect: resolved.geometry.rect, hostStartNs: origin,
                                         keys: options.recordKeystrokes, outputSize: outputSize)
         events.warning = { [weak self] in self?.warn($0) }
         events.failure = { [weak self] error in
@@ -211,9 +221,6 @@ import ScreenCaptureKit
         if let mic = deviceMetadata.mic { self.manifest?.tracks.mic = mic }
         if let camera = deviceMetadata.camera { self.manifest?.tracks.camera = camera }
         try persist()
-        let stream = try resolved.makeStream(writer, manifest.tracks.screen.pixelSize)
-        self.stream = stream
-        try await stream.startCapture()
     }
 
     private func endSegment() async throws {
@@ -230,8 +237,10 @@ import ScreenCaptureKit
         await devices?.stop(); devices = nil; micLevel = 0
         if let writer {
             let result = await writer.finish()
-            let duration = max(0, end - writer.hostStartNs)
+            let origin = result.hostStartNs ?? end
+            let duration = max(0, end - origin)
             if let index = manifest?.segments.indices.last, let dir = manifest?.segments[index].dir {
+                manifest?.segments[index].hostStartNs = origin
                 manifest?.segments[index].durationNs = duration
                 manifest?.segments[index].trackStartNs = result.starts
                 var files = result.files.mapValues { "\(dir)/\($0)" }
@@ -241,7 +250,7 @@ import ScreenCaptureKit
             completedNs = try SegmentTimeline.nextSourceStart(after: manifest?.segments ?? [])
             failure = failure ?? result.error ?? pendingFailure
         }
-        writer = nil; activeStartNs = nil; pendingFailure = nil
+        writer = nil; activeStartNs = nil; activeHostStartNs = nil; pendingFailure = nil
         elapsed = Double(completedNs) / 1_000_000_000
         try persist()
         if let failure { throw failure }
@@ -252,7 +261,7 @@ import ScreenCaptureKit
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.state == .recording, let start = self.activeStartNs else { return }
+                guard let self, self.state == .recording, let start = self.activeHostStartNs else { return }
                 self.elapsed = Double(self.completedNs + max(0, CaptureClock.now - start)) / 1_000_000_000
                 if !self.monitoring {
                     self.monitoring = true

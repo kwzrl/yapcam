@@ -9,6 +9,12 @@ enum CaptureClock {
     }
     static var now: Int64 { nanoseconds(CMClockGetTime(CMClockGetHostTimeClock())) }
 
+    /// Stamp input delivery with the sample host clock. Do not assume CGEvent's
+    /// raw timestamp uses nanoseconds (or any particular platform timebase).
+    static func inputEventTime(receivedAt time: CMTime = CMClockGetTime(CMClockGetHostTimeClock())) -> Int64 {
+        nanoseconds(time)
+    }
+
     static func hostSample(_ sample: CMSampleBuffer, from clock: CMClock) throws -> CMSampleBuffer {
         var count = 0
         guard CMSampleBufferGetSampleTimingInfoArray(sample, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count) == noErr,
