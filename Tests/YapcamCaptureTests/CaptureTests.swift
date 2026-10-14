@@ -157,7 +157,8 @@ func actualHEVCWriterAndInterruptedRecovery() async throws {
     var value = manifest()
     value.segments = [SegmentMetadata(index: 0, dir: "seg-000", srcStartNs: 0, hostStartNs: host)]
     try PackageIO.write(value, to: package.appendingPathComponent("recording/session.json"))
-    #expect(RecordingSession.interruptedPackages(in: directory) == [package])
+    #expect(RecordingSession.interruptedPackages(in: directory).map { $0.resolvingSymlinksInPath().path }
+            == [package.resolvingSymlinksInPath().path])
     #expect(try RecordingSession.recover(package) == package)
     let recovered = try PackageIO.readManifest(at: package.appendingPathComponent("recording/session.json"))
     #expect(recovered.status == "complete")

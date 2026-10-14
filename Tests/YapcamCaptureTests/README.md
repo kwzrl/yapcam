@@ -1,7 +1,15 @@
 # Capture validation
 
-Lead must register `YapcamCaptureTests` in Package.swift with a dependency on
-`YapcamCapture`. No permissions are requested by the default tests.
+`YapcamCaptureTests` is registered on main. No permissions are requested by the
+default tests. Simulated routing tests use test-only media sinks; the production
+writer always uses AVAssetWriter, and encoding remains a separate real-media gate.
+
+Controlled session tests exercise the production coordinator and package writes:
+pause/resume timelines, low disk, revoked permission, source loss, stale callbacks,
+cancel during startup, failed finalization, and fixed window output after a resize.
+Input tests feed value snapshots through the production translation path for
+clicks, drags, scrolling and opt-in Unicode/modifier keys. These tests neither post
+system events nor prove encoder output or actual OS permission behavior.
 
 ```sh
 swift test -j 4 --filter YapcamCaptureTests
@@ -36,6 +44,18 @@ After a successful self-test:
 6. For a real crash test, terminate only the test recording process after more
    than 2 s, discover with `interruptedPackages(in:)`, then call `recover(_:)`.
    Check recovered media and event tails. Preserve originals when reporting failure.
+7. Test `hideDesktopIcons: true` and `captureNotifications: false` via the helper.
+   Finder folder windows must remain visible. Desktop preferences are untouched;
+   icon/notification exclusion is a capture filter, with notification behavior
+   subject to macOS. Repeat with `recordKeystrokes: true` for opt-in key events.
+
+The helper also supports `microphoneID`, `cameraID`, and `target`. Test window
+movement/resizing both during capture and during the pause. Check the mic meter
+resets to zero after a disconnect and that the screen track continues.
+
+An advisory `recording/.capture.lock` excludes a live/paused recording from
+recovery. The OS releases it on a crash. `seg-XXX/track-starts.json` is an optional
+crash sidecar containing segment-relative first-track offsets; `.prev` is a fallback.
 
 Retina and multiple-display hardware are still needed to verify the tested point/
 pixel and global-coordinate math against actual ScreenCaptureKit output.

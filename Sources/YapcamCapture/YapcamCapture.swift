@@ -33,6 +33,11 @@ public struct CaptureSources: Sendable {
     public var microphones: [CaptureDevice]
 
     public static func load() async throws -> CaptureSources {
+        try await load(includeWindowThumbnails: true)
+    }
+
+    /// Device polling and noninteractive self-tests can skip window screenshots.
+    public static func load(includeWindowThumbnails: Bool) async throws -> CaptureSources {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let names = await MainActor.run {
             Dictionary(uniqueKeysWithValues: NSScreen.screens.compactMap { screen -> (UInt32, String)? in
@@ -47,10 +52,8 @@ public struct CaptureSources: Sendable {
             return DisplaySource(id: display.displayID, name: names[display.displayID] ?? "Display", frame: bounds,
                                  scale: scale, pixelSize: pixels)
         }
-        let windows = content.windows.filter { $0.frame.width > 1 && $0.frame.height > 1 }.map {
-            WindowSource(id: $0.windowID, title: $0.title ?? "", appName: $0.owningApplication?.applicationName ?? "",
-                         bundleID: $0.owningApplication?.bundleIdentifier, frame: $0.frame, thumbnail: nil)
-        }
+        let candidates = content.windows.filter { $0.frame.width > 1 && $0.frame.height > 1 }
+        let windows = try await CaptureThumbnails.sources(candidates, includeImages: includeWindowThumbnails)
         return CaptureSources(displays: displays, windows: windows,
                               cameras: devices(.video), microphones: devices(.audio))
     }
@@ -79,14 +82,37 @@ public struct RecordingOptions: Sendable, Codable {
     public var recordKeystrokes: Bool
     public var maxFPS: Int
     public var excludeYapcamWindows: Bool
+    public var hideDesktopIcons: Bool
+    public var captureNotifications: Bool
     public var outputDirectory: URL
 
     public init(target: CaptureTarget, systemAudio: Bool = true, microphoneID: String? = nil,
                 cameraID: String? = nil, recordKeystrokes: Bool = false, maxFPS: Int = 60,
-                excludeYapcamWindows: Bool = true, outputDirectory: URL) {
+                excludeYapcamWindows: Bool = true, hideDesktopIcons: Bool = false,
+                captureNotifications: Bool = true, outputDirectory: URL) {
         self.target = target; self.systemAudio = systemAudio; self.microphoneID = microphoneID
         self.cameraID = cameraID; self.recordKeystrokes = recordKeystrokes; self.maxFPS = maxFPS
         self.excludeYapcamWindows = excludeYapcamWindows; self.outputDirectory = outputDirectory
+        self.hideDesktopIcons = hideDesktopIcons; self.captureNotifications = captureNotifications
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case target, systemAudio, microphoneID, cameraID, recordKeystrokes, maxFPS
+        case excludeYapcamWindows, hideDesktopIcons, captureNotifications, outputDirectory
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(target: try values.decode(CaptureTarget.self, forKey: .target),
+            systemAudio: try values.decodeIfPresent(Bool.self, forKey: .systemAudio) ?? true,
+            microphoneID: try values.decodeIfPresent(String.self, forKey: .microphoneID),
+            cameraID: try values.decodeIfPresent(String.self, forKey: .cameraID),
+            recordKeystrokes: try values.decodeIfPresent(Bool.self, forKey: .recordKeystrokes) ?? false,
+            maxFPS: try values.decodeIfPresent(Int.self, forKey: .maxFPS) ?? 60,
+            excludeYapcamWindows: try values.decodeIfPresent(Bool.self, forKey: .excludeYapcamWindows) ?? true,
+            hideDesktopIcons: try values.decodeIfPresent(Bool.self, forKey: .hideDesktopIcons) ?? false,
+            captureNotifications: try values.decodeIfPresent(Bool.self, forKey: .captureNotifications) ?? true,
+            outputDirectory: try values.decode(URL.self, forKey: .outputDirectory))
     }
 }
 
