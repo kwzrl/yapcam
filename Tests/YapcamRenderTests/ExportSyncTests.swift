@@ -3,6 +3,8 @@ import XCTest
 import Metal
 import ImageIO
 import UniformTypeIdentifiers
+import YapcamCore
+import AVFoundation
 
 final class ExportSyncTests: XCTestCase {
     func capture(_ executable: String, arguments: [String]) throws -> Data {
@@ -97,6 +99,30 @@ final class ExportSyncTests: XCTestCase {
             defer { timeout.cancel() }
             _ = try await task.value
             XCTAssertEqual(exporter.metrics?.frames,Int((end-start)*30/1_000_000_000))
+        }
+    }
+    func testEditorRealProjectAudioExportCompletesForFullFirstAndBoundaryRanges() async throws {
+        _ = try requireRenderDevice()
+        let fixture=URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-editor-audio-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root,withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (name,start,end) in [("full",Int64(0),Int64(5_000_000_000)),("seg000",0,3_000_000_000),("boundary",2_500_000_000,3_500_000_000)] {
+            let package=root.appendingPathComponent("\(name).yapcam")
+            try FileManager.default.copyItem(at: fixture,to: package)
+            let project=try Project.create(package: package)
+            let destination=root.appendingPathComponent("\(name).mp4")
+            let exporter=try Exporter(project: project,settings: .init(outputHeight: 1080,includeAudio: true,rangeStartNs: start,rangeEndNs: end),destination: destination)
+            let task=Task { try await exporter.run { value in if value>=0.95 { print("RENDER_AUDIO_REGRESSION \(name) video_complete") } } }
+            let timeout=Task { try await Task.sleep(for: .seconds(20)); task.cancel() }
+            defer { timeout.cancel() }
+            _ = try await task.value
+            let asset=AVURLAsset(url: destination)
+            let audioTracks=try await asset.loadTracks(withMediaType: .audio)
+            XCTAssertEqual(audioTracks.count,1)
+            let duration=try await asset.load(.duration)
+            XCTAssertEqual(duration.seconds,Double(end-start)/1e9,accuracy: 1/30)
+            print("RENDER_AUDIO_REGRESSION \(name) verified duration=\(duration.seconds)")
         }
     }
     func testExportPerformance1080And4K() async throws {

@@ -144,14 +144,22 @@ public final class Exporter: @unchecked Sendable {
         guard Int(size.width) == width, Int(size.height) == settings.outputHeight else { throw RenderError.verification("Export dimensions differ from settings") }
     }
     private func pumpAudio(_ context: AudioPumpContext) async throws {
-        while true {
-            try Task.checkCancellation()
-            guard let sample=context.output.copyNextSampleBuffer() else { break }
-            try await ready(context.input,writer: context.writer)
-            guard context.input.append(sample) else { throw RenderError.write(context.writer.error?.localizedDescription ?? "Cannot append audio") }
-        }
-        guard context.reader.status == .completed else { throw RenderError.decode(context.reader.error?.localizedDescription ?? "Audio reader stopped before completion") }
-        context.input.markAsFinished()
+        let pump=MediaInputPump<CMSampleBuffer>(
+            request: { queue,callback in context.input.requestMediaDataWhenReady(on: queue,using: callback) },
+            ready: { context.input.isReadyForMoreMediaData },
+            read: {
+                guard context.writer.status == .writing else { throw RenderError.write(context.writer.error?.localizedDescription ?? "Writer stopped") }
+                return context.output.copyNextSampleBuffer()
+            },
+            append: { sample in guard context.input.append(sample) else { throw RenderError.write(context.writer.error?.localizedDescription ?? "Cannot append audio") } },
+            end: {
+                guard context.reader.status == .completed else { throw RenderError.decode(context.reader.error?.localizedDescription ?? "Audio reader stopped before completion") }
+                context.input.markAsFinished()
+            },
+            // markAsFinished ends requests; failures cancel the owning writer.
+            stop: {},
+            cancelSource: { context.reader.cancelReading() })
+        try await pump.run()
     }
     private func writeGIF(_ url: URL, range: Range<Int64>, count: Int, width: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @Sendable (Double) -> Void) async throws {
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, count, nil) else { throw RenderError.write("Cannot create GIF") }

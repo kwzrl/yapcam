@@ -20,7 +20,7 @@ public struct RenderLayer: Sendable, Equatable {
 /// Supplemental render features supplied through ABI v2 or custom source hooks.
 /// Defaults preserve the frame description exactly; the project supplies explicit selections.
 public struct RenderConfiguration: Sendable, Equatable {
-    public enum CursorStyle: Sendable { case recorded, pointer, touch }
+    public enum CursorStyle: Sendable { case recorded, arrow, pointer, touch }
     public var cursorStyle: CursorStyle = .recorded
     public var cursorMotionBlur: Float = 0
     public var cursorSpotlightRadius: Float = 0
