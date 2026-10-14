@@ -19,6 +19,7 @@ public final class FrameCompositor: @unchecked Sendable {
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
+    private var vectorCursors: [VectorCursorStyle: VectorCursorTexture] = [:]
     private let empty: MTLTexture
 
     public init(device: MTLDevice, project: any RenderProjectSource) throws {
@@ -94,9 +95,12 @@ public final class FrameCompositor: @unchecked Sendable {
                 cursorRect = SIMD4(Float(frame.cursor_x - cursor.hotspot[0] * scale), Float(frame.cursor_y - cursor.hotspot[1] * scale), Float(cursor.sizePoints[0] * scale), Float(cursor.sizePoints[1] * scale))
             }
         }
-        if frame.cursor_visible != 0 && options.cursorStyle != .recorded {
-            let size: Float = options.cursorStyle == .touch ? 24 : 28
-            cursorRect = SIMD4(Float(frame.cursor_x)-4*frame.cursor_scale,Float(frame.cursor_y)-4*frame.cursor_scale,size*frame.cursor_scale,size*frame.cursor_scale)
+        if frame.cursor_visible != 0 && (options.cursorStyle != .recorded || cursorTexture === empty) {
+            let style: VectorCursorStyle=options.cursorStyle == .pointer ? .pointer : options.cursorStyle == .touch ? .touch : .arrow
+            if vectorCursors[style]==nil { vectorCursors[style]=try VectorCursorTexture(style: style,device: device) }
+            let cursor=vectorCursors[style]!, scale=Double(frame.cursor_scale)
+            cursorTexture=cursor.texture
+            cursorRect=SIMD4(Float(frame.cursor_x-Double(cursor.hotspot.x)*scale),Float(frame.cursor_y-Double(cursor.hotspot.y)*scale),Float(Double(cursor.size.width)*scale),Float(Double(cursor.size.height)*scale))
         }
         var background = empty
         if frame.background_kind == 2 { background = try image(project.renderBackgroundAsset(index: frame.background_asset)) }
@@ -119,7 +123,7 @@ public final class FrameCompositor: @unchecked Sendable {
             SIMD4(frame.camera_corner_radius, Float(frame.camera_shape), camera == nil ? 0 : frame.camera_opacity, Float(frame.camera_mirror)),
             previous, SIMD4(frame.inset_width, 0, 0, 0),
             SIMD4(options.backgroundNoise,options.windowChrome ? 1 : 0, options.cameraShadowRadius, matte == nil ? 0 : 1),
-            SIMD4(options.cursorStyle == .pointer ? 1 : options.cursorStyle == .touch ? 2 : 0,options.cursorMotionBlur,options.cursorSpotlightRadius,0),
+            SIMD4(0,options.cursorMotionBlur,options.cursorSpotlightRadius,0),
             SIMD4(Float(frame.cursor_x),Float(frame.cursor_y),Float(frame.cursor_x),Float(frame.cursor_y)), cameraCrop,
             screen?.geometry.rowX ?? SIMD4(1,0,0,0), screen?.geometry.rowY ?? SIMD4(0,1,0,0),
             camera?.geometry.rowX ?? SIMD4(1,0,0,0), camera?.geometry.rowY ?? SIMD4(0,1,0,0),
@@ -217,13 +221,7 @@ public final class FrameCompositor: @unchecked Sendable {
                 float2 uv=(p-u[8].xy-offset)/u[8].zw;
                 float4 tex=0;
                 if (all(uv>=0)&&all(uv<=1)) {
-                    if(u[16].x==0) tex=cursor.sample(s,uv);
-                    else if(u[16].x==2) { float d=length((uv-.5)*2); tex=float4(1,1,1,(1-smoothstep(.8,1.0,d))*.6); }
-                    else {
-                        float triangle=uv.x < .2+.45*uv.y && uv.y < .8 ? 1.0 : 0.0;
-                        float stem=uv.x>.27 && uv.x<.42 && uv.y>.5 ? 1.0 : 0.0;
-                        tex=float4(1,1,1,max(triangle,stem));
-                    }
+                    tex=cursor.sample(s,uv);
                 }
                 // Accumulate premultiplied samples, then recover straight alpha for over().
                 sprite.rgb+=tex.rgb*tex.a/8; sprite.a+=tex.a/8;

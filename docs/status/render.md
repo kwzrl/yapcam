@@ -1,5 +1,39 @@
-READY d7da6bd renderer checkpoint integrated into main; new ABI v2 adapters below await Lead checkpoint and host validation
-ACTION Lead: canonical HEAD is d7da6bd; shared main is 4a1cee5 (includes Core ABI v2). git rebase main was attempted and refused because the status file is unstaged; Git metadata remains read-only as acknowledged. Please checkpoint the owned diff and rebase here. New source requires the integrated ABI v2 header/Project API. Verified against an archive of main 4a1cee5 plus the exact owned diff; other teams' files were not changed.
+READY 8a65a3d previous renderer checkpoint integrated; P0 new source is commit-ready below, host acceptance pending
+ACTION Lead: canonical HEAD 8a65a3d, main 6d91a7f; clean-worktree git rebase main failed creating read-only rebase-merge. P0 owned changes verified against a main 6d91a7f archive. Please checkpoint/rebase this worktree and run the strict host regression before closing the audio hang.
+
+# Ordered backlog (Lead request)
+
+## P0 — audio export hang: COMMIT-READY, native reproduction pending host
+- Fix: audio AVAssetReader pulls now execute on a dedicated serial DispatchQueue driven by AVAssetWriterInput readiness, independently of video PTS and Swift's cooperative workers. Bounded source/encoder stall timeout, cancellation, native reader unblocking and exactly-once completion/join preserve partial cleanup.
+- Retained existing boundary test. Added exact editor real-Project 1080p/audio-on regression for full 5s fixture, seg-000-only range and 2.5–3.5s segment boundary; 20s watchdog, audio track/duration verification and RENDER_AUDIO_REGRESSION output. It compiles but explicitly skips absent Metal here; native hang not claimed reproduced or fixed on host.
+- Deterministic backpressure regression reproduces the old frame-limited scheduling deadlock at frame 93 and proves the production input pump drains independently. Timeout and cancellation-without-readiness-callback regressions pass.
+- Verification on main 6d91a7f + owned diff: renderer 47 tests, 24 pass/23 explicit hardware skips; Rust 39 pass; app builds signed Yapcam Dev Signing. No new permission dialog or TCC changes.
+- Host: YAPCAM_REQUIRE_RENDER_HARDWARE=1 swift test --disable-sandbox -j 4 --filter ExportSyncTests/testEditorRealProjectAudioExportCompletesForFullFirstAndBoundaryRanges, then full YapcamRenderTests. Review GCD pump cancellation/lifetimes before acceptance.
+- API basis: Apple's pull-source guidance: https://developer.apple.com/documentation/avfoundation/avassetwriterinput/requestmediadatawhenready(on:using:). This legacy API supports the macOS 15 floor; no macOS 26-only receiver used.
+
+## P1 — CAM-04/05: COMMIT-READY renderer/data tests; editor forwarding + host Vision pending
+- Real Project camera media/effect bridge is implemented through frameExtras; camera shadow, background removal and face framing consume persisted settings on the shared preview/export path. Snapshot regression with synthetic camera session metadata passes (present sample, file time, destination, flags, snapshot isolation).
+- Added native Vision regression using synthetic non-person camera video: enable removal, then disable it while face framing stays enabled; the unmasked image must be restored exactly. Compiles; explicitly skips absent Metal. No actual camera/face photograph or real-device validation claimed.
+- Editor's ProjectRenderSource on main 6d91a7f still does not forward renderEffects(atNs:canvasSize:) or renderAudioRanges(). Please implement both forwarding methods or pass Project directly to the renderer; otherwise camera flags (and new effects/audio query mapping) remain off in the editor. Renderer cannot edit that adapter.
+- Host: YAPCAM_REQUIRE_RENDER_HARDWARE=1 swift test --disable-sandbox -j 4 --filter CameraProjectTests. Camera/face detection accuracy and matting quality still require actual people/device data when hardware exists.
+
+## P2 — LOK-02: COMMIT-READY original background library
+- BackgroundLibrary.presets exposes 12 original choices in gradients/landscapes/geometry; six editable native gradients and six analytic aurora/strata/orbit wallpapers. No third-party images. Same deterministic linear-light/dithered rasterizer produces picker thumbnails or full-resolution images.
+- BackgroundLibrary.apply(_:to:width:height:) uses a single Core undo step. Gradients persist normal canvas fields; wallpaper generation runs off-main, then imports an owned PNG into project assets through Project.importBackgroundImage. Temporary generation files are removed; existing assets are never overwritten.
+- Two software regressions pass: all art distinct/deterministic/category coverage, plus image import/save/reopen/one-step undo and gradient one-step undo. Signed build succeeds. Editor: use presets/category/title, image(for:width:height:) on a worker for thumbnails and async apply for the picker; no new Core contract required.
+
+## P3 — CUR-06: COMMIT-READY original vector cursors
+- VectorCursorLibrary supplies original scalable arrow, pointing-hand and touch artwork with stable point-space hotspots. CGPaths are authored here; no system/reference asset copied. Compositor caches straight-sRGB GPU textures, uses these for pointer/touch and supports an explicit arrow source option; recorded cursors remain available, with own arrow fallback when no recorded sprite exists.
+- Own raster alpha is unpremultiplied once before upload; shared sprite shader retains correct premultiplied motion-blur accumulation. Original triangle approximation removed. Shader compiles offline; raster size/hotspot/visibility/distinctness tests pass, GPU comparison explicitly skips.
+- Source-based arrow selection is available. Core/editor request: add cursor.style=arrow (existing recorded/pointer/touch remain) and map extras cursor_style=3, so a fixed original arrow can be chosen independently of the recorded cursor. No ABI layout change is needed, but the enum contract belongs to Core/Lead. Pointer/touch already map from project data when editor forwards effects.
+- Renderer filter now 53 tests: 28 pass, 25 explicit skips. Signed app build succeeds on main 6d91a7f archive + owned source. Host: VectorCursorTests plus existing cursor/motion tests.
+
+## Ordered next
+1. CAM-04/05: exercise real Project camera flags/media through the native compositor; editor wrapper must forward renderEffects/renderAudioRanges or pass Project directly.
+2. LOK-02: own procedural wallpaper/gradient library and apply/preview APIs for editor picker.
+3. CUR-06: own vector arrow/pointer/touch library and compositor integration.
+4. AUD-06: offline high-pass, noise reduction/gate, compressor and gated -16 LUFS normalization with original DSP/Apple IO.
+5. Core extras for text/annotations/captions/reactions when their contracts land; request integration without changing other teams' files.
 
 # render status
 
