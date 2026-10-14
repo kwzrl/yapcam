@@ -1,11 +1,57 @@
 import XCTest
 @testable import YapcamRender
 import Metal
+import ImageIO
+import UniformTypeIdentifiers
 
 final class ExportSyncTests: XCTestCase {
     func capture(_ executable: String, arguments: [String]) throws -> Data {
         let task=Process(), pipe=Pipe(); task.executableURL=URL(fileURLWithPath: executable); task.arguments=arguments; task.standardOutput=pipe
         try task.run(); let data=pipe.fileHandleForReading.readDataToEndOfFile(); task.waitUntilExit(); XCTAssertEqual(task.terminationStatus,0); return data
+    }
+    func testCompositedStillAndFirstExportFrameMatchAtRangeStart() async throws {
+        let device=try requireRenderDevice()
+        guard FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/ffmpeg") else { throw XCTSkip("ffmpeg is needed for independent preview/export pixel comparison") }
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-parity-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("recording"),withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("{\"segments\":[]}".utf8).write(to: root.appendingPathComponent("recording/session.json"))
+        let layer=RenderLayer(content: .highlight(dimOpacity: 0.1,fill: SIMD4(1,0.2,0.1,0.4),stroke: SIMD4(0.2,0.4,1,0.5),strokeWidth: 4),rect: CGRect(x: 80,y: 50,width: 160,height: 100),cornerRadius: 12)
+        let source=TestSource(package: root,duration: 1_000_000_000,layers: [layer]) { ns in
+            var frame=YcFrame(); frame.tl_ns=ns; frame.canvas_w=320; frame.canvas_h=200
+            frame.background_kind=1; frame.background_color=(0.15,0.3,0.8,1); frame.background_color2=(0.8,0.4,0.1,1)
+            frame.background_angle_deg=Float(Double(ns)/1e9*90); frame.click_progress = -1; return frame
+        }
+        let settings=ExportSettings(outputHeight: 720,includeAudio: false,rangeStartNs: 600_000_000,rangeEndNs: 800_000_000)
+        let frame=try source.frame(atNs: 600_000_000)
+        let width=try settings.outputWidth(canvasWidth: frame.canvas_w,canvasHeight: frame.canvas_h)
+        let compositor=try FrameCompositor(device: device,project: source)
+        let still=try compositor.image(frame,size: CGSize(width: width,height: 720))
+        let png=root.appendingPathComponent("preview.png")
+        let sink=try XCTUnwrap(CGImageDestinationCreateWithURL(png as CFURL,UTType.png.identifier as CFString,1,nil))
+        CGImageDestinationAddImage(sink,still,nil); XCTAssertTrue(CGImageDestinationFinalize(sink))
+        let movie=root.appendingPathComponent("export.mp4")
+        _ = try await Exporter(project: source,settings: settings,destination: movie).run { _ in }
+        func decode(_ url: URL) throws -> [UInt8] {
+            Array(try capture("/opt/homebrew/bin/ffmpeg",arguments: ["-v","error","-i",url.path,"-frames:v","1","-pix_fmt","rgba","-f","rawvideo","pipe:1"]))
+        }
+        let preview=try decode(png), exported=try decode(movie)
+        XCTAssertEqual(preview.count,width*720*4); XCTAssertEqual(exported.count,preview.count)
+        guard preview.count==exported.count, !preview.isEmpty else { return }
+        var histogram=[Int](repeating: 0,count: 256), total=0, samples=0, nonopaque=0
+        for offset in stride(from: 0,to: preview.count,by: 4) {
+            if exported[offset+3] != 255 { nonopaque+=1 }
+            for channel in 0..<3 {
+                let difference=abs(Int(preview[offset+channel])-Int(exported[offset+channel]))
+                histogram[difference]+=1; total+=difference; samples+=1
+            }
+        }
+        var cumulative=0, percentile99=0
+        for (difference,count) in histogram.enumerated() { cumulative+=count; if cumulative*100>=samples*99 { percentile99=difference; break } }
+        let mean=Double(total)/Double(samples)
+        // H.264 YUV420 is lossy; compare aggregate RGB error rather than exact bytes.
+        XCTAssertEqual(nonopaque,0); XCTAssertLessThan(mean,3); XCTAssertLessThan(percentile99,25)
+        print("RENDER_PARITY range_start_ns=600000000 mean_rgb_error=\(mean) p99_rgb_error=\(percentile99)")
     }
     func testSyntheticFlashAndBeepStayWithinOneFrameAfterExport() async throws {
         _ = try requireRenderDevice()

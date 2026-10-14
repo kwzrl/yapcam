@@ -17,7 +17,7 @@ public struct RenderLayer: Sendable, Equatable {
     public init(content: Content, rect: CGRect, cornerRadius: Float = 0, opacity: Float = 1) { self.content = content; self.rect = rect; self.cornerRadius = cornerRadius; self.opacity = opacity }
 }
 
-/// Optional render features which have no fields in the current C frame ABI.
+/// Supplemental render features supplied through ABI v2 or custom source hooks.
 /// Defaults preserve the frame description exactly; the project supplies explicit selections.
 public struct RenderConfiguration: Sendable, Equatable {
     public enum CursorStyle: Sendable { case recorded, pointer, touch }
@@ -30,6 +30,15 @@ public struct RenderConfiguration: Sendable, Equatable {
     public var cameraFaceFraming = false
     public var cameraShadowRadius: Float = 0
     public init() {}
+}
+
+/// Supplemental drawing instructions evaluated at the primary frame's timestamp.
+public struct RenderFrameEffects: Sendable, Equatable {
+    public var configuration: RenderConfiguration
+    public var layers: [RenderLayer]
+    public init(configuration: RenderConfiguration = .init(), layers: [RenderLayer] = []) {
+        self.configuration=configuration; self.layers=layers
+    }
 }
 
 final class LayerRenderer {
@@ -107,15 +116,21 @@ final class LayerRenderer {
     vertex V layerVertex(uint id [[vertex_id]]) { float2 uv=float2((id<<1)&2,id&2); V v; v.p=float4(uv.x*2-1,1-uv.y*2,0,1); v.uv=uv; return v; }
     float sd(float2 p,float4 r,float radius) { float2 q=abs(p-r.xy-r.zw*.5)-r.zw*.5+radius; return length(max(q,0.0))+min(max(q.x,q.y),0.0)-radius; }
     float3 linearRGB(float3 c) { return select(c/12.92,pow((c+.055)/1.055,float3(2.4)),c>.04045); }
+    float4 overPremultiplied(float4 base,float4 top) { return top+base*(1-top.a); }
     fragment float4 layerFragment(V v [[stage_in]],constant float4 *u [[buffer(0)]],texture2d<float> tex [[texture(0)]]) {
         constexpr sampler s(coord::normalized,address::clamp_to_edge,filter::linear);
         float2 p=v.uv*u[0].xy; float2 uv=(p-u[1].xy)/u[1].zw;
         float d=sd(p,u[1],clamp(u[2].x,0.0,min(u[1].z,u[1].w)*.5)); float mask=1-smoothstep(-.5,.5,d);
         if(u[2].z>0) { if(any(uv<0)||any(uv>1)) return 0; float4 c=tex.sample(s,uv); c.a*=mask*u[2].y; return c; }
-        float border=u[2].w>0 ? 1-smoothstep(u[2].w-1,u[2].w+1,abs(d)) : 0;
-        float4 c=float4(linearRGB(u[3].rgb),u[3].a*mask);
-        c=mix(c,float4(linearRGB(u[4].rgb),u[4].a),border);
-        if(d>0) c=float4(0,0,0,u[0].z*(1-mask)); c.a*=u[2].y; return c;
+        float halfWidth=u[2].w*.5;
+        float border=u[2].w>0 ? 1-smoothstep(max(0.0,halfWidth-.5),halfWidth+.5,abs(d)) : 0;
+        // Compose dim, fill and centered stroke using premultiplied linear RGB.
+        // The pipeline consumes straight alpha, so unpremultiply exactly once.
+        float fillAlpha=u[3].a*mask, strokeAlpha=u[4].a*border;
+        // Fill and outside dim occupy complementary coverage at the antialiased edge.
+        float4 c=float4(linearRGB(u[3].rgb)*fillAlpha,fillAlpha+u[0].z*(1-mask));
+        c=overPremultiplied(c,float4(linearRGB(u[4].rgb)*strokeAlpha,strokeAlpha));
+        if(c.a>0) c.rgb/=c.a; c.a*=u[2].y; return c;
     }
     """
 }

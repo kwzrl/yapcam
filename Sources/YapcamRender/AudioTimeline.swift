@@ -12,6 +12,9 @@ final class AudioTimeline: @unchecked Sendable {
         let clips = try project.renderClips()
         guard clips.allSatisfy({ $0.srcStartNs >= 0 && $0.srcEndNs > $0.srcStartNs && $0.speed.isFinite && $0.speed > 0 }) else { throw RenderError.invalidSettings("Invalid audio clip mapping") }
         var parameters: [AVAudioMixInputParameters] = []
+        if let ranges=try project.renderAudioRanges() {
+            try addRecordingRanges(ranges,project: project,range: range,parameters: &parameters)
+        } else {
         for kind in ["mic", "system_audio"] {
             var destination: AVMutableCompositionTrack?
             var timelineStart = 0.0
@@ -60,6 +63,7 @@ final class AudioTimeline: @unchecked Sendable {
                 parameters.append(parameter)
             }
         }
+        }
         try addOverlays(project: project, range: range, parameters: &parameters)
         mix.inputParameters = parameters
         let requested = CMTime(value: Int64(range.count),timescale: 1_000_000_000)
@@ -73,6 +77,57 @@ final class AudioTimeline: @unchecked Sendable {
                   let track = composition.addMutableTrack(withMediaType: .audio,preferredTrackID: kCMPersistentTrackID_Invalid) else { throw RenderError.write("Cannot pad the audio clock") }
             let length = min(requested,CMTime(value: 1,timescale: 48_000))
             try track.insertTimeRange(CMTimeRange(start: .zero,duration: length),of: source,at: requested-length)
+        }
+    }
+    private func addRecordingRanges(_ ranges: [RenderAudioRange],project: any RenderProjectSource,range: Range<Int64>,parameters: inout [AVAudioMixInputParameters]) throws {
+        for row in ranges { try row.validate() }
+        // Retain the owning asset and track together while building the composition.
+        var assets: [String: (AVURLAsset,AVAssetTrack)] = [:]
+        for kind in [RenderAudioRange.Track.mic,.systemAudio] {
+            var destination: AVMutableCompositionTrack?
+            var parameter: AVMutableAudioMixInputParameters?
+            var previousEnd: Int64=0
+            for row in ranges.filter({ $0.track==kind }).sorted(by: { $0.tlStartNs<$1.tlStartNs }) {
+                guard row.tlStartNs>=previousEnd else { throw RenderError.invalidSettings("Overlapping recording audio intervals") }
+                previousEnd=row.tlEndNs
+                guard row.fileEndNs>row.fileStartNs else { continue }
+                let start=max(row.tlStartNs,range.lowerBound), end=min(row.tlEndNs,range.upperBound)
+                guard end>start else { continue }
+                if assets[row.path]==nil {
+                    let asset=AVURLAsset(url: try packageMediaURL(row.path,root: project.packageURL))
+                    guard let source=asset.tracks(withMediaType: .audio).first else { throw RenderError.decode("No audio track in \(row.path)") }
+                    assets[row.path]=(asset,source)
+                }
+                let source=assets[row.path]!.1
+                let mediaRange=source.timeRange
+                guard mediaRange.start.isNumeric, mediaRange.end.isNumeric else { throw RenderError.decode("Audio media has invalid timing") }
+                let mediaStart=CMTimeConvertScale(mediaRange.start,timescale: 1_000_000_000,method: .roundHalfAwayFromZero).value
+                let mediaEnd=CMTimeConvertScale(mediaRange.end,timescale: 1_000_000_000,method: .roundHalfAwayFromZero).value
+                let requestedStart=row.fileNs(atTimelineNs: start), requestedEnd=row.fileNs(atTimelineNs: end)
+                let fileStart=max(requestedStart,mediaStart), fileEnd=min(requestedEnd,mediaEnd)
+                guard fileEnd>fileStart else { continue } // Explicit silence through missing device tails.
+                let outputStart=fileStart==requestedStart ? start : row.timelineNs(atFileNs: fileStart)
+                let outputEnd=fileEnd==requestedEnd ? end : row.timelineNs(atFileNs: fileEnd)
+                guard outputEnd>outputStart else { continue }
+                if destination==nil {
+                    destination=composition.addMutableTrack(withMediaType: .audio,preferredTrackID: kCMPersistentTrackID_Invalid)
+                    guard let destination else { throw RenderError.write("Cannot create recording audio track") }
+                    parameter=AVMutableAudioMixInputParameters(track: destination)
+                }
+                let position=CMTime(value: outputStart-range.lowerBound,timescale: 1_000_000_000)
+                let inserted=CMTime(value: fileEnd-fileStart,timescale: 1_000_000_000)
+                try destination!.insertTimeRange(CMTimeRange(start: CMTime(value: fileStart,timescale: 1_000_000_000),duration: inserted),of: source,at: position)
+                destination!.scaleTimeRange(CMTimeRange(start: position,duration: inserted),toDuration: CMTime(value: outputEnd-outputStart,timescale: 1_000_000_000))
+                // AVAudioMix ramps amplitude linearly; short segments approximate the dB curve.
+                // Restart at every Core boundary to preserve abrupt mute/automation changes.
+                var time=outputStart
+                while time<outputEnd {
+                    let next=time+min(20_000_000,outputEnd-time)
+                    parameter!.setVolumeRamp(fromStartVolume: row.gain(atTimelineNs: time),toEndVolume: row.gain(atTimelineNs: next),timeRange: CMTimeRange(start: CMTime(value: time-range.lowerBound,timescale: 1_000_000_000),duration: CMTime(value: next-time,timescale: 1_000_000_000)))
+                    time=next
+                }
+            }
+            if let parameter { parameters.append(parameter) }
         }
     }
     private func temporaryDirectory() throws -> URL {

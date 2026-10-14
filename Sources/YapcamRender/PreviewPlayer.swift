@@ -16,6 +16,7 @@ public struct PreviewMetrics: Sendable {
     @Published public private(set) var error: String?
     @Published public private(set) var metrics = PreviewMetrics()
     let project: any RenderProjectSource
+    private(set) var renderProject: any RenderProjectSource
     let compositor: FrameCompositor
     let queue: MTLCommandQueue
     private var observation: ProjectObservation?
@@ -40,6 +41,7 @@ public struct PreviewMetrics: Sendable {
 
     public init(project: any RenderProjectSource) throws {
         self.project = project
+        renderProject = try project.renderSnapshot()
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw RenderError.metal("Metal preview unavailable") }
         self.queue = queue; compositor = try FrameCompositor(device: device, project: project)
         rebuildAudio()
@@ -78,7 +80,7 @@ public struct PreviewMetrics: Sendable {
                 Task { @MainActor [weak self] in
                     guard let self, self.seekGeneration == generation else { return }
                     self.seeking = false
-                    if finished && self.isPlaying { player.play() }
+                    if finished && self.isPlaying && !self.audioLoading { player.play() }
                     self.view?.needsDisplay = true
                 }
             }
@@ -88,8 +90,11 @@ public struct PreviewMetrics: Sendable {
     public func invalidate() {
         // Rebuild the same clip mapping after edits; keep the current timeline location.
         let playing = isPlaying
+        pause()
+        do { renderProject = try project.renderSnapshot() }
+        catch { self.error=error.localizedDescription; audioPreparationFailed=true; return }
         compositor.invalidateSources()
-        pause(); seek(toNs: currentNs, precise: true); rebuildAudio()
+        seek(toNs: currentNs, precise: true); rebuildAudio()
         if playing { play() }
         view?.needsDisplay = true
     }
@@ -98,11 +103,10 @@ public struct PreviewMetrics: Sendable {
         let generation = audioGeneration
         player?.pause(); player = nil; audioTimeline = nil; audioLoading = true; audioPreparationFailed = false; seeking = false
         guard project.durationNs > 0 else { audioLoading = false; return }
-        let source = project
+        let source = renderProject
         audioTask = Task { [weak self] in
             do {
-                let snapshot = try source.renderSnapshot()
-                let timeline = try await Task.detached(priority: .userInitiated) { try AudioTimeline(project: snapshot, range: 0..<snapshot.durationNs) }.value
+                let timeline = try await Task.detached(priority: .userInitiated) { try AudioTimeline(project: source, range: 0..<source.durationNs) }.value
                 guard !Task.isCancelled, let self, self.audioGeneration == generation else { return }
                 self.audioTimeline = timeline; self.error = nil
                 if timeline.hasAudio {
@@ -111,10 +115,11 @@ public struct PreviewMetrics: Sendable {
                     let time = CMTime(value: self.currentNs, timescale: 1_000_000_000)
                     await player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
                     guard !Task.isCancelled, self.audioGeneration == generation else { return }
-                    if self.isPlaying { player.play() }
                 }
                 self.audioLoading = false
                 self.anchorNs = self.currentNs; self.anchorHost = ProcessInfo.processInfo.systemUptime
+                // A user seek can supersede the initial audio positioning while it awaits.
+                if self.isPlaying && !self.seeking { self.player?.play() }
             } catch {
                 guard let self, self.audioGeneration == generation else { return }
                 self.audioLoading = false; self.audioPreparationFailed = true; self.error = error.localizedDescription
@@ -149,13 +154,13 @@ public struct PreviewMetrics: Sendable {
         guard let drawable = view.currentDrawable, let cb = queue.makeCommandBuffer() else { dropped += 1; return }
         drawPending = true
         let ns = currentNs, revision = redrawRevision
-        let source = project, compositor = compositor
+        let source = renderProject, compositor = compositor
         let resources = PreviewDrawResources(drawable: drawable,commandBuffer: cb)
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let receiver = self else { return }
             do {
                 let frame = try source.frame(atNs: ns)
-                try compositor.encode(frame,to: resources.drawable.texture,in: resources.commandBuffer)
+                try compositor.encode(frame,from: source,to: resources.drawable.texture,in: resources.commandBuffer)
                 resources.commandBuffer.present(resources.drawable)
                 resources.commandBuffer.addCompletedHandler { buffer in
                     let message = buffer.status == .error ? (buffer.error?.localizedDescription ?? "Preview GPU failed") : nil

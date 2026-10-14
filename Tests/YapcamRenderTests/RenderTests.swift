@@ -4,6 +4,7 @@ import Metal
 import AVFoundation
 import CoreVideo
 import ImageIO
+import YapcamCore
 
 final class TestSource: RenderProjectSource, @unchecked Sendable {
     let packageURL: URL
@@ -23,6 +24,13 @@ final class TestSource: RenderProjectSource, @unchecked Sendable {
     func renderLayers(atNs: Int64) throws -> [RenderLayer] { layers }
 }
 
+private final class CancellationProgress: @unchecked Sendable {
+    private let lock=NSLock()
+    private var maximum=0.0
+    func record(_ value: Double) { lock.withLock { maximum=max(maximum,value) } }
+    var value: Double { lock.withLock { maximum } }
+}
+
 final class RenderTests: XCTestCase {
     var temp: URL!
     var fixture: URL { URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam") }
@@ -33,7 +41,7 @@ final class RenderTests: XCTestCase {
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: temp) }
     func device() throws -> MTLDevice { try requireRenderDevice() }
-    func pixels(_ frame: YcFrame, source: TestSource, width: Int = 64, height: Int = 40) throws -> [UInt8] {
+    func pixels(_ frame: YcFrame, source: any RenderProjectSource, width: Int = 64, height: Int = 40) throws -> [UInt8] {
         let d = try device(), compositor = try FrameCompositor(device: d, project: source)
         let texture = try XCTUnwrap(d.makeTexture(descriptor: .texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb, width: width, height: height, mipmapped: false)))
         let cb = try XCTUnwrap(d.makeCommandQueue()?.makeCommandBuffer())
@@ -92,6 +100,81 @@ final class RenderTests: XCTestCase {
         let withText=TestSource(package: temp,layers: [text])
         let c=try pixels(withText.frame(atNs: 0),source: withText)
         XCTAssertNotEqual(a,c)
+    }
+    func testRealCoreHighlightsDrawOnceAndFadeFollowsTheCompleteComposition() throws {
+        _ = try device()
+        let package=temp.appendingPathComponent("effects.yapcam")
+        try FileManager.default.copyItem(at: fixture,to: package)
+        let project=try Project.create(package: package)
+        try project.apply(.batch([
+            .set(path: "canvas.padding",value: .number(540)),
+            .set(path: "canvas.background.color",value: .array([1,1,1,1].map(JSONValue.number))),
+            .set(path: "canvas.shadow.opacity",value: .number(0)),
+            .set(path: "canvas.highlights",value: .array([.object([
+                "id": .string("mask"),"tl_start_ns": .integer(0),"tl_end_ns": .integer(2_000_000_000),
+                "space": .string("canvas"),"rect": .array([0.25,0.25,0.5,0.5].map(JSONValue.number)),
+                "fill": .array([1,0,0,0.5].map(JSONValue.number)),"stroke_width": .number(0),
+                "dim_opacity": .number(0),"radius": .number(0)
+            ])]))
+        ]))
+        let source: any RenderProjectSource=try project.snapshot()
+        let plain=try pixels(source.frame(atNs: 500_000_000),source: source,width: 64,height: 36)
+        let center=(18*64+32)*4
+        XCTAssertEqual(Double(plain[center]),187,accuracy: 2)
+        XCTAssertEqual(Double(plain[center+2]),255,accuracy: 1)
+        try project.apply(.batch([
+            .set(path: "canvas.animation.entrance",value: .string("fade")),
+            .set(path: "canvas.animation.entrance_duration_ns",value: .integer(1_000_000_000))
+        ]))
+        let fadedSource: any RenderProjectSource=try project.snapshot()
+        let faded=try pixels(fadedSource.frame(atNs: 500_000_000),source: fadedSource,width: 64,height: 36)
+        XCTAssertEqual(Double(faded[center]),137,accuracy: 2)
+        XCTAssertEqual(Double(faded[center+2]),187,accuracy: 2,"Fade must be after the red highlight")
+    }
+    func testTranslucentHighlightStrokeCompositesOverFillAndExtendsOutside() throws {
+        let layer=RenderLayer(content: .highlight(dimOpacity: 0,fill: SIMD4(1,0,0,0.5),stroke: SIMD4(0,0,1,0.5),strokeWidth: 8),rect: CGRect(x: 16,y: 8,width: 32,height: 24))
+        let source=TestSource(package: temp,layers: [layer]) { ns in
+            var frame=YcFrame(); frame.tl_ns=ns; frame.canvas_w=64; frame.canvas_h=40
+            frame.background_color=(1,1,1,1); frame.click_progress = -1; return frame
+        }
+        let bytes=try pixels(source.frame(atNs: 0),source: source,width: 64,height: 40)
+        func check(x: Int,expectedBGRA: [Double]) {
+            let start=(20*64+x)*4
+            for channel in 0..<4 { XCTAssertEqual(Double(bytes[start+channel]),expectedBGRA[channel],accuracy: 2) }
+        }
+        check(x: 32,expectedBGRA: [187,187,255,255]) // Red fill over white.
+        check(x: 17,expectedBGRA: [225,137,187,255]) // Blue stroke over red fill over white.
+        check(x: 13,expectedBGRA: [255,187,187,255]) // Outer half of centered stroke.
+        check(x: 10,expectedBGRA: [255,255,255,255]) // Beyond the stroke.
+    }
+    func testHighlightFillAndOutsideDimHaveComplementaryEdgeCoverage() throws {
+        let layer=RenderLayer(content: .highlight(dimOpacity: 1,fill: SIMD4(1,1,1,1),stroke: .zero,strokeWidth: 0),rect: CGRect(x: 16.5,y: 8,width: 32,height: 24))
+        let source=TestSource(package: temp,layers: [layer]) { ns in
+            var frame=YcFrame(); frame.tl_ns=ns; frame.canvas_w=64; frame.canvas_h=40
+            frame.background_color=(1,0,0,1); frame.click_progress = -1; return frame
+        }
+        let bytes=try pixels(source.frame(atNs: 0),source: source,width: 64,height: 40)
+        let edge=(20*64+16)*4
+        for channel in 0..<3 { XCTAssertEqual(Double(bytes[edge+channel]),187,accuracy: 2,"Opaque complementary coverage must not leak the red canvas") }
+        XCTAssertEqual(bytes[edge+3],255)
+    }
+    func testLostCameraTailDrawsBackgroundWithoutAStaleDeviceFrame() throws {
+        _ = try device()
+        let package=temp.appendingPathComponent("camera-lost.yapcam")
+        try FileManager.default.copyItem(at: fixture,to: package)
+        let url=package.appendingPathComponent("recording/session.json")
+        var manifest=try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var segment=try XCTUnwrap((manifest["segments"] as? [[String: Any]])?.first)
+        var files=try XCTUnwrap(segment["files"] as? [String: String])
+        files["camera"]="seg-000/screen.mov"; segment["files"]=files; segment["duration_ns"]=5_000_000_000
+        manifest["segments"]=[segment]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: url)
+        let source=TestSource(package: package,duration: 5_000_000_000)
+        var frame=try source.frame(atNs: 4_000_000_000)
+        let background=try pixels(frame,source: source)
+        frame.camera.present=1; frame.camera.segment=0; frame.camera.file_ns=4_000_000_000
+        frame.camera_dest = .init(x: 0,y: 0,w: 320,h: 200); frame.camera_opacity=1
+        XCTAssertEqual(try pixels(frame,source: source),background)
     }
     func testGaussianBackgroundReducesSourceContrast() throws {
         _ = try device()
@@ -174,12 +257,20 @@ final class RenderTests: XCTestCase {
     }
     func testCancellationAfterProgressRemovesWriterPartial() async throws {
         _ = try device()
-        let source=TestSource(package: temp,duration: 3_000_000_000), output=temp.appendingPathComponent("mid-cancel.mp4")
-        let exporter=try Exporter(project: source,settings: .init(outputHeight: 720,includeAudio: false),destination: output)
-        let task=Task { try await exporter.run { value in if value>0.1 { withUnsafeCurrentTask { $0?.cancel() } } } }
-        do { _ = try await task.value; XCTFail("Expected mid-export cancellation") } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
-        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: temp.path).contains { $0.hasPrefix(".yapcam-export-") })
+        for includeAudio in [false,true] {
+            let overlays: [AudioOverlay]=includeAudio ? [.init(source: .music(.calm),startNs: 0,endNs: 3_000_000_000)] : []
+            let source=TestSource(package: temp,duration: 3_000_000_000,overlays: overlays)
+            let output=temp.appendingPathComponent("mid-cancel-\(includeAudio).mp4")
+            let exporter=try Exporter(project: source,settings: .init(outputHeight: 720,includeAudio: includeAudio),destination: output)
+            let progress=CancellationProgress()
+            let task=Task { try await exporter.run { value in progress.record(value); if value>0.1 { withUnsafeCurrentTask { $0?.cancel() } } } }
+            let timeout=Task { try await Task.sleep(for: .seconds(20)); task.cancel() }
+            defer { timeout.cancel() }
+            do { _ = try await task.value; XCTFail("Expected mid-export cancellation") } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+            XCTAssertGreaterThan(progress.value,0.1,"The watchdog cancelled a stalled export before it reached the test's cancellation point")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+            XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: temp.path).contains { $0.hasPrefix(".yapcam-export-") })
+        }
     }
     func testCancelledExportRemovesPartialAndPreservesExistingFile() async throws {
         let source = TestSource(package: temp, duration: 10_000_000_000), output = temp.appendingPathComponent("cancel.mp4")

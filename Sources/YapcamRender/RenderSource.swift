@@ -23,7 +23,11 @@ public protocol RenderProjectSource: AnyObject, Sendable {
     func renderBackgroundAsset(index: UInt32) throws -> URL
     var renderConfiguration: RenderConfiguration { get }
     func renderLayers(atNs: Int64) throws -> [RenderLayer]
+    /// Frame and effects must come from the same immutable edit state.
+    func renderEffects(atNs: Int64, canvasSize: CGSize) throws -> RenderFrameEffects
     func renderAudioOverlays() throws -> [AudioOverlay]
+    /// Package-relative, already-retimed recording intervals; nil selects legacy clip mapping.
+    func renderAudioRanges() throws -> [RenderAudioRange]?
 }
 
 public struct RenderClip: Sendable, Decodable {
@@ -70,5 +74,9 @@ func packageMediaURL(_ relative: String, root: URL) throws -> URL {
 public extension RenderProjectSource {
     var renderConfiguration: RenderConfiguration { RenderConfiguration() }
     func renderLayers(atNs: Int64) throws -> [RenderLayer] { [] }
+    func renderEffects(atNs: Int64, canvasSize: CGSize) throws -> RenderFrameEffects {
+        RenderFrameEffects(configuration: renderConfiguration,layers: try renderLayers(atNs: atNs))
+    }
     func renderAudioOverlays() throws -> [AudioOverlay] { [] }
+    func renderAudioRanges() throws -> [RenderAudioRange]? { nil }
 }
