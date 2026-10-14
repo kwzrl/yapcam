@@ -1,101 +1,128 @@
-# capture status — M1 + M2 implemented; verification/integration gates below
+READY 1f61d47 + uncommitted M2 follow-up: integrated build/tests green; Lead checkpoint required (.git read-only)
 
-No READY commit yet: local Git index writes and GitHub write-tool approval are
-blocked. All work is in capture-owned files on team/capture. Lead can commit/review
-from an unrestricted context; do not interpret compilation as a verified real capture.
+# capture status
 
-## Latest Lead sync
-- Main is at 129c5f6 (signing-keychain unlock fix). Retried the requested commit:
-  git add still fails creating the shared worktree index.lock (Operation not permitted).
-  `git rebase main` refuses the remaining unstaged changes. No commit/rebase occurred.
-- Validated main's 129c5f6 build script against this worktree through a temporary
-  script copy (build-root override only; ad-hoc fallback disabled). Build, signing
-  with `Yapcam Dev Signing`, and signature verification all passed without dialogs.
-- Re-ran repository Swift/Rust suites and capture harness: all enabled tests pass
-  (15 capture passes, 1 hardware integration skip). Patch snapshot for Lead:
-  `/tmp/yapcam-capture-handoff.patch` (all capture-owned source/tests/status changes).
+## Current handoff
+- Further M2 work is complete in capture-owned files and ready for Lead's next commit.
+  Lead owns commits/push and real media verification under the agreed sandbox workflow.
+- Capture's independent implementation backlog is empty. Host acceptance gates and
+  cross-team handoffs remain open in Next below; implementation is not hardware verification.
+- `git rebase main` was attempted with a clean tree and failed creating rebase-merge
+  (Operation not permitted). Please rebase this worktree externally before the next
+  checkpoint. Local manifest still predates test registration; no shared files edited.
+- Compatibility was verified against a temporary export of main 35ba7c5 with only
+  capture source/tests overlaid. Snapshot: `/tmp/yapcam-capture-main-xxcz46te`.
 
-## Done (verified)
-- Public discovery, source/options/error types, permissions, exclusions and complete
-  RecordingSession API compile under Swift 6/macOS 15.
-- Main's `scripts/build-app.sh` compiles the Rust library and Swift app and signs/
-  verifies with `Yapcam Dev Signing` / `mov.yapcam.Yapcam` (see latest sync above).
-  SwiftPM's nested sandbox is unavailable, so an external temporary `swift` shim
-  adds `--disable-sandbox`; tracked build scripts were not edited by capture.
-- Existing repository `swift test --disable-sandbox -j 4` and
-  `CARGO_BUILD_JOBS=4 cargo test --manifest-path core/Cargo.toml` passed.
-- Capture tests run in a temporary standalone SwiftPM harness until Lead registers
-  the target: integer host-time conversion, exact JSON keys/round trips, atomic
-  previous-version writes, event serialization/tail repair, low-disk threshold,
-  invalid lifecycle transitions/cancel, unavailable devices, recovery traversal
-  rejection, target/options persistence, 10,000 pause-removed segments without drift,
-  and Retina/multi-display/window projection math, normalized microphone RMS,
-  and ScreenCaptureKit error mapping. Final harness run: 15 passed, 1 hardware HEVC
-  integration test explicitly skipped (16 discovered). No tests requested permissions.
-- `gitleaks dir` on capture source, tests and status: no leaks. No media assets or
-  dependencies were added.
+## Verified for this follow-up (2026-10-15 00:04 CEST)
+- Snapshot `scripts/build-app.sh` passed: Rust + full integrated Swift app, signed and
+  verified using `Yapcam Dev Signing` / `mov.yapcam.Yapcam`, without keychain dialogs.
+  Temporary Swift shim adds --disable-sandbox; tracked scripts were unchanged.
+- Snapshot `swift test --disable-sandbox -j 4`: 82 passed, 8 hardware/media skips,
+  zero failures (Swift Testing: 74 pass + 1 skip; XCTest: 8 pass + 7 skips).
+  Capture subset: 48 pass + 1 explicit HEVC integration skip.
+- Snapshot `CARGO_BUILD_JOBS=4 cargo test --manifest-path core/Cargo.toml`: 20 pass.
+- `git diff --check` and gitleaks scans of capture source/tests passed.
+- New tests simulate device loss, optional/essential writer failures, stop cutoffs,
+  VFR caps, cancelled cleanup waiting, stationary-pointer/window reprojection, exact
+  audio durations, thumbnail sizing, preference migration, stream exclusion policy,
+  recovery timing/sidecar fallback, oversized event lines, write rollback and locks.
+  Test media sinks exercise routing; they do not count as real encoder verification.
+- Ten additional tests now exercise the real RecordingSession coordinator and disk
+  manifests: low disk during capture, revoked screen permission, source loss,
+  pause/resume, stale callbacks, cancelled cleanup during startup, failed writer
+  finalization, window resize/scale across pause, display resize refusal and missing
+  source at startup. They verify interrupted status, cleanup counts and lock release.
+- Five input translation tests verify area-relative/outside coordinates, drag/click
+  buttons, signed scroll deltas, opt-in Unicode/modifier keys, monotonic timestamps
+  and invalid-coordinate rejection without posting events or touching permissions.
 
-## Implemented (real capture verification still open)
-- M1: display ScreenCaptureKit stream → native-size cursor-free HEVC `screen.mov`
-  (2 s movie fragments), separate AAC `system.m4a`, timestamp offsets, start/finish
-  manifests, listen-only CGEventTap + NSEvent fallback, mouse/click/scroll and opt-in
-  keys, deduplicated system cursor PNGs/metadata, app exclusions, pause/resume to
-  new segments, stop, cancel/delete and signed-app self-test helper.
-- M2: window/area targets, ScreenCaptureKit-native scale, global point coordinates,
-  frame-metadata mapping for moving/resizing windows, AVCapture camera/mic with
-  host-clock conversion and separate files, mic RMS meter, unavailable-device and
-  runtime/disconnect warnings while screen continues, 30/60 fps, source/permission
-  monitoring, low-disk clean finalization, interrupted-package discovery/recovery.
-- Recovery preserves original media, salvages readable tracks, repairs event tails,
-  rebuilds pause-removed offsets, and refuses recovery if no screen track is readable.
-  `track-starts.json` is an additive per-segment crash sidecar so first-sample offsets
-  survive even if the app dies before a main-actor manifest update.
+## M2 changes since 1f61d47
+- Window picker thumbnails from SCScreenshotManager, limited to four concurrent
+  requests. A closing window may have a nil image while source discovery still succeeds.
+- Backward-compatible recording options for desktop icon / notification capture.
+  Icon exclusion is stream-only: Finder preferences stay unchanged and folder windows
+  are retained. Filters refresh to retain newly opened Finder folders. Notification
+  exclusion targets NotificationCenter and remains subject to macOS limitations.
+- Device loss truncates future optional-track samples, warns once and resets mic
+  metering while screen capture continues. AVCapture configuration is balanced on error.
+- Fixed an AV sync bug: output PTS/DTS are converted from the session's
+  synchronizationClock, not the input port's native clock. Exact PCM durations such
+  as 1/48000 are retained, avoiding nanosecond rounding of every audio sample.
+- Stop/pause rejects later sample timestamps. Delayed callbacks belong to their
+  segment, so they cannot fail or change a resumed session. Cancel cleanup still
+  waits for in-flight work if its calling Task has already been cancelled.
+- Cursor positions update when a window moves beneath a stationary pointer.
+  Window resume accepts resize/display changes using the original fixed output
+  surface; display/area resume still refuses changed dimensions/scale.
+- Recovery keeps finalized segment durations authoritative (audio packets can extend
+  past stop), falls back to the previous sidecar, streams bounded event-tail repair,
+  retains previous logs, and rejects segment symlinks leaving the package.
+- An advisory recording/.capture.lock prevents recovery of live/paused sessions.
+  OS process death releases it automatically; an empty stale file is harmless.
+- Internal live-service injection makes session failure acceptance tests deterministic;
+  the public initializer still selects the real Apple framework implementations.
 
-## Assumptions
-- Screen/Input Monitoring preflight APIs cannot distinguish never requested from
-  denied; report denied until granted, with explicit request APIs.
-- Missing/denied optional mic/camera warn and continue. Writer failures in optional
-  device tracks are isolated from screen recording; screen/system-audio failures
-  finalize what is possible and preserve an interrupted package.
-- Media files start at each track's first host PTS; `track_start_ns` retains the
-  offset relative to segment host start. Events use segment-relative nanoseconds.
-- Capture dimensions are fixed during a segment; moved/resized window events map
-  into its fixed output surface using SC frame metadata. Resume rejects changed
-  source dimensions/scale because the v1 contract has one global screen geometry.
-- Window thumbnails are optional and currently nil; discovery provides real titles,
-  app identity and frames without synchronously screenshotting every window.
+## Capture feature handoff / assumptions
+- REC-01/02/03/08/10/11, AUD-01 and CUR-01/02: implementation present; host media
+  checks pending. REC-19: full session fault simulation passes, including finalized
+  segment metadata and preserved interrupted package below 1,000,000,000 free bytes.
+- REC-12: scale/multi-display unit math passes; hardware gate remains limited.
+- REC-13/15: additive stream-filter options implemented and policy-tested; UI wiring
+  and actual Finder/banner behavior remain open. Assumption: hiding icons means
+  excluding them from the recording; desktop preferences never need restoration.
+- REC-18: recovery implementation/fixtures pass; UI relaunch prompt and real process
+  kill/reopen are external acceptance gates. CUR-10: opt-in key capture tested;
+  rendering the overlay belongs to render.
+- AUD-02/03, CAM-01/06: capture/device-loss code and simulated routing pass; actual
+  hardware timing/disconnects remain limited. REC-17 stays limited without a device;
+  an available iPhone Mirroring window uses ordinary window capture.
+- Window recordings keep the initial encoded dimensions across a resize or resume;
+  content and cursor coordinates fit that surface. Display/area geometry changes
+  across a pause require a new recording. These are reversible policy decisions.
+- FEATURES.md exists on main but not this stale worktree; read via `git show main`.
+  QA owns its rows; please reconcile statuses from the evidence above.
 
-## Blockers / verification limits
-- `git add` failed: `Unable to create .../.git/worktrees/capture/index.lock:
-  Operation not permitted`. Cannot commit locally or produce truthful READY <commit>
-  lines here. No main changes, permission resets, or sudo attempted.
-- An authorized GitHub alternative was checked: repository push access is available,
-  but `github_create_tree` was rejected with `MCP tool call requires approval, but
-  approval policy is never`. No remote tree/commit/branch was created. origin has no
-  team/capture branch yet. Lead must commit/push from an allowed context.
-- Hardware HEVC test was attempted and fails in the command sandbox with IOSurface/
-  VideoToolbox service errors (`kIOSurfaceMethodSetCoreVideoBridgedKeys`, AV -11800).
-  It remains an explicit opt-in integration test, not counted as passing.
-- Signed temporary self-test app verifies its signature but aborts when run from
-  this command sandbox; LaunchServices also rejects launch (-10827). No permission
-  requests/reset were made. Real ffprobe/event-sync checks must run from the regular
-  signed app outside this sandbox.
-- No camera/microphone, one non-Retina display: real device loss, Retina and
-  multi-display hardware verification remain open. No recordings committed.
-- docs/FEATURES.md does not exist yet on this branch; capture M2 follows the brief.
+## Additive APIs for UI / QA
+- `CaptureSources.load()` now supplies thumbnails.
+  `load(includeWindowThumbnails: false)` avoids screenshots for device polling.
+  `thumbnail(for: windowID, maxSize: CGSize(width: 320, height: 200))` refreshes one.
+- `RecordingOptions.hideDesktopIcons` defaults false; `captureNotifications` defaults
+  true. Old serialized options decode with those defaults. UI needs to wire both.
+- `CaptureSelfTest.run` retains existing calls and additionally accepts
+  hideDesktopIcons, captureNotifications and recordKeystrokes. Existing parameters
+  cover window/area target, camera/mic, 30/60 fps, and pauseAfter.
 
-## Requests (to Lead)
-- Register `.testTarget(name: "YapcamCaptureTests", dependencies: ["YapcamCapture"])`
-  in Package.swift. Capture cannot edit the manifest.
-- UI: wire `--capture-selftest <seconds>` to
-  `try await CaptureSelfTest.run(seconds:)`, log returned package/error and terminate.
-  Helper writes only under Movies/Yapcam/QA/capture by default. Optional arguments
-  support window/area, 30/60 fps, camera/mic and pauseAfter for lifecycle QA.
-- Run `YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test --filter actualHEVCWriterAndInterruptedRecovery`
-  outside the command sandbox after registering the target. Then run signed app
-  `--capture-selftest 5`, ffprobe both tracks, compare track_start_ns and event t.
-- Document the optional `track-starts.json` crash sidecar in FORMATS.md if retained;
-  it adds no required session JSON keys and readers can ignore it.
-- Arrange other-model-family critical-code review before merging (TEAMS rule 10).
-- Commit capture-owned work and push team/capture from an unrestricted context if
-  this environment cannot be granted access to its declared shared Git writable root.
+## Private recording files — Request for Lead / FORMATS.md
+- Keep optional `recording/seg-XXX/track-starts.json`, for example:
+  `{"screen":12000000,"system_audio":10000000,"mic":20000000,"camera":30000000}`.
+- Keys are the session track keys; values are nonnegative signed Int64 nanoseconds
+  relative to that segment's host_start_ns. They use the same meaning as track_start_ns.
+- Written synchronously on the sample queue when each track writer is first created,
+  using temporary file -> fsync -> atomic rename; prior version is .prev.
+  This makes offsets durable before the main-actor session.json update can run.
+- Recovery prefers valid session offsets, fills gaps from the sidecar, then its .prev.
+  Readers can ignore these optional files; session.json has no new required keys.
+- Also document optional `recording/.capture.lock`: an empty advisory lock file only,
+  never recording metadata. Its presence alone does not mean a recording is active.
+
+## Real verification / hardware limits
+- Lead runs signed --capture-selftest and YAPCAM_CAPTURE_MEDIA_TESTS=1 outside the
+  command sandbox, and appends results here. UI is wiring the flag per latest sync.
+- Still verify display/window/area outputs, pause/resume, own-window exclusion,
+  desktop icons + visible Finder folders, notifications, first-track offsets/events,
+  kill/recover, and a resized/moved window across a pause with ffprobe/playback.
+- No camera/mic, one non-Retina display: device-loss routing and geometry are simulated;
+  actual device sync/loss, Retina and multiple-display hardware remain unverified.
+- No permission resets, sudo, recordings, credentials, new dependencies or other
+  teams' source changes. Other-model-family review remains required before merge.
+
+## Next
+1. Lead: checkpoint all capture-owned working-tree changes, rebase onto main, run
+   required cross-family review and push team/capture. Shared Git metadata remains
+   read-only here; no new local main integration beyond 35ba7c5 was visible.
+2. Lead/UI: finish --capture-selftest wiring, then run the host checks listed above
+   and the opt-in HEVC recovery test. Append results here; capture will fix findings.
+3. UI: wire icon/notification options and recovery prompt. Lead: add the optional
+   sidecar and advisory lock descriptions to FORMATS.md. QA: reconcile feature rows.
+4. Hardware follow-up: camera/mic, Retina and a second display. No independent
+   capture implementation item remains before host results or integration feedback.

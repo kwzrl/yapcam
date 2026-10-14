@@ -5,7 +5,8 @@ extension RecordingSession {
     public nonisolated static func interruptedPackages(in directory: URL) -> [URL] {
         let children = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         return children.filter { url in
-            guard url.pathExtension == "yapcam", let manifest = try? Recovery.readManifest(url) else { return false }
+            guard url.pathExtension == "yapcam", RecordingPackageLease.isAvailable(url),
+                  let manifest = try? Recovery.readManifest(url) else { return false }
             return manifest.status == "recording" || manifest.status == "interrupted"
         }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
@@ -24,7 +25,9 @@ enum Recovery {
         catch { return try PackageIO.readManifest(at: url.appendingPathExtension("prev")) }
     }
 
-    static func recover(_ package: URL) throws -> URL {
+    static func recover(_ package: URL, inspectMedia: (URL, Bool) throws -> Int64 = { try inspect($0, video: $1) }) throws -> URL {
+        let lease = try RecordingPackageLease(package: package)
+        defer { withExtendedLifetime(lease) {} }
         var manifest = try readManifest(package)
         guard manifest.schemaVersion == 1 else { throw CaptureError.writerFailed("Unsupported recording schema \(manifest.schemaVersion)") }
         if manifest.status == "complete" { return package }
@@ -33,22 +36,30 @@ enum Recovery {
         }
         var recovered: [SegmentMetadata] = []
         var sourceOffset: Int64 = 0
+        let packageRoot = package.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         for var segment in manifest.segments {
             guard segment.dir == String(format: "seg-%03d", segment.index), segment.index >= 0 else {
                 throw CaptureError.writerFailed("Invalid segment directory")
             }
             let directory = package.appendingPathComponent("recording/\(segment.dir)")
-            let sidecar = directory.appendingPathComponent("track-starts.json")
-            if let bytes = try? Data(contentsOf: sidecar), let starts = try? JSONDecoder().decode([String: Int64].self, from: bytes) {
-                segment.trackStartNs.merge(starts) { existing, _ in existing }
+            guard directory.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(packageRoot) else {
+                throw CaptureError.writerFailed("Segment directory leaves the recording package")
+            }
+            for sidecar in ["track-starts.json", "track-starts.json.prev"] {
+                let url = directory.appendingPathComponent(sidecar)
+                guard url.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(packageRoot) else { continue }
+                if let bytes = try? Data(contentsOf: url), let starts = try? JSONDecoder().decode([String: Int64].self, from: bytes) {
+                    segment.trackStartNs.merge(starts.filter { $0.value >= 0 }) { existing, fallback in existing >= 0 ? existing : fallback }
+                }
             }
             var files: [String: String] = [:]
             var starts: [String: Int64] = [:]
             var duration: Int64 = 0
             for (key, filename) in [("screen", "screen.mov"), ("camera", "camera.mov"), ("mic", "mic.m4a"), ("system_audio", "system.m4a")] {
                 let url = directory.appendingPathComponent(filename)
-                guard let start = segment.trackStartNs[key], start >= 0,
-                      let mediaDuration = try? inspect(url, video: key == "screen" || key == "camera"), mediaDuration > 0,
+                guard url.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(packageRoot),
+                      let start = segment.trackStartNs[key], start >= 0,
+                      let mediaDuration = try? inspectMedia(url, key == "screen" || key == "camera"), mediaDuration > 0,
                       start <= Int64.max - mediaDuration else { continue }
                 files[key] = "\(segment.dir)/\(filename)"
                 starts[key] = start
@@ -58,9 +69,14 @@ enum Recovery {
             guard files["screen"] != nil else { continue }
             segment.files = files; segment.trackStartNs = starts
             segment.srcStartNs = sourceOffset
-            duration = max(duration, segment.durationNs)
+            // A finalized segment's stop time is authoritative. Audio packets can
+            // straddle it; extending the segment would shift every later segment.
+            if segment.durationNs > 0 { duration = segment.durationNs }
             segment.durationNs = duration
             let eventURL = directory.appendingPathComponent("events.jsonl")
+            guard eventURL.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(packageRoot) else {
+                throw CaptureError.writerFailed("Input event log leaves the recording package")
+            }
             try repairEvents(at: eventURL, duration: duration)
             segment.files["events"] = "\(segment.dir)/events.jsonl"
             let cursors = directory.appendingPathComponent("cursors.json")
@@ -78,15 +94,33 @@ enum Recovery {
     }
 
     static func repairEvents(at url: URL, duration: Int64) throws {
-        let data = (try? Data(contentsOf: url)) ?? Data()
-        var repaired = Data()
         var last: Int64 = 0
-        for line in data.split(separator: 0x0a) {
-            guard let event = try? JSONDecoder().decode(CaptureEvent.self, from: Data(line)),
-                  event.t >= last, event.t >= 0, event.t <= duration else { continue }
-            repaired.append(contentsOf: line); repaired.append(0x0a); last = event.t
+        let input: FileHandle?
+        if FileManager.default.fileExists(atPath: url.path) { input = try FileHandle(forReadingFrom: url) }
+        else { input = nil }
+        defer { try? input?.close() }
+        try PackageIO.writeStreaming(to: url) { output in
+            var line = Data()
+            var oversized = false
+            func flush() throws {
+                defer { line.removeAll(keepingCapacity: true); oversized = false }
+                guard !oversized, let event = try? JSONDecoder().decode(CaptureEvent.self, from: line),
+                      event.t >= last, event.t >= 0, event.t <= duration else { return }
+                line.append(0x0a)
+                try output.write(contentsOf: line)
+                last = event.t
+            }
+            while let chunk = try input?.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                for byte in chunk {
+                    if byte == 0x0a { try flush() }
+                    else if !oversized {
+                        if line.count < 1_048_576 { line.append(byte) }
+                        else { oversized = true; line.removeAll(keepingCapacity: true) }
+                    }
+                }
+            }
+            if !line.isEmpty || oversized { try flush() }
         }
-        try repaired.write(to: url, options: .atomic)
     }
 
     private final class Inspection: @unchecked Sendable {

@@ -10,6 +10,8 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private let fps: Int
     private var sessions: [AVCaptureSession] = [] // control queue only
     private var observers: [NSObjectProtocol] = []
+    private let sessionLock = NSLock()
+    private var outputSessions: [ObjectIdentifier: AVCaptureSession] = [:] // sessionLock
     var onWarning: (@Sendable (String) -> Void)?
 
     init(writer: SegmentWriter, fps: Int) { self.writer = writer; self.fps = fps }
@@ -32,6 +34,9 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                         guard let device = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: media, position: .unspecified)
                             .devices.first(where: { $0.uniqueID == id }), device.isConnected else { throw CaptureError.deviceLost(id) }
                         session.beginConfiguration()
+                        var committed = false
+                        defer { if !committed { session.commitConfiguration() } }
+                        var sampleOutput: AVCaptureOutput?
                         let input = try AVCaptureDeviceInput(device: device)
                         guard session.canAddInput(input) else { throw CaptureError.deviceLost(device.localizedName) }
                         session.addInput(input)
@@ -43,6 +48,7 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                             output.setSampleBufferDelegate(self, queue: self.writer.queue)
                             guard session.canAddOutput(output) else { throw CaptureError.deviceLost(device.localizedName) }
                             session.addOutput(output)
+                            sampleOutput = output
                             if let connection = output.connection(with: .video), connection.isVideoMirroringSupported {
                                 connection.automaticallyAdjustsVideoMirroring = false; connection.isVideoMirrored = false
                             }
@@ -67,17 +73,21 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                             output.setSampleBufferDelegate(self, queue: self.writer.queue)
                             guard session.canAddOutput(output) else { throw CaptureError.deviceLost(device.localizedName) }
                             session.addOutput(output)
+                            sampleOutput = output
                             result.mic = AudioMetadata(deviceName: device.localizedName, sampleRate: 48_000, channels: 1)
                         }
                         session.commitConfiguration()
+                        committed = true
+                        if let sampleOutput {
+                            self.sessionLock.withLock { self.outputSessions[ObjectIdentifier(sampleOutput)] = session }
+                        }
                         let name = device.localizedName
+                        let track: AuxiliaryTrack = media == .video ? .camera : .microphone
                         self.observers.append(NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: nil) { [weak self] _ in
-                            self?.onWarning?("\(name) stopped responding; screen recording continues.")
-                            if media == .audio { self?.writer.onMicLevel?(0) }
+                            self?.writer.deviceUnavailable(track, reason: "\(name) stopped responding; screen recording continues.")
                         })
                         self.observers.append(NotificationCenter.default.addObserver(forName: AVCaptureDevice.wasDisconnectedNotification, object: device, queue: nil) { [weak self] _ in
-                            self?.onWarning?("\(name) disconnected; screen recording continues.")
-                            if media == .audio { self?.writer.onMicLevel?(0) }
+                            self?.writer.deviceUnavailable(track, reason: "\(name) disconnected; screen recording continues.")
                         })
                         self.sessions.append(session)
                         session.startRunning()
@@ -99,6 +109,7 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         await withCheckedContinuation { continuation in
             control.async {
                 self.sessions.forEach { $0.stopRunning() }; self.sessions.removeAll()
+                self.sessionLock.withLock { self.outputSessions.removeAll() }
                 self.observers.forEach { NotificationCenter.default.removeObserver($0) }; self.observers.removeAll()
                 continuation.resume()
             }
@@ -106,28 +117,17 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // AVCaptureSession's clock is a host-clock-derived clock. Convert every PTS
-        // explicitly so device clock choice never creates screen/audio drift.
-        guard let session = connection.inputPorts.first?.input as? AVCaptureDeviceInput,
-              session.device.isConnected else { return }
-        let clock = output.connections.first?.inputPorts.first?.clock
-        let sample: CMSampleBuffer
-        if let clock {
-            var count = 0
-            guard CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count) == noErr else { return }
-            var timing = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
-            guard CMSampleBufferGetSampleTimingInfoArray(sampleBuffer, entryCount: count, arrayToFill: &timing, entriesNeededOut: &count) == noErr else { return }
-            for i in timing.indices {
-                timing[i].presentationTimeStamp = CMSyncConvertTime(timing[i].presentationTimeStamp, from: clock, to: CMClockGetHostTimeClock())
-                if timing[i].decodeTimeStamp.isNumeric {
-                    timing[i].decodeTimeStamp = CMSyncConvertTime(timing[i].decodeTimeStamp, from: clock, to: CMClockGetHostTimeClock())
-                }
-            }
-            var copy: CMSampleBuffer?
-            guard CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault, sampleBuffer: sampleBuffer,
-                sampleTimingEntryCount: count, sampleTimingArray: &timing, sampleBufferOut: &copy) == noErr, let copy else { return }
-            sample = copy
-        } else { sample = sampleBuffer }
-        writer.append(sample, track: output is AVCaptureVideoDataOutput ? "camera" : "mic")
+        guard let input = connection.inputPorts.first?.input as? AVCaptureDeviceInput,
+              input.device.isConnected else { return }
+        let track: AuxiliaryTrack = output is AVCaptureVideoDataOutput ? .camera : .microphone
+        // Output timestamps use the session synchronizationClock, not the input
+        // port's native device clock (AVCaptureSession.h documents this explicitly).
+        guard let session = sessionLock.withLock({ outputSessions[ObjectIdentifier(output)] }),
+              let clock = session.synchronizationClock else {
+            writer.deviceUnavailable(track, reason: "Capture device clock unavailable; screen recording continues.")
+            return
+        }
+        do { writer.append(try CaptureClock.hostSample(sampleBuffer, from: clock), track: track.rawValue) }
+        catch { writer.deviceUnavailable(track, reason: "Capture device timestamps invalid; screen recording continues.") }
     }
 }

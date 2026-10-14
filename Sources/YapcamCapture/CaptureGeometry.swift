@@ -71,10 +71,7 @@ struct CaptureCoordinateMapping: Sendable {
             geometry = try CaptureGeometry(rect: rect, scale: scale)
             // Exclude the application as well as registered windows, so newly opened
             // Yapcam overlays cannot leak into an already-running display stream.
-            if options.excludeYapcamWindows {
-                let own = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-                filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
-            } else { filter = SCContentFilter(display: display, excludingWindows: []) }
+            filter = CaptureFilterPolicy(options: options).filter(display: display, content: content)
             let name = NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32) == id }?.localizedName ?? "Display"
             source = SourceMetadata(kind: kind, displayID: id, displayName: name,
                 contentRectPoints: [rect.minX, rect.minY, rect.width, rect.height], scale: scale)

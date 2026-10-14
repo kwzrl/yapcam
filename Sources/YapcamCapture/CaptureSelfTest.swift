@@ -6,13 +6,17 @@ import Foundation
     public static func run(seconds: Double, outputDirectory: URL? = nil,
                            target: CaptureTarget? = nil, maxFPS: Int = 60,
                            pauseAfter: Double? = nil, systemAudio: Bool = true,
-                           microphoneID: String? = nil, cameraID: String? = nil) async throws -> URL {
+                           microphoneID: String? = nil, cameraID: String? = nil,
+                           hideDesktopIcons: Bool = false, captureNotifications: Bool = true,
+                           recordKeystrokes: Bool = false) async throws -> URL {
         guard seconds.isFinite, seconds > 0, seconds <= 3600 else { throw CaptureError.writerFailed("Self-test duration must be in (0, 3600]") }
-        let sources = try await CaptureSources.load()
+        let sources = try await CaptureSources.load(includeWindowThumbnails: false)
         guard let display = sources.displays.first else { throw CaptureError.sourceUnavailable }
         let output = outputDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam/QA/capture")
         let session = RecordingSession(options: RecordingOptions(target: target ?? .display(display.id),
-            systemAudio: systemAudio, microphoneID: microphoneID, cameraID: cameraID, maxFPS: maxFPS, outputDirectory: output))
+            systemAudio: systemAudio, microphoneID: microphoneID, cameraID: cameraID,
+            recordKeystrokes: recordKeystrokes, maxFPS: maxFPS, hideDesktopIcons: hideDesktopIcons,
+            captureNotifications: captureNotifications, outputDirectory: output))
         try await session.start()
         do {
             if let pause = pauseAfter, pause > 0, pause < seconds {

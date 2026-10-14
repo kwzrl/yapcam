@@ -1,25 +1,55 @@
 @preconcurrency import AVFoundation
 import ScreenCaptureKit
 
+enum AuxiliaryTrack: String, Sendable { case camera, microphone = "mic" }
+
+protocol CaptureTrackSink: AnyObject, Sendable {
+    var url: URL { get }
+    var firstNs: Int64 { get }
+    func append(_ sample: CMSampleBuffer) throws -> Bool
+    func finish() async throws
+}
+
 /// All mutable writer state is confined to queue, including AV capture callbacks.
 final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+    typealias TrackFactory = @Sendable (URL, String, CMSampleBuffer) throws -> any CaptureTrackSink
     let queue = DispatchQueue(label: "mov.yapcam.capture.samples", qos: .userInitiated)
     let directory: URL
     let hostStartNs: Int64
     let maxFPS: Int
-    private var tracks: [String: MediaTrackWriter] = [:]
+    private let makeTrack: TrackFactory
+    private var tracks: [String: any CaptureTrackSink] = [:]
     private var failure: CaptureError?
     private var accepting = true
     private var unavailableTracks: Set<String> = []
     private var lastScreenNs: Int64?
+    private var endHostNs: Int64?
     var onWarning: (@Sendable (String) -> Void)?
     var onFailure: (@Sendable (CaptureError) -> Void)?
     var onGeometry: (@Sendable (CGRect, CGRect, CGFloat) -> Void)?
     var onTrackStarted: (@Sendable (String, Int64) -> Void)?
     var onMicLevel: (@Sendable (Float) -> Void)?
 
-    init(directory: URL, hostStartNs: Int64, maxFPS: Int) {
+    init(directory: URL, hostStartNs: Int64, maxFPS: Int,
+         makeTrack: @escaping TrackFactory = { try MediaTrackWriter(url: $0, key: $1, first: $2) }) {
         self.directory = directory; self.hostStartNs = hostStartNs; self.maxFPS = maxFPS
+        self.makeTrack = makeTrack
+    }
+
+    func end(at hostNs: Int64) {
+        queue.async { self.endHostNs = hostNs }
+    }
+
+    /// Called from device notifications, which may arrive on arbitrary queues.
+    /// Keep the prior samples; ignore all future samples from the lost device.
+    func deviceUnavailable(_ track: AuxiliaryTrack, reason: String) {
+        queue.async { self.disable(track, reason: reason) }
+    }
+
+    private func disable(_ track: AuxiliaryTrack, reason: String) {
+        guard accepting, unavailableTracks.insert(track.rawValue).inserted else { return }
+        onWarning?(reason)
+        if track == .microphone { onMicLevel?(0) }
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -53,14 +83,14 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         guard accepting, failure == nil, !unavailableTracks.contains(key) else { return }
         let pts = sample.presentationTimeStamp
         let ns = CaptureClock.nanoseconds(pts)
-        guard ns >= hostStartNs else { return }
+        guard pts.isNumeric, ns >= hostStartNs, endHostNs == nil || ns < endHostNs! else { return }
         if key == "screen", let lastScreenNs, ns - lastScreenNs < 1_000_000_000 / Int64(maxFPS) { return }
         do {
-            let track: MediaTrackWriter
+            let track: any CaptureTrackSink
             if let existing = tracks[key] { track = existing }
             else {
                 let filename = key == "system_audio" ? "system.m4a" : key == "mic" ? "mic.m4a" : "\(key).mov"
-                track = try MediaTrackWriter(url: directory.appendingPathComponent(filename), key: key, first: sample)
+                track = try makeTrack(directory.appendingPathComponent(filename), key, sample)
                 tracks[key] = track
                 let starts = tracks.mapValues { $0.firstNs - hostStartNs }
                 try PackageIO.write(starts, to: directory.appendingPathComponent("track-starts.json"))
@@ -70,10 +100,8 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
             if key == "mic" { onMicLevel?(Self.level(sample)) }
         } catch {
             let error = CaptureError.writerFailed(error.localizedDescription)
-            if key == "camera" || key == "mic" {
-                unavailableTracks.insert(key)
-                onWarning?("\(key == "mic" ? "Microphone" : "Camera") track failed; screen recording continues. \(error.localizedDescription)")
-                if key == "mic" { onMicLevel?(0) }
+            if let auxiliary = AuxiliaryTrack(rawValue: key) {
+                disable(auxiliary, reason: "\(key == "mic" ? "Microphone" : "Camera") track failed; screen recording continues. \(error.localizedDescription)")
             } else {
                 failure = error
                 onFailure?(error)
@@ -133,7 +161,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     }
 }
 
-private final class MediaTrackWriter: @unchecked Sendable {
+private final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
     let url: URL
     let firstNs: Int64
     private let writer: AVAssetWriter

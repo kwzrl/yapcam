@@ -8,6 +8,35 @@ enum CaptureClock {
         return CMTimeConvertScale(time, timescale: 1_000_000_000, method: .roundHalfAwayFromZero).value
     }
     static var now: Int64 { nanoseconds(CMClockGetTime(CMClockGetHostTimeClock())) }
+
+    static func hostSample(_ sample: CMSampleBuffer, from clock: CMClock) throws -> CMSampleBuffer {
+        var count = 0
+        guard CMSampleBufferGetSampleTimingInfoArray(sample, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count) == noErr,
+              count > 0 else { throw CaptureError.writerFailed("Missing device sample timestamps") }
+        var timing = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: count)
+        guard CMSampleBufferGetSampleTimingInfoArray(sample, entryCount: count, arrayToFill: &timing, entriesNeededOut: &count) == noErr else {
+            throw CaptureError.writerFailed("Cannot read device sample timestamps")
+        }
+        let host = CMClockGetHostTimeClock()
+        for index in timing.indices {
+            let oldPTS = timing[index].presentationTimeStamp
+            let newPTS = CMSyncConvertTime(oldPTS, from: clock, to: host)
+            guard newPTS.isNumeric else { throw CaptureError.writerFailed("Device sample clock is not synchronized") }
+            // Keep format durations exact (e.g. 1/48000 per PCM frame). Subtracting
+            // two converted host timestamps would round them to whole nanoseconds.
+            timing[index].presentationTimeStamp = newPTS
+            if timing[index].decodeTimeStamp.isNumeric {
+                timing[index].decodeTimeStamp = CMSyncConvertTime(timing[index].decodeTimeStamp, from: clock, to: host)
+                guard timing[index].decodeTimeStamp.isNumeric else { throw CaptureError.writerFailed("Invalid device decode timestamp") }
+            }
+        }
+        var copy: CMSampleBuffer?
+        guard CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault, sampleBuffer: sample,
+            sampleTimingEntryCount: count, sampleTimingArray: &timing, sampleBufferOut: &copy) == noErr, let copy else {
+            throw CaptureError.writerFailed("Cannot align device sample to the host clock")
+        }
+        return copy
+    }
 }
 
 struct SessionManifest: Codable, Sendable {
@@ -109,12 +138,22 @@ enum PackageIO {
     }
 
     static func writeBytes(_ bytes: Data, to url: URL) throws {
+        try writeStreaming(to: url) { try $0.write(contentsOf: bytes) }
+    }
+
+    static func writeStreaming(to url: URL, body: (FileHandle) throws -> Void) throws {
         let temporary = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).tmp")
         do {
-            try bytes.write(to: temporary)
+            guard FileManager.default.createFile(atPath: temporary.path, contents: nil) else { throw CocoaError(.fileWriteUnknown) }
             let handle = try FileHandle(forWritingTo: temporary)
-            try handle.synchronize()
-            try handle.close()
+            do {
+                try body(handle)
+                try handle.synchronize()
+                try handle.close()
+            } catch {
+                try? handle.close()
+                throw error
+            }
             if FileManager.default.fileExists(atPath: url.path) {
                 let previous = url.appendingPathExtension("prev")
                 try? FileManager.default.removeItem(at: previous)
