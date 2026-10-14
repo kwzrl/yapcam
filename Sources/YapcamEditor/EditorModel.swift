@@ -205,6 +205,7 @@ public final class EditorModel: ObservableObject {
 
     // MARK: timeline zoom
 
-    public func zoomTimeline(by factor: Double, anchorX: Double) { geometry = geometry.zoomed(by: factor, anchorX: anchorX) }
+    /// Native horizontal scrolling owns the offset, so the model only changes the scale.
+    public func zoomTimeline(by factor: Double, anchorX: Double = 0) { geometry = TimelineGeometry(pixelsPerSecond: geometry.pixelsPerSecond * factor) }
     public func fitTimeline(width: Double) { geometry = .fitting(durationNs: durationNs, width: width) }
 }
