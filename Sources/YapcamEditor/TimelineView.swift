@@ -207,7 +207,7 @@ struct TimelineView: View {
                 switch drag! {
                 case .inert: break
                 case .scrub:
-                    model.seek(toNs: model.snapped(ns), precise: false)
+                    model.seek(toNs: model.snapped(ns, includePlayhead: false), precise: false)
                 case .zoomMove(let id, let off):
                     model.previewZoom(id: id, moveToStartNs: model.snapped(ns - off, excludingZoom: id))
                 case .zoomStart(let id):
@@ -262,7 +262,7 @@ struct TimelineView: View {
         } else {
             model.selection = .none
         }
-        model.seek(toNs: model.snapped(g.ns(forX: p.x)), precise: false)
+        model.seek(toNs: model.snapped(g.ns(forX: p.x), includePlayhead: false), precise: false)
         return .scrub
     }
 }

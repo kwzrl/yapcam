@@ -28,9 +28,9 @@ public enum Snapping {
     }
 
     public static func targets(clips: [TimelineClip], zooms: [TimelineZoom], clicks: [Int64], playheadNs: Int64,
-                               durationNs: Int64, excludingZoom: String? = nil) -> [SnapTarget] {
-        var out: [SnapTarget] = [.init(ns: 0, kind: .start), .init(ns: durationNs, kind: .end),
-                                 .init(ns: playheadNs, kind: .playhead)]
+                               durationNs: Int64, excludingZoom: String? = nil, includePlayhead: Bool = true) -> [SnapTarget] {
+        var out: [SnapTarget] = [.init(ns: 0, kind: .start), .init(ns: durationNs, kind: .end)]
+        if includePlayhead { out.append(.init(ns: playheadNs, kind: .playhead)) }
         var t: Int64 = 0
         for c in clips { out.append(.init(ns: t, kind: .clipEdge)); t += c.timelineDurationNs; out.append(.init(ns: t, kind: .clipEdge)) }
         for z in zooms where z.id != excludingZoom {

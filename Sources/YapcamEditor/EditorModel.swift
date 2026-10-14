@@ -88,6 +88,21 @@ public final class EditorModel: ObservableObject {
 
     public var previewAspect: Double { project.frameGeometry(atNs: playheadNs)?.aspect ?? 16.0 / 9 }
 
+    /// Focus drags preview locally and commit one command on release (one undo step per gesture).
+    @Published public private(set) var focusPreview: (id: String, x: Double, y: Double)?
+
+    public func previewFocus(fromPreview p: CGPoint) {
+        guard let z = selectedZoom, let g = project.frameGeometry(atNs: playheadNs), let s = g.sourcePoint(fromPreview: p) else { return }
+        let half = 0.5 / max(z.scale, 1)
+        focusPreview = (z.id, min(max(Double(s.x), half), 1 - half), min(max(Double(s.y), half), 1 - half))
+    }
+    public func commitFocusPreview() {
+        guard let f = focusPreview else { return }
+        focusPreview = nil
+        guard let z = zooms.first(where: { $0.id == f.id }), z.focusX != f.x || z.focusY != f.y else { return }
+        perform(.updateZoom(id: f.id, startNs: nil, endNs: nil, scale: nil, focusX: f.x, focusY: f.y))
+    }
+
     /// Click in the preview (0…1 of the whole preview) → focus point of the selected zoom.
     @discardableResult public func setFocus(fromPreview p: CGPoint) -> Bool {
         guard let z = selectedZoom, let g = project.frameGeometry(atNs: playheadNs), let s = g.sourcePoint(fromPreview: p) else { return false }
@@ -103,13 +118,21 @@ public final class EditorModel: ObservableObject {
     }
     public func speedUpTyping(speed: Double = 3) { perform(.autoSpeedTyping(speed: speed)) }
 
+    private var silenceTask: Task<Void, Never>?
+    /// Suspends until a running silence analysis has finished (for deterministic tests).
+    public func waitForSilenceAnalysis() async { await silenceTask?.value }
+
     public func findSilences() {
         guard silenceState != .analyzing else { return }
         silenceState = .analyzing
-        Task { [weak self] in
+        let started = revision
+        silenceTask = Task { [weak self] in
             guard let self else { return }
-            do { silenceState = .found(try await project.silentSpans()) }
-            catch { silenceState = .failed(error.localizedDescription) }
+            do {
+                let spans = try await project.silentSpans()
+                // Timeline coordinates are only valid for the revision they were measured on.
+                silenceState = revision == started ? .found(spans) : .idle
+            } catch { silenceState = revision == started ? .failed(error.localizedDescription) : .idle }
         }
     }
     /// Cut (`speed == nil`) or speed up the silences found by `findSilences()` in one undo step.
@@ -175,6 +198,7 @@ public final class EditorModel: ObservableObject {
 
     private func didEdit() {
         revision += 1
+        if case .found = silenceState { silenceState = .idle }   // stale after any edit
         player.invalidate()
         if playheadNs > durationNs { seek(toNs: durationNs) }
         saveState = .dirty
@@ -186,6 +210,9 @@ public final class EditorModel: ObservableObject {
         guard playheadNs > 0, playheadNs < durationNs else { lastError = "Move the playhead inside the clip first."; return }
         perform(keepAfter ? .deleteRange(startNs: 0, endNs: playheadNs) : .deleteRange(startNs: playheadNs, endNs: durationNs))
     }
+
+    /// For state restored from an autosave journal: it exists only in the journal until saved.
+    public func markRecoveredUnsaved() { saveState = .dirty; scheduleAutosave() }
 
     public func splitAtPlayhead() {
         guard playheadNs > 0, playheadNs < durationNs else { return }
@@ -296,13 +323,14 @@ public final class EditorModel: ObservableObject {
 
     // MARK: snapping
 
-    public func snapTargets(excludingZoom id: String? = nil) -> [SnapTarget] {
+    public func snapTargets(excludingZoom id: String? = nil, includePlayhead: Bool = true) -> [SnapTarget] {
         Snapping.targets(clips: clips, zooms: zooms, clicks: project.clickTimesNs,
-                         playheadNs: playheadNs, durationNs: durationNs, excludingZoom: id)
+                         playheadNs: playheadNs, durationNs: durationNs, excludingZoom: id, includePlayhead: includePlayhead)
     }
 
-    public func snapped(_ ns: Int64, excludingZoom id: String? = nil) -> Int64 {
-        let r = Snapping.snap(ns, targets: snapTargets(excludingZoom: id), geometry: geometry, enabled: snappingEnabled)
+    /// `includePlayhead: false` while scrubbing — the playhead must not snap to itself.
+    public func snapped(_ ns: Int64, excludingZoom id: String? = nil, includePlayhead: Bool = true) -> Int64 {
+        let r = Snapping.snap(ns, targets: snapTargets(excludingZoom: id, includePlayhead: includePlayhead), geometry: geometry, enabled: snappingEnabled)
         snapGuideNs = r.target?.ns
         return r.ns
     }

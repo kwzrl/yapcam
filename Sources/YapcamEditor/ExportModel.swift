@@ -45,5 +45,7 @@ public final class ExportModel: ObservableObject {
     private func progressed(_ p: Double) { if case .running = state { state = .running(p) } }
 
     public func cancel() { task?.cancel() }
+    /// Suspends until the current export reached a terminal state (returns immediately when idle).
+    public func waitUntilFinished() async { await task?.value }
     public func reset() { if !isRunning { state = .idle } }
 }

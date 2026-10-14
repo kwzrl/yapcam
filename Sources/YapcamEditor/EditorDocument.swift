@@ -20,9 +20,11 @@ import UniformTypeIdentifiers
     /// to discard it first (see `EditorWindows` for the prompt).
     public init(package: URL, restoreUnsavedChanges: Bool = true) throws {
         if !restoreUnsavedChanges { Self.discardJournal(package) }
+        let restored = restoreUnsavedChanges && Self.hasUnsavedJournal(package)
         let fm = FileManager.default
-        let hasProject = fm.fileExists(atPath: package.appendingPathComponent("project.json").path)
-            || fm.fileExists(atPath: package.appendingPathComponent("project.json.prev").path)
+        // A journal alone is a recoverable project: it must win over `create`, which would start a fresh timeline.
+        let hasProject = ["project.json", "project.json.prev", "autosave/project.json"]
+            .contains { fm.fileExists(atPath: package.appendingPathComponent($0).path) }
         project = hasProject ? try Project.open(package: package) : try Project.create(package: package)
         let source = ProjectRenderSource(project)
         player = try PreviewPlayer(project: source)
@@ -31,6 +33,7 @@ import UniformTypeIdentifiers
         export = ExportModel(engine: RenderExportEngine(source: source))
         title = package.deletingPathExtension().lastPathComponent
         if !hasProject { try? project.save() }
+        if restored { model.markRecoveredUnsaved() }   // journal-only state must be written on close
         model.fitTimeline(width: 900)
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
     }
