@@ -15,6 +15,15 @@ Source tags: **[observed]** used the installed app · **[docs]** official guide 
 > needs the user to allow REA/observation on `/Applications/Screen Studio.app`
 > (see docs/status/qa.md Blockers). Notes: `docs/reference/*.md`.
 
+> **Reference-analysis limits (updated 2026-10-15).** REA on Screen Studio's Electron app was
+> limited: the full-asar run hit REA's resource limit and the own-sources run (226 JS files)
+> produced a truncated graph with almost no feature strings; bundle strings are obfuscated;
+> extracting the asar is not allowed by policy here. Usable [technical] facts: the file/asset
+> inventory and that the app ships a Core ML speech-enhancement model (MossFormer2 SE, 48 kHz),
+> i.e. ML voice enhancement (AUD-06). Remaining values come from official guides ([docs]).
+> **[observed] rows: to observe with the user in the morning** (screenshots/screen access
+> missing). Exact slider ranges, defaults and preset numbers stay TBD until then.
+
 Priority: **M1** = end-to-end path (display + system audio + cursor events → editor →
 background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
@@ -42,7 +51,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | REC-18 | Capture | Recovery of interrupted recordings | technical ("recover unfinished recordings" prompt) | Prompt on launch for interrupted packages; recover finalizes segments | capture+ui | implemented (capture RecoveryTests pass incl. skipped-segment cases; ui relaunch prompt; real kill -9 untested) | Kill -9 during recording → relaunch → recover → opens |
 | REC-19 | Capture | Low-disk handling | assumption | Check free space at start, warn, stop gracefully with diskFull | capture | verified (capture session fault simulation: low disk during capture keeps interrupted package; ui <1 GB start block by reading) | Simulated low space → package finalized, error shown |
 | REC-20 | Capture | Permission onboarding | docs | Screen, mic, camera, accessibility, input monitoring guided panel | ui | implemented (ui: onboarding snapshots; permission table + ask-then-open tests) | Missing permission shows state and opens Settings |
-| REC-21 | Capture | Speaker notes while recording | docs | Optional notes shown in HUD, stored in project | ui+core | todo (core: notes field in project.json; ui hooks waiting) | Notes persist in project.json |
+| REC-21 | Capture | Speaker notes while recording | docs | Optional notes shown in HUD, stored in project | ui+core | implemented (core notes field + ui toolbar notes popover saved on stop; core ProjectTests/YapcamUITests cover it; live recording limited: no TCC) | Notes persist in project.json |
 
 ## B. Audio and devices
 
@@ -53,7 +62,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | AUD-03 | Audio | Mic device lost mid-recording | assumption | Recording continues, warning, mic track truncated | capture | limited (no HW; simulated) | Unit/simulated device loss |
 | AUD-04 | Audio | Per-track volume (mic, system) | docs | audio.mic_gain_db / system_gain_db; mute | editor+core | integrated (editor Audio tab -> core audio gains; RealCoreRangesTests; audible effect in export unverified) | Set −∞ → exported track silent |
 | AUD-05 | Audio | Volume over time (volume keyframes/segments) | docs (scrubber/volume) | Per-clip/segment gain | core+editor | implemented (editor volume ranges list -> core; not a timeline lane; export effect unverified) | Gain ramp audible in export |
-| AUD-06 | Audio | Noise reduction / speech enhancement | technical (speech-enhancement model shipped) | Apple VoiceProcessing or small model; marked M2-late | render | todo (render: offline speech-enhancement pipeline unavailable) | Noisy sample → lower noise floor |
+| AUD-06 | Audio | Noise reduction / speech enhancement | technical (Core ML MossFormer2 speech-enhancement model, 48 kHz, ships in app) | Apple VoiceProcessing or small model; marked M2-late | render | todo (render: offline speech-enhancement pipeline unavailable) | Noisy sample → lower noise floor |
 | AUD-07 | Audio | Background music library + volume | technical (bundled music in 5 genres) | Own royalty-free tracks only (not reference files); loop, fade | editor+render | todo (core model + editor UI for music tracks; render has procedural loops only) | Add music, export has 3rd source |
 | AUD-08 | Audio | Mouse click sounds | docs / technical (click sound sets) | Own click sounds (2 variants), volume | render | implemented (render primitive: original click sounds; no core setting/editor control yet -> core+editor) | Click event → audio impulse at time |
 | AUD-09 | Audio | Recording start/stop sounds | technical | Optional | ui | implemented (ui: start/stop sounds, played outside capture; build only) | Setting toggles |
@@ -174,8 +183,26 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | OOS-05 | Web | Email address update, website | docs | out of scope | – | limited (out of scope) |
 | OOS-06 | Diagnostics | Diagnostic info export | docs | local log export only (optional) | ui | implemented (ui: Export Diagnostics...; build only) |
 
+## K. Additional options found in official guides (audit 2026-10-15)
+
+| ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
+|---|---|---|---|---|---|---|---|
+| CUR-12 | Cursor | "Always use default system cursor" (keep system cursor for e.g. text selection) | docs | cursor option | core+editor+render | todo | Option on: I-beam recorded as arrow |
+| CUR-13 | Cursor | Rotate cursor slightly while moving | docs | cursor.rotate_on_move | core+editor+render | todo | Fast move frame shows tilt |
+| CUR-14 | Cursor | Stop cursor movement before end of video | docs | cursor option | core+editor | todo | Last N ms position constant |
+| CUR-15 | Cursor | Remove cursor shakes (tiny jitters) | docs | filter in evaluator | core+editor | todo | Jitter < threshold removed |
+| CUR-16 | Cursor | Optimize original cursor types (less rapid type flicker) | docs | debounce cursor id changes | core | todo | Flicker fixture collapses |
+| CUR-17 | Cursor | Cursor type: macOS or Touch | docs | = CUR-06 (touch style exists in render) | render+editor | implemented (render has recorded/pointer/touch; no picker) | – |
+| ANI-01 | Motion | Cursor animation style: Smooth / Medium / Rapid / None (guide wording; search snippet said Slow/Mellow/Quick/Rapid – to observe) | docs | = CUR-04 presets; add "None" | core+editor | integrated (presets; 'None' = smoothing off) | – |
+| ANI-02 | Motion | Screen animation style: Focused (stabilizes fast, readable) vs Smooth (fluid) | docs | zoom pan/settle presets | core+editor | todo | Two presets differ in settle time |
+| ANI-03 | Motion | Motion blur strength slider + advanced per-kind (cursor movement, zoom in/out, screen move) | docs | blur per kind | core+editor+render | implemented (single motion blur; per-kind controls todo) | – |
+| LOK-09 | Canvas | Background types: Wallpaper, Gradient (from chosen color), Color (hex/palette), Image upload | docs | background kinds | editor+render | integrated (solid/gradient/blur/image; wallpaper library = LOK-02) | – |
+| LOK-10 | Canvas | Padding 0 hides background; rounded corners; inset frame; shadow | docs | canvas.* | render | verified (RenderTests crop/radius pixel tests) | – |
+| CAM-07 | Camera | "Camera during zoom": resize frame while zoomed, or keep constant | docs | camera.zoom_scale option | core+editor+render | todo | Frame size changes at mid-zoom |
+| EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
+
 ## Audit log
-Last audit: against main 4a1cee5, from code, team status files and test names (not re-run
+Last audit: against main 6d91a7f (REC-21 moved to implemented); earlier pass 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
 named test or measurement passed; **limited (why)** = cannot be verified here. Live-capture
@@ -185,14 +212,14 @@ Screen Studio is still blocked (see docs/status/qa.md), so option values stay TB
 ## Backlog: rows still `todo`, per owning team (Lead hands these out)
 | Team | Row | Missing |
 |---|---|---|
-| core | REC-21 | `notes` field in project.json + `set` path (ui waits) |
 | core + editor | AUD-07 | music track model, library (original tracks only), editor UI |
 | core + editor | AUD-10 | caption model, on-device transcription, editor UI, render text |
 | core + editor | EDT-09 | text/annotation model + editor UI |
 | core + editor | EDT-13 | reactions model + editor UI |
 | editor | EDT-08 | mask/highlight region UI (core extras + render exist) |
 | editor | EDT-14 | intro/outro UI (core: none/fade only) |
-| render | AUD-06 | offline speech-enhancement pipeline |
+| render | AUD-06 | offline speech-enhancement pipeline ([technical]: reference ships Core ML MossFormer2 SE 48 kHz; use an Apple/own model, no reference weights) |
+| core+editor(+render) | CUR-12..16, ANI-02, CAM-07 | extra cursor/motion/camera options from the guides (section K) |
 | render + editor | LOK-02 | own wallpaper/gradient library with picker |
 
 Partial rows (`implemented`, missing a piece): CUR-06 cursor-set library (render+editor),

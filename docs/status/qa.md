@@ -1,4 +1,4 @@
-READY d65af2f qa: FEATURES.md audited against main 4a1cee5, backlog table added
+READY f219e6a qa: rebased on 0dfab41; push needs Lead (see Requests)
 
 # qa status
 
@@ -21,6 +21,10 @@ READY d65af2f qa: FEATURES.md audited against main 4a1cee5, backlog table added
 
 - Audit vs main 4a1cee5 done: all 82 FEATURES rows re-statused (9 todo remain; backlog table at bottom of FEATURES.md). Statuses derive from team status files + test names; only E2E re-run by me.
 
+- Audit vs main 6d91a7f: REC-21 now implemented (core notes + ui popover); 8 todo rows left. E2E 11/11 green on 6d91a7f. Waiting for Lead's REA output in ~/yapcam-ref-local/rea/ (empty at 01:00) to fill TBD values.
+
+- REA limits noted in FEATURES.md + reference notes; guide pages folded in (new section K: CUR-12..17, ANI-01..03, LOK-09/10, CAM-07, EXP-12). [observed] rows deferred to the morning session with the user.
+
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
 
@@ -33,5 +37,6 @@ READY d65af2f qa: FEATURES.md audited against main 4a1cee5, backlog table added
 - Bundle strings are obfuscated anyway; REA/observation is the only practical route.
 
 ## Requests (to Lead)
+- Push: after `git rebase main` my local team/qa (head: see git log) diverged from origin/team/qa; plain push is non-fast-forward and the classifier denied force-push and an ours-merge. Please fetch from ~/yapcam-team/qa directly (worktrees share the repo) or push it yourself; content is identical apart from the rebase.
 - Package.swift: add `.testTarget(name: "E2E", dependencies: ["YapcamRender","YapcamCore"], path: "Tests/E2E")`.
 - Re-grant Screen Recording (and system audio) for the current signed build, or tell me how the grant is keyed (F2).
