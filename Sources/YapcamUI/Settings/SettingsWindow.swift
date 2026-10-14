@@ -58,6 +58,10 @@ private struct RecordingSettings: View {
     var body: some View {
         Form {
             Picker("Frame rate", selection: $s.maxFPS) { Text("30 fps").tag(30); Text("60 fps").tag(60) }
+            Toggle("Hide desktop icons while recording", isOn: $s.hideDesktopIcons)
+            Text("Restarts Finder briefly. Icons are restored when recording ends, and on the next launch if Yapcam quit unexpectedly.")
+                .font(.caption).foregroundStyle(.secondary)
+            Toggle("Play start and stop sounds", isOn: $s.playSounds)
             Toggle("Record keystrokes", isOn: $s.recordKeystrokes)
             Text("Keystrokes are stored with the recording to show key overlays in the editor. Needs Input Monitoring permission. Never uploaded anywhere.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -119,6 +123,7 @@ private struct AdvancedSettings: View {
                 ToolbarPanelController.shared.hide(); ToolbarPanelController.shared.show()
             }
             Button("Show onboarding again") { s.hasCompletedOnboarding = false; OnboardingWindow.shared.show(reason: nil) }
+            Button("Export diagnostics…") { ProjectActions.exportDiagnostics() }
             Button("Open logs folder") {
                 NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Logs/Yapcam"))
             }

@@ -1,13 +1,14 @@
 import AppKit
-import SwiftUI
+import YapcamCapture
 
-@main
-struct YapcamApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-
-    var body: some Scene {
-        // All windows are AppKit-managed; this scene only satisfies the App protocol.
-        Settings { EmptyView() }
+/// Entry point used by the thin `Yapcam` executable.
+@MainActor public enum YapcamAppMain {
+    private static let delegate = AppDelegate()
+    public static func run() -> Never {
+        let app = NSApplication.shared
+        app.delegate = delegate
+        app.run()
+        exit(0)
     }
 }
 
@@ -30,6 +31,16 @@ struct YapcamApp: App {
             return
         }
 
+        if let i = args.firstIndex(of: "--capture-selftest") {
+            let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
+            Task {
+                do { Probe.log("capture-selftest ok \(try await CaptureSelfTest.run(seconds: seconds).path)") }
+                catch { Probe.log("capture-selftest failed \(error)") }
+                NSApp.terminate(nil)
+            }
+            return
+        }
+
         if let i = args.firstIndex(of: "--snapshot-ui"), args.indices.contains(i + 1) {
             let dir = URL(filePath: args[i + 1], directoryHint: .isDirectory)
             Task { await UISnapshot.run(into: dir) }
@@ -43,6 +54,7 @@ struct YapcamApp: App {
         bindShortcuts()
 
         ToolbarPanelController.shared.show()
+        DesktopIcons.restoreIfNeeded()
         AreaOutline.shared.start()
         offerRecovery()
         if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {
@@ -57,6 +69,12 @@ struct YapcamApp: App {
             }
         }
     }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for u in urls { ProjectActions.open(u) }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) { DesktopIcons.restoreIfNeeded() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
@@ -154,6 +172,8 @@ struct YapcamApp: App {
         }
     }
     @objc func showRecordings() { RecentProjectsWindow.shared.show() }
+    @objc func importVideo() { ProjectActions.importVideo() }
+    @objc func exportDiagnostics() { ProjectActions.exportDiagnostics() }
     @objc func showAbout() { AboutWindow.show() }
     @objc func showStorageFolder() { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) }
 }

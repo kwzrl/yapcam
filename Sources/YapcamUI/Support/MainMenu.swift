@@ -24,6 +24,7 @@ import AppKit
             .separator(),
             item("Settings…", #selector(AppDelegate.showSettings), ","),
             item("Permissions…", #selector(AppDelegate.showPermissions)),
+            item("Export Diagnostics…", #selector(AppDelegate.exportDiagnostics)),
             .separator(),
             item("Hide Yapcam", #selector(NSApplication.hide(_:)), "h", target: NSApp),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", mods: [.command, .option], target: NSApp),
@@ -32,6 +33,7 @@ import AppKit
         ])
         add("File", [
             item("Open Recording…", #selector(AppDelegate.openProject), "o"),
+            item("Import Video…", #selector(AppDelegate.importVideo), "i"),
             item("Recordings…", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
             .separator(),
