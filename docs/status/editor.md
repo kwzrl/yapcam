@@ -46,6 +46,9 @@ READY f6eb65f editor on real core/render: EditorDocument, EditorWindows.open (re
 ## Backlog state (checked after rebase on f0862b0)
 Every editor-owned FEATURES row that core/render can support is implemented. Core still has no commands/model for annotations (EDT-09), reactions (EDT-13), masks (EDT-08), animations (EDT-14), captions (AUD-10) or background music (AUD-07), so those stay unimplemented (no fake UI). Blocked on others, not on editor work: app wiring (`LiveEngine.openEditor` still reveals in Finder, `EditorCommands` not installed — ui/Lead), render audio-export hang.
 
+## Re-check on main 4a1cee5
+- Rebased; full `swift test` green (146). App now calls `EditorWindows.open` (`LiveEngine.openEditor`) and `EditorWindows.saveAll()` on quit. Still not installed: `EditorCommands()` in the app menu (⌘Z/⇧⌘Z/⌘B won't act on the editor; the palette (⌘K) and toolbar do) — ui/Lead. Live capture→editor→export by hand is still blocked by the Screen Recording grant (qa F2).
+
 ## Next
 - Window-level manual test (nothing left that needs no external input except this and real scrub latency) with a real recording once capture is integrated; measure real scrub latency; >30 min project check.
 
