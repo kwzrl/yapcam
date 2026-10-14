@@ -326,6 +326,11 @@ impl Project {
         if frame.screen.present != 0 {
             self.cursor_at(&mut frame, src, clip_i);
         }
+        crate::layers::animate_frame(
+            &mut frame,
+            &p.canvas.animation,
+            time::duration(&p.timeline.clips),
+        );
         Ok(frame)
     }
     pub fn audio_gain(&self, track: &str, tl_ns: i64) -> f32 {
@@ -570,6 +575,9 @@ mod tests {
         p.data.canvas.aspect = "9:16".into();
         assert_eq!(p.frame(0).unwrap().canvas_w, 608);
         p.data.camera.layouts.push(Layout {
+            camera_background_removal: None,
+            camera_face_framing: None,
+            camera_shadow_radius: None,
             id: "l".into(),
             tl_start_ns: 1_000_000_000,
             tl_end_ns: 2_000_000_000,
@@ -632,6 +640,9 @@ mod m2_tests {
         assert_eq!(overlay.camera.present, 1);
         assert!((overlay.camera_dest.w / overlay.camera_dest.h - 4.0 / 3.0).abs() < 1e-6);
         p.data.camera.layouts.push(Layout {
+            camera_background_removal: None,
+            camera_face_framing: None,
+            camera_shadow_radius: None,
             id: "full".into(),
             tl_start_ns: 1_000_000_000,
             tl_end_ns: 2_000_000_000,

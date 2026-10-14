@@ -153,7 +153,7 @@ settings!(Cursor {
     ranges: Vec<CursorRange> = vec![], loop_to_start: bool = false,
     loop_duration_ns: i64 = 400_000_000,
     style: String = "recorded".into(), motion_blur: f64 = 0.0,
-    spotlight_radius: f64 = 0.0,
+    spotlight_radius: f64 = 0.0, key_overlay: KeyOverlay = KeyOverlay::default(),
 });
 settings!(Spring {
     tension: f64 = 250.0,
@@ -191,6 +191,12 @@ pub struct Layout {
     pub camera_position: Option<[f64; 2]>,
     #[serde(default)]
     pub camera_size: Option<f64>,
+    #[serde(default)]
+    pub camera_background_removal: Option<bool>,
+    #[serde(default)]
+    pub camera_face_framing: Option<bool>,
+    #[serde(default)]
+    pub camera_shadow_radius: Option<f64>,
 }
 settings!(Canvas {
     aspect: String = "16:9".into(),
@@ -205,6 +211,8 @@ settings!(Canvas {
     crop: [f64; 4] = [0.0, 0.0, 1.0, 1.0],
     window_chrome: bool = false, highlights: Vec<Highlight> = vec![],
     animation: Animation = Animation::default(),
+    annotations: Vec<TextRecord> = vec![], reactions: Vec<TextRecord> = vec![],
+    captions: Vec<TextRecord> = vec![],
 });
 settings!(Highlight {
     id: String = String::new(),
@@ -240,7 +248,8 @@ settings!(Shadow {
     offset_y: f64 = 8.0
 });
 settings!(Audio { mic_gain_db: f64 = 0.0, system_gain_db: f64 = 0.0,
-    mic_muted: bool = false, system_muted: bool = false, ranges: Vec<AudioRange> = vec![] });
+    mic_muted: bool = false, system_muted: bool = false, ranges: Vec<AudioRange> = vec![],
+    music: Vec<MusicTrack> = vec![], click_sound: ClickSound = ClickSound::default() });
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct AudioRange {
     pub id: String,
@@ -250,6 +259,58 @@ pub struct AudioRange {
     pub start_gain_db: f64,
     pub end_gain_db: f64,
 }
+settings!(TextStyle {
+    font_size: f64 = 36.0,
+    color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
+    background: [f32; 4] = [0.0, 0.0, 0.0, 0.65],
+    radius: f64 = 12.0,
+    opacity: f64 = 1.0,
+});
+settings!(TextRecord {
+    id: String = String::new(),
+    tl_start_ns: i64 = 0,
+    tl_end_ns: i64 = 1,
+    text: String = String::new(),
+    rect: [f64; 4] = [0.1, 0.75, 0.8, 0.15],
+    space: String = "canvas".into(),
+    style: TextStyle = TextStyle::default(),
+});
+settings!(KeyOverlay {
+    enabled: bool = false,
+    duration_ns: i64 = 1_000_000_000,
+    shortcuts_only: bool = true,
+    rect: [f64; 4] = [0.3, 0.82, 0.4, 0.12],
+    style: TextStyle = TextStyle::default(),
+});
+settings!(ClickSound {
+    enabled: bool = false,
+    variant: String = "soft".into(),
+    gain_db: f64 = -12.0
+});
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ActivityRange {
+    pub tl_start_ns: i64,
+    pub tl_end_ns: i64,
+}
+settings!(Ducking {
+    enabled: bool = false, gain_db: f64 = -12.0, attack_ns: i64 = 50_000_000,
+    release_ns: i64 = 200_000_000, ranges: Vec<ActivityRange> = vec![],
+});
+settings!(MusicTrack {
+    id: String = String::new(),
+    tl_start_ns: i64 = 0,
+    tl_end_ns: i64 = 1,
+    source: String = "file".into(),
+    path: String = String::new(),
+    file_start_ns: i64 = 0,
+    file_duration_ns: i64 = 0,
+    gain_db: f64 = -18.0,
+    r#loop: bool = true,
+    fade_in_ns: i64 = 500_000_000,
+    fade_out_ns: i64 = 500_000_000,
+    ducking: Ducking = Ducking::default(),
+});
 settings!(Export {
     last_preset: String = "mp4-1080p".into()
 });

@@ -109,24 +109,35 @@ impl Project {
                 camera.layouts.clear();
                 let mut canvas = self.data.canvas.clone();
                 canvas.highlights.clear();
+                canvas.annotations.clear();
+                canvas.reactions.clear();
+                canvas.captions.clear();
                 let mut audio = self.data.audio.clone();
                 audio.ranges.clear();
+                audio.music.clear();
                 Ok(
                     json!({"canvas":canvas,"cursor":cursor,"camera":camera,"audio":audio,"zoom_settings":self.data.zoom_settings,"export":self.data.export_settings}),
                 )
             }
             "audio_automation" => Ok(serde_json::to_value(&self.data.audio.ranges)?),
             "map_audio_ranges" => self.map_audio_ranges(query),
-            "render_options" => Ok(json!({
-                "cursor_style":self.data.cursor.style,
-                "cursor_motion_blur":self.data.cursor.motion_blur,
-                "cursor_spotlight_radius":self.data.cursor.spotlight_radius,
-                "background_noise":self.data.canvas.background.noise,
-                "window_chrome":self.data.canvas.window_chrome,
-                "camera_background_removal":self.data.camera.background_removal,
-                "camera_face_framing":self.data.camera.face_framing,
-                "camera_shadow_radius":self.data.camera.shadow_radius,
-            })),
+            "annotations" => Ok(serde_json::to_value(&self.data.canvas.annotations)?),
+            "reactions" => Ok(serde_json::to_value(&self.data.canvas.reactions)?),
+            "captions" => Ok(serde_json::to_value(&self.data.canvas.captions)?),
+            "music" => Ok(serde_json::to_value(&self.data.audio.music)?),
+            "audio_overlays" => self.audio_overlays(),
+            "render_options" => Ok(self.render_options(None)),
+            "effects_at" | "render_options_at" => {
+                let tl = query["tl_ns"]
+                    .as_i64()
+                    .ok_or_else(|| Error::new(1, "Missing integer tl_ns"))?;
+                if query["q"] == "effects_at" {
+                    self.effects_at(tl)
+                } else {
+                    self.frame(tl)?;
+                    Ok(self.render_options(Some(tl)))
+                }
+            }
             "layers_at" => {
                 let tl = query
                     .get("tl_ns")
@@ -218,13 +229,20 @@ impl Project {
                 }
                 Ok(rows.into())
             }
-            "clicks" | "cursor_clicks" | "events" => {
+            "clicks" | "cursor_clicks" | "events" | "key_events" => {
                 let all = query["q"] == "events";
                 let mut rows = Vec::new();
                 for (i, _) in self.data.timeline.clips.iter().enumerate() {
                     for (seg, events) in self.session.segments.iter().zip(&self.events) {
                         for e in events {
-                            if !all && e.kind != "down" {
+                            if !all
+                                && e.kind
+                                    != if query["q"] == "key_events" {
+                                        "key"
+                                    } else {
+                                        "down"
+                                    }
+                            {
                                 continue;
                             }
                             let src = seg.src_start_ns + e.t;

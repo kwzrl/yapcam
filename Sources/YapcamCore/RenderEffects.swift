@@ -27,6 +27,9 @@ public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
     public var fill: [Float]
     public var stroke: [Float]
     public var strokeWidth: Double
+    public var text: String?
+    public var fontSize: Double?
+    public var color: [Float]?
 }
 
 /// Mouse-down events, sorted on the edited timeline. Removed events are omitted.

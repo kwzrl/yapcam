@@ -22,7 +22,7 @@ pub extern "C" fn yc_abi_version() -> u32 {
 
 #[no_mangle]
 pub extern "C" fn yc_last_error() -> *const c_char {
-    guarded(b"Rust core panic\0".as_ptr().cast(), || {
+    guarded(c"Rust core panic".as_ptr(), || {
         LAST_ERROR.with(|e| e.borrow().as_ptr())
     })
 }
@@ -463,6 +463,18 @@ mod tests {
                 covered.insert(stringify!($name));
             }};
         }
+        macro_rules! probe_void {
+            ($name:ident, $call:expr) => {{
+                INJECT_PANIC.with(|f| f.set(true));
+                $call;
+                assert!(
+                    !INJECT_PANIC.with(|f| f.get()),
+                    "Missing boundary: {}",
+                    stringify!($name)
+                );
+                covered.insert(stringify!($name));
+            }};
+        }
         unsafe {
             probe!(yc_abi_version, yc_abi_version(), 0);
             INJECT_PANIC.with(|f| f.set(true));
@@ -503,9 +515,9 @@ mod tests {
             );
             probe!(yc_query, yc_query(p, query.as_ptr(), &mut text), 99);
             let owned = CString::new("owned result").unwrap().into_raw();
-            probe!(yc_string_free, yc_string_free(owned), ());
+            probe_void!(yc_string_free, yc_string_free(owned));
             yc_string_free(owned); // injection happens before ownership is consumed
-            probe!(yc_project_free, yc_project_free(p), ());
+            probe_void!(yc_project_free, yc_project_free(p));
             assert_eq!(
                 CStr::from_ptr(yc_last_error()).to_bytes(),
                 b"Rust core panic"
@@ -518,12 +530,17 @@ mod tests {
             .filter_map(|line| line.split_once("yc_").map(|(_, tail)| tail))
             .filter_map(|tail| tail.split_once('(').map(|(name, _)| format!("yc_{name}")))
             .collect();
+        let covered: BTreeSet<_> = covered.into_iter().map(str::to_owned).collect();
+        assert_eq!(covered, declared);
+        let exported: BTreeSet<_> = include_str!("ffi.rs")
+            .lines()
+            .filter(|line| line.trim_start().starts_with("pub "))
+            .filter_map(|line| line.split_once("extern \"C\" fn ").map(|(_, tail)| tail))
+            .filter_map(|tail| tail.split_once('(').map(|(name, _)| name.to_owned()))
+            .collect();
         assert_eq!(
-            covered
-                .into_iter()
-                .map(str::to_owned)
-                .collect::<BTreeSet<_>>(),
-            declared
+            covered, exported,
+            "Every Rust C export requires the panic regression"
         );
     }
 
@@ -671,5 +688,83 @@ mod tests {
             assert_eq!(call(&mut did), 0);
             assert_eq!(did, 1);
         }
+    }
+    #[test]
+    fn concurrent_writers_keep_durable_order_and_complete_undo_redo_history() {
+        let fixture = Fixture::new();
+        let h = Arc::new(YcProject::new(Project::create(&fixture.0).unwrap()));
+        let before = h.inner.read().unwrap().data.clone();
+        let start = Arc::new(std::sync::Barrier::new(5));
+        let writers: Vec<_> = (0..4)
+            .map(|worker| {
+                let h = h.clone();
+                let start = start.clone();
+                thread::spawn(move || {
+                    start.wait();
+                    for edit in 0..8 {
+                        let cmd = CString::new(format!(
+                            r#"{{"op":"set","path":"notes","value":"writer-{worker}-{edit}"}}"#
+                        ))
+                        .unwrap();
+                        assert_eq!(
+                            unsafe {
+                                yc_apply(
+                                    Arc::as_ptr(&h).cast_mut(),
+                                    cmd.as_ptr(),
+                                    std::ptr::null_mut(),
+                                )
+                            },
+                            0
+                        );
+                    }
+                })
+            })
+            .collect();
+        start.wait();
+        let mut frame = crate::frame::Frame::default();
+        for _ in 0..1000 {
+            assert_eq!(unsafe { yc_frame_at(Arc::as_ptr(&h), 0, &mut frame) }, 0);
+        }
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let after = h.inner.read().unwrap().data.clone();
+        assert_eq!(h.inner.read().unwrap().undo.len(), 32);
+        assert_eq!(Project::open(&fixture.0).unwrap().data, after);
+        let mut did = 0;
+        for _ in 0..32 {
+            assert_eq!(unsafe { yc_undo(Arc::as_ptr(&h).cast_mut(), &mut did) }, 0);
+            assert_eq!(did, 1);
+        }
+        assert_eq!(h.inner.read().unwrap().data, before);
+        assert_eq!(Project::open(&fixture.0).unwrap().data, before);
+        for _ in 0..32 {
+            assert_eq!(unsafe { yc_redo(Arc::as_ptr(&h).cast_mut(), &mut did) }, 0);
+            assert_eq!(did, 1);
+        }
+        assert_eq!(h.inner.read().unwrap().data, after);
+        assert_eq!(Project::open(&fixture.0).unwrap().data, after);
+    }
+    #[test]
+    fn panic_during_unlocked_journal_io_does_not_poison_frame_reads() {
+        let fixture = Fixture::new();
+        let h = YcProject::new(Project::create(&fixture.0).unwrap());
+        let before = h.inner.read().unwrap().data.clone();
+        journal_test_hook::set(|| panic!("disk-stage panic"));
+        let cmd = CString::new(r#"{"op":"set","path":"notes","value":"not published"}"#).unwrap();
+        assert_eq!(
+            unsafe {
+                yc_apply(
+                    (&h as *const YcProject).cast_mut(),
+                    cmd.as_ptr(),
+                    std::ptr::null_mut(),
+                )
+            },
+            99
+        );
+        assert_eq!(h.inner.read().unwrap().data, before);
+        let mut f = crate::frame::Frame::default();
+        assert_eq!(unsafe { yc_frame_at(&h, 0, &mut f) }, 0);
+        assert_eq!(unsafe { yc_can_undo(&h) }, 0);
     }
 }

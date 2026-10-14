@@ -181,6 +181,13 @@ Root setting objects are applied through `apply_preset`, not `set`.
 | `notes` | speaker notes string | empty |
 | `autosave` | boolean, journal edits before publishing in memory | true |
 
+REC-21 speaker notes are arbitrary UTF-8 text (including newlines), stored in
+`project.json.notes`. Older schema-1 projects without the field default to `""`.
+`{"op":"set","path":"notes","value":"Opening line\nNext point"}` is undoable,
+journaled and saved; non-string values fail atomically. Setting the same text is
+a no-op. Read notes with `{"q":"project"}`; notes are excluded from presets and
+frame/render evaluation. UI can edit them without changing recording clocks.
+
 Timeline records use half-open `[tl_start_ns,tl_end_ns)` intervals with nonnegative
 start and strictly greater end. Cuts and speed changes retime all these records
 along with zooms; collapsed intervals are removed. Latest-start active camera
@@ -282,3 +289,129 @@ JSON array of relative paths in the error message; relink refreshes selected fil
 Autosave journals validated complete state before in-memory edits; open restores a
 same-project journal, save commits primary/.prev then removes the journal. Export
 snapshots never journal over the editor.
+
+
+## Backlog contracts: additive schema-1 effects
+
+These fields default when absent. Arrays are replaced as a whole by `set`; array
+indices are not set paths. Edits use the existing transactional batch/undo/journal
+mechanism. Persisted ranges are half-open and retime with cuts/speeds; collapsed
+ranges disappear. IDs must be nonempty and unique within their collection; IDs
+starting `core:` and `canvas-fade` are reserved. No change to C ABI v2 sizes.
+Implementation/checkpoint progress is in docs/status/core.md.
+
+| New set path | Value / default |
+|---|---|
+| `canvas.annotations` | text/annotation records, [] |
+| `canvas.reactions` | text records (emoji/reaction glyphs), [] |
+| `canvas.captions` | caption text records, [] |
+| `cursor.key_overlay` | complete key overlay settings object, defaults below |
+| `cursor.key_overlay.enabled` | bool, false |
+| `cursor.key_overlay.duration_ns` | positive Int64 ns, 1000000000 |
+| `cursor.key_overlay.shortcuts_only` | bool, true (cmd/ctrl/alt combinations) |
+| `cursor.key_overlay.rect` | normalized canvas [x,y,w,h], [0.3,0.82,0.4,0.12] |
+| `cursor.key_overlay.style` | complete text style, defaults below |
+| `cursor.key_overlay.style.font_size` | 1…1024 canvas px, 36 |
+| `cursor.key_overlay.style.color` | sRGB RGBA, [1,1,1,1] |
+| `cursor.key_overlay.style.background` | sRGB RGBA, [0,0,0,0.65] |
+| `cursor.key_overlay.style.radius` | 0…16384 canvas px, 12 |
+| `cursor.key_overlay.style.opacity` | 0…1, 1 |
+| `audio.click_sound` | complete click sound settings object |
+| `audio.click_sound.enabled` | bool, false |
+| `audio.click_sound.variant` | soft/crisp, soft (original procedural sounds) |
+| `audio.click_sound.gain_db` | −96…24 dB, −12 |
+| `audio.music` | music track records, [] |
+
+Text records: `{id,tl_start_ns,tl_end_ns,text,rect?,space?,style?}`. UTF-8 text is
+nonempty; rect defaults [0.1,0.75,0.8,0.15], must fit [0,1]² with positive size.
+Space is canvas (default) or source. Source records clip/map through current zoom
+and crop; canvas records use output pixels. Style is `{font_size,color,background,
+radius,opacity}`, with defaults/limits shown above. Caption/reaction records use
+the same format; glyph/text content is caller-provided, no external asset library.
+A style background becomes a separate highlight preceding the text. `layers_at`
+orders highlights, annotations, reactions, captions, key overlay, final fade.
+Every returned layer retains the existing numeric highlight fields (zero for text)
+and adds optional `text`, `font_size`, `color`; text layers have `kind:"text"`.
+
+Commands (all undoable): `add_annotation`, `add_reaction`, `add_caption`, `add_music`
+carry `record:{...}`; optional omitted/empty id is generated and returned in
+createdIDs. `update_annotation/reaction/caption/music` use `{id,patch:{...}}`;
+patch cannot change id and unknown fields fail. `remove_annotation/reaction/caption/music`
+use `{id}`. Generic set supports replacing their collections.
+
+`import_transcript` accepts `{op:"import_transcript", transcript:{schema_version:1,
+engine,locale,words:[{text,src_start_ns,src_end_ns,confidence?,segment_index?,track?}]},
+style?:{...},replace?:true}`. This is Capture's `RecordingTranscript` JSON (read
+recording/transcript.json in Swift, pass its JSON object). No Speech dependency in
+Core. Each word intersects each retained clip, using exact source boundary mapping;
+cut words disappear, cut-spanning words split, repeated clips repeat words, speeds
+retime them. Each output word is a caption segment with timeline range, text and
+style. Default replace=true replaces captions in one undo step; false appends.
+Invalid schema, timestamps, blank words or style fail the entire command. Zero
+rounded-duration intersections are omitted. Source timestamps exclude pauses and
+include Capture's per-track offsets; Core must not apply those offsets again.
+
+Music record: `{id,tl_start_ns,tl_end_ns,source?,path?,file_start_ns?,file_duration_ns?,
+gain_db?,loop?,fade_in_ns?,fade_out_ns?,ducking?}`. Source file (default), calm or
+bright; calm/bright are Render's original 8-second procedural loops. File path is
+package-relative and must already appear in media (`add_media` can precede it in a
+batch). File duration is required positive for source=file, 8s for built-ins.
+File start >=0 and < duration; gain −96…24 dB (default −18), loop=true, fades
+nonnegative ns (default 500ms each). Non-loop tracks stop when the file runs out.
+Ducking: `{enabled:false,gain_db:-12,attack_ns:50000000,release_ns:200000000,
+ranges:[]}`; ranges are `{tl_start_ns,tl_end_ns}`. When enabled, empty ranges use
+caption ranges as speech activity; no captions means no inferred speech. Explicit
+ranges override that inference. Duck attenuation ramps linearly in dB after speech
+start and after speech end, with strongest active attenuation winning. Music fades
+are linear amplitude; overlap multiplies the two fades. Cuts/speeds remap music
+ranges and explicit duck ranges; external music has its own output-timeline clock,
+independent of recording playback speed.
+
+New queries:
+
+| q | Result |
+|---|---|
+| annotations / reactions / captions / music | persisted record array |
+| key_events | edited, sorted `type:"key"` events with src_ns/tl_ns and metadata |
+| audio_overlays | music and enabled click instructions described below |
+| effects_at, integer tl_ns | `{layers,render_options,audio}` from one immutable state; validates time as frame_at |
+| render_options_at, integer tl_ns | render_options with active camera layout overrides |
+
+`audio_overlays` rows: `{id,source,path,tl_start_ns,tl_end_ns,file_start_ns,
+file_duration_ns,loop,gain,gain_start,gain_end,fade_in_ns,fade_out_ns}`. Music splits
+at duck envelope boundaries; start/end gains are amplitudes for a linear-dB ramp,
+excluding fades (apply fades relative to `envelope_start_ns/envelope_end_ns`, the
+original music range). `source` is file/calm/bright/soft/crisp; clicks use mapped
+mouse-down times, clamp duration to project end (soft 80ms, crisp 50ms), no loops.
+`effects_at.audio` gives active rows with an additional `gain_at` including duck
+and fade; no decoding or IO. Consumers preserve `file_start_ns` and advance it by
+elapsed timeline time, wrapping modulo file_duration_ns when loop=true. These
+allocated JSON queries complement, and do not grow, YcFrameExtras.
+
+Key overlay derives the latest eligible retained key event within duration_ns;
+cmd/ctrl/alt/shift become ⌘/⌃/⌥/⇧ followed by key text. It is opt-in, defaults to
+shortcuts only, and never displays events removed by cuts. Array layer ID is
+`core:key-overlay`; synthetic style background IDs start `core:`.
+
+EDT-14 uses existing `canvas.animation.entrance/exit` set paths with additional
+modes `zoom`, `slide_left`, `slide_right`, `slide_up`, `slide_down`. Existing
+positive duration paths remain unchanged. A quintic ease scales zoom from/to 0.85
+about canvas center, or slides screen/camera/cursor from/to one canvas width/height.
+Transforms affect source-space layers; canvas-space overlays remain fixed. Zoom
+and slides transform the primary content, retain background, and add no media/time.
+Fade remains the final full-composition black layer. Frame destinations/cursor
+geometry contain evaluated transforms, so no second renderer-side tween is needed.
+
+CAM-04/05: existing root `camera.background_removal/face_framing` remain defaults.
+Layout records append optional `camera_background_removal`, `camera_face_framing`,
+`camera_shadow_radius` (0…16384). Latest-start active layout overrides these fields;
+null/omitted inherits root. FrameExtras' existing camera fields now evaluate those
+per-layout options; render_options_at/effects_at agrees. Vision processing remains
+Renderer-owned. Use a snapshot/matched time for frame/extras/config/layers.
+
+Existing `map_audio_ranges` query accepts `{q:"map_audio_ranges",track:"mic"|
+"system_audio",path:"recording/seg-NNN/file",ranges:[{file_start_ns,file_end_ns}]}`
+and returns sorted merged `{tl_start_ns,tl_end_ns}` intervals. It maps every retained
+file occurrence through clips, track offsets and speeds without IO or mutation.
+Presets omit annotations, reactions, captions, music and duck activity ranges,
+as well as existing project-specific collections.

@@ -381,13 +381,18 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             return invalid("At most 32 highlights may overlap");
         }
     }
-    if !matches!(c.animation.entrance.as_str(), "none" | "fade")
-        || !matches!(c.animation.exit.as_str(), "none" | "fade")
-        || c.animation.entrance_duration_ns <= 0
+    if !matches!(
+        c.animation.entrance.as_str(),
+        "none" | "fade" | "zoom" | "slide_left" | "slide_right" | "slide_up" | "slide_down"
+    ) || !matches!(
+        c.animation.exit.as_str(),
+        "none" | "fade" | "zoom" | "slide_left" | "slide_right" | "slide_up" | "slide_down"
+    ) || c.animation.entrance_duration_ns <= 0
         || c.animation.exit_duration_ns <= 0
     {
         return invalid("Invalid canvas animation");
     }
+    crate::effects::validate(p)?;
     Ok(())
 }
 /// FNV-1a fingerprint of at most the first MiB; prefixed for future algorithms.

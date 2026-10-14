@@ -1,8 +1,8 @@
 # Yapcam core integration
 
 Rust owns schema 1 `project.json`; `src/model.rs` is the authoritative type and
-setting definition. Swift `YapcamCore.Project` serializes calls and owns the C
-handle. `snapshot()` copies capture/event state and disables autosave writes for
+setting definition. Swift `YapcamCore.Project` owns the C handle; Rust serializes
+mutations separately from concurrent readers. `snapshot()` copies capture/event state and disables autosave writes for
 that independent handle. Preview and export call the same `frame(atNs:)` evaluator.
 Successful `yc_frame_at` does not allocate, read files or mutate project state.
 
@@ -105,6 +105,23 @@ memory. Open restores a valid journal with the matching project ID. Save clears 
 journal after committing the primary. A journal IO failure rolls back the edit.
 Undo/redo also journal their resulting state. There is one editor writer per package;
 independent exports use snapshots and do not autosave.
+
+The handle's writer mutex serializes apply/undo/redo/save. Edits stage under a read
+lock; journal serialization/path checks/write/fsync/rename run with no state lock;
+only successful durable states publish under a brief write lock. Save also copies
+its state then runs disk IO outside the state lock. Swift adds no shared lock around
+these calls, so frame/extras/read queries keep reading the previous complete state
+while a writer waits on disk. Mutations still return synchronously after durability;
+no debounce window or weaker recovery guarantee was introduced. Notifications run
+after the writer gate is released. Tests pause all four disk stages deterministically,
+verify allocation-free frames continue, test concurrent writer/history ordering,
+and preserve rollback on IO failure. A caller must not free a handle during calls.
+
+Every C export (including getters/free/error functions) contains Rust unwinds at
+its outer boundary. Status functions return YC_ERR_INTERNAL on panic; scalar getters
+return zero, last_error returns a static panic string, and void functions return
+without an escaping unwind. A test injects a top-level panic at every header entry
+and Rust C export; another injects a disk-stage panic and verifies frames still read.
 
 Media fingerprints are `fnv1a64:` plus the hex FNV-1a hash of the first MiB and the
 full file size. These detect changes, not authenticity. All media references must

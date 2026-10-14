@@ -2,7 +2,7 @@
 //! Geometry comes from the same frame evaluator used by preview and export.
 use crate::{
     frame::{Frame, Rect},
-    model::{Animation, Highlight},
+    model::{Animation, Highlight, TextRecord},
     project::{Error, Project, Result},
     time,
 };
@@ -82,6 +82,65 @@ fn highlight_at(h: &Highlight, f: &Frame) -> Option<FrameHighlight> {
         stroke_width: h.stroke_width as f32,
     })
 }
+fn append_text(layers: &mut Vec<Value>, r: &TextRecord, f: &Frame, id: &str) {
+    let h = Highlight {
+        tl_start_ns: r.tl_start_ns,
+        tl_end_ns: r.tl_end_ns,
+        rect: r.rect,
+        space: r.space.clone(),
+        radius: r.style.radius,
+        opacity: r.style.opacity,
+        dim_opacity: 0.0,
+        fill: r.style.background,
+        stroke: [0.0; 4],
+        stroke_width: 0.0,
+        ..Highlight::default()
+    };
+    if let Some(evaluated) = highlight_at(&h, f) {
+        let d = evaluated.rect;
+        let rect = [d.x, d.y, d.w, d.h];
+        if r.style.background[3] > 0.0 {
+            layers.push(json!({"id":format!("{id}:background"),"kind":"highlight","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":r.style.background,"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0}));
+        }
+        layers.push(json!({"id":id,"kind":"text","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":[0.0,0.0,0.0,0.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0,"text":r.text,"font_size":r.style.font_size,"color":r.style.color}));
+    }
+}
+/// Apply content entrance/exit to the legacy geometry. No additional ABI slots,
+/// allocations, or renderer-side animation clock are needed.
+pub(crate) fn animate_frame(f: &mut Frame, a: &Animation, duration: i64) {
+    let enter = smooth(f.tl_ns as f64 / a.entrance_duration_ns.min(duration).max(1) as f64);
+    let leave =
+        smooth((duration - f.tl_ns) as f64 / a.exit_duration_ns.min(duration).max(1) as f64);
+    for (mode, progress) in [(a.entrance.as_str(), enter), (a.exit.as_str(), leave)] {
+        let remaining = 1.0 - progress;
+        let (scale, dx, dy) = match mode {
+            "zoom" => (0.85 + 0.15 * progress, 0.0, 0.0),
+            "slide_left" => (1.0, -remaining * f.canvas_w as f64, 0.0),
+            "slide_right" => (1.0, remaining * f.canvas_w as f64, 0.0),
+            "slide_up" => (1.0, 0.0, -remaining * f.canvas_h as f64),
+            "slide_down" => (1.0, 0.0, remaining * f.canvas_h as f64),
+            _ => continue,
+        };
+        let cx = f.canvas_w as f64 / 2.0;
+        let cy = f.canvas_h as f64 / 2.0;
+        let transform = |x: f64, y: f64| (cx + (x - cx) * scale + dx, cy + (y - cy) * scale + dy);
+        for r in [&mut f.screen_dest, &mut f.camera_dest] {
+            let (x, y) = transform(r.x, r.y);
+            r.x = x;
+            r.y = y;
+            r.w *= scale;
+            r.h *= scale;
+        }
+        (f.cursor_x, f.cursor_y) = transform(f.cursor_x, f.cursor_y);
+        (f.click_x, f.click_y) = transform(f.click_x, f.click_y);
+        f.cursor_scale *= scale as f32;
+        f.screen_corner_radius *= scale as f32;
+        f.camera_corner_radius *= scale as f32;
+        f.inset_width *= scale as f32;
+        f.shadow_radius *= scale as f32;
+        f.shadow_offset_y *= scale as f32;
+    }
+}
 fn fade_opacity(a: &Animation, duration: i64, tl_ns: i64) -> f64 {
     // Short projects clamp durations; overlapping fades take the darker result.
     let entrance = if a.entrance == "fade" {
@@ -101,6 +160,7 @@ impl Project {
     pub fn frame_extras(&self, tl_ns: i64) -> Result<FrameExtras> {
         let f = self.frame(tl_ns)?;
         let p = &self.data;
+        let (camera_remove, camera_face, camera_shadow) = crate::effects::camera_options(p, tl_ns);
         let mut extras = FrameExtras {
             tl_ns,
             cursor_style: match p.cursor.style.as_str() {
@@ -112,9 +172,9 @@ impl Project {
             cursor_spotlight_radius: p.cursor.spotlight_radius as f32,
             background_noise: p.canvas.background.noise as f32,
             window_chrome: p.canvas.window_chrome as u8,
-            camera_background_removal: p.camera.background_removal as u8,
-            camera_face_framing: p.camera.face_framing as u8,
-            camera_shadow_radius: p.camera.shadow_radius as f32,
+            camera_background_removal: camera_remove as u8,
+            camera_face_framing: camera_face as u8,
+            camera_shadow_radius: camera_shadow as f32,
             fade_opacity: fade_opacity(
                 &p.canvas.animation,
                 time::duration(&p.timeline.clips),
@@ -145,6 +205,55 @@ impl Project {
                     "corner_radius":h.radius,"opacity":h.opacity,"dim_opacity":h.dim_opacity,
                     "fill":h.fill,"stroke":h.stroke,"stroke_width":h.stroke_width}),
                 );
+            }
+        }
+        for (kind, records) in [
+            ("annotation", &self.data.canvas.annotations),
+            ("reaction", &self.data.canvas.reactions),
+            ("caption", &self.data.canvas.captions),
+        ] {
+            for r in records {
+                append_text(&mut layers, r, &f, &format!("core:{kind}:{}", r.id));
+            }
+        }
+        let key = &self.data.cursor.key_overlay;
+        if key.enabled {
+            let events = self.query(&json!({"q":"key_events"}))?;
+            let event = events.as_array().unwrap().iter().rev().find(|e| {
+                let t = e["tl_ns"].as_i64().unwrap();
+                t <= tl_ns
+                    && tl_ns - t < key.duration_ns
+                    && (!key.shortcuts_only
+                        || e["modifiers"].as_array().is_some_and(|mods| {
+                            mods.iter()
+                                .any(|m| matches!(m.as_str(), Some("cmd" | "ctrl" | "alt")))
+                        }))
+            });
+            if let Some(e) = event {
+                let mut text = String::new();
+                for (name, glyph) in [("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("cmd", "⌘")]
+                {
+                    if e["modifiers"]
+                        .as_array()
+                        .is_some_and(|mods| mods.iter().any(|v| v.as_str() == Some(name)))
+                    {
+                        text.push_str(glyph);
+                    }
+                }
+                if let Some(k) = e["key"].as_str() {
+                    text.push_str(k);
+                }
+                if !text.trim().is_empty() {
+                    let record = TextRecord {
+                        text,
+                        rect: key.rect,
+                        style: key.style.clone(),
+                        tl_start_ns: tl_ns,
+                        tl_end_ns: tl_ns.saturating_add(1),
+                        ..TextRecord::default()
+                    };
+                    append_text(&mut layers, &record, &f, "core:key-overlay");
+                }
             }
         }
         let opacity = fade_opacity(

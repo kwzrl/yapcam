@@ -56,6 +56,13 @@ public struct ZoomSpec: Codable, Sendable, Equatable {
     }
 }
 public enum EditCommand: Encodable, Sendable {
+    case addText(TextEffectKind, TextEffectRecord)
+    case updateText(TextEffectKind, id: String, patch: [String: JSONValue])
+    case removeText(TextEffectKind, id: String)
+    case addMusic(MusicTrack)
+    case updateMusic(id: String, patch: [String: JSONValue])
+    case removeMusic(id: String)
+    case importTranscript(JSONValue, style: TextStyle, replace: Bool)
     case split(atNs: Int64)
     case deleteRange(startNs: Int64, endNs: Int64)
     case setSpeed(clipID: String, speed: Double)
@@ -73,11 +80,25 @@ public enum EditCommand: Encodable, Sendable {
     // Encode integer times as Int64, never via JSONValue.Double.
     enum Key: String, CodingKey {
         case op, at = "at_tl_ns", start = "tl_start_ns", end = "tl_end_ns", clipID = "clip_id"
-        case speed, zoom, id, patch, path, value, commands, preset, ranges, mode, project, paths, role
+        case speed, zoom, id, patch, path, value, commands, preset, ranges, mode, project, paths, role, record, transcript, style, replace
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: Key.self)
         switch self {
+        case .addText(let kind, let record):
+            try c.encode("add_" + kind.rawValue, forKey: .op); try c.encode(EffectCommandValue(value: record), forKey: .record)
+        case .updateText(let kind, let id, let patch):
+            try c.encode("update_" + kind.rawValue, forKey: .op); try c.encode(id, forKey: .id); try c.encode(patch, forKey: .patch)
+        case .removeText(let kind, let id):
+            try c.encode("remove_" + kind.rawValue, forKey: .op); try c.encode(id, forKey: .id)
+        case .addMusic(let record):
+            try c.encode("add_music", forKey: .op); try c.encode(EffectCommandValue(value: record), forKey: .record)
+        case .updateMusic(let id, let patch):
+            try c.encode("update_music", forKey: .op); try c.encode(id, forKey: .id); try c.encode(patch, forKey: .patch)
+        case .removeMusic(let id):
+            try c.encode("remove_music", forKey: .op); try c.encode(id, forKey: .id)
+        case .importTranscript(let transcript, let style, let replace):
+            try c.encode("import_transcript", forKey: .op); try c.encode(transcript, forKey: .transcript); try c.encode(EffectCommandValue(value: style), forKey: .style); try c.encode(replace, forKey: .replace)
         case .split(let at): try c.encode("split", forKey: .op); try c.encode(at, forKey: .at)
         case .deleteRange(let a, let b):
             try c.encode("delete_range", forKey: .op); try c.encode(a, forKey: .start); try c.encode(b, forKey: .end)

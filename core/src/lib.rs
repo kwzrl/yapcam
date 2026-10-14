@@ -52,3 +52,5 @@ pub(crate) mod allocation_test {
 pub mod auto;
 pub mod input;
 pub mod spring;
+
+pub mod effects;

@@ -10,6 +10,73 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
     defer { try? FileManager.default.removeItem(at: dest) }
     return try body(dest)
 }
+private final class ConcurrentEditCheck: @unchecked Sendable {
+    private let lock = NSLock()
+    private var editing = true
+    private var framesDuringEdits = 0
+    private var failures: [String] = []
+    func frame() { lock.lock(); defer { lock.unlock() }; if editing { framesDuringEdits += 1 } }
+    func failed(_ error: Error) { lock.lock(); defer { lock.unlock() }; failures.append(error.localizedDescription) }
+    func finished() { lock.lock(); defer { lock.unlock() }; editing = false }
+    var result: (Int, [String]) { lock.lock(); defer { lock.unlock() }; return (framesDuringEdits, failures) }
+}
+@Test func croppedZoomFirstFramesRemainValidAcrossABI() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.set(path: "canvas.crop", value: .array([.number(0.1), .number(0.1), .number(0.7), .number(0.7)])))
+        for mode in ["manual", "auto"] {
+            for start: Int64 in [0, 1_000_000_000] {
+                let change = try p.apply(.addZoom(ZoomSpec(startNs: start, endNs: start + 1_000_000_000, mode: mode)))
+                for t in [start, start + 1, start + 150_000_000] {
+                    let frame = try p.frame(atNs: t)
+                    #expect(frame.screen_crop.x.isFinite && frame.screen_crop.y.isFinite)
+                    #expect(frame.screen_crop.x >= 0.1 && frame.screen_crop.y >= 0.1)
+                    #expect(frame.screen_crop.x + frame.screen_crop.w <= 0.8 + 1e-15)
+                    #expect(try p.frameExtras(atNs: t).tl_ns == t)
+                }
+                try p.apply(.removeZoom(id: change.createdIDs[0]))
+            }
+        }
+    }
+}
+@Test func framesRemainValidWhileDurableEditsAndHistoryRunConcurrently() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.batch([
+            .set(path: "canvas.crop", value: .array([.number(0.1), .number(0.1), .number(0.7), .number(0.7)])),
+            .addZoom(ZoomSpec(startNs: 1_000_000_000, endNs: 2_000_000_000))
+        ]))
+        let check = ConcurrentEditCheck()
+        let started = DispatchSemaphore(value: 0)
+        let done = DispatchGroup()
+        done.enter()
+        DispatchQueue(label: "core-durable-edit-regression").async {
+            defer { check.finished(); done.leave() }
+            started.signal()
+            do {
+                for n in 0..<24 { try p.apply(.set(path: "canvas.padding", value: .number(Double(30 + n)))) }
+                for _ in 0..<12 { try p.undo() }
+                for _ in 0..<12 { try p.redo() }
+                try p.save()
+            } catch { check.failed(error) }
+        }
+        // Join before the fixture is removed, even if a reader fails.
+        defer { done.wait() }
+        started.wait()
+        for _ in 0..<1000 {
+            let frame = try p.frame(atNs: 1_000_000_000)
+            #expect(frame.screen_crop.x.isFinite && frame.screen_crop.y.isFinite)
+            #expect(frame.screen_crop.x >= 0.1 && frame.screen_crop.y >= 0.1)
+            #expect(try p.frameExtras(atNs: 1_000_000_000).tl_ns == frame.tl_ns)
+            check.frame()
+        }
+        done.wait()
+        #expect(check.result.0 > 0 && check.result.1.isEmpty)
+        #expect(abs(try p.frame(atNs: 0).screen_dest.y - 53) < 1e-9)
+        let reopened = try Project.open(package: package)
+        #expect(try reopened.toJSON() == p.toJSON())
+    }
+}
 @Test func supplementalEffectsPersistAndMatchSnapshots() throws {
     try withFixture { package in
         let p = try Project.create(package: package)
@@ -361,5 +428,128 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
             let noOp = try other.apply(.set(path: "canvas.padding", value: .number(48)))
             #expect(noOp.changed.isEmpty)
         }
+    }
+}
+
+@Test func speakerNotesPersistWithUnicodeAndUndo() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let notes = "Opening 👋\n第二行 — café"
+        #expect(try p.apply(.set(path: "notes", value: .string(notes))).changed == ["notes"])
+        #expect(try p.apply(.set(path: "notes", value: .string(notes))).changed.isEmpty)
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "notes", value: .number(12))) }
+        try p.undo()
+        let empty = try JSONSerialization.jsonObject(with: p.toJSON()) as! [String: Any]
+        #expect(empty["notes"] as? String == "")
+        try p.redo()
+        try p.save()
+        let reopened = try Project.open(package: package)
+        let saved = try JSONSerialization.jsonObject(with: reopened.toJSON()) as! [String: Any]
+        #expect(saved["notes"] as? String == notes)
+    }
+}
+
+@Test func textReactionCaptionCommandsDecodeAndRetimeThroughABI() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        for (kind, text) in [(TextEffectKind.annotation, "Label 👋"), (.reaction, "🎉"), (.caption, "Caption")] {
+            let change = try p.apply(.addText(kind, TextEffectRecord(startNs: 1_000_000_000, endNs: 3_000_000_000, text: text)))
+            #expect(change.createdIDs.count == 1)
+            let id = change.createdIDs[0]
+            #expect(try p.textEffects(kind)[0].style.fontSize == 36)
+            try p.apply(.updateText(kind, id: id, patch: ["text": .string("Edited")]))
+            #expect(try p.textEffects(kind)[0].text == "Edited")
+            try p.undo()
+            #expect(try p.textEffects(kind)[0].text == text)
+            try p.redo()
+            try p.apply(.removeText(kind, id: id))
+            #expect(try p.textEffects(kind).isEmpty)
+            try p.undo()
+        }
+        let layers = try p.effects(atNs: 2_000_000_000).layers
+        #expect(layers.filter { $0.kind == "text" }.count == 3)
+        #expect(layers.first { $0.kind == "text" }?.fontSize == 36)
+        struct Clip: Decodable { var id: String }
+        let id = try p.query("{\"q\":\"clips\"}", as: [Clip].self)[0].id
+        try p.apply(.setSpeed(clipID: id, speed: 2))
+        #expect(try p.textEffects(.caption)[0].tlStartNs == 500_000_000)
+        let snapshot = try p.snapshot()
+        #expect(try p.effects(atNs: 750_000_000) == snapshot.effects(atNs: 750_000_000))
+        try p.save()
+        #expect(try Project.open(package: package).textEffects(.caption) == p.textEffects(.caption))
+        try p.apply(.deleteRange(startNs: 500_000_000, endNs: 1_500_000_000))
+        #expect(try p.textEffects(.caption).isEmpty)
+        let large: Int64 = 9_007_199_254_740_993
+        try p.apply(.addText(.annotation, TextEffectRecord(startNs: large, endNs: large + 101, text: "Exact")))
+        #expect(try p.textEffects(.annotation).last?.tlStartNs == large)
+    }
+}
+
+@Test func captureTranscriptJSONImportsAsEditedCaptionSegments() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.deleteRange(startNs: 1_000_000_000, endNs: 2_000_000_000))
+        let data = Data("""
+        {"schema_version":1,"engine":"apple_speech_on_device","locale":"en-US","words":[
+          {"text":"hello","src_start_ns":500000000,"src_end_ns":1500000000,"confidence":0.9,"segment_index":0,"track":"mic"},
+          {"text":"world","src_start_ns":2000000000,"src_end_ns":3000000000,"confidence":1,"segment_index":0,"track":"mic"}]}
+        """.utf8)
+        let change = try p.importTranscript(data, style: TextStyle(fontSize: 42))
+        #expect(change.createdIDs.count == 2)
+        let captions = try p.textEffects(.caption)
+        #expect(captions.map(\.tlStartNs) == [500_000_000, 1_000_000_000])
+        #expect(captions.map(\.tlEndNs) == [1_000_000_000, 2_000_000_000])
+        #expect(captions.allSatisfy { $0.style.fontSize == 42 })
+        try p.importTranscript(data, replace: false)
+        #expect(try p.textEffects(.caption).count == 4)
+        try p.undo()
+        #expect(try p.textEffects(.caption) == captions)
+        #expect(throws: CoreError.self) { try p.importTranscript(Data("{\"schema_version\":2,\"words\":[]}".utf8)) }
+        #expect(try p.textEffects(.caption) == captions)
+    }
+}
+
+@Test func musicClickSoundAndPerLayoutCameraEffectsDecodeAcrossABI() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let track = MusicTrack(startNs: 0, endNs: 5_000_000_000, source: "calm", gainDb: 0, fadeInNs: 1_000_000_000, fadeOutNs: 1_000_000_000, ducking: MusicDucking(enabled: true, gainDb: -20, attackNs: 0, releaseNs: 0, ranges: [TimelineActivityRange(startNs: 1_000_000_000, endNs: 2_000_000_000)]))
+        let id = try p.apply(.addMusic(track)).createdIDs[0]
+        #expect(try p.musicTracks()[0].ducking.gainDb == -20)
+        #expect(abs(try p.effects(atNs: 500_000_000).audio[0].gainAt! - 0.5) < 1e-6)
+        #expect(abs(try p.effects(atNs: 1_500_000_000).audio[0].gainAt! - 0.1) < 1e-6)
+        try p.apply(.updateMusic(id: id, patch: ["gain_db": .number(-6)]))
+        try p.apply(.set(path: "audio.click_sound.enabled", value: .bool(true)))
+        #expect(try p.audioOverlays().filter { $0.source == "soft" }.count == p.clicks().count)
+        let layout: JSONValue = .object(["id": .string("vision"), "mode": .string("overlay"), "tl_start_ns": .integer(1_000_000_000), "tl_end_ns": .integer(2_000_000_000), "camera_background_removal": .bool(true), "camera_face_framing": .bool(true), "camera_shadow_radius": .number(30)])
+        try p.apply(.set(path: "camera.layouts", value: .array([layout])))
+        let extras = try p.frameExtras(atNs: 1_500_000_000)
+        let options = try p.effects(atNs: 1_500_000_000).renderOptions
+        #expect(extras.camera_background_removal == 1 && options.cameraBackgroundRemoval)
+        #expect(extras.camera_face_framing == 1 && options.cameraFaceFraming)
+        #expect(try !p.renderOptions(atNs: 2_000_000_000).cameraFaceFraming)
+        let normal = try p.frame(atNs: 0).screen_dest
+        try p.apply(.set(path: "canvas.animation.entrance", value: .string("zoom")))
+        #expect(abs(try p.frame(atNs: 0).screen_dest.w - normal.w * 0.85) < 1e-6)
+        #expect(try p.frame(atNs: 400_000_000).screen_dest.w == normal.w)
+        try p.apply(.removeMusic(id: id))
+        #expect(try p.musicTracks().isEmpty)
+        try p.undo()
+        #expect(try p.musicTracks().count == 1)
+    }
+}
+
+@Test func keyOverlaySetPathsUseCapturedKeyMetadata() throws {
+    try withFixture { package in
+        let events = package.appendingPathComponent("recording/seg-000/events.jsonl")
+        var data = try Data(contentsOf: events)
+        data.append(Data("\n{\"t\":1200000000,\"type\":\"key\",\"key\":\"k\",\"modifiers\":[\"cmd\",\"shift\"]}\n".utf8))
+        try data.write(to: events)
+        let p = try Project.create(package: package)
+        try p.apply(.set(path: "cursor.key_overlay.enabled", value: .bool(true)))
+        let layers = try p.renderLayers(atNs: 1_300_000_000)
+        #expect(layers.last?.text == "⇧⌘k")
+        #expect(try p.renderLayers(atNs: 2_200_000_000).isEmpty)
+        try p.apply(.deleteRange(startNs: 1_000_000_000, endNs: 2_000_000_000))
+        #expect(try p.renderLayers(atNs: 1_300_000_000).isEmpty)
     }
 }

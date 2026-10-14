@@ -115,6 +115,9 @@ fn apply_inner(
     if depth > 32 {
         return Err(Error::new(1, "Batch nesting exceeds 32"));
     }
+    if crate::effects::collection_command(p, v, cs)? {
+        return Ok(());
+    }
     match string(v, "op")? {
         "batch" => {
             let commands = v
@@ -396,6 +399,14 @@ fn apply_inner(
                 }
             }
         }
+        "import_transcript" => {
+            let end = context
+                .session
+                .segments
+                .last()
+                .map_or(0, |s| s.src_start_ns + s.duration_ns);
+            crate::effects::import_transcript(p, v, cs, end)?;
+        }
         "auto_zooms" => {
             crate::auto::generate_zooms(p, context, v, cs)?;
         }
@@ -485,12 +496,69 @@ pub(crate) fn remap_effects(p: &mut ProjectData, map: impl Fn(i64) -> i64) {
         h.tl_end_ns = map(h.tl_end_ns);
     }
     p.canvas.highlights.retain(|h| h.tl_end_ns > h.tl_start_ns);
+    for records in [
+        &mut p.canvas.annotations,
+        &mut p.canvas.reactions,
+        &mut p.canvas.captions,
+    ] {
+        for r in records.iter_mut() {
+            r.tl_start_ns = map(r.tl_start_ns);
+            r.tl_end_ns = map(r.tl_end_ns);
+        }
+        records.retain(|r| r.tl_end_ns > r.tl_start_ns);
+    }
+    for m in &mut p.audio.music {
+        m.tl_start_ns = map(m.tl_start_ns);
+        m.tl_end_ns = map(m.tl_end_ns);
+        for r in &mut m.ducking.ranges {
+            r.tl_start_ns = map(r.tl_start_ns);
+            r.tl_end_ns = map(r.tl_end_ns);
+        }
+        m.ducking.ranges.retain(|r| r.tl_end_ns > r.tl_start_ns);
+    }
+    p.audio.music.retain(|m| m.tl_end_ns > m.tl_start_ns);
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::project::tests::Fixture;
     use serde_json::json;
+    #[test]
+    fn speaker_notes_unicode_persistence_history_and_validation() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        let notes = "Opening 👋\n第二行 — café";
+        let change = p
+            .apply(&json!({"op":"set","path":"notes","value":notes}))
+            .unwrap();
+        assert_eq!(change.changed, ["notes"]);
+        assert_eq!(Project::open(&f.0).unwrap().data.notes, notes);
+        let before = p.data.clone();
+        let history = p.undo.len();
+        assert!(p
+            .apply(&json!({"op":"set","path":"notes","value":notes}))
+            .unwrap()
+            .changed
+            .is_empty());
+        for bad in [json!(null), json!(12), json!([]), json!(true)] {
+            assert!(p
+                .apply(&json!({"op":"set","path":"notes","value":bad}))
+                .is_err());
+        }
+        assert_eq!(p.data, before);
+        assert_eq!(p.undo.len(), history);
+        p.undo().unwrap();
+        assert_eq!(p.data.notes, "");
+        p.redo().unwrap();
+        p.save(&f.0).unwrap();
+        assert_eq!(Project::open(&f.0).unwrap().data.notes, notes);
+        let mut legacy = serde_json::to_value(&p.data).unwrap();
+        legacy.as_object_mut().unwrap().remove("notes");
+        assert_eq!(
+            serde_json::from_value::<ProjectData>(legacy).unwrap().notes,
+            ""
+        );
+    }
     #[test]
     fn commands_and_undo_redo() {
         let f = Fixture::new();
