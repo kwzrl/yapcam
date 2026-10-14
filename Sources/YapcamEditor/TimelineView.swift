@@ -23,6 +23,7 @@ struct TimelineView: View {
 
     private enum DragKind {
         case scrub
+        case inert
         case zoomMove(id: String, grabOffsetNs: Int64)
         case zoomStart(id: String)
         case zoomEnd(id: String)
@@ -87,7 +88,7 @@ struct TimelineView: View {
             RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04))
                 .frame(width: g.contentWidth(durationNs: model.durationNs), height: TimelineLayout.zoomTrackHeight)
             ForEach(model.zooms) { z in
-                let selected = model.selection == .zoom(z.id)
+                let selected = model.selection == .zoom(z.id) || model.extraZoomSelection.contains(z.id)
                 let tint: Color = z.mode == .auto ? .purple : .orange
                 let r = model.displayedRange(of: z)
                 let w = max(g.contentWidth(durationNs: r.end - r.start), 6)
@@ -204,6 +205,7 @@ struct TimelineView: View {
                 if drag == nil { drag = begin(at: v.startLocation, g) }
                 let ns = g.ns(forX: v.location.x)
                 switch drag! {
+                case .inert: break
                 case .scrub:
                     model.seek(toNs: model.snapped(ns), precise: false)
                 case .zoomMove(let id, let off):
@@ -225,7 +227,7 @@ struct TimelineView: View {
                 case .scrub: model.seek(toNs: model.playheadNs, precise: true)
                 case .zoomMove(let id, _), .zoomStart(let id), .zoomEnd(let id): model.commitZoomPreview(id: id)
                 case .rangeMove(let k, _), .rangeStart(let k), .rangeEnd(let k): model.commitRange(key: k)
-                case nil: break
+                case .inert, nil: break
                 }
                 drag = nil
                 model.snapGuideNs = nil
@@ -233,12 +235,24 @@ struct TimelineView: View {
     }
 
     private func begin(at p: CGPoint, _ g: TimelineGeometry) -> DragKind {
+        if !(p.y >= layout.zoomTop && p.y < layout.cameraTop) { model.extraZoomSelection = [] }
         if p.y < layout.clipTop {
             model.selection = .none
             return .scrub
         }
         if p.y >= layout.cameraTop, let kind = hitRange(at: p, g) { return kind }
         if p.y >= layout.zoomTop, p.y < layout.cameraTop, let (z, kind) = hitZoom(at: p.x, g) {
+            if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
+                // Multi-select: toggle membership; no drag.
+                if case .zoom(let primary) = model.selection {
+                    if z.id == primary { model.selection = model.extraZoomSelection.first.map { .zoom($0) } ?? .none
+                                         if let n = model.extraZoomSelection.first { model.extraZoomSelection.remove(n) } }
+                    else if model.extraZoomSelection.contains(z.id) { model.extraZoomSelection.remove(z.id) }
+                    else { model.extraZoomSelection.insert(z.id) }
+                } else { model.selection = .zoom(z.id) }
+                return .inert
+            }
+            model.extraZoomSelection = []
             model.selection = .zoom(z.id)
             return kind
         }

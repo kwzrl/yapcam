@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AppKit
 import YapcamCore
 @testable import YapcamEditor
 
@@ -104,5 +105,17 @@ private func copyFixture() throws -> URL {
         let per = (ContinuousClock.now - t0) / n
         print("SCRUB model seek + core frame eval: \(per)")
         #expect(per < .milliseconds(16))
+    }
+}
+
+@MainActor @Suite struct RealFrameTests {
+    @Test func copyFramePNGMatchesCanvas() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let pkg = FileManager.default.temporaryDirectory.appendingPathComponent("frame-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: pkg); defer { try? FileManager.default.removeItem(at: pkg) }
+        let doc = try EditorDocument(package: pkg)
+        let data = try FrameSnapshot.png(source: ProjectRenderSource(doc.project), atNs: 1_000_000_000)
+        let rep = try #require(NSBitmapImageRep(data: data))
+        #expect(rep.pixelsWide == 1920 && rep.pixelsHigh == 1080)
     }
 }

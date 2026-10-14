@@ -6,7 +6,7 @@ import Foundation
 private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakeProject, FakePlayer) {
     let p = FakeProject(durationNs: duration), pl = FakePlayer()
     let m = EditorModel(project: p, player: pl)
-    m.autosaveDelay = .milliseconds(30)
+    m.autosaveDelay = .milliseconds(50)
     return (m, p, pl)
 }
 
@@ -89,12 +89,12 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         let (m, p, _) = makeModel()
         m.addZoomAtPlayhead(); m.addZoomAtPlayhead()
         #expect(p.saveCount == 0 && m.saveState == .dirty)
-        try await Task.sleep(for: .milliseconds(150))
+        for _ in 0..<200 where p.saveCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
         #expect(p.saveCount == 1 && m.saveState == .clean)
         m.seek(toNs: 5_000_000_000); m.splitAtPlayhead()
         m.saveNow()
         #expect(p.saveCount == 2)
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(300))
         #expect(p.saveCount == 2)
     }
 
@@ -240,5 +240,83 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
     @Test func autoZoomRegenerationGoesToProject() {
         let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
         m.regenerateAutoZooms(); #expect(p.autoZoomRuns == 1)
+    }
+}
+
+@MainActor @Suite struct LaneAndAutomationTests {
+    private func make() -> (EditorModel, FakeProject) {
+        let p = FakeProject(durationNs: 20_000_000_000)
+        return (EditorModel(project: p, player: FakePlayer()), p)
+    }
+
+    @Test func cameraLayoutsAddEditRemoveAndRejectOverlap() {
+        let (m, _) = make()
+        m.seek(toNs: 2_000_000_000); m.addLayoutAtPlayhead(mode: "camera")
+        #expect(m.layouts.count == 1 && m.layouts[0].endNs == 5_000_000_000)
+        m.seek(toNs: 4_000_000_000); m.addLayoutAtPlayhead()
+        #expect(m.layouts.count == 1 && m.lastError != nil)
+        let id = m.layouts[0].id
+        m.setLayoutMode(id: id, "overlay"); #expect(m.layouts[0].mode == "overlay")
+        m.previewRange(key: id, current: TimeSpan(startNs: 2_000_000_000, endNs: 5_000_000_000), moveToStartNs: 10_000_000_000)
+        m.commitRange(key: id)
+        #expect(m.layouts[0].startNs == 10_000_000_000 && m.layouts[0].endNs == 13_000_000_000)
+        m.selection = .layout(id); m.deleteSelection()
+        #expect(m.layouts.isEmpty)
+    }
+
+    @Test func layoutNeedsACamera() {
+        let (m, p) = make(); p.hasCamera = false
+        m.addLayoutAtPlayhead()
+        #expect(m.layouts.isEmpty && m.lastError != nil)
+    }
+
+    @Test func cursorHideRanges() {
+        let (m, _) = make()
+        m.seek(toNs: 1_000_000_000); m.addCursorHideAtPlayhead()
+        #expect(m.cursorHides.count == 1 && m.cursorHides[0].span == TimeSpan(startNs: 1_000_000_000, endNs: 3_000_000_000))
+        let key = EditorModel.cursorKey(0)
+        m.previewRange(key: key, current: m.cursorHides[0].span, endNs: 6_000_000_000); m.commitRange(key: key)
+        #expect(m.cursorHides[0].span.endNs == 6_000_000_000)
+        m.undo(); #expect(m.cursorHides[0].span.endNs == 3_000_000_000)
+        m.selection = .cursorHide(0); m.deleteSelection(); #expect(m.cursorHides.isEmpty)
+    }
+
+    @Test func silenceFlowCutsFoundSpansInOneStep() async throws {
+        let (m, p) = make()
+        p.silences = [TimeSpan(startNs: 1_000_000_000, endNs: 2_000_000_000), TimeSpan(startNs: 5_000_000_000, endNs: 7_000_000_000)]
+        m.findSilences()
+        for _ in 0..<50 where m.silenceState == .analyzing || m.silenceState == .idle { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(m.silenceState == .found(p.silences))
+        m.applySilences(speed: nil)
+        #expect(m.silenceState == .idle)
+    }
+
+    @Test func typingSpeedAndTrim() {
+        let (m, p) = make()
+        m.speedUpTyping(); #expect(p.typingRuns == 1)
+        m.seek(toNs: 5_000_000_000); m.splitAtPlayhead()
+        m.trim(keepAfter: true)
+        #expect(m.durationNs == 15_000_000_000)
+        m.seek(toNs: 0); m.trim(keepAfter: false)
+        #expect(m.lastError != nil)
+    }
+
+    @Test func multiSelectDeleteIsOneUndoStep() {
+        let (m, _) = make()
+        for t in [1, 5, 9] { m.seek(toNs: Int64(t) * 1_000_000_000); m.addZoomAtPlayhead() }
+        let ids = m.zooms.map(\.id)
+        m.selection = .zoom(ids[0]); m.extraZoomSelection = [ids[1]]
+        m.deleteSelection()
+        #expect(m.zooms.map(\.id) == [ids[2]])
+        m.undo(); #expect(m.zooms.count == 3)
+    }
+
+    @Test func paletteFiltersByWordPrefix() {
+        let (m, _) = make()
+        #expect(m.filteredCommands("").count == m.paletteCommands.count)
+        let titles = m.filteredCommands("add zo").map(\.title)
+        #expect(titles == ["Add zoom at playhead"])
+        #expect(m.filteredCommands("zzzz").isEmpty)
+        #expect(m.filteredCommands("sil").first?.title == "Find silent parts")
     }
 }

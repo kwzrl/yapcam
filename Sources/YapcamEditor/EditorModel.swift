@@ -27,7 +27,12 @@ public final class EditorModel: ObservableObject {
     @Published public var snappingEnabled = true
     @Published public private(set) var playheadNs: Int64 = 0
     @Published public private(set) var isPlaying = false
+    @Published public var paletteVisible = false
     @Published public var snapGuideNs: Int64?
+    /// Additional zooms selected with ⇧/⌘-click (the primary one is in `selection`).
+    @Published public var extraZoomSelection: Set<String> = []
+    /// Set by the document: renders the current preview frame to the clipboard.
+    public var copyFrameHandler: (() -> Void)?
     @Published public var lastError: String?
     @Published public private(set) var silenceState: SilenceState = .idle
     @Published public private(set) var saveState: SaveState = .clean
@@ -176,6 +181,12 @@ public final class EditorModel: ObservableObject {
         scheduleAutosave()
     }
 
+    /// Remove everything before (`keepAfter`) or after the playhead; one undo step.
+    public func trim(keepAfter: Bool) {
+        guard playheadNs > 0, playheadNs < durationNs else { lastError = "Move the playhead inside the clip first."; return }
+        perform(keepAfter ? .deleteRange(startNs: 0, endNs: playheadNs) : .deleteRange(startNs: playheadNs, endNs: durationNs))
+    }
+
     public func splitAtPlayhead() {
         guard playheadNs > 0, playheadNs < durationNs else { return }
         // No-op on an existing clip boundary.
@@ -186,7 +197,10 @@ public final class EditorModel: ObservableObject {
     public func deleteSelection() {
         switch selection {
         case .none: return
-        case .zoom(let id): perform(.removeZoom(id: id)); selection = .none
+        case .zoom(let id):
+            let ids = [id] + extraZoomSelection.filter { $0 != id }.sorted()
+            perform(ids.count == 1 ? .removeZoom(id: id) : .batch(ids.map { .removeZoom(id: $0) }))
+            selection = .none; extraZoomSelection = []
         case .layout(let id): removeLayout(id: id); selection = .none
         case .cursorHide(let i): removeCursorHide(index: i); selection = .none
         case .clip(let id):
