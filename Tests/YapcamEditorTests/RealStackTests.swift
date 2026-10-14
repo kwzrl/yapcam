@@ -92,7 +92,7 @@ private func copyFixture() throws -> URL {
         doc.export.height = 720
         doc.export.includeAudio = false   // audio export hangs in render (status file)
         doc.export.start(to: out)
-        for _ in 0..<300 where doc.export.isRunning { try await Task.sleep(for: .milliseconds(100)) }
+        await doc.export.waitUntilFinished()
         #expect(doc.export.state == .done(out), "\(doc.export.state)")
         #expect(FileManager.default.fileExists(atPath: out.path))
     }
@@ -184,5 +184,25 @@ private func copyFixture() throws -> URL {
         // Long: geometry for a 3 h project fits and stays within pps limits; ruler steps stay readable.
         let long = TimelineGeometry.fitting(durationNs: 3 * 3600 * 1_000_000_000, width: 900)
         #expect(long.pixelsPerSecond >= TimelineGeometry.minPPS && long.rulerStepSeconds() >= 60)
+    }
+}
+
+@MainActor @Suite struct RealRelinkTests {
+    @Test func relinkRestoresMissingMediaKeepingEdits() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let pkg = FileManager.default.temporaryDirectory.appendingPathComponent("relink-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: pkg); defer { try? FileManager.default.removeItem(at: pkg) }
+        let backup = FileManager.default.temporaryDirectory.appendingPathComponent("screen-\(UUID().uuidString).mov")
+        let rel = "recording/seg-000/screen.mov"
+        try FileManager.default.copyItem(at: pkg.appendingPathComponent(rel), to: backup); defer { try? FileManager.default.removeItem(at: backup) }
+        let m = try EditorDocument(package: pkg).model
+        m.set("canvas.padding", number: 77); m.saveNow()
+        try FileManager.default.removeItem(at: pkg.appendingPathComponent(rel))
+        var missing: [String] = []
+        do { _ = try EditorDocument(package: pkg) } catch CoreError.missingMedia(let p) { missing = p }
+        #expect(missing.contains(rel))
+        _ = try Project.relink(package: pkg, replacements: [rel: backup])
+        let again = try EditorDocument(package: pkg).model
+        #expect(again.number("canvas.padding") == 77)
     }
 }

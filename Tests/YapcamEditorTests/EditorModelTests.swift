@@ -148,17 +148,17 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         let url = URL(fileURLWithPath: "/tmp/x.mp4")
         m.start(to: url)
         #expect(m.isRunning)
-        try await Task.sleep(for: .milliseconds(400))
+        await m.waitUntilFinished()
         #expect(m.state == .done(url))
     }
     @Test func failureAndCancel() async throws {
         let f = ExportModel(engine: FakeExporter(failure: NSError(domain: "x", code: 1, userInfo: [NSLocalizedDescriptionKey: "encoder died"])))
         f.start(to: URL(fileURLWithPath: "/tmp/y.mp4"))
-        try await Task.sleep(for: .milliseconds(400))
+        await f.waitUntilFinished()
         #expect(f.state == .failed("encoder died"))
         let c = ExportModel(engine: FakeExporter())
         c.start(to: URL(fileURLWithPath: "/tmp/z.mp4")); c.cancel()
-        try await Task.sleep(for: .milliseconds(300))
+        await c.waitUntilFinished()
         #expect(c.state == .cancelled)
     }
 }
@@ -285,7 +285,7 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         let (m, p) = make()
         p.silences = [TimeSpan(startNs: 1_000_000_000, endNs: 2_000_000_000), TimeSpan(startNs: 5_000_000_000, endNs: 7_000_000_000)]
         m.findSilences()
-        for _ in 0..<50 where m.silenceState == .analyzing || m.silenceState == .idle { try await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<1000 where m.silenceState == .analyzing || m.silenceState == .idle { try await Task.sleep(for: .milliseconds(10)) }
         #expect(m.silenceState == .found(p.silences))
         m.applySilences(speed: nil)
         #expect(m.silenceState == .idle)

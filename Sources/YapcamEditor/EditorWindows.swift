@@ -74,8 +74,8 @@ import YapcamCore
     }
 }
 
-/// Missing-media relink: pick a replacement for each missing file; it is copied to the
-/// original package-relative path and the project is reopened (core re-verifies size/hash).
+/// Missing-media relink: pick a replacement for each missing file; core's transactional
+/// `Project.relink` installs them (rolling back on failure) and keeps all edits.
 @MainActor enum Relink {
     static func present(package: URL, missing: [String], retry: () -> Void) {
         let alert = NSAlert()
@@ -84,22 +84,18 @@ import YapcamCore
         alert.addButton(withTitle: "Locate…")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        var failed: [String] = []
+        var replacements: [String: URL] = [:]
         for rel in missing {
             let panel = NSOpenPanel()
             panel.message = "Locate “\(rel)”"
             panel.allowsMultipleSelection = false
             panel.canChooseDirectories = false
             guard panel.runModal() == .OK, let src = panel.url else { return }
-            let dst = package.appendingPathComponent(rel)
-            do {
-                try FileManager.default.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
-                if FileManager.default.fileExists(atPath: dst.path) { try FileManager.default.removeItem(at: dst) }
-                try FileManager.default.copyItem(at: src, to: dst)
-            } catch { failed.append("\(rel): \(error.localizedDescription)") }
+            replacements[rel] = src
         }
-        if failed.isEmpty { retry() } else {
-            let a = NSAlert(); a.messageText = "Couldn't relink"; a.informativeText = failed.joined(separator: "\n"); a.runModal()
+        do { _ = try Project.relink(package: package, replacements: replacements); retry() }
+        catch {
+            let a = NSAlert(error: error); a.messageText = "Couldn't relink"; a.runModal()
         }
     }
 }
