@@ -42,7 +42,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | REC-18 | Capture | Recovery of interrupted recordings | technical ("recover unfinished recordings" prompt) | Prompt on launch for interrupted packages; recover finalizes segments | capture+ui | implemented (capture RecoveryTests pass incl. skipped-segment cases; ui relaunch prompt; real kill -9 untested) | Kill -9 during recording → relaunch → recover → opens |
 | REC-19 | Capture | Low-disk handling | assumption | Check free space at start, warn, stop gracefully with diskFull | capture | verified (capture session fault simulation: low disk during capture keeps interrupted package; ui <1 GB start block by reading) | Simulated low space → package finalized, error shown |
 | REC-20 | Capture | Permission onboarding | docs | Screen, mic, camera, accessibility, input monitoring guided panel | ui | implemented (ui: onboarding snapshots; permission table + ask-then-open tests) | Missing permission shows state and opens Settings |
-| REC-21 | Capture | Speaker notes while recording | docs | Optional notes shown in HUD, stored in project | ui+core | todo (core: notes field in project.json; ui hooks waiting) | Notes persist in project.json |
+| REC-21 | Capture | Speaker notes while recording | docs | Optional notes shown in HUD, stored in project | ui+core | implemented (core notes field + ui toolbar notes popover saved on stop; core ProjectTests/YapcamUITests cover it; live recording limited: no TCC) | Notes persist in project.json |
 
 ## B. Audio and devices
 
@@ -175,7 +175,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | OOS-06 | Diagnostics | Diagnostic info export | docs | local log export only (optional) | ui | implemented (ui: Export Diagnostics...; build only) |
 
 ## Audit log
-Last audit: against main 4a1cee5, from code, team status files and test names (not re-run
+Last audit: against main 6d91a7f (REC-21 moved to implemented); earlier pass 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
 named test or measurement passed; **limited (why)** = cannot be verified here. Live-capture
@@ -185,7 +185,6 @@ Screen Studio is still blocked (see docs/status/qa.md), so option values stay TB
 ## Backlog: rows still `todo`, per owning team (Lead hands these out)
 | Team | Row | Missing |
 |---|---|---|
-| core | REC-21 | `notes` field in project.json + `set` path (ui waits) |
 | core + editor | AUD-07 | music track model, library (original tracks only), editor UI |
 | core + editor | AUD-10 | caption model, on-device transcription, editor UI, render text |
 | core + editor | EDT-09 | text/annotation model + editor UI |

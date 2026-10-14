@@ -1,4 +1,4 @@
-READY d65af2f qa: FEATURES.md audited against main 4a1cee5, backlog table added
+READY HEAD qa: audit vs 6d91a7f; waiting on REA output for [technical]/TBD rows
 
 # qa status
 
@@ -20,6 +20,8 @@ READY d65af2f qa: FEATURES.md audited against main 4a1cee5, backlog table added
 - verify-package.sh run against synthetic fixture: ok (project.json now optional). Re-checked 2026-10-15: main unchanged, screen access still false (probe -3801) → live QA still blocked.
 
 - Audit vs main 4a1cee5 done: all 82 FEATURES rows re-statused (9 todo remain; backlog table at bottom of FEATURES.md). Statuses derive from team status files + test names; only E2E re-run by me.
+
+- Audit vs main 6d91a7f: REC-21 now implemented (core notes + ui popover); 8 todo rows left. E2E 11/11 green on 6d91a7f. Waiting for Lead's REA output in ~/yapcam-ref-local/rea/ (empty at 01:00) to fill TBD values.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
