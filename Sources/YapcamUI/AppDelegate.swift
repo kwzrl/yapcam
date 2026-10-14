@@ -1,5 +1,6 @@
 import AppKit
 import YapcamCapture
+import YapcamEditor
 
 /// Entry point used by the thin `Yapcam` executable.
 @MainActor public enum YapcamAppMain {
@@ -74,7 +75,10 @@ import YapcamCapture
         for u in urls { ProjectActions.open(u) }
     }
 
-    func applicationWillTerminate(_ notification: Notification) { DesktopIcons.restoreIfNeeded() }
+    func applicationWillTerminate(_ notification: Notification) {
+        EditorWindows.saveAll()
+        DesktopIcons.restoreIfNeeded()
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
@@ -91,7 +95,12 @@ import YapcamCapture
             a.addButton(withTitle: "Keep Recording")
             a.addButton(withTitle: "Discard and Quit")
             if a.runModal() == .alertFirstButtonReturn { return .terminateCancel }
-            RecordingController.shared.cancel()
+            // Wait until the capture layer has deleted the package before exiting.
+            Task { @MainActor in
+                await RecordingController.shared.cancelAndWait()
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
         }
         return .terminateNow
     }
@@ -174,6 +183,15 @@ import YapcamCapture
     @objc func showRecordings() { RecentProjectsWindow.shared.show() }
     @objc func importVideo() { ProjectActions.importVideo() }
     @objc func exportDiagnostics() { ProjectActions.exportDiagnostics() }
+    @objc func editUndo() {
+        if EditorBridge.isEditingText { NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) } else { EditorBridge.keyEditor()?.undo() }
+    }
+    @objc func editRedo() {
+        if EditorBridge.isEditingText { NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) } else { EditorBridge.keyEditor()?.redo() }
+    }
+    @objc func editSplit() { EditorBridge.keyEditor()?.splitAtPlayhead() }
+    @objc func editAddZoom() { EditorBridge.keyEditor()?.addZoomAtPlayhead() }
+    @objc func editPalette() { EditorBridge.keyEditor()?.paletteVisible = true }
     @objc func showAbout() { AboutWindow.show() }
     @objc func showStorageFolder() { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) }
 }
@@ -189,6 +207,9 @@ extension AppDelegate: NSMenuItemValidation {
         case #selector(togglePause):
             item.title = r.phase == .paused ? "Resume Recording" : "Pause Recording"
             return r.isRecording
+        case #selector(editUndo): return EditorBridge.isEditingText || (EditorBridge.keyEditor()?.canUndo ?? false)
+        case #selector(editRedo): return EditorBridge.isEditingText || (EditorBridge.keyEditor()?.canRedo ?? false)
+        case #selector(editSplit), #selector(editAddZoom), #selector(editPalette): return EditorBridge.keyEditor() != nil
         case #selector(toggleToolbar):
             item.title = ToolbarPanelController.shared.isVisible ? "Hide Toolbar" : "Show Toolbar"
             return true

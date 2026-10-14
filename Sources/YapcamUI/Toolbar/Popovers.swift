@@ -272,7 +272,7 @@ private struct PermissionPrompt: View {
             Text("\(permission.title) access is off.").font(.callout)
             Text(permission.reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button(perms.state(permission) == .notDetermined ? "Allow Access" : "Open System Settings") {
-                perms.state(permission) == .notDetermined ? perms.request(permission) : perms.open(permission)
+                perms.act(permission)
             }
         }
     }

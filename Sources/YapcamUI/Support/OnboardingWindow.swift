@@ -85,8 +85,8 @@ private struct PermissionRow: View {
                 Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
                     .labelStyle(.titleAndIcon)
             } else {
-                Button(state == .notDetermined ? "Allow" : "Open Settings") {
-                    state == .notDetermined ? perms.request(permission) : perms.open(permission)
+                Button(state == .notDetermined || !perms.hasRequested(permission) ? "Allow" : "Open Settings") {
+                    perms.act(permission)
                 }
             }
         }

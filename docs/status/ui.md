@@ -1,4 +1,4 @@
-READY 423ba6e UI on real capture: YapcamUI library + thin exe, LiveEngine, --capture-selftest; builds, 48 tests green. LIVE RECORDING NOT VERIFIED: screen-recording TCC not granted for 'Yapcam Dev Signing' (see Blockers)
+READY ui: review findings 1,2,6,7,8,10 fixed; 119 tests green; live recording still unverified (screen TCC grant missing)
 
 # ui status
 
@@ -22,7 +22,6 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - Backlog done (build only, not run live): PRJ-04 .yapcam file association + Open With handler, PRJ-07 rename/duplicate/trash, PRJ-06 extract raw files, REC-16 Import Video… (Project.importVideo), OOS-06 Export Diagnostics…, AUD-09 start/stop sounds (played outside capture), REC-13 hide desktop icons (Finder CreateDesktop with crash-safe restore marker), REC-14 Dock toggle (exists).
 
 ## In progress / Next
-- `openEditor` currently only reveals the package in Finder: `EditorWindows`/`EditorDocument` do not exist on main yet (docs/status/editor.md). One-line swap in `LiveEngine.openEditor` once they land.
 - REC-21 speaker notes needs a notes field in project.json (core) — request below.
 
 ## Not verified (open)
@@ -48,5 +47,17 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
 
-## Backlog check (latest)
+## Review fixes (review-ui-editor-1.md)
+- #1 fixed (done earlier): `LiveEngine.openEditor` → `EditorWindows.open`; no Finder placeholder left.
+- #2 fixed: imports reserve their destination (`ProjectActions.reserveURL/release`), failure only removes the reserved package. Test: `reservedImportDestinationsDoNotCollide`.
+- #6 fixed: pause/resume/stop/cancel/restart are serialized through one op chain and UI state changes optimistically, so Pause→Stop can't overlap capture calls or strand the controller. No unit test (needs screen permission to reach `begin()`); reasoned only.
+- #7 fixed: Discard and Quit now returns `.terminateLater` and replies after `cancelAndWait()` finishes deleting. Not unit-tested.
+- #8 fixed: `PermissionsModel.act` asks macOS on the first press (remembers it asked, since screen/accessibility/input report `.denied` before asking), then opens Settings. Test: `permissionButtonAsksBeforeOpeningSettings` (state only).
+- #10 fixed: AppKit Edit menu (Undo/Redo/Split/Add Zoom/Palette + standard Cut/Copy/Paste) routed to the key editor window via `EditorBridge` (reads `EditorWindowController.editorDocument` by reflection; ⌘Z inside a text field still goes to the field). Tests: `bridgeFindsEditorDocumentProperty`, `mainMenuHasEditorCommands`. Request to editor: a public `EditorWindows.keyModel` accessor to replace the reflection.
+- `swift test`: 119 pass.
+
+## After integration b93ce7d
+- Rebased; build green. Still open: live record → stop → editor unverified (screen TCC for `Yapcam Dev Signing` missing); speaker notes (REC-21) needs core field.
+
+## Backlog check (earlier)
 Main unchanged (35ba7c5), branch already rebased. Re-ran `--capture-selftest 3`: still SCStream -3801 (no screen-recording grant for `Yapcam Dev Signing`). Every remaining ui item depends on something outside my files: live record/stop verification (TCC grant), editor hand-off (`EditorWindows.open`), speaker notes (core field). Nothing else open in docs/briefs/ui.md or FEATURES.md rows owned by ui.
