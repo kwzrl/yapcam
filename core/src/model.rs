@@ -152,6 +152,8 @@ settings!(Cursor {
     speed_preset: String = "custom".into(), spring: Spring = Spring::default(),
     ranges: Vec<CursorRange> = vec![], loop_to_start: bool = false,
     loop_duration_ns: i64 = 400_000_000,
+    style: String = "recorded".into(), motion_blur: f64 = 0.0,
+    spotlight_radius: f64 = 0.0,
 });
 settings!(Spring {
     tension: f64 = 250.0,
@@ -176,6 +178,8 @@ settings!(Camera {
     visible: bool = true, position: [f64; 2] = [0.82, 0.78], size: f64 = 0.22,
     shape: String = "rounded_rect".into(), radius: f64 = 24.0,
     mirrored: bool = true, opacity: f64 = 1.0, layouts: Vec<Layout> = vec![],
+    shadow_radius: f64 = 0.0, background_removal: bool = false,
+    face_framing: bool = false,
 });
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Layout {
@@ -199,6 +203,27 @@ settings!(Canvas {
     inset_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
     motion_blur: f64 = 0.0,
     crop: [f64; 4] = [0.0, 0.0, 1.0, 1.0],
+    window_chrome: bool = false, highlights: Vec<Highlight> = vec![],
+    animation: Animation = Animation::default(),
+});
+settings!(Highlight {
+    id: String = String::new(),
+    tl_start_ns: i64 = 0,
+    tl_end_ns: i64 = 1,
+    rect: [f64; 4] = [0.25, 0.25, 0.5, 0.5],
+    space: String = "source".into(),
+    radius: f64 = 12.0,
+    opacity: f64 = 1.0,
+    dim_opacity: f64 = 0.4,
+    fill: [f32; 4] = [1.0, 0.85, 0.2, 0.0],
+    stroke: [f32; 4] = [1.0, 0.85, 0.2, 1.0],
+    stroke_width: f64 = 3.0,
+});
+settings!(Animation {
+    entrance: String = "none".into(),
+    exit: String = "none".into(),
+    entrance_duration_ns: i64 = 400_000_000,
+    exit_duration_ns: i64 = 400_000_000,
 });
 settings!(Background {
     kind: String = "solid".into(),
@@ -207,6 +232,7 @@ settings!(Background {
     angle_deg: f64 = 45.0,
     asset: u32 = 0,
     blur: f64 = 24.0,
+    noise: f64 = 0.0,
 });
 settings!(Shadow {
     radius: f64 = 24.0,

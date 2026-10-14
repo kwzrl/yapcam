@@ -13,15 +13,13 @@ impl Project {
         {
             "duration" => Ok(json!({"duration_ns":time::duration(&self.data.timeline.clips)})),
             "clips" => {
-                let mut start = 0.0;
                 let mut rows = Vec::new();
-                for c in &self.data.timeline.clips {
-                    let end = start + time::clip_duration(c);
+                for (i, c) in self.data.timeline.clips.iter().enumerate() {
+                    let (start, end) = time::clip_bounds(&self.data.timeline.clips, i).unwrap();
                     let mut row = serde_json::to_value(c)?;
-                    row["tl_start_ns"] = (start.round() as i64).into();
-                    row["tl_end_ns"] = (end.round() as i64).into();
+                    row["tl_start_ns"] = start.into();
+                    row["tl_end_ns"] = end.into();
                     rows.push(row);
-                    start = end;
                 }
                 Ok(rows.into())
             }
@@ -30,13 +28,32 @@ impl Project {
                 cursor.ranges.clear();
                 let mut camera = self.data.camera.clone();
                 camera.layouts.clear();
+                let mut canvas = self.data.canvas.clone();
+                canvas.highlights.clear();
                 let mut audio = self.data.audio.clone();
                 audio.ranges.clear();
                 Ok(
-                    json!({"canvas":self.data.canvas,"cursor":cursor,"camera":camera,"audio":audio,"zoom_settings":self.data.zoom_settings,"export":self.data.export_settings}),
+                    json!({"canvas":canvas,"cursor":cursor,"camera":camera,"audio":audio,"zoom_settings":self.data.zoom_settings,"export":self.data.export_settings}),
                 )
             }
             "audio_automation" => Ok(serde_json::to_value(&self.data.audio.ranges)?),
+            "render_options" => Ok(json!({
+                "cursor_style":self.data.cursor.style,
+                "cursor_motion_blur":self.data.cursor.motion_blur,
+                "cursor_spotlight_radius":self.data.cursor.spotlight_radius,
+                "background_noise":self.data.canvas.background.noise,
+                "window_chrome":self.data.canvas.window_chrome,
+                "camera_background_removal":self.data.camera.background_removal,
+                "camera_face_framing":self.data.camera.face_framing,
+                "camera_shadow_radius":self.data.camera.shadow_radius,
+            })),
+            "layers_at" => {
+                let tl = query
+                    .get("tl_ns")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| Error::new(1, "Missing integer tl_ns"))?;
+                self.layers_at(tl)
+            }
             "zooms" => Ok(serde_json::to_value(&self.data.zooms)?),
             "layouts" => Ok(serde_json::to_value(&self.data.camera.layouts)?),
             "session" => Ok(serde_json::to_value(&self.session)?),
@@ -44,8 +61,7 @@ impl Project {
             "media" | "assets" => Ok(serde_json::to_value(&self.data.media)?),
             "audio_ranges" => {
                 let mut rows = Vec::new();
-                let mut start = 0.0;
-                for c in &self.data.timeline.clips {
+                for (clip_index, c) in self.data.timeline.clips.iter().enumerate() {
                     for (track, gain_db, muted) in [
                         (
                             "mic",
@@ -66,10 +82,18 @@ impl Project {
                             let a = c.src_start_ns.max(s.src_start_ns + offset);
                             let b = c.src_end_ns.min(s.src_start_ns + s.duration_ns);
                             if b > a {
-                                let tl_a =
-                                    (start + (a - c.src_start_ns) as f64 / c.speed).round() as i64;
-                                let tl_b =
-                                    (start + (b - c.src_start_ns) as f64 / c.speed).round() as i64;
+                                let tl_a = time::source_boundary_to_timeline(
+                                    &self.data.timeline.clips,
+                                    clip_index,
+                                    a,
+                                )
+                                .unwrap();
+                                let tl_b = time::source_boundary_to_timeline(
+                                    &self.data.timeline.clips,
+                                    clip_index,
+                                    b,
+                                )
+                                .unwrap();
                                 let mut boundaries = vec![tl_a, tl_b];
                                 for r in self.data.audio.ranges.iter().filter(|r| r.track == track)
                                 {
@@ -82,12 +106,28 @@ impl Project {
                                 boundaries.sort();
                                 boundaries.dedup();
                                 for times in boundaries.windows(2) {
-                                    let x = (c.src_start_ns
-                                        + ((times[0] as f64 - start) * c.speed).round() as i64)
-                                        .clamp(a, b);
-                                    let y = (c.src_start_ns
-                                        + ((times[1] as f64 - start) * c.speed).round() as i64)
-                                        .clamp(a, b);
+                                    let x = if times[0] == tl_a {
+                                        a
+                                    } else {
+                                        time::timeline_boundary_to_source(
+                                            &self.data.timeline.clips,
+                                            clip_index,
+                                            times[0],
+                                        )
+                                        .unwrap()
+                                        .clamp(a, b)
+                                    };
+                                    let y = if times[1] == tl_b {
+                                        b
+                                    } else {
+                                        time::timeline_boundary_to_source(
+                                            &self.data.timeline.clips,
+                                            clip_index,
+                                            times[1],
+                                        )
+                                        .unwrap()
+                                        .clamp(a, b)
+                                    };
                                     let gain_start = self.audio_gain(track, times[0]);
                                     let gain_end = self.audio_gain(track, times[1] - 1);
                                     rows.push(json!({"clip_id":c.id,"track":track,"segment":i,"path":format!("recording/{path}"),"src_start_ns":x,"src_end_ns":y,"file_start_ns":x-s.src_start_ns-offset,"file_end_ns":y-s.src_start_ns-offset,"tl_start_ns":times[0],"tl_end_ns":times[1],"speed":c.speed,"gain":gain_start,"gain_start":gain_start,"gain_end":gain_end,"base_gain_db":gain_db,"muted":muted}));
@@ -95,7 +135,6 @@ impl Project {
                             }
                         }
                     }
-                    start += time::clip_duration(c);
                 }
                 Ok(rows.into())
             }
@@ -125,6 +164,86 @@ impl Project {
                 Ok(rows.into())
             }
             name => Err(Error::new(1, format!("Unsupported query: {name}"))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{model::Clip, project::tests::Fixture};
+    #[test]
+    fn clicks_map_across_segments_speed_cuts_and_undo() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        let times = |p: &Project| {
+            p.query(&json!({"q":"clicks"}))
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["tl_ns"].as_i64().unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(times(&p), vec![1_700_000_000, 3_500_000_000]);
+        p.apply(&json!({"op":"split","at_tl_ns":2_000_000_000}))
+            .unwrap();
+        p.apply(&json!({"op":"set_speed","clip_id":p.data.timeline.clips[0].id,"speed":2}))
+            .unwrap();
+        assert_eq!(times(&p), vec![850_000_000, 2_500_000_000]);
+        p.apply(&json!({"op":"delete_range","tl_start_ns":800_000_000,"tl_end_ns":1_000_000_000}))
+            .unwrap();
+        assert_eq!(times(&p), vec![2_300_000_000]);
+        let click = p.query(&json!({"q":"clicks"})).unwrap()[0].clone();
+        assert_eq!(click["src_ns"], json!(3_500_000_000_i64));
+        assert_eq!(click["segment"], json!(1));
+        assert_eq!(p.frame(2_300_000_000).unwrap().screen.src_ns, 3_500_000_000);
+        p.undo().unwrap();
+        p.undo().unwrap();
+        p.undo().unwrap();
+        assert_eq!(times(&p), vec![1_700_000_000, 3_500_000_000]);
+        // A click on a split boundary belongs to one half-open clip, not both.
+        p.apply(&json!({"op":"split","at_tl_ns":1_700_000_000}))
+            .unwrap();
+        assert_eq!(times(&p), vec![1_700_000_000, 3_500_000_000]);
+    }
+    #[test]
+    fn clip_and_audio_queries_keep_exact_fractional_boundaries() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        // Long synthetic edit clocks expose Double's loss of integer precision.
+        // The independent oracle uses the decimal rate 1.3 = 13/10.
+        let length = 1_000_000_000_000_001_i64;
+        p.data.timeline.clips = (0..40)
+            .map(|i| Clip {
+                id: format!("clip-{i}"),
+                src_start_ns: i * length,
+                src_end_ns: (i + 1) * length,
+                speed: 1.3,
+            })
+            .collect();
+        p.session.segments.truncate(1);
+        p.session.segments[0].duration_ns = length * 40;
+        p.session.segments[0]
+            .track_start_ns
+            .insert("system_audio".into(), 0);
+        let oracle = |i: i64| ((i as i128 * length as i128 * 10 + 6) / 13) as i64;
+        let clips = p.query(&json!({"q":"clips"})).unwrap();
+        let audio = p.query(&json!({"q":"audio_ranges"})).unwrap();
+        let audio: Vec<_> = audio
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["track"] == "system_audio")
+            .collect();
+        assert_eq!(audio.len(), 40);
+        for i in 0..40 {
+            assert_eq!(clips[i]["tl_start_ns"], json!(oracle(i as i64)));
+            assert_eq!(clips[i]["tl_end_ns"], json!(oracle(i as i64 + 1)));
+            assert_eq!(audio[i]["tl_start_ns"], clips[i]["tl_start_ns"]);
+            assert_eq!(audio[i]["tl_end_ns"], clips[i]["tl_end_ns"]);
+            assert_eq!(audio[i]["src_start_ns"], json!(i as i64 * length));
+            assert_eq!(audio[i]["src_end_ns"], json!((i as i64 + 1) * length));
         }
     }
 }

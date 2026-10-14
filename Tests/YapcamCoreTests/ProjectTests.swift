@@ -10,6 +10,71 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
     defer { try? FileManager.default.removeItem(at: dest) }
     return try body(dest)
 }
+@Test func supplementalEffectsPersistAndMatchSnapshots() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let defaults = try p.renderOptions()
+        #expect(defaults.cursorStyle == .recorded && defaults.cameraShadowRadius == 0)
+        let highlight: JSONValue = .object([
+            "id": .string("focus"), "tl_start_ns": .integer(1_000_000_000),
+            "tl_end_ns": .integer(3_000_000_000),
+            "rect": .array([.number(0.25), .number(0.25), .number(0.5), .number(0.5)])
+        ])
+        try p.apply(.batch([
+            .set(path: "canvas.highlights", value: .array([highlight])),
+            .set(path: "canvas.animation.entrance", value: .string("fade")),
+            .set(path: "cursor.style", value: .string("touch")),
+            .set(path: "cursor.motion_blur", value: .number(0.4)),
+            .set(path: "camera.shadow_radius", value: .number(20))
+        ]))
+        let options = try p.renderOptions()
+        #expect(options.cursorStyle == .touch && options.cursorMotionBlur == 0.4)
+        #expect(options.cameraShadowRadius == 20)
+        let fade = try p.renderLayers(atNs: 0)
+        #expect(fade.count == 1 && fade[0].opacity == 1 && fade[0].kind == "highlight")
+        let extras = try p.frameExtras(atNs: 0)
+        #expect(extras.fade_opacity == 1 && extras.highlight_count == 0)
+        #expect(extras.cursor_style == 2 && extras.cursor_motion_blur == 0.4)
+        #expect(extras.camera_shadow_radius == 20 && extras.reserved == 0)
+        let f = try p.frame(atNs: 1_500_000_000)
+        let layers = try p.renderLayers(atNs: 1_500_000_000)
+        #expect(layers.count == 1 && layers[0].id == "focus")
+        #expect(layers[0].rect[0] == f.screen_dest.x + f.screen_dest.w * 0.25)
+        let focus = try p.frameExtras(atNs: 1_500_000_000)
+        #expect(focus.highlight_count == 1)
+        #expect(focus.highlights.0.rect.x == layers[0].rect[0])
+        #expect(focus.highlights.0.rect.w == layers[0].rect[2])
+        let snapshot = try p.snapshot()
+        try p.apply(.deleteRange(startNs: 0, endNs: 1_000_000_000))
+        #expect(try p.renderLayers(atNs: 2_000_000_000).isEmpty)
+        #expect(try snapshot.renderLayers(atNs: 2_000_000_000).count == 1)
+        try p.undo()
+        #expect(try p.renderLayers(atNs: 1_500_000_000) == layers)
+        try p.save()
+        let reopened = try Project.open(package: package)
+        #expect(try reopened.renderOptions() == options)
+        #expect(try reopened.renderLayers(atNs: 1_500_000_000) == layers)
+    }
+}
+@Test func clickQueryUsesEditedTimelineNanoseconds() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        #expect(try p.clicks().map(\.tlNs) == [1_700_000_000, 3_500_000_000])
+        try p.apply(.split(atNs: 2_000_000_000))
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        try p.apply(.setSpeed(clipID: clips[0].id, speed: 2))
+        #expect(try p.clicks().map(\.tlNs) == [850_000_000, 2_500_000_000])
+        let snapshot = try p.snapshot()
+        try p.apply(.deleteRange(startNs: 800_000_000, endNs: 1_000_000_000))
+        let clicks = try p.clicks()
+        #expect(clicks.count == 1 && clicks[0].tlNs == 2_300_000_000)
+        #expect(clicks[0].srcNs == 3_500_000_000 && clicks[0].segment == 1)
+        #expect(try snapshot.clicks().count == 2)
+        try p.undo()
+        #expect(try p.clicks() == snapshot.clicks())
+        #expect(yc_frame_extras_at(nil, 0, nil) == YC_ERR_INVALID_ARGUMENT)
+    }
+}
 @Test func projectLifecycleAndCFrameLayout() throws {
     try withFixture { package in
         let p = try Project.create(package: package)

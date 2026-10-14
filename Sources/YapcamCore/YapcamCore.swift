@@ -81,6 +81,9 @@ public final class Project: @unchecked Sendable {
     public func frame(atNs: Int64) throws -> YcFrame {
         try locked { var frame = YcFrame(); try Self.check(yc_frame_at(handle, atNs, &frame)); return frame }
     }
+    public func frameExtras(atNs: Int64) throws -> YcFrameExtras {
+        try locked { var extras = YcFrameExtras(); try Self.check(yc_frame_extras_at(handle, atNs, &extras)); return extras }
+    }
     public func query<T: Decodable>(_ query: String, as: T.Type) throws -> T {
         try locked {
             let data = try query.withCString { c in try Self.stringResult { yc_query(handle, c, $0) } }

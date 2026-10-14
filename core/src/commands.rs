@@ -162,8 +162,14 @@ fn apply_inner(
                     a
                 }
             });
-            cs.changed
-                .extend(["timeline".into(), "zooms".into(), "camera.layouts".into()]);
+            cs.changed.extend([
+                "timeline".into(),
+                "zooms".into(),
+                "camera.layouts".into(),
+                "cursor.ranges".into(),
+                "audio.ranges".into(),
+                "canvas.highlights".into(),
+            ]);
         }
         "set_speed" => {
             let id = string(v, "clip_id")?;
@@ -192,8 +198,14 @@ fn apply_inner(
                 })
                 .round() as i64
             });
-            cs.changed
-                .extend(["timeline".into(), "zooms".into(), "camera.layouts".into()]);
+            cs.changed.extend([
+                "timeline".into(),
+                "zooms".into(),
+                "camera.layouts".into(),
+                "cursor.ranges".into(),
+                "audio.ranges".into(),
+                "canvas.highlights".into(),
+            ]);
         }
         "add_zoom" => {
             let mut spec = v.get("zoom").cloned().unwrap_or_else(|| v.clone());
@@ -460,6 +472,11 @@ pub(crate) fn remap_effects(p: &mut ProjectData, map: impl Fn(i64) -> i64) {
         r.tl_end_ns = map(r.tl_end_ns);
     }
     p.audio.ranges.retain(|r| r.tl_end_ns > r.tl_start_ns);
+    for h in &mut p.canvas.highlights {
+        h.tl_start_ns = map(h.tl_start_ns);
+        h.tl_end_ns = map(h.tl_end_ns);
+    }
+    p.canvas.highlights.retain(|h| h.tl_end_ns > h.tl_start_ns);
 }
 #[cfg(test)]
 mod tests {

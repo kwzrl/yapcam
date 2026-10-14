@@ -4,6 +4,7 @@
 pub mod commands;
 pub mod ffi;
 pub mod frame;
+pub mod layers;
 pub mod model;
 pub mod project;
 pub mod query;

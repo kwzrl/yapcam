@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
 
-pub const YC_ABI_VERSION: u32 = 1;
+pub const YC_ABI_VERSION: u32 = 2;
 
 thread_local! {
     static LAST_ERROR: RefCell<CString> = RefCell::new(CString::default());
@@ -308,6 +308,26 @@ pub unsafe extern "C" fn yc_frame_at(
                 .read()
                 .map_err(|_| Error::new(99, "Poisoned project"))?
                 .frame(tl_ns)?,
+        )
+    })
+}
+/// # Safety
+/// `p` must be a live handle and `out` writable and aligned for FrameExtras.
+/// The handle must not race free. Null pointers return an argument error.
+#[no_mangle]
+pub unsafe extern "C" fn yc_frame_extras_at(
+    p: *const YcProject,
+    tl_ns: i64,
+    out: *mut crate::layers::FrameExtras,
+) -> i32 {
+    boundary(|| {
+        output(
+            out,
+            handle(p)?
+                .inner
+                .read()
+                .map_err(|_| Error::new(99, "Poisoned project"))?
+                .frame_extras(tl_ns)?,
         )
     })
 }

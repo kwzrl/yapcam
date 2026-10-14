@@ -80,6 +80,12 @@ public enum EditCommand: Encodable, Sendable {
     case removeZoom(id: String)
     case set(path: String, value: JSONValue)
     case batch([EditCommand])
+    case autoZooms
+    case autoSpeedTyping(speed: Double)
+    case processSilence(ranges: [SilenceRange], speed: Double?) // nil cuts; value speeds
+    case applyPreset([String: JSONValue])
+    case addMedia(path: String, asBackground: Bool)
+    case relinkProject(project: JSONValue, paths: [String])    // recovery-only
 }
 public struct ChangeSet: Decodable, Sendable { public var changed: [String]; public var createdIDs: [String] }
 
@@ -92,6 +98,8 @@ public final class Project: @unchecked Sendable {   // calls serialized internal
     public var canUndo: Bool { get }; public var canRedo: Bool { get }
     public var durationNs: Int64 { get }
     public func frame(atNs: Int64) throws -> YcFrame            // re-exported C struct
+    public func frameExtras(atNs: Int64) throws -> YcFrameExtras // ABI v2, same stateless clock
+    public func clicks() throws -> [CursorClick]                // sorted edited timeline ns
     public func query<T: Decodable>(_ q: String, as: T.Type) throws -> T
     public func snapshot() throws -> Project                    // for export
     public let packageURL: URL
@@ -100,6 +108,48 @@ public final class Project: @unchecked Sendable {   // calls serialized internal
 }
 public enum CoreError: LocalizedError { case status(Int32, String), missingMedia([String]), unsupportedVersion(Int) }
 ```
+
+`YapcamCore.abiVersion` and `YC_ABI_VERSION` are 2. The original YcFrame stays
+328 bytes; the new C-exported YcFrameExtras is 2600 bytes (layout in FORMATS.md).
+`frameExtras(atNs:)` serializes calls like `frame(atNs:)`, returning evaluated
+render options, up to 32 visible highlight instructions and final fade opacity.
+Render draws the valid prefix of extras.highlights then black at fade_opacity.
+Call frame/extras on the same immutable snapshot during export. Preview adapters
+must serialize edits if they require a matched pair; two calls take separate locks.
+
+Core also exposes cold, typed bridges for existing RenderConfiguration/RenderLayer
+hooks; they do not import YapcamRender:
+
+```swift
+public struct CursorClick: Decodable, Sendable, Equatable {
+    public var tlNs: Int64; public var srcNs: Int64; public var segment: UInt32
+    public var t: Int64; public var x: Double?; public var y: Double?; public var button: String?
+}
+public struct CoreRenderOptions: Decodable, Sendable, Equatable {
+    public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch }
+    public var cursorStyle: CursorStyle
+    public var cursorMotionBlur: Double; public var cursorSpotlightRadius: Double
+    public var backgroundNoise: Double; public var windowChrome: Bool
+    public var cameraBackgroundRemoval: Bool; public var cameraFaceFraming: Bool
+    public var cameraShadowRadius: Double
+}
+public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
+    public var id: String; public var kind: String               // highlight
+    public var rect: [Double]                                  // canvas x,y,width,height
+    public var cornerRadius: Double; public var opacity: Double; public var dimOpacity: Double
+    public var fill: [Float]; public var stroke: [Float]        // RGBA, sRGB
+    public var strokeWidth: Double
+}
+extension Project {
+    public func renderOptions() throws -> CoreRenderOptions
+    public func renderLayers(atNs: Int64) throws -> [CoreRenderLayer]
+}
+```
+
+`{"q":"clicks"}` is available through query or clicks(); use `.tlNs` for snapping.
+Refresh after split/delete/speed/typing/silence edits; removed events disappear.
+The full setting path/type/default inventory is in docs/FORMATS.md. Encode generic
+nanosecond settings with `JSONValue.integer(Int64)` to preserve precision beyond 2⁵³.
 
 ## YapcamRender (owner: render)
 

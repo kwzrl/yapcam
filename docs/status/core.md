@@ -1,49 +1,40 @@
-READY 091d7a2 M1 core foundation: exact archived commit passes 20 Rust tests, 6 Swift ABI tests and build-app.sh; stable signing visibility blocked (see below). Pushed to origin/team/core. Latest timing/M2 hardening requires a new Lead checkpoint.
+READY UNCOMMITTED Core M2 ABI v2 extras + retimed clicks + all set paths documented; Rust 28 tests/Clippy and full Swift suite (50 Swift Testing + 15 XCTest, 7 explicit XCTest skips; real HEVC skipped) pass; clean app signed Yapcam Dev Signing. Lead may checkpoint/rebase.
 
-# core status
+# Core status
 
 ## Done (verified)
-- M1 core path implemented: schema types, package create/open/save/clone/JSON/free, corrupt-primary `.prev` recovery, version refusal/migration, path/media checks, shared segment/time mapping, transactional commands + undo/redo, allocation-free frame evaluation, queries, exact public Swift Project surface.
-- Rust: 20 tests pass, including fixed frame goldens, ≥10,000 successful random split/delete/speed edits, exact integer-rational duration/source oracle and tl→src→tl invariants, camera layouts, spring presets, auto zoom clustering, typing speed, silence edits, presets, cursor ranges/loop, gain envelopes, autosave crash/reopen and rollback. These include current uncommitted rational-time/index improvements beyond Lead checkpoint 091d7a2.
-- Swift: 12 tests now pass: real C ABI lifecycle/frames/undo/snapshots/concurrency/errors, exact Int64 JSON, autosave/presets/auto zooms, local video import, PCM silence detection + edits, relink preserving edits and path safety, image asset import and portable image presets. AAC test verifies explicit unavailable path, not successful decode.
-- Archived Lead checkpoint 091d7a2 verified independently: build-app.sh, 20 Rust tests and 6 Swift tests pass. It was not launched. Latest normal build compiles but keychain query now reports zero signing identities, so build script falls back to ad-hoc; stable signing remains a Lead-side blocker.
+- Last committed/pushed checkpoint: 4f05744. New source remains uncommitted by the agreed Lead checkpoint workflow; no staging/commit retries now that read-only Git metadata is acknowledged.
+- ABI v2 added with explicit Lead authorization to edit core/include/yapcam_core.h, docs/FORMATS.md and docs/SWIFT_API.md. Original YcFrame (328 bytes) and all v1 fields/signatures unchanged. New YcFrameHighlight (80 bytes), YcFrameExtras (2600 bytes, alignment 8), yc_frame_extras_at and Project.frameExtras(atNs:). C/Swift and Rust sizes/offsets verified. Extras calls tested allocation-free through the actual FFI; errors leave output untouched.
+- Extras evaluate cursor style/blur/spotlight, background noise/chrome, camera shadow/Vision flags, highlights/masks and intro/outro fade opacity. Core geometry follows the same frame crop/zoom/layout math. Up to 32 overlapping highlights; a 33rd is rejected transactionally, no truncation. Arbitrarily many sequential regions accepted. Reserved/unused slots zero; array order defines stacking.
+- {"q":"clicks"} already implemented, now documented/tested for multi-segment, speed, cut, undo and split-boundary behavior. Project.clicks() returns typed CursorClick values. Times are exact Int64 timeline ns, sorted; removed events omitted.
+- Full set path/types/defaults, timeline record shapes, queries, extras ABI, approved FNV-1a64 hash and recovery behavior now in FORMATS.md. Swift extras/click/cold bridge signatures in SWIFT_API.md. No capture/session contract changes.
+- Rust 28 tests + Clippy all-targets -D warnings pass. Includes >=10,000 successful randomized edits, independent rational oracle, fixed frame goldens, persistence/backup/journal, autosave rollback, ABI/capacity/no-allocation, highlights/snapshot/fade, click retiming and long-clock clip/audio endpoint regressions.
+- Full Swift suite passes: 50 Swift Testing tests in 4 suites (real HEVC test explicitly skipped); 15 XCTest tests, 7 explicitly skipped for sandbox Metal/native decoder limits. Core lifecycle/frames/extras/snapshot/concurrency/autosave/import/relink/presets/PCM silence/exact Int64/click tests pass. Native AAC verifies an explicit unavailable outcome, not successful decoding.
+- Clean build-app.sh succeeds with four build jobs and SwiftPM sandbox workaround. codesign verifies Authority=Yapcam Dev Signing. No app launched, no permission reset, no sudo; no recordings or credentials in changes.
 
-## In progress
-- Current local Rust/Swift builds and tests are green; cross-model review and final Lead commit pending.
-- M2 independent core work implemented and tested; preparing final checkpoint for Lead. Remaining features depend on ABI/render/UI integration or native codec access.
-- Final build/test/lint and cold-path API documentation.
+## Rebase / checkpoint
+- Latest `git rebase main` was attempted as requested; rejected because verified M2 changes are unstaged. Git metadata remains read-only, so commit/stash/rebase cannot be performed here. Lead must checkpoint then rebase this worktree outside the Codex sandbox. Current HEAD 4f05744 includes main through 35ba7c5; current shared main is f0862b0.
+- Suggested checkpoint message: `core: add ABI v2 effects and document editing contracts`. Includes Core-owned changes plus the three explicit Lead-authorized contract files. READY above refers to the verified working tree, not an invented commit SHA. Lead handles commits on the agreed ~25-minute cadence.
 
-## Next
-- Please commit current owned-file diff and push team/core; all current code tests are green. Full integration contract/usage is in core/README.md.
-- Verify expanded Swift tests and final signed app build; signal READY against a Lead-created final checkpoint (this sandbox cannot commit).
-- Reconcile ABI-dependent M2 extensions after Lead updates header/contracts.
+## Requests / integration
+- Other-model review of persistence/rational timing/FFI/autosave before merge (team rule 10).
+- Render/Editor: use Project.frameExtras(atNs:) for the hot extras path or the existing typed renderOptions/renderLayers cold hooks; geometry/animation math stays in Core. Draw extras.highlights[0..<highlight_count] in order, then a full-canvas black overlay at fade_opacity. Do not draw both extras and cold-query layers. Export must use the same immutable snapshot for frame/extras. Preview must serialize edits when obtaining a pair (each call independently locks).
+- Render/Editor: map cursor_style 0/1/2 to recorded/pointer/touch and remaining extras options into existing RenderConfiguration. Rendering/pixel verification is still host/integration work, not claimed verified by Core tests.
+- Editor: refresh cached snapping times with project.clicks().map(\.tlNs) after timeline edits; clicks are timeline-mapped, source events stay immutable.
+- Renderer: background_asset resolves via Project.mediaURL(atIndex:). Audio query gain_start/gain_end are linear amplitudes from dB ramps; honor ramps instead of holding legacy gain constant.
+- UI helpers available: importBackgroundImage, importVideo async, preset export/import, relink(package:replacements:), autoZooms, autoSpeedTyping, processSilence. Orientation normalization implemented; real native encode check pending.
+- Build tooling should force Swift relinking after Rust static-lib updates; final verification used SwiftPM clean to guarantee current code.
+- No track-end contract exists for lost devices; renderer must handle truncated file EOF explicitly until a future track_end_ns contract is agreed.
 
-## Blockers
-- Git staging still denied: cannot create shared `.git/worktrees/core/index.lock` despite declared writable root. Lead created checkpoint 091d7a2; latest owned-file changes remain uncommitted. Checkpoint 091d7a2 is pushed to origin/team/core (confirmed via ls-remote). Please commit final owned changes; I can push the new commit once available. No push to main.
-- SwiftPM nested sandbox fails (`sandbox_apply: Operation not permitted`). Working verification uses `swift test --disable-sandbox -j 4` and temporary PATH wrapper injecting these flags into build-app.sh; stable signing succeeds. No permission reset or sudo used.
-- Real camera/mic and Retina/multi-display tests remain hardware-limited.
-- Stable signing identity currently invisible to this process (`security find-identity` reports 0); build-app.sh falls back to ad-hoc. No app launched and no TCC reset; please re-sign with stable identity outside this sandbox before launch.
-- Native compressed AAC decoding fails with AVFoundation -11800 in restricted execution despite valid AAC-LC fixture metadata. PCM WAV silence analysis is verified; AAC returns explicit CoreError.status(6, decoder unavailable). Lead should retest outside sandbox; no decoded-silence success claimed.
+## Remaining limits
+- Scene transforms/other intro-outro presets beyond none/fade explicitly rejected. Hardware camera/mic, Retina/multi-display, host Metal effects/Vision/export parity and native compressed AAC remain unverified.
+- SwiftPM nested sandbox fails sandbox_apply; verification uses --disable-sandbox under the outer Codex sandbox, four jobs, and a temporary PATH wrapper for build-app.sh. No global settings changed.
+- AAC decoding returns AVFoundation -11800 under restricted execution and an explicit CoreError.status(6, decoder unavailable); PCM WAV silence analysis is verified.
 
-## Requests (to Lead)
-- Cross-model review of persistence/rational timing/FFI/autosave before integration (team rule 10).
-- Integrate QA inventory from sibling QA worktree and announce integration for rebase; current main has advanced but git rebase writes are sandbox-blocked.
-- Extend fixed-size C frame ABI for masks/highlights, intro/outro transforms, per-camera shadow and cursor motion blur; these cannot be carried by current YcFrame. Those M2 features remain unavailable pending contract changes.
-- Relink no longer needs a new ABI: `Project.relink(package:replacements:)` now stages repairs and restores saved/auto-saved edit state through a verified recovery command. UI can use it after missingMedia.
-- Render/editor: `Project.mediaURL(atIndex:)` resolves frame.background_asset. ProjectRenderSource adapter should implement `renderBackgroundAsset(index:)` through this helper. No pixels cross the Rust boundary.
-- Render: audio_ranges now contains split automation intervals plus gain_start/gain_end (linear amplitudes; underlying automation interpolates dB). Honor ramps for export rather than only the legacy gain value.
-- UI: `Project.importVideo(_:package:) async`, preset export/import, `Project.relink`, `.autoZooms`, `.autoSpeedTyping(speed:)`, `.processSilence(ranges:speed:)` now available. Imported movies with nonidentity preferredTransform are normalized to upright pixels before packaging (orientation normalization implemented but full encode test awaits native codec availability).
-- Media fingerprint is algorithm-prefixed FNV-1a64 of first MiB for change detection, not authenticity. No new dependency. Change to SHA-256 before format freeze if required.
-
-## Assumptions
-- Effect targets/camera positions/crops use normalized coordinates; canvas lengths use output pixels. Generic set rejects unknown paths/keys.
-- Source/display/window/area capture format unchanged. Imported video uses display-like source geometry with display_id 0 and retains its source movie; screen/audio reference the same movie when audio exists. No new source kind added without a Lead contract.
-- Output width derives from aspect and output_size height; custom aspect uses both dimensions. Defaults: 1920×1080, 48 px padding, centered fit, zoom 1…16, speed 0.05…32.
-- Auto zooms group nearby clicks/typing within 1.2 s, preserve manual zooms, replace prior auto zooms idempotently; generated zooms pan with cursor inside a dead zone. These are reversible choices, not claims of exact reference defaults.
-- Spring presets Slow/Mellow/Quick/Rapid use analytic damped response. Cursor smoothing=0 preserves raw interpolated event positions; range override latest start wins. Camera-only layout falls back to screen when no camera track exists.
-- Gain automation interpolates dB and adds to global track gain; mute is separate. Event-derived typing speed and supplied silence cut/speed ranges share the single clip list.
-- Autosave journals complete validated project states before committing an edit in memory; open restores journal, save removes it. Export snapshots never autosave over the editor.
-- Timing keeps rational fractional ns and rounds at public boundaries; extremely large combined denominators fall back to Q32 fractional ns (~0.00000000023 ns precision), never whole-ns per-clip accumulation.
-- Existing serde/serde_json dependencies only (MIT/Apache-2.0); Apple AVFoundation for import/analysis. No recordings, credentials, or personal paths added to tracked content.
-- JSONValue retains `.number` for exactly representable small integers to keep existing editor setting readers compatible; `.integer` preserves values beyond 2^53. Number/integer getters are also exposed. Please use `.integer` when encoding range times.
-- Custom background preset files embed `_background_image` base64 in the Swift local file only; Swift copies the asset then sends only a path through Rust. Preset apply + asset selection is one undo step.
+## Decisions / assumptions
+- FNV-1a64 first-MiB head hash plus full size is approved by Lead for change detection, not authenticity. No new dependencies.
+- Effects/camera/crops normalized; output lengths in canvas pixels. Highlights source-space by default (canvas also supported); hidden source regions omitted. Timeline ranges half-open. Fades use black full-composition quintic easing, clamp to duration, overlap takes darker result, no added time/audio changes.
+- Defaults and auto/spring behavior remain reversible choices documented in FORMATS.md and core/README.md; exact reference preset values not claimed. Imported movies use source kind display with display_id 0 and preserve muxed audio; no new session source kind.
+- Autosave journals complete validated state before memory edits; snapshots never journal. Timing rounds only at public boundaries using rational fractional ns and Q32 fallback for extreme denominators. Clip/audio/event/frame queries share this model.
+- JSONValue.integer preserves values beyond 2^53; small exactly representable decoded integers remain .number for editor compatibility. Use .integer when encoding generic range times.
+- Portable presets omit project-specific timeline ranges and embed custom background image base64 only in the Swift local preset file; pixels never cross C. Relink preserves edits/autosave, stages repairs and rolls back failures.

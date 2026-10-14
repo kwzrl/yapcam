@@ -140,6 +140,34 @@ fn start_of(clips: &[Clip]) -> Fraction {
 pub fn duration(clips: &[Clip]) -> i64 {
     start_of(clips).round()
 }
+/// Rounded public bounds, retaining fractional nanoseconds across earlier clips.
+pub fn clip_bounds(clips: &[Clip], clip_index: usize) -> Option<(i64, i64)> {
+    let c = clips.get(clip_index)?;
+    let start = start_of(&clips[..clip_index]);
+    Some((start.round(), start.add(exact_duration(c)).round()))
+}
+/// Cold-path interval mapping includes the endpoint, unlike sample evaluation.
+pub fn source_boundary_to_timeline(clips: &[Clip], clip_index: usize, src: i64) -> Option<i64> {
+    let c = clips.get(clip_index)?;
+    if src < c.src_start_ns || src > c.src_end_ns {
+        return None;
+    }
+    let rate = Fraction::rate(c.speed);
+    let delta = Fraction::new((src - c.src_start_ns) as i128 * rate.d, rate.n);
+    Some(start_of(&clips[..clip_index]).add(delta).round())
+}
+pub fn timeline_boundary_to_source(clips: &[Clip], clip_index: usize, tl: i64) -> Option<i64> {
+    let c = clips.get(clip_index)?;
+    let delta = Fraction::integer(tl)
+        .subtract(start_of(&clips[..clip_index]))
+        .multiply(Fraction::rate(c.speed))
+        .round();
+    Some(
+        c.src_start_ns
+            .saturating_add(delta)
+            .clamp(c.src_start_ns, c.src_end_ns),
+    )
+}
 pub fn timeline_to_source(clips: &[Clip], tl: i64) -> Option<(usize, i64)> {
     if tl < 0 {
         return None;
@@ -169,9 +197,7 @@ pub fn source_to_timeline(clips: &[Clip], clip_index: usize, src: i64) -> Option
     if src < c.src_start_ns || src >= c.src_end_ns {
         return None;
     }
-    let rate = Fraction::rate(c.speed);
-    let delta = Fraction::new((src - c.src_start_ns) as i128 * rate.d, rate.n);
-    Some(start_of(&clips[..clip_index]).add(delta).round())
+    source_boundary_to_timeline(clips, clip_index, src)
 }
 pub fn sample(session: &Session, track: &str, src: i64) -> Sample {
     let i = session.segments.partition_point(|s| s.src_start_ns <= src);

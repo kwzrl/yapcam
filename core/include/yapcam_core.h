@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#define YC_ABI_VERSION 1
+#define YC_ABI_VERSION 2
 
 typedef enum {
     YC_OK = 0,
@@ -74,6 +74,35 @@ typedef struct {
     float system_gain;
 } YcFrame;
 
+// ABI v2 adds these types; YcFrame and all v1 signatures are unchanged.
+#define YC_MAX_FRAME_HIGHLIGHTS 32
+
+// Evaluated drawing instruction in canvas pixels. Array order defines stacking.
+// Opaque fill masks the region; transparent fill + dim_opacity creates a spotlight.
+typedef struct {
+    YcRect rect;
+    float corner_radius, opacity, dim_opacity;
+    float fill[4];                     // RGBA, sRGB
+    float stroke[4];
+    float stroke_width;
+} YcFrameHighlight;
+
+typedef struct {
+    int64_t tl_ns;
+    uint32_t cursor_style;             // 0 recorded, 1 pointer, 2 touch
+    float cursor_motion_blur;          // 0..1
+    float cursor_spotlight_radius;     // canvas pixels, 0 disables
+    float background_noise;            // 0..1
+    uint8_t window_chrome;
+    uint8_t camera_background_removal;
+    uint8_t camera_face_framing;
+    uint8_t reserved;                  // always zero
+    float camera_shadow_radius;        // canvas pixels
+    float fade_opacity;                // black overlay after all layers, 0..1
+    uint32_t highlight_count;          // valid prefix of highlights; never truncated
+    YcFrameHighlight highlights[YC_MAX_FRAME_HIGHLIGHTS];
+} YcFrameExtras;
+
 uint32_t yc_abi_version(void);
 const char *yc_last_error(void);       // thread-local, valid until next call on this thread
 void yc_string_free(char *s);
@@ -99,6 +128,9 @@ uint8_t yc_can_redo(const YcProject *p);
 YcStatus yc_timeline_duration(const YcProject *p, int64_t *out_ns);
 // Hot path: no allocation. Safe to call concurrently on the same handle (read-only).
 YcStatus yc_frame_at(const YcProject *p, int64_t tl_ns, YcFrame *out);
+// ABI v2 hot path: no allocation/file IO. Same time validation as yc_frame_at.
+// Call on an immutable snapshot when frame and extras must reflect one edit state.
+YcStatus yc_frame_extras_at(const YcProject *p, int64_t tl_ns, YcFrameExtras *out);
 // Read-only structured queries for UI, e.g. {"q":"clips"}, {"q":"zooms"}, {"q":"audio_ranges"}.
 YcStatus yc_query(const YcProject *p, const char *query_json, char **out_json);
 

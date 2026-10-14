@@ -192,6 +192,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         || !c.background.angle_deg.is_finite()
         || !(0.0..=1.0).contains(&c.shadow.opacity)
         || !(0.0..=1.0).contains(&c.motion_blur)
+        || !(0.0..=1.0).contains(&c.background.noise)
         || !matches!(
             c.background.kind.as_str(),
             "solid" | "gradient" | "image" | "blurred_screen"
@@ -230,6 +231,9 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         || cur.idle_timeout_ns < 0
         || cur.click_duration_ns <= 0
         || !matches!(cur.click_effect.as_str(), "none" | "ring" | "highlight")
+        || !matches!(cur.style.as_str(), "recorded" | "pointer" | "touch")
+        || !(0.0..=1.0).contains(&cur.motion_blur)
+        || !(0.0..=16384.0).contains(&cur.spotlight_radius)
     {
         return invalid("Invalid cursor settings");
     }
@@ -239,6 +243,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         || !(0.0..=16384.0).contains(&cam.radius)
         || !(0.0..=1.0).contains(&cam.opacity)
         || !matches!(cam.shape.as_str(), "rounded_rect" | "circle" | "squircle")
+        || !(0.0..=16384.0).contains(&cam.shadow_radius)
     {
         return invalid("Invalid camera settings");
     }
@@ -295,7 +300,8 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             return invalid("Invalid audio range");
         }
     }
-    if c.crop[0] < 0.0
+    if c.crop.iter().any(|v| !v.is_finite())
+        || c.crop[0] < 0.0
         || c.crop[1] < 0.0
         || c.crop[2] <= 0.0
         || c.crop[3] <= 0.0
@@ -303,6 +309,53 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         || c.crop[1] + c.crop[3] > 1.0
     {
         return invalid("Invalid source crop");
+    }
+    ids.clear();
+    for h in &c.highlights {
+        if h.id.is_empty()
+            || h.id == "canvas-fade"
+            || !ids.insert(&h.id)
+            || h.tl_start_ns < 0
+            || h.tl_end_ns <= h.tl_start_ns
+            || !matches!(h.space.as_str(), "source" | "canvas")
+            || h.rect.iter().any(|v| !v.is_finite())
+            || h.rect[0] < 0.0
+            || h.rect[1] < 0.0
+            || h.rect[2] <= 0.0
+            || h.rect[3] <= 0.0
+            || h.rect[0] + h.rect[2] > 1.0
+            || h.rect[1] + h.rect[3] > 1.0
+            || !(0.0..=16384.0).contains(&h.radius)
+            || !(0.0..=16384.0).contains(&h.stroke_width)
+            || !(0.0..=1.0).contains(&h.opacity)
+            || !(0.0..=1.0).contains(&h.dim_opacity)
+            || !color_ok(&h.fill)
+            || !color_ok(&h.stroke)
+        {
+            return invalid("Invalid highlight");
+        }
+    }
+    // The fixed ABI stores a prefix without truncation. Bound simultaneous
+    // highlights, allowing arbitrarily many non-overlapping timeline regions.
+    let mut boundaries = Vec::with_capacity(c.highlights.len() * 2);
+    for h in &c.highlights {
+        boundaries.push((h.tl_start_ns, 1_i32));
+        boundaries.push((h.tl_end_ns, -1_i32));
+    }
+    boundaries.sort_unstable(); // end before start at equal, half-open times
+    let mut active = 0;
+    for (_, delta) in boundaries {
+        active += delta;
+        if active > crate::layers::MAX_FRAME_HIGHLIGHTS as i32 {
+            return invalid("At most 32 highlights may overlap");
+        }
+    }
+    if !matches!(c.animation.entrance.as_str(), "none" | "fade")
+        || !matches!(c.animation.exit.as_str(), "none" | "fade")
+        || c.animation.entrance_duration_ns <= 0
+        || c.animation.exit_duration_ns <= 0
+    {
+        return invalid("Invalid canvas animation");
     }
     Ok(())
 }

@@ -98,3 +98,187 @@ JSON objects with an `op` field, e.g. `{"op":"split","at_tl_ns":…}`,
 `{"op":"set","path":"canvas.padding","value":48}`. Each successful command is one
 undo step; `{"op":"batch","commands":[…]}` groups several (e.g. a drag gesture).
 The full list lives in `core/src/commands.rs` and is mirrored in `Sources/YapcamCore`.
+
+## Documented `set` paths (schema 1)
+
+`set` accepts only the following paths. All numbers must be finite. Colors are
+four sRGB RGBA components in [0,1]; lengths are output canvas pixels unless noted.
+Arrays are replaced as a whole; indexing into arrays with a path is unsupported.
+Nested objects (`canvas.background`, `canvas.shadow`, `canvas.animation`,
+`cursor.spring`, `zoom_settings.spring`) can be replaced, with omitted fields
+filled from defaults. Unknown paths/keys or invalid values fail transactionally.
+Root setting objects are applied through `apply_preset`, not `set`.
+
+| Path | Type / allowed values | Default |
+|---|---|---|
+| `canvas.aspect` | `source`, `custom`, or positive W:H string | `16:9` |
+| `canvas.output_size` | [width,height], integers 1…16384; height sets output height, width used for custom aspect | [1920,1080] |
+| `canvas.padding` | 0…16384; evaluation clamps to keep content visible | 48 |
+| `canvas.radius` | 0…16384 | 18 |
+| `canvas.shadow.radius` | 0…16384 | 24 |
+| `canvas.shadow.opacity` | 0…1 | 0.3 |
+| `canvas.shadow.offset_y` | −32768…32768 | 8 |
+| `canvas.inset` | 0…8192 | 0 |
+| `canvas.inset_color` | RGBA | [1,1,1,1] |
+| `canvas.motion_blur` | 0…1, zoom/pan movement strength | 0 |
+| `canvas.crop` | normalized source [x,y,w,h], positive size contained in [0,1]² | [0,0,1,1] |
+| `canvas.background.kind` | solid / gradient / image / blurred_screen | solid |
+| `canvas.background.color` | RGBA | [0.12,0.14,0.18,1] |
+| `canvas.background.color2` | RGBA | [0.24,0.29,0.38,1] |
+| `canvas.background.angle_deg` | finite degrees | 45 |
+| `canvas.background.asset` | UInt32 index into project.media; must exist when kind=image | 0 |
+| `canvas.background.blur` | 0…16384 | 24 |
+| `canvas.background.noise` | 0…1 | 0 |
+| `canvas.window_chrome` | boolean | false |
+| `canvas.highlights` | highlight records below | [] |
+| `canvas.animation.entrance` | none / fade | none |
+| `canvas.animation.exit` | none / fade | none |
+| `canvas.animation.entrance_duration_ns` | positive Int64 ns | 400000000 |
+| `canvas.animation.exit_duration_ns` | positive Int64 ns | 400000000 |
+| `cursor.visible` | boolean | true |
+| `cursor.size` | 0.1…10, multiplier | 1 |
+| `cursor.smoothing` | 0…1; zero preserves raw interpolated positions | 0.15 |
+| `cursor.hide_when_idle` | boolean | false |
+| `cursor.idle_timeout_ns` | nonnegative Int64 ns | 2000000000 |
+| `cursor.click_effect` | none / ring / highlight | ring |
+| `cursor.click_duration_ns` | positive Int64 ns | 400000000 |
+| `cursor.speed_preset` | custom / slow / mellow / quick / rapid | custom |
+| `cursor.spring.tension` | 1…2000 | 250 |
+| `cursor.spring.friction` | 1…200 | 28 |
+| `cursor.spring.mass` | 0.1…10 | 1 |
+| `cursor.spring.allow_overshoot` | boolean | false |
+| `cursor.ranges` | cursor visibility records below | [] |
+| `cursor.loop_to_start` | boolean | false |
+| `cursor.loop_duration_ns` | positive Int64 ns | 400000000 |
+| `cursor.style` | recorded / pointer / touch | recorded |
+| `cursor.motion_blur` | 0…1 | 0 |
+| `cursor.spotlight_radius` | 0…16384; zero disables | 0 |
+| `camera.visible` | boolean | true |
+| `camera.position` | normalized [x,y], each 0…1 | [0.82,0.78] |
+| `camera.size` | 0.01…1, fraction of canvas width | 0.22 |
+| `camera.shape` | rounded_rect / circle / squircle | rounded_rect |
+| `camera.radius` | 0…16384 | 24 |
+| `camera.mirrored` | boolean | true |
+| `camera.opacity` | 0…1 | 1 |
+| `camera.layouts` | layout records below | [] |
+| `camera.shadow_radius` | 0…16384 | 0 |
+| `camera.background_removal` | boolean; renderer performs Vision processing | false |
+| `camera.face_framing` | boolean; renderer performs face detection | false |
+| `audio.mic_gain_db` | −96…24 dB | 0 |
+| `audio.system_gain_db` | −96…24 dB | 0 |
+| `audio.mic_muted` | boolean | false |
+| `audio.system_muted` | boolean | false |
+| `audio.ranges` | gain automation records below | [] |
+| `zoom_settings.automatic` | boolean; disables existing auto zoom evaluation too | true |
+| `zoom_settings.follow_cursor` | boolean, follow during auto zoom | true |
+| `zoom_settings.dead_zone` | 0…0.45, inset fraction of zoom crop | 0.15 |
+| `zoom_settings.speed_preset` | custom / slow / mellow / quick / rapid | custom |
+| `zoom_settings.spring.tension` | 1…2000 | 250 |
+| `zoom_settings.spring.friction` | 1…200 | 28 |
+| `zoom_settings.spring.mass` | 0.1…10 | 1 |
+| `zoom_settings.spring.allow_overshoot` | boolean | false |
+| `export.last_preset` | string | mp4-1080p |
+| `notes` | speaker notes string | empty |
+| `autosave` | boolean, journal edits before publishing in memory | true |
+
+Timeline records use half-open `[tl_start_ns,tl_end_ns)` intervals with nonnegative
+start and strictly greater end. Cuts and speed changes retime all these records
+along with zooms; collapsed intervals are removed. Latest-start active camera
+layout/cursor visibility/gain range wins. Highlights draw in array order.
+
+- Cursor range: `{tl_start_ns, tl_end_ns, visible}`. An active range overrides
+  cursor.visible; idle and embedded-cursor checks still apply.
+- Camera layout: `{id, tl_start_ns, tl_end_ns, mode, camera_position?, camera_size?}`.
+  IDs unique; modes screen/camera/overlay/side_by_side. Position/size use the same
+  limits as camera settings. Camera-only falls back to screen without a camera track.
+- Audio range: `{id, track, tl_start_ns, tl_end_ns, start_gain_db, end_gain_db}`.
+  IDs unique; track mic/system_audio; gains −96…24 dB. Linear dB interpolation adds
+  to global track gain, with mute applied separately.
+- Highlight: `{id, tl_start_ns, tl_end_ns, rect?, space?, radius?, opacity?,
+  dim_opacity?, fill?, stroke?, stroke_width?}`. IDs nonempty and unique;
+  `canvas-fade` is reserved. Rect defaults [0.25,0.25,0.5,0.5], normalized with
+  positive size inside [0,1]². Space defaults source (follows zoom/crop), or canvas.
+  Source rect clips to visible source; hidden source produces no instruction.
+  Radius defaults 12, stroke_width 3 (both 0…16384 px); opacity defaults 1,
+  dim_opacity 0.4 (both 0…1); fill [1,0.85,0.2,0], stroke [1,0.85,0.2,1].
+  Opaque fill masks the region; transparent fill plus outside dim creates a
+  spotlight. At most 32 intervals may overlap; more fail before applying an edit,
+  without truncation. Arbitrarily many non-overlapping intervals are supported.
+
+Fades draw black over the complete composition after all highlights, using a
+stateless quintic ease. Durations clamp to project length; overlapping entrance
+and exit fades use the darker result. No frames/time or audio edits are added.
+Other animation modes are rejected until implemented. Presets omit project-specific
+highlights, cursor ranges, camera layouts and audio ranges.
+
+## Read-only queries (`yc_query`)
+
+Queries are cold paths returning allocated UTF-8 JSON, freed with yc_string_free.
+
+| q | Result |
+|---|---|
+| clips | clip array with exact rounded tl_start_ns/tl_end_ns |
+| zooms / layouts | persisted zoom / camera layout arrays |
+| duration | `{duration_ns}` |
+| clicks (cursor_clicks alias) | sorted mouse-down event array with edited tl_ns; example below |
+| events | all retained input events with the same source/timeline mapping |
+| audio_ranges | file intervals split at clip, segment, track-start and gain-range boundaries; track/path/segment/clip_id, source/file/timeline start/end ns, speed, gain/gain_start/gain_end, base_gain_db and muted |
+| audio_automation | persisted audio.ranges |
+| media (assets alias) | `{path,size,head_hash}` array |
+| session / project | complete session or current project object |
+| preset | portable setting objects only, without project-specific timeline ranges |
+| render_options | cursor_style, cursor_motion_blur, cursor_spotlight_radius, background_noise, window_chrome, camera_background_removal, camera_face_framing, camera_shadow_radius |
+| layers_at, with integer tl_ns | ordered highlight drawing records in canvas pixels, plus final canvas-fade when nonzero |
+
+`{"q":"clicks"}` returns records such as:
+
+```json
+[{"t":500000000,"type":"down","button":"left","x":100,"y":100,
+  "segment":1,"src_ns":3500000000,"tl_ns":2500000000}]
+```
+
+`t` stays segment-local capture ns, `src_ns = segment.src_start_ns + t`, and `tl_ns`
+is the edited timeline position using the same rational clock as frames/audio.
+Cuts omit removed events; speeds retime them; a split-boundary click occurs once.
+Repeated source clips can repeat events at distinct timeline positions. The array
+sorts by tl_ns, retains event metadata, and is empty for imports without events.
+Editor snapping uses tl_ns and refreshes its cached list after timeline mutations.
+Audio endpoint gains are linear amplitudes derived from dB ramps; renderers should
+interpolate in dB between gain_start/gain_end rather than hold legacy gain constant.
+
+## C ABI version 2: frame extras
+
+YC_ABI_VERSION and yc_abi_version() are 2. Schema version remains 1. All existing
+YcFrame fields and signatures retain their v1 layout (328 bytes on arm64 macOS).
+`yc_frame_extras_at(project, tl_ns, &extras)` fills the separate YcFrameExtras
+defined in core/include/yapcam_core.h. Successful evaluation allocates nothing,
+reads no files, and does not mutate state. Time validation matches yc_frame_at:
+empty timelines, negative times or after-duration times fail; duration itself
+evaluates the last source sample. Errors leave the output unchanged.
+
+YcFrameHighlight is 80 bytes: YcRect canvas rect, float corner_radius/opacity/
+dim_opacity, float[4] fill/stroke (sRGB), float stroke_width. YcFrameExtras is 2600
+bytes with 8-byte alignment: Int64 tl_ns; UInt32 cursor_style (0 recorded, 1 pointer,
+2 touch); float cursor_motion_blur/cursor_spotlight_radius/background_noise; UInt8
+window_chrome/camera_background_removal/camera_face_framing/reserved; float
+camera_shadow_radius/fade_opacity; UInt32 highlight_count; 32 YcFrameHighlight
+slots. Reserved and unused slots are zero. Highlight_count is the valid array
+prefix; draw it in order, then a full-canvas black overlay with fade_opacity.
+No pixels or file data cross this boundary. Query layers_at remains available for
+UI identities and cold adapters; its geometry/fade math shares the extras evaluator.
+
+Each frame/extras call holds a read lock independently. Use an immutable export
+snapshot (or serialize editor mutations) when two calls must use the same edit state.
+Renderer integrations must opt into the extras hook; an existing v1 renderer keeps
+working with the unchanged YcFrame, but cannot display extras until wired.
+
+## Media change detection and recovery
+
+Approved head_hash format: `fnv1a64:` followed by 16 lowercase hexadecimal digits
+of FNV-1a64 over up to the first MiB, together with the full file size. It detects
+changed media, not authenticity. References are package-relative and cannot escape
+through symlinks. Missing or changed media returns YC_ERR_MISSING_MEDIA with a
+JSON array of relative paths in the error message; relink refreshes selected files.
+Autosave journals validated complete state before in-memory edits; open restores a
+same-project journal, save commits primary/.prev then removes the journal. Export
+snapshots never journal over the editor.

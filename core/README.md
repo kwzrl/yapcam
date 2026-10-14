@@ -31,6 +31,9 @@ Failed commands/batches change neither state nor history. `yc_apply` returns
 
 Swift mirrors these in `EditCommand`. `JSONValue.integer(Int64)` preserves precise
 large values in generic settings; standard edit times encode directly as Int64.
+`Project.clicks()` returns typed mouse-down records with edited `tlNs`; refresh
+snapping caches after timeline changes. The complete set-path/default inventory
+and ABI-v2 contract are now documented in `docs/FORMATS.md`.
 `Project.relink(package:replacements:)` stages replacement files, preserves the
 latest autosave edit state, and rolls back files/metadata if reconstruction fails.
 Files must be compatible with the recorded dimensions and segment timing.
@@ -44,14 +47,17 @@ setting objects are replaced through apply_preset.
 
 - `canvas`: aspect (`source`, `custom`, or positive W:H), output_size [width,height],
   padding, radius, shadow.{radius,opacity,offset_y}, inset, inset_color RGBA,
-  motion_blur, crop [x,y,w,h], background.{kind,color,color2,angle_deg,asset,blur}.
+  motion_blur, crop [x,y,w,h], background.{kind,color,color2,angle_deg,asset,blur,noise},
+  window_chrome, highlights, animation (below).
   Background kinds: solid, gradient, image, blurred_screen. Colors are sRGB [0,1].
 - `cursor`: visible, size (0.1…10), smoothing (0…1; zero gives raw interpolation),
   hide_when_idle, idle_timeout_ns, click_effect (none/ring/highlight),
   click_duration_ns, speed_preset, spring, loop_to_start, loop_duration_ns,
-  ranges [{tl_start_ns,tl_end_ns,visible}]. Latest active range wins.
+  ranges [{tl_start_ns,tl_end_ns,visible}], style (recorded/pointer/touch),
+  motion_blur (0…1), spotlight_radius (output pixels). Latest active range wins.
 - `camera`: visible, position [x,y], size (fraction of canvas width), shape
-  (rounded_rect/circle/squircle), radius, mirrored, opacity, layouts
+  (rounded_rect/circle/squircle), radius, mirrored, opacity, shadow_radius,
+  background_removal, face_framing, layouts
   [{id,tl_start_ns,tl_end_ns,mode,camera_position?,camera_size?}]. Modes: screen,
   camera, overlay, side_by_side. A camera-only layout keeps screen visible when
   there is no camera track; absent camera samples never become fabricated media.
@@ -128,6 +134,61 @@ negative times and times after the duration fail. Empty timelines have no frame.
   passing edited timeline intervals to `processSilence`.
 - Compressed audio codec services can be unavailable under restricted macOS
   execution; this returns explicit CoreError.status(6), never a guessed silence list.
-- Masks/highlights, intro/outro transforms, camera shadow and cursor motion blur
-  require a Lead-owned fixed frame ABI extension. Unknown settings/commands fail
-  explicitly until that contract is available; these effects are not claimed done.
+- Supplemental effects use the renderer hooks described below. Core evaluation is
+  verified, but Render/Editor adapters and GPU pixel checks remain integration work.
+  Entrance/exit currently support none/fade; scene transforms and other animation
+  presets fail explicitly until implemented.
+
+
+## Supplemental render effects (M2)
+
+`renderOptions()` returns typed `CoreRenderOptions` for Render's existing
+`RenderConfiguration`: cursor style/blur/spotlight, background noise, window chrome,
+camera background removal/face framing/shadow radius. Defaults match Render's
+neutral defaults. Cache options after edits rather than querying every frame.
+Camera Vision processing and visual effects still require renderer/host verification.
+
+`renderLayers(atNs:)` returns ordered `CoreRenderLayer` instructions in canvas
+pixels. The cold JSON queries are `render_options` and `layers_at` with integer
+`tl_ns`; these preserve the 328-byte C frame and its allocation-free evaluator.
+The Editor-owned ProjectRenderSource adapter should convert each record to
+RenderLayer.highlight, pass rect/radius/opacity/colors/stroke through, and supply
+these to `renderLayers(atNs:)` for both preview and the export snapshot. No effect
+math belongs in the adapter; Rust uses the same crop/layout/zoom geometry as YcFrame.
+
+Use `set canvas.highlights` with an array of records:
+
+```json
+[{"id":"focus-1","tl_start_ns":1000000000,"tl_end_ns":3000000000,
+  "rect":[0.25,0.25,0.5,0.5],"space":"source","radius":12,
+  "opacity":1,"dim_opacity":0.4,"fill":[1,0.85,0.2,0],
+  "stroke":[1,0.85,0.2,1],"stroke_width":3}]
+```
+
+Times are half-open. IDs are unique. Rects are normalized in `source` (default) or
+`canvas` space. Source highlights follow screen zoom/crop and are clipped to the
+visible source; completely hidden regions produce no layer. Opaque fill masks the
+selected region, transparent fill with dim_opacity creates a spotlight. Lengths
+(radius/stroke) are output pixels. Array order defines stacking. Cuts and speed
+changes retime highlights along with zoom/layout/cursor/audio ranges. Portable
+presets omit highlights, which are project-specific timeline data.
+At most 32 highlights may overlap; excess fails validation before changing state.
+Non-overlapping intervals have no fixed count limit; `canvas-fade` is a reserved ID.
+
+`canvas.animation` has entrance/exit (`none` or `fade`), entrance_duration_ns and
+exit_duration_ns (default 400000000). Fades use an analytic quintic ease and draw
+black over the complete composed frame as the last layer; durations clamp to the
+project length and overlapping fades take the darker result. They do not add
+frames or change audio. A snapshot freezes options and layers for export.
+
+ABI version 2 also exposes `Project.frameExtras(atNs:)` / `yc_frame_extras_at`.
+This is the allocation-free path for per-frame extras: YcFrameExtras (2600 bytes)
+contains the above options, a valid prefix of 32 YcFrameHighlight slots, and final
+fade_opacity. It shares highlight/fade math with the cold layer query. Draw highlights
+in order then the black fade; do not also draw the cold-query layers or effects
+would be doubled. Export frame/extras should use the same immutable snapshot;
+each call locks independently. The old YcFrame layout and signatures are untouched.
+
+Clip and audio interval queries now use the same rational mapping as frame/event
+queries, including exact source interval endpoints, rather than accumulating
+Double durations; long synthetic clocks verify this against an integer oracle.
