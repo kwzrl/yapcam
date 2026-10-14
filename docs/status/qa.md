@@ -1,4 +1,4 @@
-READY HEAD qa: audit vs 6d91a7f; waiting on REA output for [technical]/TBD rows
+READY 687bb61 qa: audit vs 6d91a7f; waiting on REA output for [technical]/TBD rows
 
 # qa status
 
