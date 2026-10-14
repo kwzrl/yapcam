@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum ToolbarPopover: Hashable { case source, audio, microphone, camera }
+enum ToolbarPopover: Hashable { case source, audio, microphone, camera, notes }
 
 
 struct ToolbarView: View {
@@ -55,6 +55,7 @@ struct ToolbarView: View {
                 .popover(isPresented: binding(.camera), arrowEdge: edge) {
                     CameraPopover().environmentObject(settings).environmentObject(perms)
                 }
+            notesButton
             Divider().padding(.vertical, 4)
             RecordButton(recording: false, action: rec.toggleStartStop)
                 .help("Start recording (\(settings.startStopShortcut.display))")
@@ -63,6 +64,11 @@ struct ToolbarView: View {
                 SettingsWindow.shared.show()
             }
         }
+    }
+
+    private var notesButton: some View {
+        ToolbarButton(symbol: "note.text", label: "Notes", help: "Speaker notes", active: !rec.notes.isEmpty) { toggle(.notes) }
+            .popover(isPresented: binding(.notes), arrowEdge: edge) { NotesPopover().environmentObject(rec) }
     }
 
     private var micOn: Bool { settings.microphoneID != nil && perms.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) }
@@ -113,6 +119,7 @@ struct ToolbarView: View {
                           help: "\(paused ? "Resume" : "Pause") (\(settings.pauseShortcut.display))", active: false, action: rec.togglePause)
             RecordButton(recording: true, action: rec.toggleStartStop)
                 .help("Stop recording (\(settings.startStopShortcut.display))")
+            notesButton
             ToolbarButton(symbol: "arrow.counterclockwise", label: "Restart", help: "Discard this take and start over", active: false, action: rec.restart)
             ToolbarButton(symbol: "trash", label: "Cancel", help: "Discard recording", active: false, action: rec.cancel)
         }

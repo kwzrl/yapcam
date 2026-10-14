@@ -62,6 +62,15 @@ import YapcamCore
         return url
     }
 
+    /// Stores speaker notes in a freshly recorded package (creates project.json if needed).
+    static func attachNotes(_ notes: String, to package: URL) throws {
+        let fm = FileManager.default
+        let project = fm.fileExists(atPath: package.appending(path: "project.json").path)
+            ? try Project.open(package: package) : try Project.create(package: package)
+        try project.apply(.set(path: "notes", value: .string(notes)))
+        try project.save()
+    }
+
     // MARK: Import
 
     static func importVideo() {

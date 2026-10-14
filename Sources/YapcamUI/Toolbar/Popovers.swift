@@ -277,3 +277,21 @@ private struct PermissionPrompt: View {
         }
     }
 }
+
+// MARK: - Notes
+
+struct NotesPopover: View {
+    @EnvironmentObject var rec: RecordingController
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PopoverHeader(title: "Speaker notes")
+            TextEditor(text: $rec.notes)
+                .font(.system(size: 13))
+                .frame(height: 160)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.15)))
+            Text("Visible here while you record. Saved with the recording.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(14).frame(width: 300)
+    }
+}
