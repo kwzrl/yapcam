@@ -131,8 +131,8 @@ Root setting objects are applied through `apply_preset`, not `set`.
 | `canvas.background.noise` | 0…1 | 0 |
 | `canvas.window_chrome` | boolean | false |
 | `canvas.highlights` | highlight records below | [] |
-| `canvas.animation.entrance` | none / fade | none |
-| `canvas.animation.exit` | none / fade | none |
+| `canvas.animation.entrance` | none / fade / zoom / slide_left / slide_right / slide_up / slide_down | none |
+| `canvas.animation.exit` | none / fade / zoom / slide_left / slide_right / slide_up / slide_down | none |
 | `canvas.animation.entrance_duration_ns` | positive Int64 ns | 400000000 |
 | `canvas.animation.exit_duration_ns` | positive Int64 ns | 400000000 |
 | `cursor.visible` | boolean | true |
@@ -215,7 +215,7 @@ layout/cursor visibility/gain range wins. Highlights draw in array order.
 Fades draw black over the complete composition after all highlights, using a
 stateless quintic ease. Durations clamp to project length; overlapping entrance
 and exit fades use the darker result. No frames/time or audio edits are added.
-Other animation modes are rejected until implemented. Presets omit project-specific
+Zoom/slide transforms are specified in the additive contracts below. Presets omit project-specific
 highlights, cursor ranges, camera layouts and audio ranges.
 
 ## Read-only queries (`yc_query`)
@@ -332,6 +332,8 @@ A style background becomes a separate highlight preceding the text. `layers_at`
 orders highlights, annotations, reactions, captions, key overlay, final fade.
 Every returned layer retains the existing numeric highlight fields (zero for text)
 and adds optional `text`, `font_size`, `color`; text layers have `kind:"text"`.
+Text layer IDs are `core:annotation/reaction/caption:<record-id>` to avoid
+collisions across collections; their style background appends `:background`.
 
 Commands (all undoable): `add_annotation`, `add_reaction`, `add_caption`, `add_music`
 carry `record:{...}`; optional omitted/empty id is generated and returned in
@@ -362,7 +364,8 @@ Ducking: `{enabled:false,gain_db:-12,attack_ns:50000000,release_ns:200000000,
 ranges:[]}`; ranges are `{tl_start_ns,tl_end_ns}`. When enabled, empty ranges use
 caption ranges as speech activity; no captions means no inferred speech. Explicit
 ranges override that inference. Duck attenuation ramps linearly in dB after speech
-start and after speech end, with strongest active attenuation winning. Music fades
+start and after speech end, with strongest active attenuation winning. A speech
+range shorter than attack releases from its attained attenuation. Music fades
 are linear amplitude; overlap multiplies the two fades. Cuts/speeds remap music
 ranges and explicit duck ranges; external music has its own output-timeline clock,
 independent of recording playback speed.

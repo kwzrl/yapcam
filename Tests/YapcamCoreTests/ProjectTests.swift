@@ -541,9 +541,12 @@ private final class ConcurrentEditCheck: @unchecked Sendable {
 @Test func keyOverlaySetPathsUseCapturedKeyMetadata() throws {
     try withFixture { package in
         let events = package.appendingPathComponent("recording/seg-000/events.jsonl")
-        var data = try Data(contentsOf: events)
-        data.append(Data("\n{\"t\":1200000000,\"type\":\"key\",\"key\":\"k\",\"modifiers\":[\"cmd\",\"shift\"]}\n".utf8))
-        try data.write(to: events)
+        let data = try Data(contentsOf: events)
+        var rows = try String(decoding: data, as: UTF8.self).split(separator: "\n").map { try JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String: Any] }
+        rows.append(["t": 1_200_000_000, "type": "key", "key": "k", "modifiers": ["cmd", "shift"]])
+        rows.sort { ($0["t"] as! NSNumber).int64Value < ($1["t"] as! NSNumber).int64Value }
+        let lines = try rows.map { String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self) }.joined(separator: "\n")
+        try Data(lines.utf8).write(to: events)
         let p = try Project.create(package: package)
         try p.apply(.set(path: "cursor.key_overlay.enabled", value: .bool(true)))
         let layers = try p.renderLayers(atNs: 1_300_000_000)

@@ -193,9 +193,9 @@ pub fn import_transcript(
         Some(s) => s.as_bool().ok_or_else(|| bad("replace must be boolean"))?,
         None => true,
     };
-    let mut records = vec![];
-    for (i, c) in p.timeline.clips.iter().enumerate() {
-        for w in words {
+    let words = words
+        .iter()
+        .map(|w| {
             let text = w["text"]
                 .as_str()
                 .filter(|s| !s.trim().is_empty())
@@ -213,6 +213,12 @@ pub fn import_transcript(
             {
                 return Err(bad("Invalid transcript word range/confidence"));
             }
+            Ok((text, a, b))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut records = vec![];
+    for (i, c) in p.timeline.clips.iter().enumerate() {
+        for &(text, a, b) in &words {
             let x = a.max(c.src_start_ns);
             let y = b.min(c.src_end_ns);
             if y <= x {
@@ -233,18 +239,6 @@ pub fn import_transcript(
                 style: style.clone(),
                 ..TextRecord::default()
             });
-        }
-    }
-    // Validate words even when there are no retained clips.
-    if p.timeline.clips.is_empty() {
-        for w in words {
-            let a = w["src_start_ns"].as_i64();
-            let b = w["src_end_ns"].as_i64();
-            if a.zip(b).is_none_or(|(a, b)| !range(a, b) || b > source_end)
-                || w["text"].as_str().is_none_or(|s| s.trim().is_empty())
-            {
-                return Err(bad("Invalid transcript word"));
-            }
         }
     }
     if replace {
@@ -311,7 +305,13 @@ fn duck_db(m: &MusicTrack, t: i64, ranges: &[(i64, i64)]) -> f64 {
                     m.ducking.gain_db * ((t - a) as f64 / m.ducking.attack_ns as f64).min(1.0)
                 }
             } else if m.ducking.release_ns > 0 && t - b < m.ducking.release_ns {
-                m.ducking.gain_db * (1.0 - (t - b) as f64 / m.ducking.release_ns as f64)
+                m.ducking.gain_db
+                    * if m.ducking.attack_ns == 0 {
+                        1.0
+                    } else {
+                        ((b - a) as f64 / m.ducking.attack_ns as f64).min(1.0)
+                    }
+                    * (1.0 - (t - b) as f64 / m.ducking.release_ns as f64)
             } else {
                 0.0
             }
