@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Foundation
 import Testing
 import YapcamCapture
+import YapcamCore
 @testable import YapcamUI
 
 @Suite struct KeyComboTests {
@@ -115,5 +116,25 @@ import YapcamCapture
         try ProjectActions.attachNotes("remember the intro", to: pkg)
         let json = try String(contentsOf: pkg.appending(path: "project.json"), encoding: .utf8)
         #expect(json.contains("remember the intro"))
+    }
+}
+
+@MainActor @Suite struct PresetTests {
+    @Test func saveListApplyRoundTrip() throws {
+        let tmp = FileManager.default.temporaryDirectory.appending(path: "yapcam-preset-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let pkg = tmp.appending(path: "P.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/synthetic/basic.yapcam")
+        try FileManager.default.copyItem(at: fixture, to: pkg)
+        let project = try Project.create(package: pkg)
+        let file = tmp.appending(path: "look.yapcampreset")
+        try project.exportPreset(to: file)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        try project.apply(.set(path: "canvas.padding", value: .number(0.2)))
+        try PresetStore.apply(file, to: project)           // restores the exported look
+        #expect(PresetStore.clean("  a/b ") == "a-b")
+        #expect(throws: EngineError.self) { try PresetStore.save(project, as: "   ") }
     }
 }
