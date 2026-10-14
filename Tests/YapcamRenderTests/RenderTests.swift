@@ -11,13 +11,16 @@ final class TestSource: RenderProjectSource, @unchecked Sendable {
     let evaluate: (Int64) -> YcFrame
     let clips: [RenderClip]
     let overlays: [AudioOverlay]
-    init(package: URL, duration: Int64 = 500_000_000, clips: [RenderClip] = [], overlays: [AudioOverlay] = [], evaluate: @escaping (Int64) -> YcFrame = { ns in
+    let layers: [RenderLayer]
+    let renderConfiguration: RenderConfiguration
+    init(package: URL, duration: Int64 = 500_000_000, clips: [RenderClip] = [], overlays: [AudioOverlay] = [], layers: [RenderLayer] = [], configuration: RenderConfiguration = .init(), evaluate: @escaping (Int64) -> YcFrame = { ns in
         var f = YcFrame(); f.tl_ns = ns; f.canvas_w = 320; f.canvas_h = 200; f.background_color = (0.5,0.25,0.75,1); f.click_progress = -1; return f
-    }) { packageURL = package; durationNs = duration; self.clips = clips; self.overlays = overlays; self.evaluate = evaluate }
+    }) { packageURL = package; durationNs = duration; self.clips = clips; self.overlays = overlays; self.layers = layers; renderConfiguration = configuration; self.evaluate = evaluate }
     func frame(atNs: Int64) throws -> YcFrame { evaluate(atNs) }
     func renderSnapshot() throws -> any RenderProjectSource { self }
     func renderClips() throws -> [RenderClip] { clips }
     func renderAudioOverlays() throws -> [AudioOverlay] { overlays }
+    func renderLayers(atNs: Int64) throws -> [RenderLayer] { layers }
 }
 
 final class RenderTests: XCTestCase {
@@ -29,9 +32,7 @@ final class RenderTests: XCTestCase {
         try Data("{\"segments\":[]}".utf8).write(to: temp.appendingPathComponent("recording/session.json"))
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: temp) }
-    func device() throws -> MTLDevice {
-        guard let device = MTLCreateSystemDefaultDevice() else { throw XCTSkip("Metal unavailable in the execution sandbox; run on host for GPU verification") }; return device
-    }
+    func device() throws -> MTLDevice { try requireRenderDevice() }
     func pixels(_ frame: YcFrame, source: TestSource, width: Int = 64, height: Int = 40) throws -> [UInt8] {
         let d = try device(), compositor = try FrameCompositor(device: d, project: source)
         let texture = try XCTUnwrap(d.makeTexture(descriptor: .texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb, width: width, height: height, mipmapped: false)))
@@ -79,12 +80,25 @@ final class RenderTests: XCTestCase {
         for (actual,expected) in zip(a[(4*64+6)*4..<(4*64+6)*4+4],[191,64,128,255]) { XCTAssertEqual(Double(actual),Double(expected),accuracy: 1) }
         XCTAssertNotEqual(Array(a[(20*64+32)*4..<(20*64+32)*4+4]), [191,64,128,255])
     }
+    func testHighlightsDimOutsideAndTextRendersAboveCanvas() throws {
+        let plain=TestSource(package: temp)
+        let highlight=RenderLayer(content: .highlight(dimOpacity: 0.5,fill: .zero,stroke: .zero,strokeWidth: 0),rect: CGRect(x: 100,y: 60,width: 120,height: 80))
+        let source=TestSource(package: temp,layers: [highlight])
+        let a=try pixels(plain.frame(atNs: 0),source: plain), b=try pixels(source.frame(atNs: 0),source: source)
+        XCTAssertLessThan(b[0],a[0])
+        let center=(20*64+32)*4
+        XCTAssertEqual(Double(b[center]),Double(a[center]),accuracy: 1)
+        let text=RenderLayer(content: .text("⌘K 😀",fontSize: 40,color: SIMD4(1,1,1,1)),rect: CGRect(x: 20,y: 20,width: 260,height: 100))
+        let withText=TestSource(package: temp,layers: [text])
+        let c=try pixels(withText.frame(atNs: 0),source: withText)
+        XCTAssertNotEqual(a,c)
+    }
     func testSettingsRejectInvalidRangesAndNonfiniteQuality() throws {
         XCTAssertThrowsError(try ExportSettings(quality: .nan).validatedRange(duration: 1))
         XCTAssertThrowsError(try ExportSettings(rangeStartNs: 10, rangeEndNs: 5).validatedRange(duration: 20))
         XCTAssertThrowsError(try ExportSettings(outputHeight: 100).validatedRange(duration: 20))
         XCTAssertEqual(try ExportSettings().outputWidth(canvasWidth: 1680, canvasHeight: 1050), 1728)
-        XCTAssertThrowsError(try mediaURL("../../outside", root: temp))
+        XCTAssertThrowsError(try packageMediaURL("../../outside", root: temp))
     }
     func testVideoExportReopensAndFFprobeAgrees() async throws {
         _ = try device()
@@ -112,13 +126,44 @@ final class RenderTests: XCTestCase {
     }
     func testGIFRangeAndFrameTiming() async throws {
         _ = try device()
-        let source = TestSource(package: temp, duration: 1_000_000_000)
+        let source = TestSource(package: temp, duration: 1_500_000_000)
         let output = temp.appendingPathComponent("output.gif")
-        let exporter = try Exporter(project: source, settings: .init(format: .gif, outputHeight: 720, fps: 30, includeAudio: false, rangeStartNs: 200_000_000, rangeEndNs: 400_000_000), destination: output)
+        let exporter = try Exporter(project: source, settings: .init(format: .gif, outputHeight: 720, fps: 30, includeAudio: false, rangeStartNs: 200_000_000, rangeEndNs: 1_200_000_000), destination: output)
         _ = try await exporter.run { _ in }
         let gif = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL,nil))
-        XCTAssertEqual(CGImageSourceGetCount(gif),6)
-        XCTAssertEqual(exporter.metrics?.frames,6)
+        XCTAssertEqual(CGImageSourceGetCount(gif),30)
+        XCTAssertEqual(exporter.metrics?.frames,30)
+    }
+    func testStillFrameUsesTheSameCompositorAndVerticalOrientation() throws {
+        let d=try device(), source=TestSource(package: temp)
+        var frame=try source.frame(atNs: 0); frame.background_kind=1; frame.background_color=(0,0,0,1); frame.background_color2=(1,1,1,1); frame.background_angle_deg=90
+        let compositor=try FrameCompositor(device: d,project: source)
+        let image=try compositor.image(frame,size: CGSize(width: 64,height: 40))
+        XCTAssertEqual(image.width,64); XCTAssertEqual(image.height,40)
+        let data=try XCTUnwrap(image.dataProvider?.data) as Data
+        XCTAssertLessThan(data[0],data[(image.height-1)*image.bytesPerRow])
+    }
+    func testMOVAndHEVCFormatsAtSupportedFrameRates() async throws {
+        _ = try device()
+        let source=TestSource(package: temp,duration: 200_000_000)
+        for (format,codec,fps) in [(ExportSettings.Format.mp4,ExportSettings.Codec.hevc,24),(.mov,.h264,60),(.mov,.hevc,30)] {
+            let output=temp.appendingPathComponent("\(codec.rawValue)-\(fps).\(format.rawValue)")
+            let exporter=try Exporter(project: source,settings: .init(format: format,codec: codec,outputHeight: 720,fps: fps,includeAudio: false),destination: output)
+            _ = try await exporter.run { _ in }
+            let tracks=try await AVURLAsset(url: output).loadTracks(withMediaType: .video)
+            let track=try XCTUnwrap(tracks.first)
+            let actual=try await track.load(.nominalFrameRate)
+            XCTAssertEqual(Double(actual),Double(fps),accuracy: 0.01)
+        }
+    }
+    func testCancellationAfterProgressRemovesWriterPartial() async throws {
+        _ = try device()
+        let source=TestSource(package: temp,duration: 3_000_000_000), output=temp.appendingPathComponent("mid-cancel.mp4")
+        let exporter=try Exporter(project: source,settings: .init(outputHeight: 720,includeAudio: false),destination: output)
+        let task=Task { try await exporter.run { value in if value>0.1 { withUnsafeCurrentTask { $0?.cancel() } } } }
+        do { _ = try await task.value; XCTFail("Expected mid-export cancellation") } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: temp.path).contains { $0.hasPrefix(".yapcam-export-") })
     }
     func testCancelledExportRemovesPartialAndPreservesExistingFile() async throws {
         let source = TestSource(package: temp, duration: 10_000_000_000), output = temp.appendingPathComponent("cancel.mp4")

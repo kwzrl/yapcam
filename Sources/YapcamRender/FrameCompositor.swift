@@ -13,6 +13,8 @@ public final class FrameCompositor: @unchecked Sendable {
     private let layerRenderer: LayerRenderer
     private let cameraEffects: CameraEffects
     private let lock = NSLock()
+    private let invalidationLock = NSLock()
+    private var needsInvalidation = false
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
@@ -24,7 +26,7 @@ public final class FrameCompositor: @unchecked Sendable {
         loader = MTKTextureLoader(device: device)
         layerRenderer = try LayerRenderer(device: device)
         var cache: CVMetalTextureCache?
-        guard CVMetalTextureCacheCreate(nil, nil, device, nil, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Metal texture cache unavailable") }
+        guard CVMetalTextureCacheCreate(nil, nil, device, [kCVMetalTextureUsage as String: MTLTextureUsage.shaderRead.rawValue] as CFDictionary, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Metal texture cache unavailable") }
         self.cache = cache
         cameraEffects = CameraEffects(cache: cache)
         let library = try device.makeLibrary(source: Self.shader, options: nil)
@@ -39,12 +41,14 @@ public final class FrameCompositor: @unchecked Sendable {
         empty.replace(region: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: 0, withBytes: &zero, bytesPerRow: 4)
         self.empty = empty
     }
+    /// Mark media caches stale without waiting for an in-flight decode on the UI thread.
+    public func invalidateSources() { invalidationLock.withLock { needsInvalidation = true } }
     private func decoded(_ sample: YcSample, track: String) throws -> TextureFrame? {
         guard sample.present != 0 else { return nil }
-        guard let segment = manifest.segments.first(where: { $0.index == sample.segment }), let path = segment.files[track] else { throw RenderError.missingMedia("Missing \(track) in segment \(sample.segment)") }
+        guard let segment = manifest.segment(at: sample.segment), let path = segment.files[track] else { throw RenderError.missingMedia("Missing \(track) in segment \(sample.segment)") }
         if sources[path] == nil {
             if sources.count >= 3 { sources.removeAll() }
-            sources[path] = try FrameSource(url: mediaURL(path, root: project.packageURL.appendingPathComponent("recording")), cache: cache) }
+            sources[path] = try FrameSource(url: packageMediaURL(path, root: project.packageURL.appendingPathComponent("recording")), cache: cache) }
         return try sources[path]!.frame(atNs: sample.file_ns)
     }
     private func image(_ url: URL) throws -> MTLTexture {
@@ -56,25 +60,28 @@ public final class FrameCompositor: @unchecked Sendable {
     struct Cursor: Decodable { var file: String; var hotspot: [Double]; var sizePoints: [Double]; enum CodingKeys: String, CodingKey { case file, hotspot, sizePoints = "size_points" } }
     public func encode(_ frame: YcFrame, to target: MTLTexture, in cb: MTLCommandBuffer) throws {
         lock.lock(); defer { lock.unlock() }
+        let invalidate = invalidationLock.withLock { let value=needsInvalidation; needsInvalidation=false; return value }
+        if invalidate { sources.removeAll(); images.removeAll(); cursorMetadata.removeAll(); cameraEffects.invalidate(); layerRenderer.invalidate(); CVMetalTextureCacheFlush(cache,0) }
         guard target.pixelFormat == .bgra8Unorm_srgb, frame.canvas_w > 0, frame.canvas_h > 0 else { throw RenderError.metal("Compositor requires an sRGB BGRA target and nonzero canvas") }
+        let options = project.renderConfiguration
+        try validateFrame(frame,configuration: options)
         let screen = try decoded(frame.screen, track: "screen")
         let camera = try decoded(frame.camera, track: "camera")
-        let options = project.renderConfiguration
         var matte: TextureFrame?
         var cameraCrop = SIMD4<Float>(0,0,1,1)
         if let camera { (matte,cameraCrop) = try cameraEffects.evaluate(camera,removeBackground: options.cameraBackgroundRemoval,faceFraming: options.cameraFaceFraming) }
         var cursorTexture = empty
         var cursorRect = SIMD4<Float>.zero
-        if frame.cursor_visible != 0, frame.cursor_opacity > 0, let segment = manifest.segments.first(where: { $0.index == frame.screen.segment }), let path = segment.files["cursors"] {
+        if frame.cursor_visible != 0, frame.cursor_opacity > 0, let segment = manifest.segment(at: frame.screen.segment), let path = segment.files["cursors"] {
             let root = project.packageURL.appendingPathComponent("recording")
-            let metadataURL = try mediaURL(path, root: root)
+            let metadataURL = try packageMediaURL(path, root: root)
             if cursorMetadata[segment.index] == nil {
                 if cursorMetadata.count >= 8 { cursorMetadata.removeAll() }
                 cursorMetadata[segment.index] = try JSONDecoder().decode([String: Cursor].self, from: Data(contentsOf: metadataURL))
             }
             let cursors = cursorMetadata[segment.index]!
             if let cursor = cursors[String(frame.cursor_id)], cursor.hotspot.count == 2, cursor.sizePoints.count == 2 {
-                cursorTexture = try image(mediaURL(cursor.file, root: metadataURL.deletingLastPathComponent()))
+                cursorTexture = try image(packageMediaURL(cursor.file, root: metadataURL.deletingLastPathComponent()))
                 let scale = Double(frame.cursor_scale)
                 cursorRect = SIMD4(Float(frame.cursor_x - cursor.hotspot[0] * scale), Float(frame.cursor_y - cursor.hotspot[1] * scale), Float(cursor.sizePoints[0] * scale), Float(cursor.sizePoints[1] * scale))
             }
@@ -104,7 +111,10 @@ public final class FrameCompositor: @unchecked Sendable {
             previous, SIMD4(frame.inset_width, 0, 0, 0),
             SIMD4(options.backgroundNoise,options.windowChrome ? 1 : 0, options.cameraShadowRadius, matte == nil ? 0 : 1),
             SIMD4(options.cursorStyle == .pointer ? 1 : options.cursorStyle == .touch ? 2 : 0,options.cursorMotionBlur,options.cursorSpotlightRadius,0),
-            SIMD4(Float(frame.cursor_x),Float(frame.cursor_y),Float(frame.cursor_x),Float(frame.cursor_y)), cameraCrop
+            SIMD4(Float(frame.cursor_x),Float(frame.cursor_y),Float(frame.cursor_x),Float(frame.cursor_y)), cameraCrop,
+            screen?.geometry.rowX ?? SIMD4(1,0,0,0), screen?.geometry.rowY ?? SIMD4(0,1,0,0),
+            camera?.geometry.rowX ?? SIMD4(1,0,0,0), camera?.geometry.rowY ?? SIMD4(0,1,0,0),
+            SIMD4(Float(screen?.geometry.displaySize.width ?? 1),Float(screen?.geometry.displaySize.height ?? 1),Float(camera?.geometry.displaySize.width ?? 1),Float(camera?.geometry.displaySize.height ?? 1))
         ]
         if options.cursorMotionBlur > 0 && frame.tl_ns > 0 {
             let prior = try project.frame(atNs: max(0,frame.tl_ns - 16_666_667))
@@ -142,6 +152,7 @@ public final class FrameCompositor: @unchecked Sendable {
         float a = target.x / target.y, b = source.x / source.y;
         return (uv-.5) * (a > b ? float2(1,b/a) : float2(a/b,1)) + .5;
     }
+    float2 sourceUV(float2 uv,float4 rowX,float4 rowY) { return float2(dot(uv,rowX.xy)+rowX.z,dot(uv,rowY.xy)+rowY.z); }
     fragment float4 fragmentMain(Vertex v [[stage_in]], constant float4 *u [[buffer(0)]], texture2d<float> screen [[texture(0)]], texture2d<float> cam [[texture(1)]], texture2d<float> cursor [[texture(2)]], texture2d<float> bg [[texture(3)]], texture2d<float> matte [[texture(4)]]) {
         constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear);
         float2 p = v.uv * u[0].xy;
@@ -153,8 +164,8 @@ public final class FrameCompositor: @unchecked Sendable {
         } else if (u[0].z == 2) result = bg.sample(s,coverUV(v.uv,u[0].xy,float2(bg.get_width(),bg.get_height())));
         else if (u[0].z == 3 && u[3].z > 0) {
             result = 0; float weight = 0;
-            float2 uv = coverUV(v.uv,u[0].xy,float2(screen.get_width(),screen.get_height()));
-            for (int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) { float w=exp(-float(x*x+y*y)*.5); result+=screen.sample(s,uv+float2(x,y)*max(u[3].y,1.0)/u[0].xy)*w; weight+=w; }
+            float2 uv = coverUV(v.uv,u[0].xy,u[23].xy);
+            for (int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) { float w=exp(-float(x*x+y*y)*.5); result+=screen.sample(s,sourceUV(uv+float2(x,y)*max(u[3].y,1.0)/u[0].xy,u[19],u[20]))*w; weight+=w; }
             result /= weight;
         }
         float noise=fract(sin(dot(floor(p),float2(12.9898,78.233)))*43758.5453)-.5;
@@ -169,17 +180,21 @@ public final class FrameCompositor: @unchecked Sendable {
             float d=rounded(p,dest,radius); float mask=1-smoothstep(-.5,.5,d);
             float2 uv=(p-dest.xy)/dest.zw;
             float4 tex=0;
-            for(int i=0;i<8;i++) { float4 crop=mix(u[5],u[13],u[0].w*float(i)/7); tex+=screen.sample(s,crop.xy+uv*crop.zw)/8; }
+            for(int i=0;i<8;i++) { float4 crop=mix(u[5],u[13],u[0].w*float(i)/7); tex+=screen.sample(s,sourceUV(crop.xy+uv*crop.zw,u[19],u[20]))/8; }
             float inset=clamp(u[14].x,0.0,min(dest.z,dest.w)*.5);
             float4 inner=float4(dest.xy+inset,dest.zw-2*inset);
             float border=inset>0 ? smoothstep(-.5,.5,rounded(p,inner,max(0.0,radius-inset))) : 0;
             tex=over(tex,float4(linearRGB(u[7].rgb),u[7].a*border));
-            if(u[15].y>0 && p.y<dest.y+26) {
-                tex=float4(.08,.08,.09,1);
-                for(int i=0;i<3;i++) { float dotMask=1-smoothstep(4,5,length(p-float2(dest.x+14+18*i,dest.y+13)));
-                    float3 dotColor=i==0 ? float3(.95,.2,.2) : i==1 ? float3(.95,.65,.1) : float3(.2,.75,.3); tex=over(tex,float4(dotColor,dotMask)); }
-            }
             tex.a*=mask; result=over(result,tex);
+            if(u[15].y>0) {
+                // Decorative window chrome sits above content, preserving source/cursor mapping.
+                float4 titleRect=float4(dest.x,dest.y-26,dest.z,26);
+                float titleMask=1-smoothstep(-.5,.5,rounded(p,titleRect,min(radius,13.0)));
+                float4 title=float4(.08,.08,.09,titleMask);
+                for(int i=0;i<3;i++) { float dotMask=1-smoothstep(4,5,length(p-float2(dest.x+14+18*i,dest.y-13)));
+                    float3 dotColor=i==0 ? float3(.95,.2,.2) : i==1 ? float3(.95,.65,.1) : float3(.2,.75,.3); title=over(title,float4(dotColor,dotMask)); }
+                result=over(result,title);
+            }
         }
         if (u[9].y >= 0 && u[9].y <= 1) {
             float radius=8+32*u[9].y; float ring=1-smoothstep(1,3,abs(length(p-u[10].xy)-radius));
@@ -214,7 +229,7 @@ public final class FrameCompositor: @unchecked Sendable {
             else if (u[12].y == 2) d=(pow(pow(abs(uv.x-.5)*2,4.0)+pow(abs(uv.y-.5)*2,4.0),.25)-1)*min(u[11].z,u[11].w)*.5;
             else d=rounded(p,u[11],clamp(u[12].x,0.0,min(u[11].z,u[11].w)*.5));
             if(u[15].z>0) { float shadow=exp(-max(d,0.0)*max(d,0.0)/(2*u[15].z*u[15].z))*.3; result=over(result,float4(0,0,0,shadow)); }
-            uv=coverUV(uv,u[11].zw,float2(cam.get_width(),cam.get_height())*u[18].zw); if(u[12].w>0) uv.x=1-uv.x; uv=u[18].xy+uv*u[18].zw;
+            uv=coverUV(uv,u[11].zw,u[23].zw*u[18].zw); if(u[12].w>0) uv.x=1-uv.x; uv=sourceUV(u[18].xy+uv*u[18].zw,u[21],u[22]);
             float4 tex=cam.sample(s,uv); if(u[15].w>0) tex.a*=matte.sample(s,uv).r; tex.a*=u[12].z*(1-smoothstep(-.5,.5,d)); result=over(result,tex);
         }
         // Deterministic sub-LSB dithering prevents gradient banding at the sRGB sink.

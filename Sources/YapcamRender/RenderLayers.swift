@@ -38,6 +38,7 @@ final class LayerRenderer {
     private let pipeline: MTLRenderPipelineState
     private let solid: MTLTexture
     private var texts: [String: MTLTexture] = [:]
+    private var images: [String: MTLTexture] = [:]
     init(device: MTLDevice) throws {
         self.device = device; loader = MTKTextureLoader(device: device)
         let lib = try device.makeLibrary(source: Self.shader, options: nil)
@@ -52,8 +53,9 @@ final class LayerRenderer {
         guard let solid = device.makeTexture(descriptor: .texture2DDescriptor(pixelFormat: .rgba8Unorm_srgb, width: 1, height: 1, mipmapped: false)) else { throw RenderError.metal("Cannot create overlay texture") }
         var pixel: UInt32 = .max; solid.replace(region: MTLRegionMake2D(0,0,1,1), mipmapLevel: 0, withBytes: &pixel, bytesPerRow: 4); self.solid = solid
     }
+    func invalidate() { texts.removeAll(); images.removeAll() }
     private func text(_ value: String, fontSize: Double, color: SIMD4<Float>, size: CGSize) throws -> MTLTexture {
-        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0, size.width <= 8192, size.height <= 8192, fontSize.isFinite, fontSize > 0 else { throw RenderError.invalidSettings("Invalid text overlay size") }
+        guard [color.x,color.y,color.z,color.w].allSatisfy({ $0.isFinite && (0...1).contains($0) }), size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0, size.width <= 8192, size.height <= 8192, fontSize.isFinite, fontSize > 0 else { throw RenderError.invalidSettings("Invalid text overlay size") }
         let key = "\(value)|\(fontSize)|\(color)|\(size)"
         if let texture = texts[key] { return texture }
         let width = Int(ceil(size.width)), height = Int(ceil(size.height))
@@ -78,13 +80,20 @@ final class LayerRenderer {
         encoder.setRenderPipelineState(pipeline)
         for layer in layers {
             let r = layer.rect
-            guard [r.minX,r.minY,r.width,r.height].allSatisfy({ $0.isFinite }), r.width > 0, r.height > 0, layer.opacity.isFinite else { throw RenderError.invalidSettings("Invalid overlay rectangle") }
+            guard [r.minX,r.minY,r.width,r.height].allSatisfy({ $0.isFinite }), r.width > 0, r.height > 0, layer.opacity.isFinite, (0...1).contains(layer.opacity), layer.cornerRadius.isFinite, layer.cornerRadius>=0 else { throw RenderError.invalidSettings("Invalid overlay rectangle") }
             var texture = solid
             var uniforms: [SIMD4<Float>] = [SIMD4(canvas.x,canvas.y,0,0), SIMD4(Float(r.minX),Float(r.minY),Float(r.width),Float(r.height)), SIMD4(layer.cornerRadius,layer.opacity,0,0), .zero, .zero]
             switch layer.content {
             case .text(let value, let size, let color): texture = try text(value,fontSize: size,color: color,size: r.size); uniforms[2].z = 1
-            case .image(let path): texture = try loader.newTexture(URL: mediaURL(path,root: project.packageURL),options: [.SRGB: true]); uniforms[2].z = 1
-            case .highlight(let dim, let fill, let stroke, let width): uniforms[0].z = dim; uniforms[2].w = width; uniforms[3] = fill; uniforms[4] = stroke
+            case .image(let path):
+                if images[path] == nil {
+                    if images.count >= 8 { images.removeAll() }
+                    images[path] = try loader.newTexture(URL: packageMediaURL(path,root: project.packageURL),options: [.SRGB: true])
+                }
+                texture=images[path]!; uniforms[2].z = 1
+            case .highlight(let dim, let fill, let stroke, let width):
+                guard [dim,fill.x,fill.y,fill.z,fill.w,stroke.x,stroke.y,stroke.z,stroke.w].allSatisfy({ $0.isFinite && (0...1).contains($0) }), width.isFinite, width>=0 else { throw RenderError.invalidSettings("Invalid highlight styling") }
+                uniforms[0].z = dim; uniforms[2].w = width; uniforms[3] = fill; uniforms[4] = stroke
             }
             encoder.setFragmentBytes(&uniforms,length: uniforms.count*MemoryLayout<SIMD4<Float>>.stride,index: 0)
             encoder.setFragmentTexture(texture,index: 0)

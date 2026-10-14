@@ -14,20 +14,21 @@ final class AudioTimeline: @unchecked Sendable {
         var parameters: [AVAudioMixInputParameters] = []
         for kind in ["mic", "system_audio"] {
             var destination: AVMutableCompositionTrack?
-            var timelineStart: Int64 = 0
+            var timelineStart = 0.0
             for clip in clips {
-                let clipDuration = Int64((Double(clip.srcEndNs - clip.srcStartNs) / clip.speed).rounded())
+                let clipDuration = Double(clip.srcEndNs - clip.srcStartNs) / clip.speed
+                guard clipDuration.isFinite, timelineStart + clipDuration < Double(Int64.max) else { throw RenderError.invalidSettings("Audio clip duration overflows the timeline") }
                 for segment in manifest.segments {
                     guard let relative = segment.files[kind] else { continue }
                     let trackStart = segment.srcStartNs + (segment.trackStartNs[kind] ?? 0)
                     let sourceStart = max(clip.srcStartNs, trackStart)
                     let sourceEnd = min(clip.srcEndNs, segment.srcStartNs + segment.durationNs)
                     guard sourceEnd > sourceStart else { continue }
-                    let tlStart = timelineStart + Int64((Double(sourceStart - clip.srcStartNs) / clip.speed).rounded())
-                    let tlEnd = timelineStart + Int64((Double(sourceEnd - clip.srcStartNs) / clip.speed).rounded())
+                    let tlStart = Int64((timelineStart + Double(sourceStart - clip.srcStartNs) / clip.speed).rounded())
+                    let tlEnd = Int64((timelineStart + Double(sourceEnd - clip.srcStartNs) / clip.speed).rounded())
                     let start = max(tlStart, range.lowerBound), end = min(tlEnd, range.upperBound)
                     guard end > start else { continue }
-                    let asset = AVURLAsset(url: try mediaURL(relative, root: project.packageURL.appendingPathComponent("recording")))
+                    let asset = AVURLAsset(url: try packageMediaURL(relative, root: project.packageURL.appendingPathComponent("recording")))
                     guard let source = asset.tracks(withMediaType: .audio).first else { throw RenderError.decode("No audio track in \(relative)") }
                     let fileStart = Double(sourceStart - trackStart) / 1e9 + Double(start - tlStart) / 1e9 * clip.speed
                     let sourceDuration = Double(end - start) / 1e9 * clip.speed
@@ -48,7 +49,7 @@ final class AudioTimeline: @unchecked Sendable {
                 // Gains come from the exact evaluator used for pixels, including clip cuts.
                 var t = range.lowerBound
                 while t < range.upperBound {
-                    let next = min(t + 20_000_000, range.upperBound)
+                    let next = t + min(20_000_000, range.upperBound - t)
                     let a = try project.frame(atNs: t), b = try project.frame(atNs: min(next, range.upperBound - 1))
                     let gainA = kind == "mic" ? a.mic_gain : a.system_gain
                     let gainB = kind == "mic" ? b.mic_gain : b.system_gain
@@ -90,7 +91,7 @@ final class AudioTimeline: @unchecked Sendable {
             guard end>start else { continue }
             let url: URL
             switch overlay.source {
-            case .media(let relative): url=try mediaURL(relative,root: project.packageURL)
+            case .media(let relative): url=try packageMediaURL(relative,root: project.packageURL)
             default:
                 let key=String(describing: overlay.source)
                 if let existing=generated[key] { url=existing }
@@ -113,7 +114,7 @@ final class AudioTimeline: @unchecked Sendable {
             let track=lanes[laneIndex].0, parameter=lanes[laneIndex].1
             var position=Double(start-range.lowerBound)/1e9
             let outputEnd=Double(end-range.lowerBound)/1e9
-            var sourcePosition=Double(overlay.sourceStartNs+start-overlay.startNs)/1e9
+            var sourcePosition=Double(overlay.sourceStartNs)/1e9+Double(start-overlay.startNs)/1e9
             if overlay.loops { sourcePosition=sourcePosition.truncatingRemainder(dividingBy: sourceDuration) }
             while position<outputEnd-0.000_000_001 && sourcePosition<sourceDuration {
                 let duration=min(sourceDuration-sourcePosition,outputEnd-position)

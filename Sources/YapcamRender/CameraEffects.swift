@@ -15,6 +15,7 @@ final class CameraEffects {
     init(cache: CVMetalTextureCache) {
         self.cache = cache; segmentation.qualityLevel = .accurate; segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
     }
+    func invalidate() { previous=nil; previousTime=nil; previousOptions=nil; matte=nil }
     func evaluate(_ frame: TextureFrame, removeBackground: Bool, faceFraming: Bool) throws -> (TextureFrame?, SIMD4<Float>) {
         let identity = ObjectIdentifier(frame.pixelBuffer as AnyObject)
         if previous == identity, previousTime == frame.time, previousOptions?.0 == removeBackground, previousOptions?.1 == faceFraming { return (matte,crop) }
@@ -31,7 +32,9 @@ final class CameraEffects {
         if faceFraming, let face = faces.results?.max(by: { $0.boundingBox.width*$0.boundingBox.height < $1.boundingBox.width*$1.boundingBox.height }) {
             let faceRect = face.boundingBox
             let width = min(1,faceRect.width*3), height = min(1,faceRect.height*3)
-            crop = SIMD4(Float(min(max(faceRect.midX-width/2,0),1-width)),Float(min(max(1-faceRect.midY-height/2,0),1-height)),Float(width),Float(height))
+            let native=CGRect(x: min(max(faceRect.midX-width/2,0),1-width),y: min(max(1-faceRect.midY-height/2,0),1-height),width: width,height: height)
+            let displayed=frame.geometry.displayRect(fromNativeNormalized: native)
+            crop=SIMD4(Float(displayed.minX),Float(displayed.minY),Float(displayed.width),Float(displayed.height))
         }
         previous = identity; previousTime = frame.time; previousOptions = (removeBackground,faceFraming); return (matte,crop)
     }
