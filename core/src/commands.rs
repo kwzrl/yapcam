@@ -12,6 +12,10 @@ pub struct ChangeSet {
     #[serde(rename = "createdIDs", alias = "created_ids")]
     pub created_ids: Vec<String>,
 }
+pub(crate) struct PreparedApply {
+    pub next: Option<ProjectData>,
+    pub changes: ChangeSet,
+}
 fn int(v: &Value, key: &str) -> Result<i64> {
     v.get(key)
         .and_then(Value::as_i64)
@@ -29,6 +33,16 @@ fn number(v: &Value, key: &str) -> Result<f64> {
 }
 impl Project {
     pub fn apply(&mut self, command: &Value) -> Result<ChangeSet> {
+        let prepared = self.prepare_apply(command)?;
+        if let Some(next) = prepared.next {
+            self.write_journal(&next)?;
+            drop(self.commit_apply(next));
+        }
+        Ok(prepared.changes)
+    }
+    /// FFI stages under a read lock, journals outside that lock, then publishes.
+    /// Its separate writer gate keeps this staged state current until commit.
+    pub(crate) fn prepare_apply(&self, command: &Value) -> Result<PreparedApply> {
         let mut next = self.data.clone();
         let mut changes = ChangeSet::default();
         apply_inner(&mut next, command, &mut changes, 0, self)?;
@@ -41,18 +55,22 @@ impl Project {
         if next.timeline.clips.iter().any(|c| c.src_end_ns > end) {
             return Err(Error::new(1, "Clip outside recording"));
         }
-        if next != self.data {
+        let next = if next != self.data {
             next.modified_at = crate::project::timestamp();
-            self.write_journal(&next)?;
-            self.undo.push(std::mem::replace(&mut self.data, next));
-            self.redo.clear();
+            Some(next)
         } else {
             changes.changed.clear();
             changes.created_ids.clear();
-        }
+            None
+        };
         changes.changed.sort();
         changes.changed.dedup();
-        Ok(changes)
+        Ok(PreparedApply { next, changes })
+    }
+    pub(crate) fn commit_apply(&mut self, next: ProjectData) -> Vec<ProjectData> {
+        self.undo.push(std::mem::replace(&mut self.data, next));
+        // Drop obsolete history after the FFI releases its write lock.
+        std::mem::take(&mut self.redo)
     }
     pub fn undo(&mut self) -> Result<bool> {
         if let Some(old) = self.undo.last() {
@@ -60,9 +78,7 @@ impl Project {
         } else {
             return Ok(false);
         }
-        self.redo
-            .push(std::mem::replace(&mut self.data, self.undo.pop().unwrap()));
-        Ok(true)
+        Ok(self.commit_undo())
     }
     pub fn redo(&mut self) -> Result<bool> {
         if let Some(next) = self.redo.last() {
@@ -70,9 +86,23 @@ impl Project {
         } else {
             return Ok(false);
         }
-        self.undo
-            .push(std::mem::replace(&mut self.data, self.redo.pop().unwrap()));
-        Ok(true)
+        Ok(self.commit_redo())
+    }
+    pub(crate) fn commit_undo(&mut self) -> bool {
+        if let Some(previous) = self.undo.pop() {
+            self.redo.push(std::mem::replace(&mut self.data, previous));
+            true
+        } else {
+            false
+        }
+    }
+    pub(crate) fn commit_redo(&mut self) -> bool {
+        if let Some(next) = self.redo.pop() {
+            self.undo.push(std::mem::replace(&mut self.data, next));
+            true
+        } else {
+            false
+        }
     }
 }
 fn apply_inner(
@@ -120,48 +150,35 @@ fn apply_inner(
             if a < 0 || b <= a || b > time::duration(&p.timeline.clips) {
                 return Err(Error::new(1, "Invalid delete range"));
             }
-            let mut start = 0.0;
             let mut clips = Vec::new();
-            for c in &p.timeline.clips {
-                let end = start + time::clip_duration(c);
-                if end <= a as f64 || start >= b as f64 {
+            let mut removed = Vec::new();
+            for (i, c) in p.timeline.clips.iter().enumerate() {
+                let left_end = time::timeline_boundary_to_source(&p.timeline.clips, i, a).unwrap();
+                let right_start =
+                    time::timeline_boundary_to_source(&p.timeline.clips, i, b).unwrap();
+                if left_end == right_start {
                     clips.push(c.clone());
                 } else {
-                    let source = |t: f64| {
-                        (c.src_start_ns + ((t - start) * c.speed).round() as i64)
-                            .clamp(c.src_start_ns, c.src_end_ns)
-                    };
-                    if a as f64 > start {
+                    removed.push((i, left_end, right_start));
+                    if left_end > c.src_start_ns {
                         let mut left = c.clone();
-                        left.src_end_ns = source(a as f64);
-                        if left.src_end_ns > left.src_start_ns {
-                            clips.push(left);
-                        }
+                        left.src_end_ns = left_end;
+                        clips.push(left);
                     }
-                    if (b as f64) < end {
+                    if right_start < c.src_end_ns {
                         let mut right = c.clone();
-                        right.src_start_ns = source(b as f64);
-                        if a as f64 > start {
+                        right.src_start_ns = right_start;
+                        if left_end > c.src_start_ns {
                             right.id = unique_id("clip");
                             cs.created_ids.push(right.id.clone());
                         }
-                        if right.src_end_ns > right.src_start_ns {
-                            clips.push(right);
-                        }
+                        clips.push(right);
                     }
                 }
-                start = end;
             }
+            let map = time::CutTimeMap::new(&p.timeline.clips, &removed);
             p.timeline.clips = clips;
-            remap_effects(p, |t| {
-                if t < a {
-                    t
-                } else if t >= b {
-                    t - (b - a)
-                } else {
-                    a
-                }
-            });
+            remap_effects(p, |t| map.map(t));
             cs.changed.extend([
                 "timeline".into(),
                 "zooms".into(),
@@ -183,21 +200,12 @@ fn apply_inner(
                 .iter()
                 .position(|c| c.id == id)
                 .ok_or_else(|| Error::new(1, "Unknown clip id"))?;
-            let start: f64 = p.timeline.clips[..i].iter().map(time::clip_duration).sum();
-            let old = time::clip_duration(&p.timeline.clips[i]);
+            if p.timeline.clips[i].speed == speed {
+                return Ok(());
+            }
+            let map = time::SpeedTimeMap::new(&p.timeline.clips, i, speed);
             p.timeline.clips[i].speed = speed;
-            let new = time::clip_duration(&p.timeline.clips[i]);
-            remap_effects(p, |t| {
-                let t = t as f64;
-                (if t < start {
-                    t
-                } else if t < start + old {
-                    start + (t - start) * new / old
-                } else {
-                    t + new - old
-                })
-                .round() as i64
-            });
+            remap_effects(p, |t| map.map(t));
             cs.changed.extend([
                 "timeline".into(),
                 "zooms".into(),
@@ -641,5 +649,186 @@ mod tests {
             p.undo.clear();
         }
         assert_eq!(time::duration(&p.data.timeline.clips), original);
+    }
+    fn long_project() -> (Fixture, Project, i64) {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        let length = (1_i64 << 53) + 37;
+        p.data.autosave = false;
+        p.session.segments.truncate(1);
+        p.session.segments[0].duration_ns = 2 * length;
+        p.events.truncate(1);
+        p.data.timeline.clips = vec![
+            Clip {
+                id: "long-1".into(),
+                src_start_ns: 0,
+                src_end_ns: length,
+                speed: 1.0,
+            },
+            Clip {
+                id: "long-2".into(),
+                src_start_ns: length,
+                src_end_ns: 2 * length,
+                speed: 1.0,
+            },
+        ];
+        (fixture, p, length)
+    }
+    fn put_effects(p: &mut Project, a: i64, b: i64) {
+        p.apply(&json!({"op":"batch","commands":[
+            {"op":"add_zoom","tl_start_ns":a,"tl_end_ns":b,"mode":"manual","target":[0.5,0.5],"scale":2,"ease_in_ns":0,"ease_out_ns":0},
+            {"op":"set","path":"camera.layouts","value":[{"id":"layout","tl_start_ns":a,"tl_end_ns":b,"mode":"overlay"}]},
+            {"op":"set","path":"cursor.ranges","value":[{"tl_start_ns":a,"tl_end_ns":b,"visible":false}]},
+            {"op":"set","path":"audio.ranges","value":[{"id":"gain","track":"system_audio","tl_start_ns":a,"tl_end_ns":b,"start_gain_db":-6,"end_gain_db":0}]},
+            {"op":"set","path":"canvas.highlights","value":[{"id":"highlight","tl_start_ns":a,"tl_end_ns":b}]}
+        ]})).unwrap();
+        p.undo.clear();
+    }
+    fn assert_effects(p: &Project, a: i64, b: i64) {
+        assert_eq!(
+            (p.data.zooms[0].tl_start_ns, p.data.zooms[0].tl_end_ns),
+            (a, b)
+        );
+        assert_eq!(
+            (
+                p.data.camera.layouts[0].tl_start_ns,
+                p.data.camera.layouts[0].tl_end_ns
+            ),
+            (a, b)
+        );
+        assert_eq!(
+            (
+                p.data.cursor.ranges[0].tl_start_ns,
+                p.data.cursor.ranges[0].tl_end_ns
+            ),
+            (a, b)
+        );
+        assert_eq!(
+            (
+                p.data.audio.ranges[0].tl_start_ns,
+                p.data.audio.ranges[0].tl_end_ns
+            ),
+            (a, b)
+        );
+        assert_eq!(
+            (
+                p.data.canvas.highlights[0].tl_start_ns,
+                p.data.canvas.highlights[0].tl_end_ns
+            ),
+            (a, b)
+        );
+    }
+    #[test]
+    fn long_clock_speed_cut_and_noop_keep_all_effects_exact() {
+        let (_fixture, mut p, l) = long_project();
+        put_effects(&mut p, l + 9, l + 61);
+        let before = p.data.clone();
+        let changes = p
+            .apply(&json!({"op":"set_speed","clip_id":"long-2","speed":1}))
+            .unwrap();
+        assert!(changes.changed.is_empty());
+        assert!(p.undo.is_empty());
+        assert_eq!(p.data, before);
+        p.apply(&json!({"op":"set_speed","clip_id":"long-2","speed":2}))
+            .unwrap();
+        assert_effects(&p, l + 5, l + 31);
+        let accelerated = p.data.clone();
+        let history = p.undo.len();
+        assert!(p
+            .apply(&json!({"op":"set_speed","clip_id":"long-2","speed":2}))
+            .unwrap()
+            .changed
+            .is_empty());
+        assert_eq!(p.undo.len(), history);
+        assert_eq!(p.data, accelerated);
+        let changes = p
+            .apply(&json!({"op":"delete_range","tl_start_ns":l+7,"tl_end_ns":l+18}))
+            .unwrap();
+        assert!(changes.changed.iter().any(|p| p == "canvas.highlights"));
+        assert_eq!(p.data.timeline.clips[1].src_end_ns, l + 14);
+        assert_eq!(p.data.timeline.clips[2].src_start_ns, l + 36);
+        assert_effects(&p, l + 5, l + 20);
+        p.undo().unwrap();
+        assert_eq!(p.data, accelerated);
+        p.undo().unwrap();
+        assert_eq!(p.data, before);
+        p.redo().unwrap();
+        p.redo().unwrap();
+        assert_effects(&p, l + 5, l + 20);
+    }
+    #[test]
+    fn typing_retimes_long_clock_effects_once_and_is_idempotent() {
+        let (_fixture, mut p, l) = long_project();
+        p.data.timeline.clips.truncate(1);
+        p.data.timeline.clips[0].src_end_ns = 2 * l;
+        p.events[0] = (1..=3)
+            .map(|i| {
+                serde_json::from_value::<Event>(json!({"t":l+i*100_000_000,"type":"key","key":"a"}))
+                    .unwrap()
+            })
+            .collect();
+        put_effects(&mut p, l + 150_000_009, l + 650_000_011);
+        let before = p.data.clone();
+        let changes = p
+            .apply(&json!({"op":"auto_speed_typing","speed":3}))
+            .unwrap();
+        assert!(changes.changed.iter().any(|p| p == "canvas.highlights"));
+        assert_effects(&p, l - 50_000_000 + 66_666_670, l + 316_666_678);
+        let after = p.data.clone();
+        let history = p.undo.len();
+        assert!(p
+            .apply(&json!({"op":"auto_speed_typing","speed":3}))
+            .unwrap()
+            .changed
+            .is_empty());
+        assert_eq!(p.data, after);
+        assert_eq!(p.undo.len(), history);
+        p.undo().unwrap();
+        assert_eq!(p.data, before);
+    }
+    #[test]
+    fn whole_duration_cut_removes_quantized_tail_and_preserves_source_edges() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        p.data.autosave = false;
+        p.data.timeline.clips[0].src_end_ns = 35;
+        p.data.timeline.clips[0].speed = 32.0;
+        assert_eq!(time::duration(&p.data.timeline.clips), 1);
+        assert_eq!(
+            time::timeline_boundary_to_source(&p.data.timeline.clips, 0, 1),
+            Some(35)
+        );
+        let before = p.data.clone();
+        p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":1}))
+            .unwrap();
+        assert!(p.data.timeline.clips.is_empty());
+        p.undo().unwrap();
+        assert_eq!(p.data, before);
+    }
+    #[test]
+    fn effects_snapped_to_fractional_clip_edges_stay_snapped_after_speed_edit() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        p.data.autosave = false;
+        p.data.timeline.clips = vec![
+            Clip {
+                id: "fractional-prefix".into(),
+                src_start_ns: 0,
+                src_end_ns: 1,
+                speed: 1.3,
+            },
+            Clip {
+                id: "short-fast".into(),
+                src_start_ns: 1,
+                src_end_ns: 35,
+                speed: 32.0,
+            },
+        ];
+        assert_eq!(time::clip_bounds(&p.data.timeline.clips, 1), Some((1, 2)));
+        put_effects(&mut p, 1, 2);
+        p.apply(&json!({"op":"set_speed","clip_id":"short-fast","speed":0.05}))
+            .unwrap();
+        assert_eq!(time::clip_bounds(&p.data.timeline.clips, 1), Some((1, 681)));
+        assert_effects(&p, 1, 681);
     }
 }

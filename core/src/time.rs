@@ -42,7 +42,9 @@ impl Fraction {
         let mut scale = 1i128;
         for _ in 0..10 {
             let value = speed * scale as f64;
-            if (value - value.round()).abs() < 1e-8 {
+            // A decimal candidate must reproduce the input Double exactly.
+            // A tolerance would erase real edits such as speed=1.000000001.
+            if value.round() / scale as f64 == speed {
                 return Self::new(value.round() as i128, scale);
             }
             scale *= 10;
@@ -117,11 +119,8 @@ impl Fraction {
             } else {
                 0
             };
-        if self.n < 0 {
-            -(value as i64)
-        } else {
-            value as i64
-        }
+        let signed = if self.n < 0 { -value } else { value };
+        signed.clamp(i64::MIN as i128, i64::MAX as i128) as i64
     }
     fn greater_than(self, t: i64) -> bool {
         let whole = self.n / self.d;
@@ -136,6 +135,96 @@ fn start_of(clips: &[Clip]) -> Fraction {
     clips
         .iter()
         .fold(Fraction::integer(0), |t, c| t.add(exact_duration(c)))
+}
+/// A speed edit remaps timeline-attached effects without losing long-clock ns.
+pub(crate) struct SpeedTimeMap {
+    start: Fraction,
+    end: Fraction,
+    duration_delta: Fraction,
+    old_rate: Fraction,
+    new_inverse_rate: Fraction,
+}
+impl SpeedTimeMap {
+    pub(crate) fn new(clips: &[Clip], index: usize, speed: f64) -> Self {
+        let c = &clips[index];
+        let start = start_of(&clips[..index]);
+        let old = exact_duration(c);
+        let old_rate = Fraction::rate(c.speed);
+        let new_rate = Fraction::rate(speed);
+        let new_inverse_rate = Fraction::new(new_rate.d, new_rate.n);
+        let new = Fraction::integer(c.src_end_ns - c.src_start_ns).multiply(new_inverse_rate);
+        Self {
+            start,
+            end: start.add(old),
+            duration_delta: new.subtract(old),
+            old_rate,
+            new_inverse_rate,
+        }
+    }
+    pub(crate) fn map(&self, t: i64) -> i64 {
+        // Public clip edges are integer ns; snapped effects stay on those edges.
+        if t == self.start.round() {
+            return t;
+        }
+        if t == self.end.round() {
+            return self.end.add(self.duration_delta).round();
+        }
+        if self.start.greater_than(t) {
+            t
+        } else if self.end.greater_than(t) {
+            self.start
+                .add(
+                    Fraction::integer(t)
+                        .subtract(self.start)
+                        .multiply(self.old_rate)
+                        .multiply(self.new_inverse_rate),
+                )
+                .round()
+        } else {
+            Fraction::integer(t).add(self.duration_delta).round()
+        }
+    }
+}
+/// Actual quantized source intervals removed by a cut, expressed on the old
+/// rational timeline. Effects shift by media actually removed, not a Double sum.
+pub(crate) struct CutTimeMap {
+    spans: Vec<(Fraction, Fraction)>,
+}
+impl CutTimeMap {
+    pub(crate) fn new(clips: &[Clip], removed: &[(usize, i64, i64)]) -> Self {
+        let spans = removed
+            .iter()
+            .map(|&(i, a, b)| {
+                let c = &clips[i];
+                let rate = Fraction::rate(c.speed);
+                let start = start_of(&clips[..i]);
+                let at = |src| {
+                    start.add(Fraction::new(
+                        (src - c.src_start_ns) as i128 * rate.d,
+                        rate.n,
+                    ))
+                };
+                (at(a), at(b))
+            })
+            .collect();
+        Self { spans }
+    }
+    pub(crate) fn map(&self, t: i64) -> i64 {
+        let mut removed = Fraction::integer(0);
+        for &(a, b) in &self.spans {
+            if t == a.round() || t == b.round() {
+                return a.subtract(removed).round();
+            }
+            if a.greater_than(t) {
+                break;
+            }
+            if b.greater_than(t) {
+                return a.subtract(removed).round();
+            }
+            removed = removed.add(b.subtract(a));
+        }
+        Fraction::integer(t).subtract(removed).round()
+    }
 }
 pub fn duration(clips: &[Clip]) -> i64 {
     start_of(clips).round()
@@ -158,8 +247,16 @@ pub fn source_boundary_to_timeline(clips: &[Clip], clip_index: usize, src: i64) 
 }
 pub fn timeline_boundary_to_source(clips: &[Clip], clip_index: usize, tl: i64) -> Option<i64> {
     let c = clips.get(clip_index)?;
+    let start = start_of(&clips[..clip_index]);
+    // Preserve canonical snapped edges, including the rounded duration endpoint.
+    if tl <= start.round() {
+        return Some(c.src_start_ns);
+    }
+    if tl >= start.add(exact_duration(c)).round() {
+        return Some(c.src_end_ns);
+    }
     let delta = Fraction::integer(tl)
-        .subtract(start_of(&clips[..clip_index]))
+        .subtract(start)
         .multiply(Fraction::rate(c.speed))
         .round();
     Some(
@@ -223,6 +320,32 @@ pub fn sample(session: &Session, track: &str, src: i64) -> Sample {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tiny_speed_changes_are_not_rounded_away() {
+        let length = (1_i64 << 53) + 37;
+        for (speed, numerator, denominator) in [
+            (1.000000001, 1_000_000_001_i128, 1_000_000_000_i128),
+            (2.000000003, 2_000_000_003, 1_000_000_000),
+            (0.050000001, 50_000_001, 1_000_000_000),
+            (
+                f64::from_bits(1.0_f64.to_bits() + 1),
+                (1_i128 << 52) + 1,
+                1_i128 << 52,
+            ),
+        ] {
+            let clips = [Clip {
+                id: "precise".into(),
+                src_start_ns: 0,
+                src_end_ns: length,
+                speed,
+            }];
+            let oracle = ((length as i128 * denominator + numerator / 2) / numerator) as i64;
+            assert_eq!(duration(&clips), oracle, "rate {speed}");
+            let tl = 1_000_000_000_i64;
+            let src = ((tl as i128 * numerator + denominator / 2) / denominator) as i64;
+            assert_eq!(timeline_to_source(&clips, tl), Some((0, src)));
+        }
+    }
     #[test]
     fn pause_and_track_offset() {
         let mut s: Session = serde_json::from_str(include_str!(

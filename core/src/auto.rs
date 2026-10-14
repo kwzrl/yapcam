@@ -170,25 +170,14 @@ pub fn speed_typing(
     let mut i = 0;
     while i < p.timeline.clips.len() {
         let c = &p.timeline.clips[i];
-        if ranges
-            .iter()
-            .any(|(a, b)| c.src_start_ns >= *a && c.src_end_ns <= *b)
+        if c.speed != speed
+            && ranges
+                .iter()
+                .any(|(a, b)| c.src_start_ns >= *a && c.src_end_ns <= *b)
         {
-            let start: f64 = p.timeline.clips[..i].iter().map(time::clip_duration).sum();
-            let old = time::clip_duration(c);
+            let map = time::SpeedTimeMap::new(&p.timeline.clips, i, speed);
             p.timeline.clips[i].speed = speed;
-            let new = time::clip_duration(&p.timeline.clips[i]);
-            crate::commands::remap_effects(p, |t| {
-                let t = t as f64;
-                (if t < start {
-                    t
-                } else if t < start + old {
-                    start + (t - start) * new / old
-                } else {
-                    t + new - old
-                })
-                .round() as i64
-            });
+            crate::commands::remap_effects(p, |t| map.map(t));
         }
         i += 1;
     }
@@ -198,6 +187,7 @@ pub fn speed_typing(
         "camera.layouts".into(),
         "cursor.ranges".into(),
         "audio.ranges".into(),
+        "canvas.highlights".into(),
     ]);
     Ok(())
 }

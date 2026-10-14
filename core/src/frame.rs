@@ -54,13 +54,18 @@ pub struct Frame {
 }
 fn fit(area: Rect, aspect: f64) -> Rect {
     let w = area.w.min(area.h * aspect).max(0.0);
-    let h = w / aspect;
+    let h = (w / aspect).min(area.h);
     Rect {
         x: area.x + (area.w - w) / 2.0,
         y: area.y + (area.h - h) / 2.0,
         w,
         h,
     }
+}
+// Derived bounds can be inverted by one ulp (e.g. 0.1+0.7-0.7). Geometry
+// clamping must never use f64::clamp's panicking min<=max precondition.
+fn coordinate(value: f64, low: f64, high: f64) -> f64 {
+    value.max(low).min(high.max(low))
 }
 fn ease(t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
@@ -83,8 +88,8 @@ fn follow_pan(mut rect: Rect, point: [f64; 2], d: f64, bounds: Rect) -> Rect {
     } else if point[1] > rect.y + rect.h * (1.0 - d) {
         rect.y = point[1] - rect.h * (1.0 - d);
     }
-    rect.x = rect.x.clamp(bounds.x, bounds.x + bounds.w - rect.w);
-    rect.y = rect.y.clamp(bounds.y, bounds.y + bounds.h - rect.h);
+    rect.x = coordinate(rect.x, bounds.x, bounds.x + (bounds.w - rect.w).max(0.0));
+    rect.y = coordinate(rect.y, bounds.y, bounds.y + (bounds.h - rect.h).max(0.0));
     rect
 }
 impl Project {
@@ -204,8 +209,16 @@ impl Project {
             let size = 1.0 / (1.0 + (z.scale - 1.0) * weight);
             let w = c.crop[2] * size;
             let h = c.crop[3] * size;
-            let mut x = (z.target[0] - w / 2.0).clamp(c.crop[0], c.crop[0] + c.crop[2] - w);
-            let mut y = (z.target[1] - h / 2.0).clamp(c.crop[1], c.crop[1] + c.crop[3] - h);
+            let mut x = coordinate(
+                z.target[0] - w / 2.0,
+                c.crop[0],
+                c.crop[0] + (c.crop[2] - w).max(0.0),
+            );
+            let mut y = coordinate(
+                z.target[1] - h / 2.0,
+                c.crop[1],
+                c.crop[1] + (c.crop[3] - h).max(0.0),
+            );
             let mut pan_moving = false;
             if z.mode == "auto" && settings.follow_cursor && frame.screen.present != 0 {
                 let seg = &self.session.segments[frame.screen.segment as usize];
@@ -296,10 +309,10 @@ impl Project {
         }
         if frame.camera_dest.w == 0.0 {
             let w = (canvas.w * camera_size).min(canvas.h * camera_aspect);
-            let h = w / camera_aspect;
+            let h = (w / camera_aspect).min(canvas.h);
             frame.camera_dest = Rect {
-                x: (canvas.w * camera_pos[0] - w / 2.0).clamp(0.0, canvas.w - w),
-                y: (canvas.h * camera_pos[1] - h / 2.0).clamp(0.0, canvas.h - h),
+                x: coordinate(canvas.w * camera_pos[0] - w / 2.0, 0.0, canvas.w - w),
+                y: coordinate(canvas.h * camera_pos[1] - h / 2.0, 0.0, canvas.h - h),
                 w,
                 h,
             };
@@ -448,6 +461,62 @@ mod tests {
     };
     fn near(a: f64, b: f64) {
         assert!((a - b).abs() < 1e-5, "{a} != {b}");
+    }
+    #[test]
+    fn cropped_zoom_start_pan_and_height_limited_camera_never_panic() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        p.data.autosave = false;
+        p.data.canvas.crop = [0.1, 0.1, 0.7, 0.7];
+        for mode in ["manual", "auto"] {
+            for start in [0, 1_000_000_000] {
+                p.data.zooms = vec![Zoom {
+                    id: "rounding".into(),
+                    tl_start_ns: start,
+                    tl_end_ns: start + 1_000_000_000,
+                    mode: mode.into(),
+                    target: [0.5, 0.5],
+                    scale: 2.0,
+                    ease_in_ns: 300_000_000,
+                    ease_out_ns: 300_000_000,
+                    enabled: true,
+                }];
+                for t in [start, start + 1, start + 150_000_000, start + 999_999_999] {
+                    let f = p.frame(t).unwrap();
+                    assert!(f.screen_crop.x.is_finite() && f.screen_crop.y.is_finite());
+                    assert!(f.screen_crop.x >= 0.1 && f.screen_crop.y >= 0.1);
+                    assert!(f.screen_crop.x + f.screen_crop.w <= 0.8 + 1e-15);
+                    assert!(f.screen_crop.y + f.screen_crop.h <= 0.8 + 1e-15);
+                }
+            }
+        }
+        let rect = Rect {
+            x: 0.1,
+            y: 0.1,
+            w: 0.7,
+            h: 0.7,
+        };
+        let pan = follow_pan(rect, [0.8, 0.8], 0.15, rect);
+        assert_eq!((pan.x, pan.y), (0.1, 0.1));
+        p.session.tracks.camera = Some(crate::model::CameraTrack {
+            device_name: "synthetic".into(),
+            pixel_size: [1280, 800],
+            fps: 30.0,
+            mirrored: false,
+        });
+        p.session.segments[0]
+            .files
+            .insert("camera".into(), "seg-000/screen.mov".into());
+        p.data.canvas.output_size = [1920, 768];
+        p.data.canvas.aspect = "custom".into();
+        p.data.camera.size = 1.0;
+        for position in [[0.0, 0.0], [1.0, 1.0], [0.5, 0.5]] {
+            p.data.camera.position = position;
+            let f = p.frame(0).unwrap();
+            assert!(f.camera_dest.x >= 0.0 && f.camera_dest.y >= 0.0);
+            assert!(f.camera_dest.y + f.camera_dest.h <= 768.0);
+        }
+        assert_eq!(coordinate(0.5, 0.1, 0.09999999999999998), 0.1);
     }
     #[test]
     fn golden_fixture_and_no_allocations() {

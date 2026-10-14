@@ -53,6 +53,37 @@ pub struct Project {
     pub redo: Vec<ProjectData>,
     pub snapshot: bool,
 }
+/// Owned journal destination captured while staging, with no live project lock.
+pub(crate) struct JournalTarget {
+    package: Option<PathBuf>,
+}
+impl JournalTarget {
+    pub(crate) fn write(&self, next: &ProjectData) -> Result<()> {
+        let Some(package) = &self.package else {
+            return Ok(());
+        };
+        #[cfg(test)]
+        journal_test_hook::pause();
+        let dir = relative_path(package, "autosave")?;
+        fs::create_dir_all(&dir)?;
+        relative_path(package, "autosave/project.json")?;
+        atomic_write(&dir, "project.json", &serde_json::to_vec(next)?)
+    }
+}
+#[cfg(test)]
+pub(crate) mod journal_test_hook {
+    use std::cell::RefCell;
+    thread_local! { static HOOK: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None); }
+    pub(crate) fn set(hook: impl FnOnce() + 'static) {
+        HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    }
+    pub(super) fn pause() {
+        let hook = HOOK.with(|h| h.borrow_mut().take());
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+}
 
 pub fn relative_path(package: &Path, relative: &str) -> Result<PathBuf> {
     let p = Path::new(relative);
@@ -537,33 +568,41 @@ impl Project {
         }
     }
     pub fn write_journal(&self, next: &ProjectData) -> Result<()> {
-        if self.snapshot || (!next.autosave && !self.data.autosave) {
-            return Ok(());
+        self.journal_target(next).write(next)
+    }
+    pub(crate) fn journal_target(&self, next: &ProjectData) -> JournalTarget {
+        JournalTarget {
+            package: if self.snapshot || (!next.autosave && !self.data.autosave) {
+                None
+            } else {
+                Some(self.package.clone())
+            },
         }
-        let dir = relative_path(&self.package, "autosave")?;
-        fs::create_dir_all(&dir)?;
-        relative_path(&self.package, "autosave/project.json")?;
-        atomic_write(&dir, "project.json", &serde_json::to_vec(next)?)
     }
     pub fn save(&self, package: &Path) -> Result<()> {
-        validate_data(&self.data)?;
-        let bytes = serde_json::to_vec_pretty(&self.data)?;
-        let primary = relative_path(package, "project.json")?;
-        relative_path(package, "project.json.prev")?;
-        // Never overwrite a valid recovery file with a corrupt primary.
-        if let Ok(previous) = fs::read(&primary) {
-            if decode_project(&previous).is_ok() {
-                atomic_write(package, "project.json.prev", &previous)?;
-            }
-        }
-        atomic_write(package, "project.json", &bytes)?;
-        let journal = relative_path(package, "autosave/project.json")?;
-        if journal.exists() {
-            fs::remove_file(journal)?;
-            File::open(package.join("autosave"))?.sync_all()?;
-        }
-        Ok(())
+        save_data(&self.data, package)
     }
+}
+pub(crate) fn save_data(data: &ProjectData, package: &Path) -> Result<()> {
+    #[cfg(test)]
+    journal_test_hook::pause();
+    validate_data(data)?;
+    let bytes = serde_json::to_vec_pretty(data)?;
+    let primary = relative_path(package, "project.json")?;
+    relative_path(package, "project.json.prev")?;
+    // Never overwrite a valid recovery file with a corrupt primary.
+    if let Ok(previous) = fs::read(&primary) {
+        if decode_project(&previous).is_ok() {
+            atomic_write(package, "project.json.prev", &previous)?;
+        }
+    }
+    atomic_write(package, "project.json", &bytes)?;
+    let journal = relative_path(package, "autosave/project.json")?;
+    if journal.exists() {
+        fs::remove_file(journal)?;
+        File::open(package.join("autosave"))?.sync_all()?;
+    }
+    Ok(())
 }
 fn atomic_write(package: &Path, name: &str, bytes: &[u8]) -> Result<()> {
     let temporary = package.join(format!(".{name}.{}.tmp", unique_id("save")));

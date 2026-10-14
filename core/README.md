@@ -117,6 +117,17 @@ one clip list. Per-track file time subtracts track_start_ns; before the first sa
 the track is absent. At durationNs, evaluation returns the last source nanosecond;
 negative times and times after the duration fail. Empty timelines have no frame.
 
+Cuts, speed edits and typing automation now use rational arithmetic when retiming
+zoom/layout/cursor/audio/highlight ranges too. Snapped clip edges map to their
+exact source endpoints; deleting the rounded whole duration removes the final
+source sample rather than leaving a sub-nanosecond tail. A cut shifts effects by
+the source media actually removed at the current rate; source-ns quantization can
+make this differ slightly from the requested integer timeline range. Unchanged
+speeds do not alter times, create undo entries, journal or notify. Decimal rates
+are recognized only when the rational candidate reproduces the input Double
+exactly; speed=1.000000001 remains distinct from 1. Tests cover clocks beyond 2^53
+with independent integer oracles and real Swift/C ABI edits.
+
 ## Swift local helpers and explicit limits
 
 - `Project.importVideo(_:package:) async`: copies a local movie into a new package,
@@ -130,8 +141,12 @@ negative times and times after the duration fail. Empty timelines have no frame.
   image bytes never cross C. Plain settings-only presets remain supported.
   Imported files remain on disk after undo (references are non-destructive).
 - `AudioAnalysis.silence(in:thresholdDB:minimumNs:) async`: native PCM decoding and
-  cancellation; returns file-local intervals. Map them through audio_ranges before
-  passing edited timeline intervals to `processSilence`.
+  cancellation; returns file-local intervals. Pass those to
+  `Project.mapAudioRanges(_:track:mediaPath:)` (track mic/system_audio; mediaPath
+  from audio_ranges) before `processSilence`. The read-only helper uses the current
+  shared rational clock, clips/segments/track starts and every retained occurrence;
+  overlapping or adjacent results merge. Use a snapshot for frozen analysis, or
+  map after decoding to use the latest edits. No decoder or file IO runs in mapping.
 - Compressed audio codec services can be unavailable under restricted macOS
   execution; this returns explicit CoreError.status(6), never a guessed silence list.
 - Supplemental effects use the renderer hooks described below. Core evaluation is
@@ -192,3 +207,15 @@ each call locks independently. The old YcFrame layout and signatures are untouch
 Clip and audio interval queries now use the same rational mapping as frame/event
 queries, including exact source interval endpoints, rather than accumulating
 Double durations; long synthetic clocks verify this against an integer oracle.
+
+The cold query behind the silence mapper is:
+
+```json
+{"q":"map_audio_ranges","track":"system_audio","path":"recording/seg-000/system.m4a",
+ "ranges":[{"file_start_ns":500000000,"file_end_ns":2500000000}]}
+```
+
+It returns `[{"tl_start_ns":...,"tl_end_ns":...}]`, clipped to retained source media
+and sorted/merged on the edited timeline. Paths must refer to the chosen session
+track; intervals must be nonnegative Int64 with strictly greater ends. File ranges
+beyond the segment produce no retained interval. No project/history mutation occurs.

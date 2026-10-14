@@ -75,6 +75,93 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
         #expect(yc_frame_extras_at(nil, 0, nil) == YC_ERR_INVALID_ARGUMENT)
     }
 }
+@Test func longTimelineEditsPreserveEffectsAndNoopHistoryThroughABI() throws {
+    try withFixture { package in
+        let length: Int64 = (1 << 53) + 37
+        let sessionURL = package.appendingPathComponent("recording/session.json")
+        var session = try JSONSerialization.jsonObject(with: Data(contentsOf: sessionURL)) as! [String: Any]
+        var segments = session["segments"] as! [[String: Any]]
+        segments[0]["duration_ns"] = length * 2
+        session["segments"] = [segments[0]]
+        try JSONSerialization.data(withJSONObject: session).write(to: sessionURL)
+        let p = try Project.create(package: package)
+        try p.apply(.split(atNs: length))
+        let highlight: JSONValue = .object([
+            "id": .string("long-highlight"), "tl_start_ns": .integer(length + 9),
+            "tl_end_ns": .integer(length + 61)
+        ])
+        try p.apply(.set(path: "canvas.highlights", value: .array([highlight])))
+        let isolated = try p.snapshot()
+        let before = try isolated.toJSON()
+        let clips = try isolated.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        let noop = try isolated.apply(.setSpeed(clipID: clips[1].id, speed: 1))
+        #expect(noop.changed.isEmpty && !isolated.canUndo)
+        #expect(try isolated.toJSON() == before)
+        try isolated.apply(.setSpeed(clipID: clips[1].id, speed: 2))
+        let fast = try isolated.toJSON()
+        let noopFast = try isolated.apply(.setSpeed(clipID: clips[1].id, speed: 2))
+        #expect(noopFast.changed.isEmpty)
+        #expect(try isolated.toJSON() == fast)
+        try isolated.apply(.deleteRange(startNs: length + 7, endNs: length + 18))
+        let state = try JSONSerialization.jsonObject(with: isolated.toJSON()) as! [String: Any]
+        let canvas = state["canvas"] as! [String: Any]
+        let highlights = canvas["highlights"] as! [[String: Any]]
+        #expect((highlights[0]["tl_start_ns"] as? NSNumber)?.int64Value == length + 5)
+        #expect((highlights[0]["tl_end_ns"] as? NSNumber)?.int64Value == length + 20)
+        let cut = try isolated.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        #expect(cut[1].srcEndNs == length + 14 && cut[2].srcStartNs == length + 36)
+        try isolated.undo(); #expect(try isolated.toJSON() == fast)
+        try isolated.undo(); #expect(try isolated.toJSON() == before && !isolated.canUndo)
+    }
+}
+@Test func cuttingWholeRoundedDurationLeavesNoTinyTail() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.split(atNs: 35))
+        try p.apply(.deleteRange(startNs: 35, endNs: p.durationNs))
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        try p.apply(.setSpeed(clipID: clips[0].id, speed: 32))
+        #expect(p.durationNs == 1)
+        try p.apply(.deleteRange(startNs: 0, endNs: p.durationNs))
+        #expect(p.durationNs == 0)
+        #expect(try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self).isEmpty)
+        try p.undo()
+        #expect(p.durationNs == 1)
+    }
+}
+@Test func smallSpeedChangesRemainVisibleInFrameAndDuration() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        try p.apply(.setSpeed(clipID: clips[0].id, speed: 1.000000001))
+        #expect(p.durationNs == 4_999_999_995)
+        #expect(try p.frame(atNs: 1_000_000_000).screen.src_ns == 1_000_000_001)
+        try p.undo()
+        #expect(p.durationNs == 5_000_000_000)
+    }
+}
+@Test func silenceFileRangesMapThroughEditedTimeline() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.split(atNs: 2_000_000_000))
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        try p.apply(.setSpeed(clipID: clips[0].id, speed: 2))
+        let local = [SilenceRange(startNs: 500_000_000, endNs: 2_500_000_000)]
+        let mapped = try p.mapAudioRanges(local, track: "system_audio", mediaPath: "recording/seg-000/system.m4a")
+        #expect(mapped == [SilenceRange(startNs: 250_000_000, endNs: 1_500_000_000)])
+        let snapshot = try p.snapshot()
+        try p.apply(.deleteRange(startNs: 600_000_000, endNs: 1_200_000_000))
+        #expect(try p.mapAudioRanges(local, track: "system_audio", mediaPath: "recording/seg-000/system.m4a") == [SilenceRange(startNs: 250_000_000, endNs: 900_000_000)])
+        #expect(try snapshot.mapAudioRanges(local, track: "system_audio", mediaPath: "recording/seg-000/system.m4a") == mapped)
+        #expect(try p.mapAudioRanges([], track: "system_audio", mediaPath: "recording/seg-000/system.m4a").isEmpty)
+        #expect(throws: CoreError.self) { try p.mapAudioRanges(local, track: "screen", mediaPath: "recording/seg-000/screen.mov") }
+        let before = p.durationNs
+        let silence = try p.mapAudioRanges(local, track: "system_audio", mediaPath: "recording/seg-000/system.m4a")
+        try p.apply(.processSilence(ranges: silence, speed: nil))
+        #expect(p.durationNs == before - 650_000_000)
+        try p.undo(); #expect(p.durationNs == before)
+    }
+}
 @Test func projectLifecycleAndCFrameLayout() throws {
     try withFixture { package in
         let p = try Project.create(package: package)

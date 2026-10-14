@@ -5,14 +5,14 @@ public enum YapcamCore {
     public static var abiVersion: UInt32 { yc_abi_version() }
 }
 
-/// Calls are serialized; a snapshot owns independent immutable capture data and
-/// its own edit state. Notifications are posted after releasing the project lock.
+/// Rust serializes mutations and publishes complete states under a brief lock.
+/// Reads can run during journal IO. A snapshot owns independent edit/capture
+/// state. Notifications are posted after Rust releases its writer gate.
 public final class Project: @unchecked Sendable {
     public let packageURL: URL
     public let session: SessionInfo
     public static let didChange = Notification.Name("YapcamCore.Project.didChange")
     private let handle: OpaquePointer
-    private let lock = NSLock()
     private init(handle: OpaquePointer, package: URL, session: SessionInfo) {
         self.handle = handle; packageURL = package; self.session = session
     }
@@ -54,49 +54,42 @@ public final class Project: @unchecked Sendable {
     }
     public static func create(package: URL) throws -> Project { try load(package: package, create: true) }
     public static func open(package: URL) throws -> Project { try load(package: package, create: false) }
-    private func locked<T>(_ body: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try body() }
     public func save() throws {
-        try locked { try packageURL.path.withCString { try Self.check(yc_project_save(handle, $0)) } }
+        try packageURL.path.withCString { try Self.check(yc_project_save(handle, $0)) }
     }
     @discardableResult public func apply(_ command: EditCommand) throws -> ChangeSet {
         let bytes = try JSONEncoder().encode(command)
-        let changes: ChangeSet = try locked {
-            let result = try String(decoding: bytes, as: UTF8.self).withCString { c in try Self.stringResult { yc_apply(handle, c, $0) } }
-            return try JSONDecoder().decode(ChangeSet.self, from: result)
-        }
+        let result = try String(decoding: bytes, as: UTF8.self).withCString { c in try Self.stringResult { yc_apply(handle, c, $0) } }
+        let changes = try JSONDecoder().decode(ChangeSet.self, from: result)
         if !changes.changed.isEmpty { NotificationCenter.default.post(name: Self.didChange, object: self) }
         return changes
     }
     public func undo() throws {
-        let did: Bool = try locked { var did: UInt8 = 0; try Self.check(yc_undo(handle, &did)); return did != 0 }
-        if did { NotificationCenter.default.post(name: Self.didChange, object: self) }
+        var did: UInt8 = 0; try Self.check(yc_undo(handle, &did))
+        if did != 0 { NotificationCenter.default.post(name: Self.didChange, object: self) }
     }
     public func redo() throws {
-        let did: Bool = try locked { var did: UInt8 = 0; try Self.check(yc_redo(handle, &did)); return did != 0 }
-        if did { NotificationCenter.default.post(name: Self.didChange, object: self) }
+        var did: UInt8 = 0; try Self.check(yc_redo(handle, &did))
+        if did != 0 { NotificationCenter.default.post(name: Self.didChange, object: self) }
     }
-    public var canUndo: Bool { locked { yc_can_undo(handle) != 0 } }
-    public var canRedo: Bool { locked { yc_can_redo(handle) != 0 } }
-    public var durationNs: Int64 { locked { var value: Int64 = 0; guard yc_timeline_duration(handle, &value) == YC_OK else { return 0 }; return value } }
+    public var canUndo: Bool { yc_can_undo(handle) != 0 }
+    public var canRedo: Bool { yc_can_redo(handle) != 0 }
+    public var durationNs: Int64 { var value: Int64 = 0; guard yc_timeline_duration(handle, &value) == YC_OK else { return 0 }; return value }
     public func frame(atNs: Int64) throws -> YcFrame {
-        try locked { var frame = YcFrame(); try Self.check(yc_frame_at(handle, atNs, &frame)); return frame }
+        var frame = YcFrame(); try Self.check(yc_frame_at(handle, atNs, &frame)); return frame
     }
     public func frameExtras(atNs: Int64) throws -> YcFrameExtras {
-        try locked { var extras = YcFrameExtras(); try Self.check(yc_frame_extras_at(handle, atNs, &extras)); return extras }
+        var extras = YcFrameExtras(); try Self.check(yc_frame_extras_at(handle, atNs, &extras)); return extras
     }
     public func query<T: Decodable>(_ query: String, as: T.Type) throws -> T {
-        try locked {
-            let data = try query.withCString { c in try Self.stringResult { yc_query(handle, c, $0) } }
-            return try Self.decoder().decode(T.self, from: data)
-        }
+        let data = try query.withCString { c in try Self.stringResult { yc_query(handle, c, $0) } }
+        return try Self.decoder().decode(T.self, from: data)
     }
     public func snapshot() throws -> Project {
-        try locked {
-            var clone: OpaquePointer?
-            try Self.check(yc_project_clone(handle, &clone))
-            guard let clone else { throw CoreError.status(99, "Core returned no snapshot") }
-            return Project(handle: clone, package: packageURL, session: session)
-        }
+        var clone: OpaquePointer?
+        try Self.check(yc_project_clone(handle, &clone))
+        guard let clone else { throw CoreError.status(99, "Core returned no snapshot") }
+        return Project(handle: clone, package: packageURL, session: session)
     }
-    public func toJSON() throws -> Data { try locked { try Self.stringResult { yc_project_to_json(handle, $0) } } }
+    public func toJSON() throws -> Data { try Self.stringResult { yc_project_to_json(handle, $0) } }
 }

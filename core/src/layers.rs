@@ -200,9 +200,7 @@ mod tests {
         for (row, h) in rows.as_array().unwrap().iter().zip(e.highlights) {
             assert_eq!(row["rect"], json!([h.rect.x, h.rect.y, h.rect.w, h.rect.h]));
         }
-        let handle = crate::ffi::YcProject {
-            inner: std::sync::RwLock::new(p),
-        };
+        let handle = crate::ffi::YcProject::new(p);
         let mut output = FrameExtras::default();
         let allocated = crate::allocation_test::count(|| {
             for t in [0, 500_000_000, 1_000_000_000, 2_000_000_000, 5_000_000_000] {
