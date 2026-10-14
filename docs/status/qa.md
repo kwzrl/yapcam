@@ -1,4 +1,4 @@
-READY HEAD qa: audit vs f640b35; backlog now editor wiring + core merge
+READY c59cce5 qa: audit vs f640b35; backlog now editor wiring + core merge
 
 # qa status
 
