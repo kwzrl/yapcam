@@ -1,4 +1,4 @@
-READY HEAD qa: FEATURES.md audited against main 4a1cee5, backlog table added
+READY d65af2f qa: FEATURES.md audited against main 4a1cee5, backlog table added
 
 # qa status
 
