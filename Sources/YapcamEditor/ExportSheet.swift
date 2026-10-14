@@ -37,6 +37,7 @@ struct ExportSheet: View {
             if case .cancelled = export.state { Text("Export cancelled.").foregroundStyle(.secondary) }
             Picker("Resolution", selection: $export.height) { ForEach(ExportModel.heights, id: \.self) { Text("\($0)p").tag($0) } }
             Picker("Frame rate", selection: $export.fps) { ForEach(ExportModel.fpsOptions, id: \.self) { Text("\($0) fps").tag($0) } }
+            Toggle("Include audio", isOn: $export.includeAudio)
             LabeledContent("Format") { Text("MP4 (H.264)") }
             HStack {
                 Spacer()

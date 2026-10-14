@@ -259,6 +259,10 @@ public final class EditorModel: ObservableObject {
     public func setZoomEnabled(id: String, _ on: Bool) {
         perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: nil, focusX: nil, focusY: nil, enabled: on))
     }
+    /// Auto ↔ manual: a manual zoom keeps its position when the user edits it by hand.
+    public func setZoomMode(id: String, _ mode: TimelineZoom.Mode) {
+        perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: nil, focusX: nil, focusY: nil, mode: mode))
+    }
     public func setZoomEase(id: String, inNs: Int64, outNs: Int64) {
         perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: nil, focusX: nil, focusY: nil, easeInNs: max(0, inNs), easeOutNs: max(0, outNs)))
     }

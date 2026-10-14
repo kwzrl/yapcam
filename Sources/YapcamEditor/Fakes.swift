@@ -82,10 +82,10 @@ public final class FakeProject: EditingProject {
             clips[i].speed = speed
         case .addZoom(let s, let e, let scale, let fx, let fy):
             zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: scale, focusX: fx, focusY: fy))
-        case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en):
+        case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en, let mode):
             guard let i = zooms.firstIndex(where: { $0.id == id }) else { return }
             if let s { zooms[i].startNs = s }; if let e { zooms[i].endNs = e }
-            if let ei { zooms[i].easeInNs = ei }; if let eo { zooms[i].easeOutNs = eo }; if let en { zooms[i].enabled = en }
+            if let ei { zooms[i].easeInNs = ei }; if let eo { zooms[i].easeOutNs = eo }; if let en { zooms[i].enabled = en }; if let mode { zooms[i].mode = mode }
             if let scale { zooms[i].scale = scale }; if let fx { zooms[i].focusX = fx }; if let fy { zooms[i].focusY = fy }
         case .removeZoom(let id): zooms.removeAll { $0.id == id }
         case .set(let path, let v): settings = Self.setting(settings, path.split(separator: ".").map(String.init)[...], v)

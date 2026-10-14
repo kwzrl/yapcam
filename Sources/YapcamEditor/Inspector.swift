@@ -149,6 +149,9 @@ struct InspectorView: View {
             ZoomScaleRow(model: model, zoom: z)
             LabeledContent("Focus") { Text(String(format: "%.0f%%, %.0f%%", z.focusX * 100, z.focusY * 100)).monospacedDigit() }
             Text("Click in the preview to set the focus point.").font(.caption).foregroundStyle(.secondary)
+            Picker("Mode", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) })) {
+                Text("Automatic").tag(TimelineZoom.Mode.auto); Text("Manual").tag(TimelineZoom.Mode.manual)
+            }
             Toggle("Enabled", isOn: Binding(get: { z.enabled }, set: { model.setZoomEnabled(id: z.id, $0) }))
             Button("Delete zoom", role: .destructive) { model.deleteSelection() }
         }

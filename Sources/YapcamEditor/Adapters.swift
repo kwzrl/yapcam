@@ -69,7 +69,7 @@ public final class CoreEditingProject: EditingProject {
         case .setSpeed(let id, let s): return .setSpeed(clipID: id, speed: s)
         case .addZoom(let s, let e, let scale, let fx, let fy):
             return .addZoom(ZoomSpec(startNs: s, endNs: e, target: [fx, fy], scale: scale))
-        case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en):
+        case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en, let mode):
             var patch: [String: JSONValue] = [:]
             if let s { patch["tl_start_ns"] = .number(Double(s)) }
             if let e { patch["tl_end_ns"] = .number(Double(e)) }
@@ -81,6 +81,7 @@ public final class CoreEditingProject: EditingProject {
             if let ei { patch["ease_in_ns"] = .number(Double(ei)) }
             if let eo { patch["ease_out_ns"] = .number(Double(eo)) }
             if let en { patch["enabled"] = .bool(en) }
+            if let mode { patch["mode"] = .string(mode.rawValue) }
             return .updateZoom(id: id, patch: patch)
         case .removeZoom(let id): return .removeZoom(id: id)
         case .set(let path, let v): return .set(path: path, value: v)
@@ -153,7 +154,7 @@ struct RenderExportEngine: ExportEngine {
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
         // The save panel already asked the user about replacing an existing file.
         if FileManager.default.fileExists(atPath: request.destination.path) { try FileManager.default.removeItem(at: request.destination) }
-        let settings = ExportSettings(format: .mp4, codec: .h264, outputHeight: request.height, fps: request.fps)
+        let settings = ExportSettings(format: .mp4, codec: .h264, outputHeight: request.height, fps: request.fps, includeAudio: request.includeAudio)
         let exporter = try Exporter(project: source, settings: settings, destination: request.destination)
         return try await exporter.run(progress: progress)
     }

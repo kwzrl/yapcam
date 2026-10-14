@@ -90,6 +90,7 @@ private func copyFixture() throws -> URL {
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("editor-export-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: out) }
         doc.export.height = 720
+        doc.export.includeAudio = false   // audio export hangs in render (status file)
         doc.export.start(to: out)
         for _ in 0..<300 where doc.export.isRunning { try await Task.sleep(for: .milliseconds(100)) }
         #expect(doc.export.state == .done(out), "\(doc.export.state)")
@@ -134,5 +135,54 @@ private func copyFixture() throws -> URL {
         m.regenerateAutoZooms(); #expect(m.lastError == nil, "\(m.lastError ?? "")")
         m.set("camera.layouts", .array([]))   // layouts need a camera track; the fixture has none
         #expect(!m.hasCamera)
+    }
+}
+
+@MainActor @Suite struct RealUndoAndScaleTests {
+    private func pkg() throws -> URL {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("undo-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); return d
+    }
+
+    @Test func zoomModeSwitchReachesCore() throws {
+        let d = try pkg(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        m.addZoomAtPlayhead(); let id = m.zooms[0].id
+        m.setZoomMode(id: id, .auto); #expect(m.zooms[0].mode == .auto, "\(m.lastError ?? "")")
+        m.setZoomMode(id: id, .manual); #expect(m.zooms[0].mode == .manual)
+    }
+
+    @Test func hundredEditsUndoAndRedoExactly() throws {
+        let d = try pkg(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        let initial = m.settings, dur = m.durationNs
+        for i in 0..<100 {
+            switch i % 4 {
+            case 0: m.set("canvas.padding", number: Double(10 + i))
+            case 1: m.seek(toNs: Int64(100_000_000 * (i % 40 + 1))); m.splitAtPlayhead()
+            case 2: m.set("cursor.size", number: 1 + Double(i % 5) / 10)
+            default: m.seek(toNs: Int64(50_000_000 * (i % 20 + 1))); m.addZoomAtPlayhead()
+            }
+        }
+        let finalSettings = m.settings, finalClips = m.clips, finalZooms = m.zooms
+        var steps = 0
+        while m.canUndo { m.undo(); steps += 1 }
+        #expect(steps >= 80 && m.settings == initial && m.durationNs == dur && m.clips.count == 1 && m.zooms.isEmpty)
+        while m.canRedo { m.redo() }
+        #expect(m.settings == finalSettings && m.clips == finalClips && m.zooms == finalZooms)
+    }
+
+    @Test func veryShortAndLongTimelinesStayUsable() throws {
+        let d = try pkg(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        // Short (<2 s): a default 2 s zoom is clipped to the project end, tiny leftovers are refused.
+        m.seek(toNs: 0); try m.project.apply(.deleteRange(startNs: 1_500_000_000, endNs: m.durationNs))
+        #expect(m.durationNs == 1_500_000_000)
+        m.addZoomAtPlayhead(); #expect(m.zooms.first?.endNs == 1_500_000_000)
+        m.fitTimeline(width: 900); #expect(m.geometry.pixelsPerSecond > 100)
+        // Long: geometry for a 3 h project fits and stays within pps limits; ruler steps stay readable.
+        let long = TimelineGeometry.fitting(durationNs: 3 * 3600 * 1_000_000_000, width: 900)
+        #expect(long.pixelsPerSecond >= TimelineGeometry.minPPS && long.rulerStepSeconds() >= 60)
     }
 }

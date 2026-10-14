@@ -52,7 +52,7 @@ public enum EditorCommand: Equatable, Sendable {
     case setSpeed(clipID: String, speed: Double)
     case addZoom(startNs: Int64, endNs: Int64, scale: Double, focusX: Double, focusY: Double)
     case updateZoom(id: String, startNs: Int64?, endNs: Int64?, scale: Double?, focusX: Double?, focusY: Double?,
-                    easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil)
+                    easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
     case removeZoom(id: String)
     case set(path: String, value: JSONValue)
     case autoZooms
@@ -118,7 +118,10 @@ public struct ExportRequest: Equatable, Sendable {
     public var height: Int
     public var fps: Int
     public var destination: URL
-    public init(height: Int, fps: Int, destination: URL) { self.height = height; self.fps = fps; self.destination = destination }
+    public var includeAudio: Bool
+    public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true) {
+        self.height = height; self.fps = fps; self.destination = destination; self.includeAudio = includeAudio
+    }
 }
 
 public protocol ExportEngine: Sendable {

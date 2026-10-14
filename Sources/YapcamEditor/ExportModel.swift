@@ -12,6 +12,7 @@ public final class ExportModel: ObservableObject {
     @Published public private(set) var state: State = .idle
     @Published public var height = 1080
     @Published public var fps = 30
+    @Published public var includeAudio = true
     public static let heights = [720, 1080]
     public static let fpsOptions = [30, 60]
 
@@ -25,7 +26,7 @@ public final class ExportModel: ObservableObject {
     public func start(to destination: URL) {
         guard !isRunning else { return }
         state = .running(0)
-        let req = ExportRequest(height: height, fps: fps, destination: destination)
+        let req = ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio)
         let engine = engine
         task = Task { [weak self] in
             do {
