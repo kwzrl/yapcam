@@ -1,11 +1,12 @@
 import Foundation
 
 public enum JSONValue: Codable, Sendable, Equatable {
-    case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
+    case null, bool(Bool), integer(Int64), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
     public init(from decoder: any Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }
         else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode(Int64.self) { self = (-9_007_199_254_740_992...9_007_199_254_740_992).contains(v) ? .number(Double(v)) : .integer(v) }
         else if let v = try? c.decode(Double.self) { self = .number(v) }
         else if let v = try? c.decode(String.self) { self = .string(v) }
         else if let v = try? c.decode([JSONValue].self) { self = .array(v) }
@@ -16,12 +17,24 @@ public enum JSONValue: Codable, Sendable, Equatable {
         switch self {
         case .null: try c.encodeNil()
         case .bool(let v): try c.encode(v)
+        case .integer(let v): try c.encode(v)
         case .number(let v): try c.encode(v)
         case .string(let v): try c.encode(v)
         case .array(let v): try c.encode(v)
         case .object(let v): try c.encode(v)
         }
     }
+    public var numberValue: Double? {
+        switch self { case .number(let value): return value; case .integer(let value): return Double(value); default: return nil }
+    }
+    public var integerValue: Int64? {
+        switch self {
+        case .integer(let value): return value
+        case .number(let value) where value.isFinite && value >= Double(Int64.min) && value < Double(Int64.max) && value.rounded() == value: return Int64(value)
+        default: return nil
+        }
+    }
+
 }
 
 public struct ZoomSpec: Codable, Sendable, Equatable {
@@ -55,10 +68,12 @@ public enum EditCommand: Encodable, Sendable {
     case autoSpeedTyping(speed: Double)
     case applyPreset([String: JSONValue])
     case processSilence(ranges: [SilenceRange], speed: Double?)
+    case relinkProject(project: JSONValue, paths: [String])
+    case addMedia(path: String, asBackground: Bool)
     // Encode integer times as Int64, never via JSONValue.Double.
     enum Key: String, CodingKey {
         case op, at = "at_tl_ns", start = "tl_start_ns", end = "tl_end_ns", clipID = "clip_id"
-        case speed, zoom, id, patch, path, value, commands, preset, ranges, mode
+        case speed, zoom, id, patch, path, value, commands, preset, ranges, mode, project, paths, role
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: Key.self)
@@ -77,6 +92,10 @@ public enum EditCommand: Encodable, Sendable {
         case .batch(let commands): try c.encode("batch", forKey: .op); try c.encode(commands, forKey: .commands)
         case .autoZooms: try c.encode("auto_zooms", forKey: .op)
         case .autoSpeedTyping(let speed): try c.encode("auto_speed_typing", forKey: .op); try c.encode(speed, forKey: .speed)
+        case .addMedia(let path, let asBackground):
+            try c.encode("add_media", forKey: .op); try c.encode(path, forKey: .path); try c.encode(asBackground ? "background" : "asset", forKey: .role)
+        case .relinkProject(let project, let paths):
+            try c.encode("relink_project", forKey: .op); try c.encode(project, forKey: .project); try c.encode(paths, forKey: .paths)
         case .processSilence(let ranges, let speed):
             try c.encode("process_silence", forKey: .op); try c.encode(ranges, forKey: .ranges)
             try c.encode(speed == nil ? "cut" : "speed", forKey: .mode); if let speed { try c.encode(speed, forKey: .speed) }

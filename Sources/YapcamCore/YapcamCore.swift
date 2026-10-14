@@ -64,7 +64,7 @@ public final class Project: @unchecked Sendable {
             let result = try String(decoding: bytes, as: UTF8.self).withCString { c in try Self.stringResult { yc_apply(handle, c, $0) } }
             return try JSONDecoder().decode(ChangeSet.self, from: result)
         }
-        NotificationCenter.default.post(name: Self.didChange, object: self)
+        if !changes.changed.isEmpty { NotificationCenter.default.post(name: Self.didChange, object: self) }
         return changes
     }
     public func undo() throws {

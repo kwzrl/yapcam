@@ -105,9 +105,15 @@ pub struct ProjectData {
     pub export_settings: Export,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct Media { pub path: String, pub size: u64, pub head_hash: String }
+pub struct Media {
+    pub path: String,
+    pub size: u64,
+    pub head_hash: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct Timeline { pub clips: Vec<Clip> }
+pub struct Timeline {
+    pub clips: Vec<Clip>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Clip {
     pub id: String,
@@ -128,7 +134,9 @@ pub struct Zoom {
     #[serde(default = "enabled")]
     pub enabled: bool,
 }
-fn enabled() -> bool { true }
+fn enabled() -> bool {
+    true
+}
 macro_rules! settings {
     ($name:ident { $($field:ident: $ty:ty = $value:expr),* $(,)? }) => {
         #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -145,11 +153,25 @@ settings!(Cursor {
     ranges: Vec<CursorRange> = vec![], loop_to_start: bool = false,
     loop_duration_ns: i64 = 400_000_000,
 });
-settings!(Spring { tension: f64 = 250.0, friction: f64 = 28.0, mass: f64 = 1.0, allow_overshoot: bool = false });
-settings!(ZoomSettings { automatic: bool = true, follow_cursor: bool = true, dead_zone: f64 = 0.15,
-    speed_preset: String = "custom".into(), spring: Spring = Spring::default() });
+settings!(Spring {
+    tension: f64 = 250.0,
+    friction: f64 = 28.0,
+    mass: f64 = 1.0,
+    allow_overshoot: bool = false
+});
+settings!(ZoomSettings {
+    automatic: bool = true,
+    follow_cursor: bool = true,
+    dead_zone: f64 = 0.15,
+    speed_preset: String = "custom".into(),
+    spring: Spring = Spring::default()
+});
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct CursorRange { pub tl_start_ns: i64, pub tl_end_ns: i64, pub visible: bool }
+pub struct CursorRange {
+    pub tl_start_ns: i64,
+    pub tl_end_ns: i64,
+    pub visible: bool,
+}
 settings!(Camera {
     visible: bool = true, position: [f64; 2] = [0.82, 0.78], size: f64 = 0.22,
     shape: String = "rounded_rect".into(), radius: f64 = 24.0,
@@ -157,44 +179,89 @@ settings!(Camera {
 });
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Layout {
-    pub id: String, pub tl_start_ns: i64, pub tl_end_ns: i64,
+    pub id: String,
+    pub tl_start_ns: i64,
+    pub tl_end_ns: i64,
     pub mode: String,
-    #[serde(default)] pub camera_position: Option<[f64; 2]>,
-    #[serde(default)] pub camera_size: Option<f64>,
+    #[serde(default)]
+    pub camera_position: Option<[f64; 2]>,
+    #[serde(default)]
+    pub camera_size: Option<f64>,
 }
 settings!(Canvas {
-    aspect: String = "16:9".into(), output_size: [u32; 2] = [1920, 1080],
-    background: Background = Background::default(), padding: f64 = 48.0,
-    radius: f64 = 18.0, shadow: Shadow = Shadow::default(),
-    inset: f64 = 0.0, inset_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
-    motion_blur: f64 = 0.0, crop: [f64;4] = [0.0,0.0,1.0,1.0],
+    aspect: String = "16:9".into(),
+    output_size: [u32; 2] = [1920, 1080],
+    background: Background = Background::default(),
+    padding: f64 = 48.0,
+    radius: f64 = 18.0,
+    shadow: Shadow = Shadow::default(),
+    inset: f64 = 0.0,
+    inset_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
+    motion_blur: f64 = 0.0,
+    crop: [f64; 4] = [0.0, 0.0, 1.0, 1.0],
 });
 settings!(Background {
-    kind: String = "solid".into(), color: [f32; 4] = [0.12, 0.14, 0.18, 1.0],
-    color2: [f32; 4] = [0.24, 0.29, 0.38, 1.0], angle_deg: f64 = 45.0,
-    asset: u32 = 0, blur: f64 = 24.0,
+    kind: String = "solid".into(),
+    color: [f32; 4] = [0.12, 0.14, 0.18, 1.0],
+    color2: [f32; 4] = [0.24, 0.29, 0.38, 1.0],
+    angle_deg: f64 = 45.0,
+    asset: u32 = 0,
+    blur: f64 = 24.0,
 });
-settings!(Shadow { radius: f64 = 24.0, opacity: f64 = 0.3, offset_y: f64 = 8.0 });
+settings!(Shadow {
+    radius: f64 = 24.0,
+    opacity: f64 = 0.3,
+    offset_y: f64 = 8.0
+});
 settings!(Audio { mic_gain_db: f64 = 0.0, system_gain_db: f64 = 0.0,
     mic_muted: bool = false, system_muted: bool = false, ranges: Vec<AudioRange> = vec![] });
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct AudioRange {
-    pub id: String, pub track: String, pub tl_start_ns: i64, pub tl_end_ns: i64,
-    pub start_gain_db: f64, pub end_gain_db: f64,
+    pub id: String,
+    pub track: String,
+    pub tl_start_ns: i64,
+    pub tl_end_ns: i64,
+    pub start_gain_db: f64,
+    pub end_gain_db: f64,
 }
-settings!(Export { last_preset: String = "mp4-1080p".into() });
+settings!(Export {
+    last_preset: String = "mp4-1080p".into()
+});
 
 impl ProjectData {
     pub fn from_session(session: &Session, id: String) -> Self {
-        let end = session.segments.last().map_or(0, |s| s.src_start_ns + s.duration_ns);
+        let end = session
+            .segments
+            .last()
+            .map_or(0, |s| s.src_start_ns + s.duration_ns);
         Self {
-            schema_version: SCHEMA_VERSION, id, created_at: session.created_at.clone(),
-            modified_at: session.created_at.clone(), recording: "recording/session.json".into(),
-            media: vec![], timeline: Timeline { clips: if end > 0 { vec![Clip {
-                id: "clip-1".into(), src_start_ns: 0, src_end_ns: end, speed: 1.0,
-            }] } else { vec![] } }, zooms: vec![], cursor: Cursor::default(),
-            camera: Camera::default(), canvas: Canvas::default(), audio: Audio::default(),
-            export_settings: Export::default(), zoom_settings: ZoomSettings::default(), notes: String::new(), autosave:true,
+            schema_version: SCHEMA_VERSION,
+            id,
+            created_at: session.created_at.clone(),
+            modified_at: session.created_at.clone(),
+            recording: "recording/session.json".into(),
+            media: vec![],
+            timeline: Timeline {
+                clips: if end > 0 {
+                    vec![Clip {
+                        id: "clip-1".into(),
+                        src_start_ns: 0,
+                        src_end_ns: end,
+                        speed: 1.0,
+                    }]
+                } else {
+                    vec![]
+                },
+            },
+            zooms: vec![],
+            cursor: Cursor::default(),
+            camera: Camera::default(),
+            canvas: Canvas::default(),
+            audio: Audio::default(),
+            export_settings: Export::default(),
+            zoom_settings: ZoomSettings::default(),
+            notes: String::new(),
+            autosave: true,
         }
     }
 }
@@ -204,13 +271,23 @@ mod tests {
     use super::*;
     #[test]
     fn synthetic_session_and_project_roundtrip() {
-        let s: Session = serde_json::from_str(include_str!("../../Tests/Fixtures/synthetic/basic.yapcam/recording/session.json")).unwrap();
+        let s: Session = serde_json::from_str(include_str!(
+            "../../Tests/Fixtures/synthetic/basic.yapcam/recording/session.json"
+        ))
+        .unwrap();
         assert_eq!(s.segments.len(), 2);
         assert_eq!(s.segments[1].src_start_ns, 3_000_000_000);
         let p = ProjectData::from_session(&s, "test".into());
         assert_eq!(p.timeline.clips[0].src_end_ns, 5_000_000_000);
-        assert_eq!(p, serde_json::from_str::<ProjectData>(&serde_json::to_string(&p).unwrap()).unwrap());
-        for line in include_str!("../../Tests/Fixtures/synthetic/basic.yapcam/recording/seg-000/events.jsonl").lines() {
+        assert_eq!(
+            p,
+            serde_json::from_str::<ProjectData>(&serde_json::to_string(&p).unwrap()).unwrap()
+        );
+        for line in include_str!(
+            "../../Tests/Fixtures/synthetic/basic.yapcam/recording/seg-000/events.jsonl"
+        )
+        .lines()
+        {
             let event: Event = serde_json::from_str(line).unwrap();
             assert!(event.t >= 0);
         }
