@@ -35,6 +35,14 @@ architecture, A/V sync debugging, platform problems and independent reviews.
 - Codex teams cannot write `.git` from their sandbox: Lead commits/rebases their worktrees
   each cycle (commits titled "checkpoint (committed by Lead …)").
 
+- Integration 4 (01:00): main 6d91a7f — 151 Swift + 54 XCTest + 39 Rust green.
+  Render hardware run (`YAPCAM_REQUIRE_RENDER_HARDWARE=1`, M4): 43/43 incl. A/V sync
+  within one frame after export, cancelled export keeps existing file, ffprobe agrees.
+  Measured (synthetic decoded source, no audio, 60 frames): export 1080p 3.7× realtime,
+  4K 1.9× realtime; live preview 1080p 58.7 fps, 4K 59.5 fps (1 dropped frame / 2 s).
+- Reviews round 1: Codex gpt-6-astra on ui/editor (15 findings), Claude Opus on
+  core/capture (6 findings); all handed to owners (fleet-local review files).
+
 ## Open
 Everything in `docs/FEATURES.md` (being written by qa). First integration target: M1
 (see `docs/briefs/common.md`).
