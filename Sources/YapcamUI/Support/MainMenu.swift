@@ -39,6 +39,19 @@ import AppKit
             .separator(),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: nil),
         ])
+        add("Edit", [
+            item("Undo", #selector(AppDelegate.editUndo), "z"),
+            item("Redo", #selector(AppDelegate.editRedo), "z", mods: [.command, .shift]),
+            .separator(),
+            item("Cut", #selector(NSText.cut(_:)), "x", target: nil),
+            item("Copy", #selector(NSText.copy(_:)), "c", target: nil),
+            item("Paste", #selector(NSText.paste(_:)), "v", target: nil),
+            item("Select All", #selector(NSText.selectAll(_:)), "a", target: nil),
+            .separator(),
+            item("Split at Playhead", #selector(AppDelegate.editSplit), "b"),
+            item("Add Zoom at Playhead", #selector(AppDelegate.editAddZoom), "z", mods: [.command, .option]),
+            item("Command Palette…", #selector(AppDelegate.editPalette), "k"),
+        ])
         add("Recording", [
             item("Start Recording", #selector(AppDelegate.toggleRecording)),
             item("Pause Recording", #selector(AppDelegate.togglePause)),

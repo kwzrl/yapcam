@@ -4,14 +4,26 @@ import YapcamCore
 
 /// File-level operations on .yapcam packages and diagnostics, shared by menus and the Recordings window.
 @MainActor enum ProjectActions {
+    /// Destinations claimed by imports that are still running, so two imports of
+    /// same-named videos never pick the same package and never delete each other's.
+    private static var reserved = Set<URL>()
+
     static func uniqueURL(in dir: URL, name: String) -> URL {
         var url = dir.appending(path: "\(name).yapcam", directoryHint: .isDirectory)
         var i = 2
-        while FileManager.default.fileExists(atPath: url.path) {
+        while FileManager.default.fileExists(atPath: url.path) || reserved.contains(url) {
             url = dir.appending(path: "\(name) \(i).yapcam", directoryHint: .isDirectory); i += 1
         }
         return url
     }
+
+    /// Picks a free package URL and holds it until `release` is called.
+    static func reserveURL(in dir: URL, name: String) -> URL {
+        let url = uniqueURL(in: dir, name: name)
+        reserved.insert(url)
+        return url
+    }
+    static func release(_ url: URL) { reserved.remove(url) }
 
     static func rename(_ url: URL, to newName: String) throws -> URL {
         let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-")
@@ -62,8 +74,9 @@ import YapcamCore
 
     static func importVideo(_ video: URL) {
         let dir = AppSettings.shared.storageDirectory
-        let pkg = uniqueURL(in: dir, name: video.deletingPathExtension().lastPathComponent)
+        let pkg = reserveURL(in: dir, name: video.deletingPathExtension().lastPathComponent)
         Task {
+            defer { release(pkg) }
             do {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 _ = try await Project.importVideo(video, package: pkg)

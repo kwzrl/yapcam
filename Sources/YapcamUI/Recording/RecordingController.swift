@@ -165,24 +165,44 @@ enum RecordingPhase: Equatable {
         }
     }
 
+    // Capture operations run strictly one after another. UI state changes immediately
+    // (optimistic), so a quick Pause → Stop can never run two capture calls at once.
+    private var opChain: Task<Void, Never>?
+    private func enqueue(_ op: @escaping @MainActor () async -> Void) {
+        let prev = opChain
+        opChain = Task { await prev?.value; await op() }
+    }
+
     func pause() {
         guard phase == .recording, let s = session else { return }
-        Task { do { try await s.pause(); phase = .paused } catch { fail(error) } }
+        phase = .paused
+        enqueue { [weak self] in
+            do { try await s.pause() } catch { self?.revert(to: .recording, error) }
+        }
     }
 
     func resume() {
         guard phase == .paused, let s = session else { return }
-        Task { do { try await s.resume(); phase = .recording } catch { fail(error) } }
+        phase = .recording
+        enqueue { [weak self] in
+            do { try await s.resume() } catch { self?.revert(to: .paused, error) }
+        }
+    }
+
+    private func revert(to p: RecordingPhase, _ error: Error) {
+        if phase == .recording || phase == .paused { phase = p }
+        fail(error)
     }
 
     func stop() {
         guard isRecording, let s = session else { return }
         phase = .finishing
         stopTicker()
-        Task {
+        enqueue { [weak self] in
+            guard let self else { return }
             do {
                 let url = try await s.stop()
-                finish(); 
+                finish()
                 if settings.openEditorAfterRecording { engine.openEditor(package: url) }
                 else { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             } catch {
@@ -195,10 +215,19 @@ enum RecordingPhase: Equatable {
     /// Discards the recording in progress (or countdown).
     func cancel() {
         if case .countdown = phase { cancelCountdown(); return }
+        Task { await cancelAndWait() }
+    }
+
+    /// Discards the recording and returns only after the capture layer is done deleting it.
+    func cancelAndWait() async {
+        if case .countdown = phase { cancelCountdown(); return }
         guard isRecording, let s = session else { return }
         phase = .finishing
         stopTicker()
-        Task { await s.cancel(); finish() }
+        let prev = opChain
+        let task = Task { await prev?.value; await s.cancel(); finish() }
+        opChain = task
+        await task.value
     }
 
     /// Discards the current take and starts a new one with the same options, no countdown.
@@ -206,7 +235,11 @@ enum RecordingPhase: Equatable {
         guard isRecording, let s = session, let options = lastOptions else { return }
         phase = .finishing
         stopTicker()
-        Task { await s.cancel(); finish(); startSession(options) }
+        enqueue { [weak self] in
+            await s.cancel()
+            self?.finish()
+            self?.startSession(options)
+        }
     }
 
     private func finish() {

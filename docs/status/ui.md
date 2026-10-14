@@ -1,4 +1,4 @@
-READY ui: editor hand-off wired to EditorWindows on b93ce7d; live recording still unverified (screen TCC grant missing)
+READY ui: review findings 1,2,6,7,8,10 fixed; 119 tests green; live recording still unverified (screen TCC grant missing)
 
 # ui status
 
@@ -47,10 +47,17 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
 
+## Review fixes (review-ui-editor-1.md)
+- #1 fixed (done earlier): `LiveEngine.openEditor` → `EditorWindows.open`; no Finder placeholder left.
+- #2 fixed: imports reserve their destination (`ProjectActions.reserveURL/release`), failure only removes the reserved package. Test: `reservedImportDestinationsDoNotCollide`.
+- #6 fixed: pause/resume/stop/cancel/restart are serialized through one op chain and UI state changes optimistically, so Pause→Stop can't overlap capture calls or strand the controller. No unit test (needs screen permission to reach `begin()`); reasoned only.
+- #7 fixed: Discard and Quit now returns `.terminateLater` and replies after `cancelAndWait()` finishes deleting. Not unit-tested.
+- #8 fixed: `PermissionsModel.act` asks macOS on the first press (remembers it asked, since screen/accessibility/input report `.denied` before asking), then opens Settings. Test: `permissionButtonAsksBeforeOpeningSettings` (state only).
+- #10 fixed: AppKit Edit menu (Undo/Redo/Split/Add Zoom/Palette + standard Cut/Copy/Paste) routed to the key editor window via `EditorBridge` (reads `EditorWindowController.editorDocument` by reflection; ⌘Z inside a text field still goes to the field). Tests: `bridgeFindsEditorDocumentProperty`, `mainMenuHasEditorCommands`. Request to editor: a public `EditorWindows.keyModel` accessor to replace the reflection.
+- `swift test`: 119 pass.
+
 ## After integration b93ce7d
-- Rebased. `LiveEngine.openEditor` now calls `EditorWindows.open(package:)`; `applicationWillTerminate` calls `EditorWindows.saveAll()`. Build green. Import Video and .yapcam Open With also go through it.
-- `swift test`: 2 failures in editor's `ExportModelTests` (successReportsDone, failureAndCancel: state stays `.running(0.0)` after ~4.5 s), reproducible twice here; I changed nothing in editor. Editor please check (timing/async wait?).
-- Still open: live record → stop → editor not verified (screen-recording TCC for `Yapcam Dev Signing` still missing, selftest -3801); speaker notes (REC-21) needs core notes field.
+- Rebased; build green. Still open: live record → stop → editor unverified (screen TCC for `Yapcam Dev Signing` missing); speaker notes (REC-21) needs core field.
 
 ## Backlog check (earlier)
 Main unchanged (35ba7c5), branch already rebased. Re-ran `--capture-selftest 3`: still SCStream -3801 (no screen-recording grant for `Yapcam Dev Signing`). Every remaining ui item depends on something outside my files: live record/stop verification (TCC grant), editor hand-off (`EditorWindows.open`), speaker notes (core field). Nothing else open in docs/briefs/ui.md or FEATURES.md rows owned by ui.

@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import Foundation
 import Testing
@@ -61,5 +62,42 @@ import YapcamCapture
         #expect(FileManager.default.fileExists(atPath: renamed.path) && !FileManager.default.fileExists(atPath: a.path))
         #expect(throws: EngineError.self) { try ProjectActions.rename(renamed, to: "A copy") }
         #expect(throws: EngineError.self) { try ProjectActions.rename(renamed, to: "   ") }
+    }
+}
+
+@MainActor @Suite struct ReviewFixTests {
+    // #2: concurrent imports of same-named videos get different packages.
+    @Test func reservedImportDestinationsDoNotCollide() {
+        let dir = URL(filePath: "/tmp/yapcam-ui-reserve-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let a = ProjectActions.reserveURL(in: dir, name: "Demo")
+        let b = ProjectActions.reserveURL(in: dir, name: "Demo")
+        #expect(a != b)
+        #expect(b.lastPathComponent == "Demo 2.yapcam")
+        ProjectActions.release(a); ProjectActions.release(b)
+        #expect(ProjectActions.uniqueURL(in: dir, name: "Demo") == a)
+    }
+
+    // #8: the first press asks macOS (also for permissions that report .denied before asking).
+    @Test func permissionButtonAsksBeforeOpeningSettings() {
+        let p = AppPermission.accessibility
+        UserDefaults.standard.removeObject(forKey: "permissionRequested.\(p.rawValue)")
+        #expect(!PermissionsModel.shared.hasRequested(p))
+    }
+
+    // #10: the menu finds the editor document on a window controller by label.
+    final class FakeController: NSWindowController { let editorDocument = "doc" }
+    @Test func bridgeFindsEditorDocumentProperty() {
+        #expect(EditorBridge.find(String.self, labeled: "editorDocument", in: FakeController()) == "doc")
+        #expect(EditorBridge.find(String.self, labeled: "missing", in: FakeController()) == nil)
+    }
+
+    // #10: Edit menu exists with the editor commands.
+    @Test func mainMenuHasEditorCommands() {
+        _ = NSApplication.shared
+        let delegate = AppDelegate()
+        let edit = MainMenu.build(target: delegate).items.first { $0.title == "Edit" }?.submenu
+        let titles = edit?.items.map(\.title) ?? []
+        for t in ["Undo", "Redo", "Split at Playhead", "Add Zoom at Playhead"] { #expect(titles.contains(t)) }
+        #expect(edit?.items.first { $0.title == "Undo" }?.keyEquivalent == "z")
     }
 }
