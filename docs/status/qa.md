@@ -1,4 +1,4 @@
-READY 0000000 FEATURES.md first pass (docs/tools-based), TESTING.md, scripts/qa/* (privacy-scan, verify-export, verify-package, drive-input.swift)
+READY e5bb4d5 FEATURES.md first pass (docs/tools-based), TESTING.md, scripts/qa/* (privacy-scan, verify-export, verify-package, drive-input.swift)
 
 # qa status
 
