@@ -50,4 +50,21 @@ final class AudioOverlayTests: XCTestCase {
         let timeline=try AudioTimeline(project: source,range: 0..<source.durationNs)
         XCTAssertEqual(timeline.composition.duration.seconds,1,accuracy: 0.000_001)
     }
+    func testOverlappingFadesRetainTheirPeakThroughAnExportRange() throws {
+        let source=TestSource(package: temp,duration: 1_000_000_000,overlays: [
+            .init(source: .music(.calm),startNs: 0,endNs: 1_000_000_000,gain: 0.8,fadeInNs: 1_000_000_000,fadeOutNs: 1_000_000_000)
+        ])
+        for range in [Int64(0)..<1_000_000_000,Int64(400_000_000)..<600_000_000] {
+            let timeline=try AudioTimeline(project: source,range: range)
+            let parameter=try XCTUnwrap(timeline.mix.inputParameters.first)
+            for timestamp in [450_000_000,500_000_000,550_000_000] {
+                let time=CMTime(value: Int64(timestamp)-range.lowerBound,timescale: 1_000_000_000)
+                var initial: Float=0, final: Float=0, ramp=CMTimeRange.zero
+                XCTAssertTrue(parameter.getVolumeRamp(for: time,startVolume: &initial,endVolume: &final,timeRange: &ramp))
+                let fraction=Float((time-ramp.start).seconds/ramp.duration.seconds)
+                let volume=initial+(final-initial)*fraction
+                XCTAssertEqual(volume,Float(min(Double(timestamp)/1e9,1-Double(timestamp)/1e9))*0.8,accuracy: 0.000_001)
+            }
+        }
+    }
 }

@@ -1,4 +1,3 @@
-#if YAPCAM_CORE_PROJECT_AVAILABLE
 import XCTest
 import YapcamCore
 @testable import YapcamRender
@@ -37,4 +36,3 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertThrowsError(try source.renderBackgroundAsset(index: .max))
     }
 }
-#endif

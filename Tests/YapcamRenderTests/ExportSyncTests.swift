@@ -59,12 +59,12 @@ final class ExportSyncTests: XCTestCase {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("recording"),withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("{\"segments\":[]}".utf8).write(to: root.appendingPathComponent("recording/session.json"))
-        let source=TestSource(package: root,duration: 2_000_000_000)
+        let source=renderPerformanceSource()
         for height in [1080,2160] {
-            let exporter=try Exporter(project: source,settings: .init(outputHeight: height,includeAudio: false),destination: root.appendingPathComponent("\(height).mp4"))
+            let exporter=try Exporter(project: source,settings: .init(outputHeight: height,includeAudio: false,rangeEndNs: 2_000_000_000),destination: root.appendingPathComponent("\(height).mp4"))
             _ = try await exporter.run { _ in }
             let result=try XCTUnwrap(exporter.metrics)
-            print("RENDER_BENCHMARK height=\(height) frames=\(result.frames) elapsed_s=\(result.elapsedSeconds) export_x_realtime=\(result.realtimeMultiplier)")
+            print("RENDER_BENCHMARK source=synthetic_decoded_video audio=false height=\(height) frames=\(result.frames) elapsed_s=\(result.elapsedSeconds) export_x_realtime=\(result.realtimeMultiplier)")
         }
     }
 }

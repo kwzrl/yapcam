@@ -56,10 +56,12 @@ public struct PreviewMetrics: Sendable {
         isPlaying = true
         if !audioLoading && !seeking { player?.play() }
         metricStart = anchorHost; frameCount = 0; dropped = 0
+        metrics = PreviewMetrics(); lastMetricUpdate = anchorHost
         view?.enableSetNeedsDisplay = false; view?.isPaused = false
     }
     public func pause() {
         updateClock(); isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
+        finishMetrics()
     }
     public func togglePlay() { isPlaying ? pause() : play() }
     public func seek(toNs ns: Int64, precise: Bool) {
@@ -124,7 +126,7 @@ public struct PreviewMetrics: Sendable {
         guard isPlaying, !seeking, !audioLoading else { return }
         let time: Int64
         if let player {
-            guard player.currentItem?.status != .failed else { error = player.currentItem?.error?.localizedDescription ?? "Audio playback failed"; isPlaying = false; player.pause(); view?.isPaused = true; return }
+            guard player.currentItem?.status != .failed else { error = player.currentItem?.error?.localizedDescription ?? "Audio playback failed"; isPlaying = false; player.pause(); view?.isPaused = true; finishMetrics(); return }
             guard player.currentItem?.status == .readyToPlay else { return }
             let seconds = player.currentTime().seconds
             time = seconds.isFinite ? Int64((seconds * 1e9).rounded()) : currentNs
@@ -132,7 +134,14 @@ public struct PreviewMetrics: Sendable {
         else { time = anchorNs + Int64((ProcessInfo.processInfo.systemUptime - anchorHost) * 1e9) }
         if time >= project.durationNs {
             currentNs = max(0, project.durationNs - 1); atEnd = true; isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
+            finishMetrics()
         } else { currentNs = max(0, time) }
+    }
+    private func finishMetrics() {
+        if let start = metricStart {
+            metrics = PreviewMetrics(renderedFrames: frameCount,droppedFrames: dropped,elapsedSeconds: ProcessInfo.processInfo.systemUptime-start)
+            metricStart = nil
+        }
     }
     func draw(in view: MTKView) {
         updateClock()
@@ -160,7 +169,7 @@ public struct PreviewMetrics: Sendable {
     }
     private func drawFinished(ns: Int64,revision: Int,error: String?) {
         drawPending = false
-        if let error { self.error = error; pause(); dropped += 1 }
+        if let error { self.error = error; dropped += 1; pause() }
         else { frameCount += 1 }
         let now = ProcessInfo.processInfo.systemUptime
         if let start = metricStart, now-lastMetricUpdate >= 0.5 {

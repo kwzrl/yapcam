@@ -93,6 +93,22 @@ final class RenderTests: XCTestCase {
         let c=try pixels(withText.frame(atNs: 0),source: withText)
         XCTAssertNotEqual(a,c)
     }
+    func testGaussianBackgroundReducesSourceContrast() throws {
+        _ = try device()
+        let source=TestSource(package: fixture)
+        var frame=try source.frame(atNs: 0); frame.background_kind=3; frame.screen.present=1; frame.screen_crop = .init(x: 0,y: 0,w: 1,h: 1)
+        // Empty screen destination isolates the background and is a valid max-padding frame.
+        frame.background_blur=0
+        let sharp=try pixels(frame,source: source)
+        frame.background_blur=30
+        let blurred=try pixels(frame,source: source)
+        func variation(_ pixels: [UInt8]) -> Double {
+            var total=0.0
+            for y in 0..<40 { for x in 1..<64 { total+=abs(Double(pixels[(y*64+x)*4])-Double(pixels[(y*64+x-1)*4])) } }
+            return total
+        }
+        XCTAssertLessThan(variation(blurred),variation(sharp))
+    }
     func testSettingsRejectInvalidRangesAndNonfiniteQuality() throws {
         XCTAssertThrowsError(try ExportSettings(quality: .nan).validatedRange(duration: 1))
         XCTAssertThrowsError(try ExportSettings(rangeStartNs: 10, rangeEndNs: 5).validatedRange(duration: 20))
