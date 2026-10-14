@@ -1,10 +1,10 @@
 # editor status
 
-READY 
-(M1 UI layer builds + 18 tests green against fakes; real `EditorDocument`/`EditorWindows` blocked on core `Project` + render `PreviewPlayer`/`Exporter` landing on main — see Blockers.)
+READY fdea2e8 editor UI layer + model against fakes (NOT end-to-end: real adapters pending)
+(M1 UI layer builds + 20 tests green against fakes; real `EditorDocument`/`EditorWindows` blocked on core `Project` + render `PreviewPlayer`/`Exporter` landing on main — see Blockers.)
 
 ## Done (verified)
-- Backend protocols (`EditingProject`, `PlaybackEngine`, `ExportEngine`) + in-module fakes. Verified: `swift test --filter YapcamEditorTests` (18 tests, Swift Testing).
+- Backend protocols (`EditingProject`, `PlaybackEngine`, `ExportEngine`) + in-module fakes. Verified: `swift test --filter YapcamEditorTests` (20 tests, Swift Testing).
 - `EditorModel`: transport (play/pause, seek clamp, J/K/L), split at playhead, delete clip/zoom (ripple, last clip protected), add/move/resize zoom with bounds + min duration, undo/redo + player invalidation, debounced autosave + `saveNow()` on close + save-failure surfacing, snapping (playhead, clip edges, zoom edges, clicks, start/end) with guide. Verified by unit tests.
 - `ExportModel`: progress, cancel, failure, done. Verified by unit tests with fake engine.
 - SwiftUI: `EditorContent` (preview slot, inspector, transport, timeline with ruler/playhead/scrub/clip + zoom track, zoom drag body/edges), export sheet (1080/720, 30/60 fps, Show in Finder), `EditorCommands` (Undo/Redo/Split menu), key handling (Space, J/K/L, S, Z, ⌫, arrows, +/-). Verified: real NSHostingView snapshots, light + dark, readable selection states (run tests with `YAPCAM_SNAPSHOT_DIR=<dir>`).
