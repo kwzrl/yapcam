@@ -1,4 +1,4 @@
-READY HEAD qa: E2E 11 tests green, run-e2e.sh simplified, FEATURES statuses
+READY dec2735 qa: E2E 11 tests green, run-e2e.sh simplified, FEATURES statuses
 
 # qa status
 
