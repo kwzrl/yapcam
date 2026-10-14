@@ -28,11 +28,20 @@ architecture, A/V sync debugging, platform problems and independent reviews.
 - Contracts: `docs/ARCHITECTURE.md`, `docs/FORMATS.md`, `core/include/yapcam_core.h`,
   `docs/SWIFT_API.md`; synthetic fixture `Tests/Fixtures/synthetic/basic.yapcam`.
 
+- Integration 2 (2026-10-15 00:05): all six team branches merged; 115 Swift + 23 Rust
+  tests; E2E (`swift test --filter PipelineE2E`): synthetic package → open → cut/undo/redo →
+  Metal compositor → MP4 export, no drift over many edits, save/reopen, missing media — all
+  green. Known flaky: editor ExportModelTests under `-j 6` (assigned to editor).
+- Codex teams cannot write `.git` from their sandbox: Lead commits/rebases their worktrees
+  each cycle (commits titled "checkpoint (committed by Lead …)").
+
 ## Open
 Everything in `docs/FEATURES.md` (being written by qa). First integration target: M1
 (see `docs/briefs/common.md`).
 
 ## Blockers / limits
+- Screen-recording permission must be re-granted for the new signing identity
+  (`Yapcam Dev Signing`, dedicated keychain). Until then no live capture tests.
 - No camera and no microphone on this Mac → real-device tests open.
 - One non-Retina display (1680×1050) → Retina/multi-display only by math/unit tests.
 

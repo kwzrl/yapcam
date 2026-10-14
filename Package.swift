@@ -26,6 +26,7 @@ let package = Package(
         .testTarget(name: "YapcamUITests", dependencies: ["YapcamUI"]),
         .testTarget(name: "YapcamCaptureTests", dependencies: ["YapcamCapture"]),
         .testTarget(name: "YapcamRenderTests", dependencies: ["YapcamRender", "YapcamCore"]),
+        .testTarget(name: "E2E", dependencies: ["YapcamRender", "YapcamCore"], path: "Tests/E2E"),
         .testTarget(name: "YapcamEditorTests", dependencies: ["YapcamEditor", "YapcamCore"]),
     ]
 )
