@@ -1,4 +1,4 @@
-READY PENDING-COMMIT UI on real capture: YapcamUI library + thin exe, LiveEngine, --capture-selftest; builds, 48 tests green. LIVE RECORDING NOT VERIFIED: screen-recording TCC not granted for 'Yapcam Dev Signing' (see Blockers)
+READY 423ba6e UI on real capture: YapcamUI library + thin exe, LiveEngine, --capture-selftest; builds, 48 tests green. LIVE RECORDING NOT VERIFIED: screen-recording TCC not granted for 'Yapcam Dev Signing' (see Blockers)
 
 # ui status
 
