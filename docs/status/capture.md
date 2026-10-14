@@ -1,20 +1,25 @@
-READY 2138ab6 baseline integrated; review fixes below are uncommitted and await Lead checkpoint / host gates
+READY b75ea0a capture review fixes integrated in main 4a1cee5; capture suite green; host acceptance / follow-up review pending
 
 # capture status
 
 ## Current handoff
-- Implemented all requested capture fixes from independent Claude review round 1
-  (`~/yapcam-fleet/reviews/review-core-capture-1.md`): H2, H3, M1, M2 and input clock.
-  Changes are confined to capture source/tests and this status file. No new features.
-- Baseline 2138ab6 is integrated on main. Local HEAD still 2138ab6; the last rebase
-  attempt failed with "could not write index" / "Cannot autostash". Lead owns Git
-  checkpoints/rebase/push under the agreed sandbox workflow. Latest observed main
-  is f0862b0 (registers E2E); validation below uses the requested b93ce7d integration.
-- Backlog audit 2026-10-15 00:26 CEST: main is unchanged, no follow-up review or
-  new host test result is available. Rechecked the brief, main's capture feature
-  rows and UI/QA status. No independent implementation item is open; Next consists
-  of external review/checkpoint, permission/media gates and cross-team handoffs.
-  Kept the validated patch intact; did not repeat tests or the failed Git writes.
+- Lead checkpointed the review fixes as b75ea0a and integrated them into main
+  4a1cee5. Only this status file has local changes. Capture source/tests match main
+  exactly; the validated review fixes are preserved in the checkpoint.
+- Local HEAD remains b75ea0a. Requested `git rebase main` from the clean tree failed
+  creating .git/worktrees/capture/rebase-merge (Operation not permitted). Lead owns
+  Git rebase/push under the agreed sandbox workflow; no workaround attempted.
+- Backlog audit 2026-10-15 00:56 CEST: brief, main capture feature rows and latest
+  UI/QA status checked. No new capture review or host result. No independent capture
+  implementation item is open. Existing validation is unchanged; no tests repeated
+  for this documentation-only update. Main remains 4a1cee5, the review directory
+  still has round 1 only, and QA/UI still report the current-signing-identity TCC gate.
+- Capture has no runnable work package at this point. Resume implementation when
+  follow-up review, host capture/media findings or a changed integration contract
+  arrives; the external gates in Next cannot be closed from this sandbox.
+- Main now wires LiveEngine.openEditor to EditorWindows.open; that integration
+  request is closed. Icon/notification forwarding, format documentation, follow-up
+  independent review and real capture/media gates remain open below.
 
 ## Review fixes / regression evidence (2026-10-15)
 - H2: pass the captured segment stop time to track finalization and call
@@ -57,8 +62,8 @@ READY 2138ab6 baseline integrated; review fixes below are uncommitted and await 
 - The real HEVC static-tail/seek test is compiled but remains opt-in and unverified
   here because the command sandbox lacks the required media services. Lead should
   run it before accepting H2. No real recordings or permission changes made here.
-- git diff --check and gitleaks scans pass. No commit/push attempted against the
-  known read-only Git metadata; the new fixes are not represented by a commit yet.
+- git diff --check and gitleaks scans passed. These fixes are now represented by
+  b75ea0a (Lead checkpoint). No successful local Git writes or push here.
 
 ## Verified checkpoint in place (2026-10-15 00:06 CEST)
 - Worktree `scripts/build-app.sh` passed: Rust + full integrated Swift app, signed and
@@ -181,21 +186,21 @@ READY 2138ab6 baseline integrated; review fixes below are uncommitted and await 
   icon option and remove those global side effects; restarting Finder can terminate
   a selected Finder source window. Keep any restoration of existing legacy markers
   as a migration concern. Actual filter behavior still needs host acceptance.
-- UI: self-test wiring and recovery prompt are present; those requests are closed.
-  LiveEngine.openEditor still reveals in Finder, although main now provides the
-  editor implementation. Editor handoff is UI-owned, not a capture API gap.
+- Closed on main 4a1cee5: self-test wiring, recovery prompt and editor handoff
+  (LiveEngine.openEditor now calls EditorWindows.open).
 - Lead: sidecar / advisory-lock additions are still absent from FORMATS.md.
 
 ## Next
-1. Lead: checkpoint the review fixes, rebase onto current main, arrange follow-up
-   independent review and push team/capture. Shared Git metadata is read-only here.
+1. Lead: finish this worktree's rebase onto main 4a1cee5, arrange follow-up independent
+   review and push team/capture. Review fixes are already checkpointed/integrated as
+   b75ea0a; no new source checkpoint needed. Shared Git metadata is read-only here.
    Full Swift suite needs the host Metal gate before marking this new commit ready.
 2. Lead: resolve the reported current-identity screen-recording grant externally,
    then run the host checks above and opt-in HEVC static-tail/recovery test. Confirm
    duration/seek through a static tail and no startup/resume flash. Append results here;
    capture will fix findings. Self-test entry point is now wired on main.
 3. UI: forward icon/notification options using the capture API; align desktop-icon
-   behavior and editor handoff. Lead: document optional track/host sidecars and lock.
+   behavior. Editor handoff is closed. Lead: document optional track/host sidecars and lock.
    QA: reconcile feature rows from the recorded evidence.
 4. Hardware follow-up: camera/mic, Retina and a second display. No independent
    capture implementation item remains before host results or integration feedback.
