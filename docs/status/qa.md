@@ -1,4 +1,4 @@
-READY HEAD qa: Phase 2 E2E tests (Tests/E2E, scripts/qa/run-e2e.sh) + findings F1–F3
+READY 0416613 qa: Phase 2 E2E tests (Tests/E2E, scripts/qa/run-e2e.sh) + findings F1–F3
 
 # qa status
 
