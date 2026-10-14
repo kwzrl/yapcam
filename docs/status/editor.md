@@ -43,6 +43,9 @@ READY f6eb65f editor on real core/render: EditorDocument, EditorWindows.open (re
 - J/K/L has no variable-rate shuttle (player has no rate API).
 - Real camera/mic devices untested (none on this Mac); camera/mic inspector only checked via fakes + "no track" state.
 
+## Backlog state (checked after rebase on f0862b0)
+Every editor-owned FEATURES row that core/render can support is implemented. Core still has no commands/model for annotations (EDT-09), reactions (EDT-13), masks (EDT-08), animations (EDT-14), captions (AUD-10) or background music (AUD-07), so those stay unimplemented (no fake UI). Blocked on others, not on editor work: app wiring (`LiveEngine.openEditor` still reveals in Finder, `EditorCommands` not installed — ui/Lead), render audio-export hang.
+
 ## Next
 - Window-level manual test (nothing left that needs no external input except this and real scrub latency) with a real recording once capture is integrated; measure real scrub latency; >30 min project check.
 
