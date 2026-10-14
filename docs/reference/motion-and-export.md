@@ -33,3 +33,23 @@ reference app (blocked in first pass, see FEATURES.md caveat). Nothing here is c
 ## Look & feel [docs section titles]
 Background, captions, reactions, animations, mask/highlight, aspect ratio and crop,
 dynamic camera layouts, presets, command menu, copy frame as image.
+
+## Update 2026-10-15 (official guides, own words)
+- Analysis limits: see FEATURES.md note. No [observed] data yet; numbers stay TBD.
+- Cursor animation style options (guide): Smooth, Medium, Rapid, None. (An earlier search
+  snippet listed Slow, Mellow, Quick, Rapid; conflict to resolve by observation.)
+- Screen animation style: Focused (settles quickly, easy to read) or Smooth (more fluid).
+- Motion blur: strength slider, with advanced separate amounts for cursor movement,
+  zoom in/out, and moving the screen while zoomed.
+- Cursor options: hide, size, type (macOS or Touch), always use system default cursor,
+  hide when idle, loop position; advanced: rotate while moving, stop movement at end,
+  remove shakes, optimize original cursor types.
+- Background types: wallpaper, gradient (from one chosen colour), colour, image. Padding
+  0 hides the background; rounded corners, inset frame, shadow.
+- Camera: hide, position, mirror, roundness, size, and size behaviour during zoom.
+- Export: formats MP4 and GIF; resolutions HD and 4K (we offer 720–2160); FPS 24/30/60;
+  compression level does not change export time; GIF > 1 min discouraged.
+- Auto zoom: per-zoom Auto or Manual; auto zooms to click locations, does nothing without
+  clicks. Manual: move the target dot in the preview, set level in zoom settings.
+- Speech enhancement ([technical]): the reference ships a Core ML 48 kHz speech-enhancement
+  model; Yapcam needs its own approach (Apple voice processing or an original model).

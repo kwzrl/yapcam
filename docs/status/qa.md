@@ -1,4 +1,4 @@
-READY 687bb61 qa: audit vs 6d91a7f; waiting on REA output for [technical]/TBD rows
+READY HEAD qa: guide-derived options (FEATURES section K), REA limitation notes
 
 # qa status
 
@@ -22,6 +22,8 @@ READY 687bb61 qa: audit vs 6d91a7f; waiting on REA output for [technical]/TBD ro
 - Audit vs main 4a1cee5 done: all 82 FEATURES rows re-statused (9 todo remain; backlog table at bottom of FEATURES.md). Statuses derive from team status files + test names; only E2E re-run by me.
 
 - Audit vs main 6d91a7f: REC-21 now implemented (core notes + ui popover); 8 todo rows left. E2E 11/11 green on 6d91a7f. Waiting for Lead's REA output in ~/yapcam-ref-local/rea/ (empty at 01:00) to fill TBD values.
+
+- REA limits noted in FEATURES.md + reference notes; guide pages folded in (new section K: CUR-12..17, ANI-01..03, LOK-09/10, CAM-07, EXP-12). [observed] rows deferred to the morning session with the user.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
