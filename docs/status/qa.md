@@ -1,4 +1,4 @@
-READY 98b85ca qa: audit vs 60902da
+READY HEAD qa: audit vs f640b35; backlog now editor wiring + core merge
 
 # qa status
 
@@ -26,6 +26,8 @@ READY 98b85ca qa: audit vs 60902da
 - REA limits noted in FEATURES.md + reference notes; guide pages folded in (new section K: CUR-12..17, ANI-01..03, LOK-09/10, CAM-07, EXP-12). [observed] rows deferred to the morning session with the user.
 
 - Audit vs main 60902da: EDT-08/14, PRJ-02, CUR-08/11, ZOM-08/09, LOK-04/06 integrated; LOK-02, CUR-06, AUD-10 partial; backlog table updated (todo: AUD-06/07, EDT-09/13, CUR-12..16, ANI-02, CAM-07 + partials).
+
+- Audit vs main f640b35 + core/render status: no row is `todo` any more except via 'implemented' with editor wiring missing; backlog table rewritten (editor owns most). Core models for text/reactions/music/captions/keys/motion are on core worktree, merge pending.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).

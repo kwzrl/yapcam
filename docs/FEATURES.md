@@ -62,11 +62,11 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | AUD-03 | Audio | Mic device lost mid-recording | assumption | Recording continues, warning, mic track truncated | capture | limited (no HW; simulated) | Unit/simulated device loss |
 | AUD-04 | Audio | Per-track volume (mic, system) | docs | audio.mic_gain_db / system_gain_db; mute | editor+core | integrated (editor Audio tab -> core audio gains; RealCoreRangesTests; audible effect in export unverified) | Set −∞ → exported track silent |
 | AUD-05 | Audio | Volume over time (volume keyframes/segments) | docs (scrubber/volume) | Per-clip/segment gain | core+editor | implemented (editor volume ranges list -> core; not a timeline lane; export effect unverified) | Gain ramp audible in export |
-| AUD-06 | Audio | Noise reduction / speech enhancement | technical (Core ML MossFormer2 speech-enhancement model, 48 kHz, ships in app) | Apple VoiceProcessing or small model; marked M2-late | render | todo (render: offline speech-enhancement pipeline unavailable) | Noisy sample → lower noise floor |
-| AUD-07 | Audio | Background music library + volume | technical (bundled music in 5 genres) | Own royalty-free tracks only (not reference files); loop, fade | editor+render | todo (core model + editor UI for music tracks; render has procedural loops only) | Add music, export has 3rd source |
-| AUD-08 | Audio | Mouse click sounds | docs / technical (click sound sets) | Own click sounds (2 variants), volume | render | implemented (render primitive: original click sounds; no core setting/editor control yet -> core+editor) | Click event → audio impulse at time |
+| AUD-06 | Audio | Noise reduction / speech enhancement | technical (Core ML MossFormer2 speech-enhancement model, 48 kHz, ships in app) | Apple VoiceProcessing or small model; marked M2-late | render | implemented (render SpeechEnhancer offline DSP: high-pass, noise reduction, compressor, -16 LUFS; SpeechEnhancementTests; no editor toggle/core setting yet -> core+editor; real noisy-speech quality unverified) | Noisy sample → lower noise floor |
+| AUD-07 | Audio | Background music library + volume | technical (bundled music in 5 genres) | Own royalty-free tracks only (not reference files); loop, fade | editor+render | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor music picker; not yet merged to main at audit time) | Add music, export has 3rd source |
+| AUD-08 | Audio | Mouse click sounds | docs / technical (click sound sets) | Own click sounds (2 variants), volume | render | implemented (core click query + render procedural sounds; editor control -> editor) | Click event → audio impulse at time |
 | AUD-09 | Audio | Recording start/stop sounds | technical | Optional | ui | implemented (ui: start/stop sounds, played outside capture; build only) | Setting toggles |
-| AUD-10 | Audio | Captions via local transcription | docs / technical (whisper binary) | On-device speech recognition (Speech/ whisper.cpp later); caption style | editor | implemented (partial: capture TranscriptionService + transcript.json, unit tests; real Speech host gate pending; no editor caption UI/render text -> core+editor+render) | Transcribe sample; caption times align ±200 ms |
+| AUD-10 | Audio | Captions via local transcription | docs / technical (whisper binary) | On-device speech recognition (Speech/ whisper.cpp later); caption style | editor | implemented (capture transcription + core import_transcript/caption layers; editor caption UI and host Speech check pending -> editor) | Transcribe sample; caption times align ±200 ms |
 | AUD-11 | Audio | Silence detection → speed-up/cut | technical (detect-silence) | Offer to cut/speed silent ranges | core+editor | implemented (core PCM silence analysis verified; AAC decode unavailable in sandbox; editor Audio tab -> cut/speed) | Silence range detected in known file |
 
 ## C. Camera
@@ -93,7 +93,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | CUR-07 | Cursor | Click effect (ripple/ring) | docs/assumption | cursor.click_effect | render | integrated (editor click effect -> core -> render procedural effect; pixels unverified) | Click frame differs from idle frame |
 | CUR-08 | Cursor | Cursor motion blur | docs | strength slider | render | integrated (editor cursor motion blur control -> core extras -> render) | Fast move frame blurred |
 | CUR-09 | Cursor | Loop cursor to start position | assumption | option | core | integrated (editor loop toggle -> core) | last pos = first pos |
-| CUR-10 | Cursor | Keystroke display (opt-in) | assumption (key events in format) | key overlay with modifiers | capture+render | implemented (partial: capture records opt-in keys, render key-overlay primitive; no core model/editor control -> core+editor) | cmd+k shows overlay |
+| CUR-10 | Cursor | Keystroke display (opt-in) | assumption (key events in format) | key overlay with modifiers | capture+render | implemented (capture opt-in keys + core key layers regression; editor control -> editor) | cmd+k shows overlay |
 | CUR-11 | Cursor | Cursor click highlights/spotlight | assumption | optional | render | integrated (editor spotlight radius -> core extras -> render) | – |
 
 ## E. Zoom
@@ -123,11 +123,11 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EDT-06 | Edit | Autosave + reopen | docs | autosave journal, project.json.prev | core | verified (editor RealStackTests journal restore/discard + core autosave Rust tests; kill -9 on app untested) | Kill app, reopen, edits intact |
 | EDT-07 | Edit | Aspect ratio + crop | docs | canvas.aspect, screen crop | core+render | integrated (editor aspect/crop -> core canvas; output sizes 1440x1080/1080x1080/1080x1920/2520x1080 awaiting core confirmation) | 9:16 export size correct |
 | EDT-08 | Edit | Mask/highlight regions | docs | rect/rounded highlight with dim outside | core+render | integrated (editor Overlays tab + lane + rect editor -> core highlights; editor OverlayTests; pixels unverified) | – |
-| EDT-09 | Edit | Annotations / text overlays | assumption | text blocks on timeline | editor+render | todo (core model for text/annotations, editor UI; render text primitive exists) | – |
+| EDT-09 | Edit | Annotations / text overlays | assumption | text blocks on timeline | editor+render | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor text tool + render drawing layers; not yet merged to main at audit time) | – |
 | EDT-10 | Edit | Command menu (⌘K style) | docs | searchable action palette | editor | verified (editor palette unit tests; also cheat sheet) | – |
 | EDT-11 | Edit | Copy current frame as image | docs | clipboard PNG of composited frame | editor | verified (editor RealStackTests: copy-frame PNG 1920x1080) | Clipboard image equals frame |
 | EDT-12 | Edit | Timeline zoom, snapping, keyboard shortcuts | docs | per shortcut list | editor | verified (editor snapping/geometry/gesture unit tests; one undo step per gesture) | – |
-| EDT-13 | Edit | Reactions (emoji reactions on timeline) | docs | emoji sprites with animation | editor+render | todo (core model + editor UI for reactions; render has emoji primitive) | – |
+| EDT-13 | Edit | Reactions (emoji reactions on timeline) | docs | emoji sprites with animation | editor+render | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor reactions UI; not yet merged to main at audit time) | – |
 | EDT-14 | Edit | Animations (intro/outro, scene transitions) | docs (Look & Feel/animations) | entrance/exit animation presets | core+render | integrated (editor Overlays tab none/fade -> core fade_opacity, verified at start/mid; scene transforms rejected by core) | – |
 
 ## G. Look and canvas
@@ -187,43 +187,39 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| CUR-12 | Cursor | "Always use default system cursor" (keep system cursor for e.g. text selection) | docs | cursor option | core+editor+render | todo | Option on: I-beam recorded as arrow |
-| CUR-13 | Cursor | Rotate cursor slightly while moving | docs | cursor.rotate_on_move | core+editor+render | todo | Fast move frame shows tilt |
-| CUR-14 | Cursor | Stop cursor movement before end of video | docs | cursor option | core+editor | todo | Last N ms position constant |
-| CUR-15 | Cursor | Remove cursor shakes (tiny jitters) | docs | filter in evaluator | core+editor | todo | Jitter < threshold removed |
-| CUR-16 | Cursor | Optimize original cursor types (less rapid type flicker) | docs | debounce cursor id changes | core | todo | Flicker fixture collapses |
+| CUR-12 | Cursor | "Always use default system cursor" (keep system cursor for e.g. text selection) | docs | cursor option | core+editor+render | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor control; not yet merged to main at audit time) | Option on: I-beam recorded as arrow |
+| CUR-13 | Cursor | Rotate cursor slightly while moving | docs | cursor.rotate_on_move | core+editor+render | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor control; not yet merged to main at audit time) | Fast move frame shows tilt |
+| CUR-14 | Cursor | Stop cursor movement before end of video | docs | cursor option | core+editor | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor control; not yet merged to main at audit time) | Last N ms position constant |
+| CUR-15 | Cursor | Remove cursor shakes (tiny jitters) | docs | filter in evaluator | core+editor | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor control; not yet merged to main at audit time) | Jitter < threshold removed |
+| CUR-16 | Cursor | Optimize original cursor types (less rapid type flicker) | docs | debounce cursor id changes | core | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor; not yet merged to main at audit time) | Flicker fixture collapses |
 | CUR-17 | Cursor | Cursor type: macOS or Touch | docs | = CUR-06 (touch style exists in render) | render+editor | implemented (render has recorded/pointer/touch; no picker) | – |
 | ANI-01 | Motion | Cursor animation style: Smooth / Medium / Rapid / None (guide wording; search snippet said Slow/Mellow/Quick/Rapid – to observe) | docs | = CUR-04 presets; add "None" | core+editor | integrated (presets; 'None' = smoothing off) | – |
-| ANI-02 | Motion | Screen animation style: Focused (stabilizes fast, readable) vs Smooth (fluid) | docs | zoom pan/settle presets | core+editor | todo | Two presets differ in settle time |
-| ANI-03 | Motion | Motion blur strength slider + advanced per-kind (cursor movement, zoom in/out, screen move) | docs | blur per kind | core+editor+render | implemented (single motion blur; per-kind controls todo) | – |
+| ANI-02 | Motion | Screen animation style: Focused (stabilizes fast, readable) vs Smooth (fluid) | docs | zoom pan/settle presets | core+editor | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor Focused/Smooth switch; not yet merged to main at audit time) | Two presets differ in settle time |
+| ANI-03 | Motion | Motion blur strength slider + advanced per-kind (cursor movement, zoom in/out, screen move) | docs | blur per kind | core+editor+render | implemented (core per-kind blur paths (ABI v3 contract); editor per-kind controls -> editor) | – |
 | LOK-09 | Canvas | Background types: Wallpaper, Gradient (from chosen color), Color (hex/palette), Image upload | docs | background kinds | editor+render | integrated (solid/gradient/blur/image; wallpaper library = LOK-02) | – |
 | LOK-10 | Canvas | Padding 0 hides background; rounded corners; inset frame; shadow | docs | canvas.* | render | verified (RenderTests crop/radius pixel tests) | – |
-| CAM-07 | Camera | "Camera during zoom": resize frame while zoomed, or keep constant | docs | camera.zoom_scale option | core+editor+render | todo | Frame size changes at mid-zoom |
+| CAM-07 | Camera | "Camera during zoom": resize frame while zoomed, or keep constant | docs | camera.zoom_scale option | core+editor+render | implemented (core model/commands + Rust/Swift regressions on core worktree 323c017+; editor UI -> editor control; not yet merged to main at audit time) | Frame size changes at mid-zoom |
 | EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
 
 ## Audit log
-Last audit: against main 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
+Last audit: against main f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
 named test or measurement passed; **limited (why)** = cannot be verified here. Live-capture
 rows are `limited (no TCC)` until Screen Recording is re-granted. Reference-observation of
 Screen Studio is still blocked (see docs/status/qa.md), so option values stay TBD.
 
-## Backlog: rows still `todo`, per owning team (Lead hands these out)
-| Team | Row | Missing |
-|---|---|---|
-| core + editor | AUD-07 | music track model, library (original tracks only), editor UI |
-| core + editor | AUD-10 | caption model, on-device transcription, editor UI, render text |
-| core + editor | EDT-09 | text/annotation model + editor UI |
-| core + editor | EDT-13 | reactions model + editor UI |
-| render | AUD-06 | offline speech-enhancement pipeline ([technical]: reference ships Core ML MossFormer2 SE 48 kHz; use an Apple/own model, no reference weights) |
-| core+editor(+render) | CUR-12..16, ANI-02, CAM-07 | extra cursor/motion/camera options from the guides (section K) |
-| editor | LOK-02 | wire render BackgroundLibrary into a picker |
-| core+editor+render | AUD-10 | editor caption UI + render text (capture transcription exists) |
+## Backlog: rows still open, per owning team (Lead hands these out)
+Core now has models for most remaining items (see status text); what is left is mostly editor/render wiring and merge to main.
 
-Partial rows (`implemented`, missing a piece): CUR-06 cursor-set library (render+editor),
-CUR-08/CUR-11/ZOM-08/LOK-06 editor controls, CUR-10 key-overlay model+UI (core+editor),
-AUD-08 click-sound setting (core+editor), PRJ-02 preset UI (ui), CAM-04/05 not driven by
-project data (render+core).
+| Team | Rows | Missing |
+|---|---|---|
+| editor | AUD-07, EDT-09, EDT-13, CUR-12..15, ANI-02, ANI-03, CAM-07, CUR-10, AUD-08, AUD-10, LOK-02 | UI controls/pickers for the new core models (music, text, reactions, cursor options, Focused/Smooth, per-kind blur, camera-during-zoom, caption, background library picker) |
+| core + editor | AUD-06 | persist enhancement toggle, call render SpeechEnhancer on mic media |
+| render | CUR-06 | larger cursor-set library (partial); host/Metal verification of all new layers |
+| Lead | merge | core worktree changes (effects.rs, motion.rs, ABI v3) not yet on main at audit time |
+
+Partial rows (`implemented`, missing a piece): CUR-06, PRJ-02 done in ui, CAM-04/05 not driven by
+real camera data.
 Cross-team wiring gaps: none known in code; hardware/pixel verification needs a Metal host run
 (`YAPCAM_REQUIRE_RENDER_HARDWARE=1`), live rows need the TCC grant.
