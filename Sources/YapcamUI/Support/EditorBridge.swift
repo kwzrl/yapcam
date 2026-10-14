@@ -10,10 +10,12 @@ import YapcamEditor
         Mirror(reflecting: object).children.first { $0.label == label }?.value as? T
     }
 
-    static func keyEditor() -> EditorModel? {
+    static func keyDocument() -> EditorDocument? {
         guard let controller = NSApp.keyWindow?.windowController else { return nil }
-        return find(EditorDocument.self, labeled: "editorDocument", in: controller)?.model
+        return find(EditorDocument.self, labeled: "editorDocument", in: controller)
     }
+
+    static func keyEditor() -> EditorModel? { keyDocument()?.model }
 
     /// True while a text field is being edited: ⌘Z must undo typing, not the timeline.
     static var isEditingText: Bool { NSApp.keyWindow?.firstResponder is NSText }

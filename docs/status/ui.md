@@ -1,4 +1,4 @@
-READY ui: REC-21 speaker notes done on 4a1cee5 rebase; 147 tests green; live recording still unverified (screen TCC grant missing)
+READY ui: backlog 1-4 done (menu commands on main, presets menu, notes, UI smoke test); tests green; live recording waits for TCC grant
 
 # ui status
 
@@ -46,6 +46,13 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - SWIFT_API.md: confirm `CaptureTarget.area` rect is top-left-origin display-local points.
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
+
+## Backlog from Lead (main 6d91a7f)
+1. Review #10 (editor commands in AppKit menu): already on main since the previous merge: Edit menu (Undo/Redo/Split/Add Zoom/Palette) → key editor via `EditorBridge`. `git log main..team/ui` was empty at rebase, so the editor's "still open" note is stale.
+2. PRJ-02 preset UI done: "Presets" menu (Save Current Look as Preset…, Apply "<name>", Apply Preset File…, Export Preset File…, Add Preset File to Library…, Show Presets Folder); library in `~/Library/Application Support/Yapcam/Presets/*.yapcampreset`, using core `exportPreset/importPreset`. Test `saveListApplyRoundTrip` (core round trip + name cleaning). Menu click-through not exercised live.
+3. REC-21 notes UI: done earlier (below).
+4. UI smoke test done: `UISmokeTests` renders every window/popover (toolbar ×4 states, onboarding, settings, source ×3, audio, mic, camera, notes, recordings, area overlay) in light + dark and fails on missing/tiny/flat-colour PNGs; one test in-process (`UISnapshot.render`), one launches `build/Yapcam.app` with `--snapshot-ui` (skipped if the app isn't built). Both pass.
+Known limit: snapshots draw our own views (no real screen), so material blur isn't judged.
 
 ## REC-21 speaker notes (done, unit-tested)
 Notes button in idle + recording toolbar (popover editor; visible while recording). On stop, `ProjectActions.attachNotes` writes `notes` into project.json via `.set(path:"notes")` before the editor opens; failure shows an alert without losing the recording. Test `notesPersistInProject` (fixture package). Live path unverified (no screen TCC). Notes request to core is resolved. 147 tests pass.

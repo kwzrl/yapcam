@@ -52,6 +52,9 @@ import AppKit
             item("Add Zoom at Playhead", #selector(AppDelegate.editAddZoom), "z", mods: [.command, .option]),
             item("Command Palette…", #selector(AppDelegate.editPalette), "k"),
         ])
+        let presets = NSMenuItem(title: "Presets", action: nil, keyEquivalent: "")
+        presets.submenu = PresetsMenuController.shared.menu
+        main.addItem(presets)
         add("Recording", [
             item("Start Recording", #selector(AppDelegate.toggleRecording)),
             item("Pause Recording", #selector(AppDelegate.togglePause)),

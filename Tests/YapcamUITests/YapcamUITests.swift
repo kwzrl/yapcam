@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Foundation
 import Testing
 import YapcamCapture
+import YapcamCore
 @testable import YapcamUI
 
 @Suite struct KeyComboTests {
@@ -115,5 +116,79 @@ import YapcamCapture
         try ProjectActions.attachNotes("remember the intro", to: pkg)
         let json = try String(contentsOf: pkg.appending(path: "project.json"), encoding: .utf8)
         #expect(json.contains("remember the intro"))
+    }
+}
+
+@MainActor @Suite struct PresetTests {
+    @Test func saveListApplyRoundTrip() throws {
+        let tmp = FileManager.default.temporaryDirectory.appending(path: "yapcam-preset-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let pkg = tmp.appending(path: "P.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/synthetic/basic.yapcam")
+        try FileManager.default.copyItem(at: fixture, to: pkg)
+        let project = try Project.create(package: pkg)
+        let file = tmp.appending(path: "look.yapcampreset")
+        try project.exportPreset(to: file)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        try project.apply(.set(path: "canvas.padding", value: .number(0.2)))
+        try PresetStore.apply(file, to: project)           // restores the exported look
+        #expect(PresetStore.clean("  a/b ") == "a-b")
+        #expect(throws: EngineError.self) { try PresetStore.save(project, as: "   ") }
+    }
+}
+
+// MARK: - UI smoke test: every window renders, light and dark
+
+@MainActor @Suite(.serialized) struct UISmokeTests {
+    /// Fails if a PNG is missing, tiny, or a single flat colour (a blank render).
+    static func check(_ dir: URL) -> [String] {
+        var problems: [String] = []
+        for name in UISnapshot.expectedNames {
+            for mode in ["light", "dark"] {
+                let url = dir.appending(path: "\(name)-\(mode).png")
+                guard let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else {
+                    problems.append("missing \(name)-\(mode)"); continue
+                }
+                if rep.pixelsWide < 20 || rep.pixelsHigh < 20 { problems.append("tiny \(name)-\(mode)"); continue }
+                var seen = Set<UInt32>()
+                let step = max(1, min(rep.pixelsWide, rep.pixelsHigh) / 24)
+                for y in stride(from: 0, to: rep.pixelsHigh, by: step) {
+                    for x in stride(from: 0, to: rep.pixelsWide, by: step) {
+                        guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                        seen.insert(UInt32(c.redComponent * 255) << 16 | UInt32(c.greenComponent * 255) << 8 | UInt32(c.blueComponent * 255))
+                    }
+                }
+                if seen.count < 3 { problems.append("blank \(name)-\(mode)") }
+            }
+        }
+        return problems
+    }
+
+    @Test func everyWindowRendersInLightAndDark() async throws {
+        _ = NSApplication.shared
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-smoke-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        await UISnapshot.render(into: dir)
+        #expect(UISmokeTests.check(dir) == [])
+    }
+
+    /// The real app binary with `--snapshot-ui`, when it has been built (scripts/build-app.sh).
+    nonisolated static let appBinary: URL = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appending(path: "build/Yapcam.app/Contents/MacOS/Yapcam")
+
+    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: UISmokeTests.appBinary.path)))
+    func appLaunchedWithSnapshotFlagRendersEverything() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-smoke-app-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let p = Process()
+        p.executableURL = UISmokeTests.appBinary
+        p.arguments = ["--snapshot-ui", dir.path]
+        try p.run()
+        let deadline = Date().addingTimeInterval(60)
+        while p.isRunning && Date() < deadline { try await Task.sleep(for: .milliseconds(200)) }
+        if p.isRunning { p.terminate(); Issue.record("app did not exit after --snapshot-ui") }
+        #expect(UISmokeTests.check(dir) == [])
     }
 }

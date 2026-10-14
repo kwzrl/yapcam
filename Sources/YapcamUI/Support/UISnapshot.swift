@@ -4,7 +4,21 @@ import SwiftUI
 /// `Yapcam --snapshot-ui <dir>` renders the app's own windows to PNGs in light and dark
 /// appearance and exits. Works without Screen Recording permission (draws our own views).
 @MainActor enum UISnapshot {
+    static let expectedNames: [String] = {
+        var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
+                 "popover-notes", "popover-source-display", "popover-source-window", "popover-source-area",
+                 "recordings", "area-overlay"]
+        n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
+        return n
+    }()
+
     static func run(into dir: URL) async {
+        await render(into: dir)
+        NSApp.terminate(nil)
+    }
+
+    /// Renders every window in light and dark into `dir` as `<name>-<light|dark>.png`.
+    static func render(into dir: URL) async {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let toolbar = ToolbarPanelController.shared
         toolbar.show()
@@ -28,7 +42,8 @@ import SwiftUI
             }
             for (title, view) in extraViews() { write(view, "\(title)-\(name)", dir, size: nil) }
         }
-        NSApp.terminate(nil)
+        NSApp.appearance = nil
+        AreaSelector.shared.cancelForTesting()
     }
 
     private static func label(_ p: RecordingPhase) -> String {
@@ -53,6 +68,7 @@ import SwiftUI
         out.append(("popover-audio", host(SystemAudioPopover(), width: 260)))
         out.append(("popover-mic", host(MicrophonePopover(), width: 280)))
         out.append(("popover-camera", host(CameraPopover(), width: 280)))
+        out.append(("popover-notes", host(NotesPopover().environmentObject(RecordingController.shared), width: 300)))
         out.append(("recordings", host(RecentProjectsView(model: RecentProjectsWindow.shared.model).frame(height: 300), width: 560)))
         if let v = AreaSelector.shared.debugContentView { out.append(("area-overlay", v)) }
         return out
