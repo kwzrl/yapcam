@@ -1,4 +1,4 @@
-READY HEAD qa: guide-derived options (FEATURES section K), REA limitation notes
+READY 16f73c1 qa: guide-derived options (FEATURES section K), REA limitation notes
 
 # qa status
 
