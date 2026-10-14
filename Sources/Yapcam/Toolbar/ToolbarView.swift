@@ -2,6 +2,7 @@ import SwiftUI
 
 enum ToolbarPopover: Hashable { case source, audio, microphone, camera }
 
+
 struct ToolbarView: View {
     @ObservedObject var layout: ToolbarLayoutModel
     @EnvironmentObject var rec: RecordingController
@@ -39,11 +40,21 @@ struct ToolbarView: View {
         VStack(spacing: 4) {
             ToolbarButton(symbol: settings.sourceMode.symbol, label: sourceLabel, help: "Source: \(sourceHelp)",
                           active: open == .source) { toggle(.source) }
-                .popover(isPresented: binding(.source), arrowEdge: edge) { SourcePopover().environmentObject(settings) }
+                .popover(isPresented: binding(.source), arrowEdge: edge) { SourcePopover(dismiss: { open = nil }).environmentObject(settings) }
             ToolbarButton(symbol: settings.systemAudio ? "speaker.wave.2.fill" : "speaker.slash",
                           label: "System", help: settings.systemAudio ? "System audio on" : "System audio off",
                           active: settings.systemAudio) { toggle(.audio) }
                 .popover(isPresented: binding(.audio), arrowEdge: edge) { SystemAudioPopover().environmentObject(settings) }
+            ToolbarButton(symbol: micOn ? "mic.fill" : "mic.slash", label: "Mic", help: micOn ? "Microphone on" : "Microphone off",
+                          active: micOn) { toggle(.microphone) }
+                .popover(isPresented: binding(.microphone), arrowEdge: edge) {
+                    MicrophonePopover().environmentObject(settings).environmentObject(perms)
+                }
+            ToolbarButton(symbol: camOn ? "video.fill" : "video.slash", label: "Camera", help: camOn ? "Camera on" : "Camera off",
+                          active: camOn) { toggle(.camera) }
+                .popover(isPresented: binding(.camera), arrowEdge: edge) {
+                    CameraPopover().environmentObject(settings).environmentObject(perms)
+                }
             Divider().padding(.vertical, 4)
             RecordButton(recording: false, action: rec.toggleStartStop)
                 .help("Start recording (\(settings.startStopShortcut.display))")
@@ -53,6 +64,9 @@ struct ToolbarView: View {
             }
         }
     }
+
+    private var micOn: Bool { settings.microphoneID != nil && perms.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) }
+    private var camOn: Bool { settings.cameraID != nil && perms.state(.camera) == .granted && DeviceModel.shared.isAvailable(camera: settings.cameraID) }
 
     private var sourceLabel: String { settings.sourceMode.title }
     private var sourceHelp: String {
@@ -90,9 +104,9 @@ struct ToolbarView: View {
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(paused ? .secondary : .primary)
                 .frame(height: 18)
-            if !rec.warnings.isEmpty {
+            if !rec.warnings.isEmpty || rec.lowDisk {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    .help(rec.warnings.joined(separator: "\n"))
+                    .help((rec.warnings + (rec.lowDisk ? ["Low disk space: recording may stop soon."] : [])).joined(separator: "\n"))
             }
             Divider().padding(.vertical, 2)
             ToolbarButton(symbol: paused ? "play.fill" : "pause.fill", label: paused ? "Resume" : "Pause",

@@ -43,6 +43,8 @@ struct YapcamApp: App {
         bindShortcuts()
 
         ToolbarPanelController.shared.show()
+        AreaOutline.shared.start()
+        offerRecovery()
         if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {
             OnboardingWindow.shared.show(reason: nil)
         }
@@ -74,6 +76,27 @@ struct YapcamApp: App {
             RecordingController.shared.cancel()
         }
         return .terminateNow
+    }
+
+    /// Interrupted recordings from a previous run: offer recovery instead of silently ignoring them.
+    private func offerRecovery() {
+        let engine = RecordingController.shared.engine
+        let found = engine.interruptedPackages(in: AppSettings.shared.storageDirectory)
+        guard !found.isEmpty else { return }
+        let a = NSAlert()
+        a.messageText = found.count == 1 ? "Yapcam found an unfinished recording" : "Yapcam found \(found.count) unfinished recordings"
+        a.informativeText = "The app or your Mac stopped during recording. Recover keeps everything that was saved to disk."
+        a.addButton(withTitle: "Recover")
+        a.addButton(withTitle: "Review…")
+        a.addButton(withTitle: "Not Now")
+        switch a.runModal() {
+        case .alertFirstButtonReturn:
+            var last: URL?
+            for u in found { do { last = try engine.recover(u) } catch { Probe.log("recover failed \(u.lastPathComponent): \(error)") } }
+            if let last { engine.openEditor(package: last) } else { RecentProjectsWindow.shared.show() }
+        case .alertSecondButtonReturn: RecentProjectsWindow.shared.show()
+        default: break
+        }
     }
 
     // MARK: Shortcuts / settings side effects
@@ -130,6 +153,7 @@ struct YapcamApp: App {
             RecordingController.shared.engine.openEditor(package: url)
         }
     }
+    @objc func showRecordings() { RecentProjectsWindow.shared.show() }
     @objc func showAbout() { AboutWindow.show() }
     @objc func showStorageFolder() { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) }
 }

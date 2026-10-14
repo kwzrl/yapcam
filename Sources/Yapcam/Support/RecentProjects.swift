@@ -1,0 +1,180 @@
+import AVFoundation
+import AppKit
+import SwiftUI
+
+struct ProjectEntry: Identifiable, Equatable {
+    let url: URL
+    let modified: Date
+    let bytes: Int64
+    var id: URL { url }
+    var name: String { url.deletingPathExtension().lastPathComponent }
+}
+
+@MainActor final class RecentProjectsModel: ObservableObject {
+    @Published private(set) var projects: [ProjectEntry] = []
+    @Published private(set) var interrupted: [URL] = []
+    @Published private(set) var thumbnails: [URL: NSImage] = [:]
+    private var requested = Set<URL>()
+
+    func reload() {
+        let dir = AppSettings.shared.storageDirectory
+        let fm = FileManager.default
+        let urls = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])) ?? []
+        let engine = RecordingController.shared.engine
+        interrupted = engine.interruptedPackages(in: dir)
+        let intr = Set(interrupted)
+        projects = urls.filter { $0.pathExtension == "yapcam" && !intr.contains($0) }.map { u in
+            ProjectEntry(url: u,
+                         modified: (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
+                         bytes: Self.size(of: u))
+        }.sorted { $0.modified > $1.modified }
+    }
+
+    private static func size(of dir: URL) -> Int64 {
+        guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        var total: Int64 = 0
+        for case let u as URL in e { total += Int64((try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        return total
+    }
+
+    func loadThumbnail(_ p: ProjectEntry) {
+        guard !requested.contains(p.url) else { return }
+        requested.insert(p.url)
+        Task.detached {
+            let rec = p.url.appending(path: "recording")
+            let seg = (try? FileManager.default.contentsOfDirectory(at: rec, includingPropertiesForKeys: nil))?
+                .filter { $0.lastPathComponent.hasPrefix("seg-") }.sorted { $0.path < $1.path }.first
+            guard let movie = seg?.appending(path: "screen.mov"), FileManager.default.fileExists(atPath: movie.path) else { return }
+            let gen = AVAssetImageGenerator(asset: AVURLAsset(url: movie))
+            gen.appliesPreferredTrackTransform = true
+            gen.maximumSize = CGSize(width: 320, height: 200)
+            if let (img, _) = try? await gen.image(at: CMTime(seconds: 0.5, preferredTimescale: 600)) {
+                let ns = NSImage(cgImage: img, size: NSSize(width: img.width, height: img.height))
+                await MainActor.run { self.thumbnails[p.url] = ns }
+            }
+        }
+    }
+
+    func trash(_ p: ProjectEntry) {
+        try? FileManager.default.trashItem(at: p.url, resultingItemURL: nil)
+        reload()
+    }
+}
+
+@MainActor final class RecentProjectsWindow {
+    static let shared = RecentProjectsWindow()
+    private var window: NSWindow?
+    let model = RecentProjectsModel()
+
+    func show() {
+        model.reload()
+        if window == nil {
+            let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 460),
+                             styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+            w.title = "Recordings"
+            w.isReleasedWhenClosed = false
+            w.contentView = NSHostingView(rootView: RecentProjectsView(model: model))
+            w.setFrameAutosaveName("RecentProjects")
+            w.center()
+            RecordingController.shared.engine.registerExcluded(w)
+            window = w
+        }
+        NSApp.activate()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+struct RecentProjectsView: View {
+    @ObservedObject var model: RecentProjectsModel
+    @State private var message: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !model.interrupted.isEmpty { interruptedBanner }
+            if model.projects.isEmpty && model.interrupted.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "film.stack").font(.system(size: 32)).foregroundStyle(.tertiary)
+                    Text("No recordings yet").font(.headline)
+                    Text("Recordings you make are saved in \(AppSettings.shared.storageDirectory.lastPathComponent).")
+                        .font(.callout).foregroundStyle(.secondary)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(model.projects) { p in
+                    Row(entry: p, thumbnail: model.thumbnails[p.url], open: { open(p) },
+                        reveal: { NSWorkspace.shared.activateFileViewerSelecting([p.url]) },
+                        trash: { model.trash(p) })
+                        .onAppear { model.loadThumbnail(p) }
+                }
+            }
+            if let message { Text(message).font(.caption).foregroundStyle(.orange).padding(8) }
+        }
+        .frame(minWidth: 480, minHeight: 320)
+        .toolbar {
+            ToolbarItem { Button { model.reload() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh") }
+            ToolbarItem { Button { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) } label: { Image(systemName: "folder") }.help("Show folder in Finder") }
+        }
+    }
+
+    private func open(_ p: ProjectEntry) { RecordingController.shared.engine.openEditor(package: p.url) }
+
+    private var interruptedBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("\(model.interrupted.count) interrupted recording\(model.interrupted.count == 1 ? "" : "s")", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange).font(.headline)
+            Text("Yapcam stopped before these were finished. Recover keeps everything that was written to disk.")
+                .font(.callout).foregroundStyle(.secondary)
+            ForEach(model.interrupted, id: \.self) { u in
+                HStack {
+                    Text(u.deletingPathExtension().lastPathComponent).lineLimit(1)
+                    Spacer()
+                    Button("Recover") { recover(u) }
+                    Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([u]) }
+                }
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.1))
+    }
+
+    private func recover(_ u: URL) {
+        do {
+            let url = try RecordingController.shared.engine.recover(u)
+            model.reload()
+            RecordingController.shared.engine.openEditor(package: url)
+        } catch { message = "Could not recover \(u.lastPathComponent): \(error.localizedDescription)" }
+    }
+
+    private struct Row: View {
+        let entry: ProjectEntry
+        let thumbnail: NSImage?
+        let open: () -> Void
+        let reveal: () -> Void
+        let trash: () -> Void
+        var body: some View {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.07))
+                    if let thumbnail { Image(nsImage: thumbnail).resizable().scaledToFill() }
+                    else { Image(systemName: "film").foregroundStyle(.tertiary) }
+                }
+                .frame(width: 96, height: 60).clipShape(RoundedRectangle(cornerRadius: 5))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Text("\(entry.modified.formatted(date: .abbreviated, time: .shortened)) · \(ByteCountFormatter.string(fromByteCount: entry.bytes, countStyle: .file))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Open", action: open)
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2, perform: open)
+            .contextMenu {
+                Button("Open", action: open)
+                Button("Show in Finder", action: reveal)
+                Divider()
+                Button("Move to Trash", role: .destructive, action: trash)
+            }
+        }
+    }
+}

@@ -10,6 +10,9 @@ import SwiftUI
         toolbar.show()
         SettingsWindow.shared.show()
         OnboardingWindow.shared.show(reason: nil)
+        if let screen = NSScreen.main {
+            AreaSelector.shared.begin(on: screen, initial: CGRect(x: 300, y: 200, width: 640, height: 360)) { _ in }
+        }
         try? await Task.sleep(for: .milliseconds(600))
 
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
@@ -32,7 +35,28 @@ import SwiftUI
         switch p { case .idle: "idle"; case .countdown: "countdown"; case .recording: "recording"; case .paused: "paused"; default: "other" }
     }
 
-    private static func extraViews() -> [(String, NSView)] { [] }
+    private static func host<V: View>(_ v: V, width: CGFloat) -> NSView {
+        let h = NSHostingView(rootView: v.environmentObject(AppSettings.shared).environmentObject(PermissionsModel.shared)
+            .frame(width: width).background(Color(nsColor: .windowBackgroundColor)))
+        h.frame = CGRect(origin: .zero, size: h.fittingSize)
+        return h
+    }
+
+    private static func extraViews() -> [(String, NSView)] {
+        let s = AppSettings.shared
+        var out: [(String, NSView)] = []
+        for m in SourceMode.allCases {
+            s.sourceMode = m
+            out.append(("popover-source-\(m.rawValue)", host(SourcePopover(dismiss: {}), width: m == .window ? 400 : 280)))
+        }
+        s.sourceMode = .display
+        out.append(("popover-audio", host(SystemAudioPopover(), width: 260)))
+        out.append(("popover-mic", host(MicrophonePopover(), width: 280)))
+        out.append(("popover-camera", host(CameraPopover(), width: 280)))
+        out.append(("recordings", host(RecentProjectsView(model: RecentProjectsWindow.shared.model).frame(height: 300), width: 560)))
+        if let v = AreaSelector.shared.debugContentView { out.append(("area-overlay", v)) }
+        return out
+    }
 
     private static func write(_ window: NSWindow, _ name: String, _ dir: URL) {
         if let v = window.contentView { write(v, name, dir, size: nil, backdrop: true) }

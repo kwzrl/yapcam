@@ -18,6 +18,7 @@ enum RecordingPhase: Equatable {
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var warnings: [String] = []
+    @Published private(set) var lowDisk = false
     @Published var alert: AppAlert?
 
     var engine: RecordingEngine = UnavailableEngine()
@@ -27,6 +28,7 @@ enum RecordingPhase: Equatable {
     private var ticker: Timer?
     private let countdownWindow = CountdownWindow()
     private var lastOptions: UIRecordingOptions?
+    private var tickCount = 0
 
     var isBusy: Bool { phase != .idle }
     var isRecording: Bool { phase == .recording || phase == .paused }
@@ -80,6 +82,8 @@ enum RecordingPhase: Equatable {
             target = .display(d.id)
         case .window:
             guard settings.windowID != 0 else { throw EngineError.failed("Choose a window to record first.") }
+            let alive = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(settings.windowID)) as? [[String: Any]])?.isEmpty == false
+            guard alive else { throw EngineError.failed("The selected window is no longer available. Choose another window.") }
             target = .window(settings.windowID)
         case .area:
             guard let rect = settings.areaRect, rect.width >= 16, rect.height >= 16,
@@ -96,8 +100,8 @@ enum RecordingPhase: Equatable {
         return UIRecordingOptions(
             target: target,
             systemAudio: settings.systemAudio,
-            microphoneID: PermissionsModel.shared.state(.microphone) == .granted ? settings.microphoneID : nil,
-            cameraID: PermissionsModel.shared.state(.camera) == .granted ? settings.cameraID : nil,
+            microphoneID: PermissionsModel.shared.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) ? settings.microphoneID : nil,
+            cameraID: PermissionsModel.shared.state(.camera) == .granted && DeviceModel.shared.isAvailable(camera: settings.cameraID) ? settings.cameraID : nil,
             recordKeystrokes: settings.recordKeystrokes && PermissionsModel.shared.state(.inputMonitoring) == .granted,
             maxFPS: settings.maxFPS,
             outputDirectory: settings.storageDirectory)
@@ -199,7 +203,7 @@ enum RecordingPhase: Equatable {
         Task { await s.cancel(); finish(); startSession(options) }
     }
 
-    private func finish() { session = nil; phase = .idle; elapsed = 0; micLevel = 0; warnings = [] }
+    private func finish() { session = nil; phase = .idle; elapsed = 0; micLevel = 0; warnings = []; lowDisk = false }
 
     private func fail(_ error: Error) {
         alert = AppAlert(title: "Recording problem", message: error.localizedDescription)
@@ -220,6 +224,12 @@ enum RecordingPhase: Equatable {
         elapsed = s.elapsed
         micLevel = s.micLevel
         if s.warnings != warnings { warnings = s.warnings }
+        tickCount += 1
+        if tickCount % 50 == 0 {
+            let free = (try? settings.storageDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+                .volumeAvailableCapacityForImportantUsage) ?? Int64.max
+            lowDisk = free < 2_000_000_000
+        }
         if let f = s.failure, isRecording {
             // The engine ended the recording itself; salvage what was written.
             stopTicker()

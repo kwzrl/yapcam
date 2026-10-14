@@ -32,6 +32,7 @@ import AppKit
         ])
         add("File", [
             item("Open Recording…", #selector(AppDelegate.openProject), "o"),
+            item("Recordings…", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
             .separator(),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: nil),
@@ -59,7 +60,8 @@ import AppKit
             let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = target; m.addItem(i)
         }
         m.addItem(.separator())
-        for (title, sel) in [("Open Recording…", #selector(AppDelegate.openProject)),
+        for (title, sel) in [("Recordings…", #selector(AppDelegate.showRecordings)),
+                             ("Open Recording…", #selector(AppDelegate.openProject)),
                              ("Settings…", #selector(AppDelegate.showSettings))] {
             let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = target; m.addItem(i)
         }
