@@ -92,7 +92,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
 | ZOM-01 | Zoom | Auto zoom from clicks | docs | analyzer creates zoom regions at click clusters (zooms[] mode=auto) | core | todo | Fixture with 3 click clusters → 3 zooms |
-| ZOM-02 | Zoom | Manual zoom: add/move/resize on timeline, target point (M1) | docs | add_zoom command; target dot in preview | core+editor | todo | Add zoom, frame at mid has zoom rect |
+| ZOM-02 | Zoom | Manual zoom: add/move/resize on timeline, target point (M1) | docs | add_zoom command; target dot in preview | core+editor | verified (testM1OpenEditExport: crop changes at mid-zoom (core level; UI untested)) | Add zoom, frame at mid has zoom rect |
 | ZOM-03 | Zoom | Zoom level per zoom | docs | scale 1…N | core | todo | Scale applied exactly |
 | ZOM-04 | Zoom | Auto/Manual per zoom toggle | docs | mode switch | core+editor | todo | Switch changes target source |
 | ZOM-05 | Zoom | Disable automatic zooms (global/per zoom) | docs | setting | core | todo | No auto zooms generated when off |
@@ -107,10 +107,10 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
 | EDT-01 | Edit | Preview player play/pause/seek/scrub (M1) | docs | PreviewPlayer | render+editor | todo | Seek lands on right frame |
-| EDT-02 | Edit | Split / trim / delete range (cuts) | docs | split, delete_range; all tracks shift together | core+editor | todo | Cut; audio and video remain in sync |
+| EDT-02 | Edit | Split / trim / delete range (cuts) | docs | split, delete_range; all tracks shift together | core+editor | verified (testAudioVideoDurationsAgreeAfterCut + testSpeedAndCutChangeExportedDuration) | Cut; audio and video remain in sync |
 | EDT-03 | Edit | Speed up segments | docs | set_speed per clip; audio pitch handling | core+render | todo | 2× clip halves duration |
 | EDT-04 | Edit | Speed up typing segments automatically | docs | detect key bursts → speed | core | todo | Fixture keystrokes |
-| EDT-05 | Edit | Undo/redo | assumption | command stack | core+editor | todo | 100 ops undo/redo exact |
+| EDT-05 | Edit | Undo/redo | assumption | command stack | core+editor | verified (testCutUndoRedoDuration + testNoDriftOverManyEdits (300 edits)) | 100 ops undo/redo exact |
 | EDT-06 | Edit | Autosave + reopen | docs | autosave journal, project.json.prev | core | todo | Kill app, reopen, edits intact |
 | EDT-07 | Edit | Aspect ratio + crop | docs | canvas.aspect, screen crop | core+render | todo | 9:16 export size correct |
 | EDT-08 | Edit | Mask/highlight regions | docs | rect/rounded highlight with dim outside | core+render | todo | – |
@@ -138,11 +138,11 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| PRJ-01 | Project | Package save/open (M1) | docs | .yapcam package, atomic writes | core | todo | Save/open roundtrip |
+| PRJ-01 | Project | Package save/open (M1) | docs | .yapcam package, atomic writes | core | verified (testSaveReopen (.prev kept)) | Save/open roundtrip |
 | PRJ-02 | Project | Presets create/apply/share (file-based) | docs | export/import preset JSON (local file sharing only) | core+ui | todo | Apply preset changes settings |
 | PRJ-03 | Project | Default settings for new recordings | docs | settings panel | ui | todo | – |
 | PRJ-04 | Project | Recent projects, open file association | assumption | – | ui | todo | – |
-| PRJ-05 | Project | Missing media detection + relink | architecture | open throws missingMedia | core+ui | todo | Remove screen.mov → clear error |
+| PRJ-05 | Project | Missing media detection + relink | architecture | open throws missingMedia | core+ui | verified (testMissingMediaIsReported) | Remove screen.mov → clear error |
 | PRJ-06 | Project | Extract raw recording files | docs | reveal/export raw tracks | ui | todo | Files copied |
 | PRJ-07 | Project | Duplicate project / rename / delete | assumption | – | ui | todo | – |
 | PRJ-08 | Project | Newer-schema refusal, old-schema migration | architecture | – | core | todo | Test fixtures |
@@ -151,13 +151,13 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| EXP-01 | Export | MP4 export 1080p H.264 (M1) | docs | Exporter | render | todo | ffprobe 1920×1080, duration ±1 frame |
+| EXP-01 | Export | MP4 export 1080p H.264 (M1) | docs | Exporter | render | verified (PipelineE2E testM1OpenEditExport: ffprobe 1080p) | ffprobe 1920×1080, duration ±1 frame |
 | EXP-02 | Export | Resolution options (720/1080/1440/2160/…) | docs/assumption | outputHeight | render | todo | per size ffprobe |
-| EXP-03 | Export | FPS 24/30/60 | docs | fps | render | todo | ffprobe r_frame_rate |
+| EXP-03 | Export | FPS 24/30/60 | docs | fps | render | verified (testFPSAndNoAudio: r_frame_rate 60/1, 300 frames) | ffprobe r_frame_rate |
 | EXP-04 | Export | Quality/compression level | docs | quality 0…1 | render | todo | bitrate monotonic |
-| EXP-05 | Export | GIF export | docs, technical | native ImageIO GIF writer (no gifsicle) | render | todo | valid GIF, frame count |
-| EXP-06 | Export | MOV export, HEVC codec | docs(3rd party), assumption | format/codec | render | todo | – |
-| EXP-07 | Export | Export progress/cancel, partial file removed | assumption | Task cancel | render+ui | todo | Cancel → no file |
+| EXP-05 | Export | GIF export | docs, technical | native ImageIO GIF writer (no gifsicle) | render | verified (testFormatsAndPresets: GIF 30 frames) | valid GIF, frame count |
+| EXP-06 | Export | MOV export, HEVC codec | docs(3rd party), assumption | format/codec | render | verified (testFormatsAndPresets: HEVC mp4 + H.264 mov) | – |
+| EXP-07 | Export | Export progress/cancel, partial file removed | assumption | Task cancel | render+ui | verified (testCancelRemovesPartialFile) | Cancel → no file |
 | EXP-08 | Export | Preview == export | architecture | same compositor | render | todo | ffmpeg frame diff < threshold |
 | EXP-09 | Export | Performance settings (hardware encode, parallelism) | docs | – | render | todo | – |
 | EXP-10 | Export | Quick share widget / copy file | docs | reveal in Finder / drag file; no upload | ui | limited (no cloud) | – |
