@@ -1,0 +1,48 @@
+# Build output
+.build/
+build/
+dist/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+target/
+*.dSYM/
+*.app/
+
+# Local recordings, projects and exports — never commit real captures
+*.mov
+*.mp4
+*.m4a
+*.m4v
+*.wav
+*.aac
+*.caf
+*.heic
+*.yapcam/
+recordings/
+captures/
+exports/
+local/
+!Tests/Fixtures/synthetic/**
+
+# Reference material from other products stays local
+reference-local/
+*.asar
+*.screenstudio/
+
+# Secrets and credentials
+.env
+.env.*
+*.p12
+*.pem
+*.key
+*.cer
+*.mobileprovision
+*.provisionprofile
+secrets/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
