@@ -48,6 +48,11 @@ Everything in `docs/FEATURES.md` (being written by qa). First integration target
 (see `docs/briefs/common.md`).
 
 ## Blockers / limits
+- Reference analysis: REA 6.5.0 + Ghidra 12.1.4 work (native Mach-O analysis verified).
+  Screen Studio is Electron; REA's JS analysis of the full app.asar exceeded its resource
+  limit, the own-sources run (226 files) finished but its graph is truncated and yields
+  few feature-level facts. Remaining inventory relies on official docs + observation
+  (observation of the running app needs a session with screen access → morning, with user).
 - Screen-recording permission must be re-granted for the new signing identity
   (`Yapcam Dev Signing`, dedicated keychain). Until then no live capture tests.
 - No camera and no microphone on this Mac → real-device tests open.
