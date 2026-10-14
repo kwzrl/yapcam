@@ -5,6 +5,9 @@ import Foundation
 public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch }
     public var cursorStyle: CursorStyle
+    public var cursorRotationRad: Double
+    public var zoomMotionBlur: Double
+    public var panMotionBlur: Double
     public var cursorMotionBlur: Double
     public var cursorSpotlightRadius: Double
     public var backgroundNoise: Double
@@ -52,5 +55,28 @@ extension Project {
     }
     public func renderLayers(atNs: Int64) throws -> [CoreRenderLayer] {
         try query("{\"q\":\"layers_at\",\"tl_ns\":\(atNs)}", as: [CoreRenderLayer].self)
+    }
+}
+
+/// Evaluated ABI-v3 motion outputs. Binary structs retain Float; cold queries
+/// decode to Double for editor controls. Positive rotation is clockwise.
+public struct CoreFrameMotion: Decodable, Sendable, Equatable {
+    public var tlNs: Int64
+    public var cursorRotationRad: Double
+    public var cursorMotionBlur: Double
+    public var zoomMotionBlur: Double
+    public var panMotionBlur: Double
+}
+public struct CoreMusicSource: Decodable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    public var durationNs: Int64
+}
+extension Project {
+    public func motion(atNs: Int64) throws -> CoreFrameMotion {
+        try query("{\"q\":\"motion_at\",\"tl_ns\":\(atNs)}", as: CoreFrameMotion.self)
+    }
+    public func musicLibrary() throws -> [CoreMusicSource] {
+        try query("{\"q\":\"music_library\"}", as: [CoreMusicSource].self)
     }
 }

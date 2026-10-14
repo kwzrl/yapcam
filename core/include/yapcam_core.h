@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-#define YC_ABI_VERSION 2
+#define YC_ABI_VERSION 3
 
 typedef enum {
     YC_OK = 0,
@@ -103,6 +103,15 @@ typedef struct {
     YcFrameHighlight highlights[YC_MAX_FRAME_HIGHLIGHTS];
 } YcFrameExtras;
 
+// ABI v3 appends motion outputs; v1/v2 types and signatures are unchanged.
+typedef struct {
+    int64_t tl_ns;
+    float cursor_rotation_rad;
+    float cursor_motion_blur;
+    float zoom_motion_blur;
+    float pan_motion_blur;
+} YcFrameMotion;
+
 uint32_t yc_abi_version(void);
 const char *yc_last_error(void);       // thread-local, valid until next call on this thread
 void yc_string_free(char *s);
@@ -131,6 +140,8 @@ YcStatus yc_frame_at(const YcProject *p, int64_t tl_ns, YcFrame *out);
 // ABI v2 hot path: no allocation/file IO. Same time validation as yc_frame_at.
 // Call on an immutable snapshot when frame and extras must reflect one edit state.
 YcStatus yc_frame_extras_at(const YcProject *p, int64_t tl_ns, YcFrameExtras *out);
+// ABI v3 hot path: evaluated tilt and per-kind strengths, no allocation or IO.
+YcStatus yc_frame_motion_at(const YcProject *p, int64_t tl_ns, YcFrameMotion *out);
 // Read-only structured queries for UI, e.g. {"q":"clips"}, {"q":"zooms"}, {"q":"audio_ranges"}.
 YcStatus yc_query(const YcProject *p, const char *query_json, char **out_json);
 

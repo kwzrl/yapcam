@@ -54,3 +54,5 @@ pub mod input;
 pub mod spring;
 
 pub mod effects;
+
+pub mod motion;

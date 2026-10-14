@@ -94,6 +94,22 @@ fn follow_pan(mut rect: Rect, point: [f64; 2], d: f64, bounds: Rect) -> Rect {
 }
 impl Project {
     pub fn frame(&self, tl_ns: i64) -> Result<Frame> {
+        let mut frame = self.frame_geometry(tl_ns)?;
+        let c = &self.data.canvas;
+        if tl_ns > 0
+            && (c.motion_blur_settings.zoom.unwrap_or(c.motion_blur) > 0.0
+                || c.motion_blur_settings.pan.unwrap_or(c.motion_blur) > 0.0)
+            && self.same_motion_clip(tl_ns)
+        {
+            let prior = self.frame_geometry(tl_ns.saturating_sub(16_666_667).max(0))?;
+            let (zoom, pan) = crate::motion::screen_blurs(c, &frame, &prior);
+            frame.motion_blur = zoom.max(pan);
+        } else {
+            frame.motion_blur = 0.0;
+        }
+        Ok(frame)
+    }
+    pub(crate) fn frame_geometry(&self, tl_ns: i64) -> Result<Frame> {
         let (clip_i, src) = time::timeline_to_source(&self.data.timeline.clips, tl_ns)
             .ok_or_else(|| Error::new(1, "Frame time outside timeline"))?;
         let p = &self.data;
@@ -176,6 +192,7 @@ impl Project {
             },
             ..Frame::default()
         };
+        let mut zoom_camera_factor = 1.0;
         if let Some(z) = p
             .zooms
             .iter()
@@ -198,7 +215,7 @@ impl Project {
                 (z.tl_end_ns - tl_ns) as f64 / z.ease_out_ns as f64
             };
             let settings = &p.zoom_settings;
-            let physics = crate::spring::preset(&settings.speed_preset, &settings.spring);
+            let physics = crate::motion::zoom_spring(settings);
             let ramp_ns = if inside < outside {
                 z.ease_in_ns
             } else {
@@ -206,6 +223,7 @@ impl Project {
             };
             let weight =
                 crate::spring::transition(inside.min(outside), ramp_ns as f64 / 1e9, &physics);
+            zoom_camera_factor = 1.0 + (p.camera.zoom_scale - 1.0) * weight.clamp(0.0, 1.0);
             let size = 1.0 / (1.0 + (z.scale - 1.0) * weight);
             let w = c.crop[2] * size;
             let h = c.crop[3] * size;
@@ -219,7 +237,7 @@ impl Project {
                 c.crop[1],
                 c.crop[1] + (c.crop[3] - h).max(0.0),
             );
-            let mut pan_moving = false;
+
             if z.mode == "auto" && settings.follow_cursor && frame.screen.present != 0 {
                 let seg = &self.session.segments[frame.screen.segment as usize];
                 let input = &self.input[frame.screen.segment as usize];
@@ -237,28 +255,44 @@ impl Project {
                         p.y / self.session.source.content_rect_points[3],
                     ]
                 };
-                if let Some(point) = input.position(local) {
-                    let next = follow_pan(base, normalized(point), settings.dead_zone, bounds);
-                    let previous_local = (local
-                        - (16_666_667.0 * p.timeline.clips[clip_i].speed).round() as i64)
-                        .max(0);
-                    if let Some(previous) = input.position(previous_local) {
-                        let previous =
-                            follow_pan(base, normalized(previous), settings.dead_zone, bounds);
-                        pan_moving =
-                            (next.x - previous.x).abs() + (next.y - previous.y).abs() > 1e-9;
+                if let Some(point) = input.position_filtered(local, p.cursor.remove_shakes) {
+                    let mut next = follow_pan(base, normalized(point), settings.dead_zone, bounds);
+                    if settings.animation_style != "custom" {
+                        let window =
+                            (100_000_000.0 * p.timeline.clips[clip_i].speed).round() as i64;
+                        let cutoff = local.saturating_sub(window).max(0);
+                        if let Some(initial) =
+                            input.position_filtered(cutoff, p.cursor.remove_shakes)
+                        {
+                            let initial =
+                                follow_pan(base, normalized(initial), settings.dead_zone, bounds);
+                            let mut sx = initial.x;
+                            let mut sy = initial.y;
+                            let mut target = initial;
+                            let positions = input.positions_filtered(p.cursor.remove_shakes);
+                            let a = positions.partition_point(|p| p.t < cutoff);
+                            let b = positions.partition_point(|p| p.t <= local);
+                            for &event in &positions[a..b] {
+                                let next_target =
+                                    follow_pan(base, normalized(event), settings.dead_zone, bounds);
+                                let seconds =
+                                    (local - event.t) as f64 / 1e9 / p.timeline.clips[clip_i].speed;
+                                let k = crate::spring::response(seconds, &physics);
+                                sx += (next_target.x - target.x) * k;
+                                sy += (next_target.y - target.y) * k;
+                                target = next_target;
+                            }
+                            next.x =
+                                coordinate(sx, bounds.x, bounds.x + (bounds.w - base.w).max(0.0));
+                            next.y =
+                                coordinate(sy, bounds.y, bounds.y + (bounds.h - base.h).max(0.0));
+                        }
                     }
                     x = next.x;
                     y = next.y;
                 }
             }
             frame.screen_crop = Rect { x, y, w, h };
-            // Only movement receives blur; the zoom's steady plateau remains crisp.
-            frame.motion_blur = if inside < 1.0 || outside < 1.0 || pan_moving {
-                c.motion_blur as f32
-            } else {
-                0.0
-            };
         }
         let camera_aspect = if frame.camera_shape == 1 {
             1.0
@@ -308,7 +342,9 @@ impl Project {
             }
         }
         if frame.camera_dest.w == 0.0 {
-            let w = (canvas.w * camera_size).min(canvas.h * camera_aspect);
+            let w = (canvas.w * camera_size * zoom_camera_factor)
+                .min(canvas.w)
+                .min(canvas.h * camera_aspect);
             let h = (w / camera_aspect).min(canvas.h);
             frame.camera_dest = Rect {
                 x: coordinate(canvas.w * camera_pos[0] - w / 2.0, 0.0, canvas.w - w),
@@ -331,6 +367,18 @@ impl Project {
             &p.canvas.animation,
             time::duration(&p.timeline.clips),
         );
+        if p.cursor.stop_before_end_ns > 0 {
+            let stop = time::duration(&p.timeline.clips)
+                .saturating_sub(p.cursor.stop_before_end_ns)
+                .max(0);
+            if tl_ns > stop && frame.screen.present != 0 {
+                let frozen = self.frame_geometry(stop)?;
+                if frozen.screen.present != 0 {
+                    frame.cursor_x = frozen.cursor_x;
+                    frame.cursor_y = frozen.cursor_y;
+                }
+            }
+        }
         Ok(frame)
     }
     pub fn audio_gain(&self, track: &str, tl_ns: i64) -> f32 {
@@ -359,7 +407,11 @@ impl Project {
         let input = &self.input[f.screen.segment as usize];
         let local = src - seg.src_start_ns;
         let cursor = &self.data.cursor;
-        let coordinate = |t| input.position(t).map(|p| (p.x, p.y, p.t));
+        let coordinate = |t| {
+            input
+                .position_filtered(t, cursor.remove_shakes)
+                .map(|p| (p.x, p.y, p.t))
+        };
         let Some((actual_x, actual_y, last_move)) = coordinate(local) else {
             return;
         };
@@ -375,9 +427,10 @@ impl Project {
                 let mut sx = initial_x;
                 let mut sy = initial_y;
                 let mut previous = (initial_x, initial_y);
-                let a = input.positions.partition_point(|p| p.t < cutoff);
-                let b = input.positions.partition_point(|p| p.t <= local);
-                for e in &input.positions[a..b] {
+                let positions = input.positions_filtered(cursor.remove_shakes);
+                let a = positions.partition_point(|p| p.t < cutoff);
+                let b = positions.partition_point(|p| p.t <= local);
+                for e in &positions[a..b] {
                     let k = crate::spring::response((local - e.t) as f64 / 1e9, &physics);
                     sx += (e.x - previous.0) * k;
                     sy += (e.y - previous.1) * k;
@@ -396,7 +449,7 @@ impl Project {
                     let sample = time::sample(&self.session, "screen", first_src);
                     let segment = &self.session.segments[sample.segment as usize];
                     if let Some(first) = self.input[sample.segment as usize]
-                        .position(first_src - segment.src_start_ns)
+                        .position_filtered(first_src - segment.src_start_ns, cursor.remove_shakes)
                     {
                         let k = ease(1.0 - remaining as f64 / cursor.loop_duration_ns as f64);
                         x += (first.x - x) * k;
@@ -419,7 +472,11 @@ impl Project {
         f.cursor_y = cy;
         f.cursor_scale =
             (cursor.size * f.screen_dest.w / pixels_width(self) / f.screen_crop.w) as f32;
-        f.cursor_id = input.cursor(local);
+        f.cursor_id = if cursor.always_default {
+            0
+        } else {
+            input.cursor_filtered(local, cursor.optimize_types)
+        };
         let inside = cx >= f.screen_dest.x
             && cx <= f.screen_dest.x + f.screen_dest.w
             && cy >= f.screen_dest.y

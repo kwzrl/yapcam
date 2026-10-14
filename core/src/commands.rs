@@ -189,6 +189,10 @@ fn apply_inner(
                 "cursor.ranges".into(),
                 "audio.ranges".into(),
                 "canvas.highlights".into(),
+                "canvas.annotations".into(),
+                "canvas.reactions".into(),
+                "canvas.captions".into(),
+                "audio.music".into(),
             ]);
         }
         "set_speed" => {
@@ -216,6 +220,10 @@ fn apply_inner(
                 "cursor.ranges".into(),
                 "audio.ranges".into(),
                 "canvas.highlights".into(),
+                "canvas.annotations".into(),
+                "canvas.reactions".into(),
+                "canvas.captions".into(),
+                "audio.music".into(),
             ]);
         }
         "add_zoom" => {

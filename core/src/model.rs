@@ -154,6 +154,8 @@ settings!(Cursor {
     loop_duration_ns: i64 = 400_000_000,
     style: String = "recorded".into(), motion_blur: f64 = 0.0,
     spotlight_radius: f64 = 0.0, key_overlay: KeyOverlay = KeyOverlay::default(),
+    always_default: bool = false, rotate_on_move: bool = false,
+    stop_before_end_ns: i64 = 0, remove_shakes: bool = false, optimize_types: bool = false,
 });
 settings!(Spring {
     tension: f64 = 250.0,
@@ -162,6 +164,7 @@ settings!(Spring {
     allow_overshoot: bool = false
 });
 settings!(ZoomSettings {
+    animation_style: String = "custom".into(),
     automatic: bool = true,
     follow_cursor: bool = true,
     dead_zone: f64 = 0.15,
@@ -179,7 +182,7 @@ settings!(Camera {
     shape: String = "rounded_rect".into(), radius: f64 = 24.0,
     mirrored: bool = true, opacity: f64 = 1.0, layouts: Vec<Layout> = vec![],
     shadow_radius: f64 = 0.0, background_removal: bool = false,
-    face_framing: bool = false,
+    face_framing: bool = false, zoom_scale: f64 = 1.0,
 });
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Layout {
@@ -208,6 +211,7 @@ settings!(Canvas {
     inset: f64 = 0.0,
     inset_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
     motion_blur: f64 = 0.0,
+    motion_blur_settings: MotionBlurSettings = MotionBlurSettings::default(),
     crop: [f64; 4] = [0.0, 0.0, 1.0, 1.0],
     window_chrome: bool = false, highlights: Vec<Highlight> = vec![],
     animation: Animation = Animation::default(),
@@ -227,6 +231,7 @@ settings!(Highlight {
     stroke: [f32; 4] = [1.0, 0.85, 0.2, 1.0],
     stroke_width: f64 = 3.0,
 });
+settings!(MotionBlurSettings { zoom: Option<f64> = None, pan: Option<f64> = None });
 settings!(Animation {
     entrance: String = "none".into(),
     exit: String = "none".into(),

@@ -556,3 +556,172 @@ private final class ConcurrentEditCheck: @unchecked Sendable {
         #expect(try p.renderLayers(atNs: 1_300_000_000).isEmpty)
     }
 }
+
+@Test func musicImportOwnsAudioCopyAndRollsBackFailedEdit() async throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let package = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-music-test-\(UUID().uuidString).yapcam")
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-music-source-\(UUID().uuidString).wav")
+    try FileManager.default.copyItem(at: root.appendingPathComponent("Fixtures/synthetic/basic.yapcam"), to: package)
+    defer { try? FileManager.default.removeItem(at: file); try? FileManager.default.removeItem(at: package) }
+    var data = Data()
+    func append<T: FixedWidthInteger>(_ value: T) { var little = value.littleEndian; withUnsafeBytes(of: &little) { data.append(contentsOf: $0) } }
+    data.append(Data("RIFF".utf8)); append(UInt32(36 + 8_000*2)); data.append(Data("WAVEfmt ".utf8))
+    append(UInt32(16)); append(UInt16(1)); append(UInt16(1)); append(UInt32(8_000)); append(UInt32(16_000)); append(UInt16(2)); append(UInt16(16))
+    data.append(Data("data".utf8)); append(UInt32(8_000*2))
+    for n in 0..<8_000 { append(Int16(sin(Double(n)*2 * .pi*440/8_000)*2_000)) }
+    try data.write(to: file)
+    let p = try Project.create(package: package)
+    let change = try await p.importMusic(file, endNs: 5_000_000_000)
+    #expect(change.createdIDs.count == 2)
+    let track = try p.musicTracks()[0]
+    #expect(track.fileDurationNs == 1_000_000_000)
+    #expect(track.path.hasPrefix("assets/music-"))
+    #expect(try Data(contentsOf: package.appendingPathComponent(track.path)) == data)
+    #expect(try Data(contentsOf: file) == data)
+    try p.undo()
+    #expect(try p.musicTracks().isEmpty)
+    try p.redo()
+    #expect(try p.musicTracks()[0].path == track.path)
+    do { try await p.importMusic(file, startNs: 1_000_000_000, endNs: 0); Issue.record("Invalid music range was accepted") }
+    catch CoreError.status { }
+    let files = try FileManager.default.contentsOfDirectory(atPath: package.appendingPathComponent("assets").path)
+    #expect(files.count == 1)
+    #expect(try p.musicTracks().count == 1)
+    try p.save()
+    #expect(try Project.open(package: package).musicTracks() == p.musicTracks())
+}
+
+private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
+    try withFixture { package in
+        let events = """
+        {"t":0,"type":"cursor","id":5}
+        {"t":0,"type":"move","x":100,"y":100}
+        {"t":100000000,"type":"move","x":100.25,"y":100}
+        {"t":200000000,"type":"move","x":99.75,"y":100}
+        {"t":300000000,"type":"move","x":100.2,"y":100}
+        {"t":400000000,"type":"move","x":200,"y":100}
+        {"t":500000000,"type":"move","x":200,"y":100}
+        {"t":550000000,"type":"cursor","id":6}
+        {"t":570000000,"type":"cursor","id":5}
+        {"t":600000000,"type":"cursor","id":7}
+        {"t":700000000,"type":"cursor","id":7}
+        """
+        try Data(events.utf8).write(to: package.appendingPathComponent("recording/seg-000/events.jsonl"))
+        return try body(package)
+    }
+}
+
+@Test func guideCursorOptionsAndMotionABIAreDeterministic() throws {
+    try withGuideCursorFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.set(path: "cursor.smoothing", value: .number(0)))
+        let first = try p.frame(atNs: 0)
+        #expect(first.cursor_id == 5)
+        try p.apply(.batch([
+            .set(path: "cursor.remove_shakes", value: .bool(true)),
+            .set(path: "cursor.optimize_types", value: .bool(true)),
+            .set(path: "cursor.rotate_on_move", value: .bool(true)),
+            .set(path: "cursor.motion_blur", value: .number(0.7))
+        ]))
+        #expect(try p.frame(atNs: 100_000_000).cursor_x == first.cursor_x)
+        #expect(try p.frame(atNs: 300_000_000).cursor_x == first.cursor_x)
+        #expect(try p.frame(atNs: 560_000_000).cursor_id == 5)
+        #expect(try p.frame(atNs: 680_000_000).cursor_id == 7)
+        let motion = try p.frameMotion(atNs: 350_000_000)
+        #expect(abs(motion.cursor_rotation_rad - Float.pi / 12) < 1e-6)
+        #expect(motion.cursor_motion_blur == 0.7)
+        let typed = try p.motion(atNs: 350_000_000)
+        #expect(abs(typed.cursorRotationRad - Double(motion.cursor_rotation_rad)) < 1e-7)
+        #expect(try p.effects(atNs: 350_000_000).renderOptions.cursorRotationRad == typed.cursorRotationRad)
+        #expect(try p.frameMotion(atNs: 500_000_000).cursor_rotation_rad == 0)
+        let snap = try p.snapshot()
+        for t: Int64 in [700_000_000, 0, 350_000_000, 500_000_000] {
+            #expect(try p.motion(atNs: t) == snap.motion(atNs: t))
+        }
+        try p.apply(.set(path: "cursor.always_default", value: .bool(true)))
+        #expect(try p.frame(atNs: 700_000_000).cursor_id == 0)
+        #expect(try p.frameExtras(atNs: 700_000_000).cursor_style == 1)
+        #expect(try p.renderOptions().cursorStyle == .pointer)
+        try p.undo()
+        #expect(try p.frame(atNs: 700_000_000).cursor_id == 7)
+        #expect(throws: CoreError.self) { try p.frameMotion(atNs: -1) }
+        #expect(throws: CoreError.self) { try p.frameMotion(atNs: 5_000_000_001) }
+        #expect(MemoryLayout<YcFrameMotion>.size == 24)
+        #expect(MemoryLayout<YcFrameMotion>.alignment == 8)
+        #expect(MemoryLayout<YcFrame>.size == 328 && MemoryLayout<YcFrameExtras>.size == 2600)
+        #expect(yc_frame_motion_at(nil, 0, nil) == YC_ERR_INVALID_ARGUMENT)
+        try p.save()
+        #expect(try Project.open(package: package).motion(atNs: 350_000_000) == p.motion(atNs: 350_000_000))
+    }
+}
+
+@Test func cursorTailHoldRecomputesOnCutsAndSupportsLongInt64Settings() throws {
+    try withGuideCursorFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.set(path: "cursor.smoothing", value: .number(0)))
+        try p.apply(.set(path: "cursor.stop_before_end_ns", value: .integer(4_700_000_000)))
+        let stop = try p.frame(atNs: 300_000_000)
+        for t: Int64 in [5_000_000_000, 700_000_000, 400_000_000] {
+            #expect(try p.frame(atNs: t).cursor_x == stop.cursor_x)
+            #expect(try p.frameMotion(atNs: t).cursor_rotation_rad == 0)
+        }
+        try p.apply(.deleteRange(startNs: 1_000_000_000, endNs: 2_000_000_000))
+        #expect(try p.frame(atNs: 3_000_000_000).cursor_x == p.frame(atNs: 0).cursor_x)
+        try p.undo()
+        #expect(try p.frame(atNs: 700_000_000).cursor_x == stop.cursor_x)
+        try p.apply(.set(path: "cursor.stop_before_end_ns", value: .integer(9_007_199_254_740_993)))
+        #expect(try p.frame(atNs: 700_000_000).cursor_x == p.frame(atNs: 0).cursor_x)
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "cursor.stop_before_end_ns", value: .integer(-1))) }
+    }
+}
+
+@Test func screenMotionPresetsPerKindBlurAndOriginalMusicLibrary() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.addZoom(ZoomSpec(startNs: 0, endNs: 2_000_000_000, easeInNs: 500_000_000, easeOutNs: 500_000_000)))
+        try p.apply(.set(path: "zoom_settings.animation_style", value: .string("focused")))
+        let focused = try p.frame(atNs: 200_000_000).screen_crop.w
+        try p.apply(.set(path: "zoom_settings.animation_style", value: .string("smooth")))
+        #expect(try p.frame(atNs: 200_000_000).screen_crop.w != focused)
+        try p.apply(.batch([
+            .set(path: "canvas.motion_blur_settings.zoom", value: .number(0.6)),
+            .set(path: "canvas.motion_blur_settings.pan", value: .number(0)),
+            .set(path: "camera.zoom_scale", value: .number(1.5))
+        ]))
+        #expect(try p.frameMotion(atNs: 200_000_000).zoom_motion_blur == 0.6)
+        #expect(try p.frame(atNs: 200_000_000).motion_blur == 0.6)
+        #expect(try p.frameMotion(atNs: 1_000_000_000).zoom_motion_blur == 0)
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "camera.zoom_scale", value: .number(5))) }
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "zoom_settings.animation_style", value: .string("missing"))) }
+        let library = try p.musicLibrary()
+        #expect(library.map(\.id) == ["calm", "bright"])
+        #expect(library.allSatisfy { $0.durationNs == 8_000_000_000 })
+        try p.save()
+        #expect(try Project.open(package: package).frameMotion(atNs: 200_000_000).zoom_motion_blur == 0.6)
+    }
+}
+
+@Test func prereleaseProjectMigrationKeepsMediaClocksAndAddsGuideDefaults() throws {
+    try withFixture { package in
+        let original = try Project.create(package: package)
+        var legacy = try JSONSerialization.jsonObject(with: original.toJSON()) as! [String: Any]
+        let media = legacy["media"] as! [[String: Any]]
+        let clips = legacy["timeline"] as! [String: Any]
+        legacy["schema_version"] = 0
+        for field in ["cursor", "camera", "canvas", "zoom_settings", "audio", "notes", "autosave"] { legacy.removeValue(forKey: field) }
+        try JSONSerialization.data(withJSONObject: legacy).write(to: package.appendingPathComponent("project.json"))
+        let migrated = try Project.open(package: package)
+        #expect(migrated.durationNs == original.durationNs)
+        #expect(try migrated.frame(atNs: 700_000_000).screen.src_ns == original.frame(atNs: 700_000_000).screen.src_ns)
+        #expect(try migrated.renderOptions().cursorStyle == .recorded)
+        #expect(try migrated.frameMotion(atNs: 700_000_000).cursor_rotation_rad == 0)
+        let json = try JSONSerialization.jsonObject(with: migrated.toJSON()) as! [String: Any]
+        #expect(json["schema_version"] as? Int == 1)
+        #expect(NSDictionary(dictionary: json["timeline"] as! [String: Any]) == NSDictionary(dictionary: clips))
+        #expect(NSArray(array: json["media"] as! [[String: Any]]) == NSArray(array: media))
+        #expect((json["camera"] as? [String: Any])?["zoom_scale"] as? Double == 1)
+        #expect((json["cursor"] as? [String: Any])?["always_default"] as? Bool == false)
+        try migrated.save()
+        #expect(try Project.open(package: package).toJSON() == migrated.toJSON())
+    }
+}

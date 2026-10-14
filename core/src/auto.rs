@@ -188,6 +188,10 @@ pub fn speed_typing(
         "cursor.ranges".into(),
         "audio.ranges".into(),
         "canvas.highlights".into(),
+        "canvas.annotations".into(),
+        "canvas.reactions".into(),
+        "canvas.captions".into(),
+        "audio.music".into(),
     ]);
     Ok(())
 }

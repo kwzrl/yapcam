@@ -163,7 +163,11 @@ impl Project {
         let (camera_remove, camera_face, camera_shadow) = crate::effects::camera_options(p, tl_ns);
         let mut extras = FrameExtras {
             tl_ns,
-            cursor_style: match p.cursor.style.as_str() {
+            cursor_style: match if p.cursor.always_default {
+                "pointer"
+            } else {
+                p.cursor.style.as_str()
+            } {
                 "pointer" => 1,
                 "touch" => 2,
                 _ => 0,

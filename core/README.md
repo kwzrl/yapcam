@@ -236,3 +236,66 @@ It returns `[{"tl_start_ns":...,"tl_end_ns":...}]`, clipped to retained source m
 and sorted/merged on the edited timeline. Paths must refer to the chosen session
 track; intervals must be nonnegative Int64 with strictly greater ends. File ranges
 beyond the segment produce no retained interval. No project/history mutation occurs.
+
+
+## Additive backlog effects
+
+REC-21 notes persist as a UTF-8 string through set/undo/redo/journal/save. The
+explicit field/path contract and all new paths/queries were documented first in
+FORMATS.md. Schema and ABI versions remain 1 and 2; old projects default to empty
+collections and disabled new effects. Existing frame/extras structs stay fixed.
+
+Canvas annotations/reactions/captions are timeline text records with normalized
+source/canvas rects and styles. add/update/remove_annotation/reaction/caption edit
+them; Swift exposes add/update/removeText. import_transcript consumes Capture's
+schema-1 RecordingTranscript words and maps their exact source intersections to
+current timeline caption segments, preserving cuts/speeds/repeated clips. Each
+import is one transaction/undo step. All effects retime under cut/speed/auto typing.
+
+Audio music records reference registered package media or original Render calm/
+bright loops, with gain, fades, looping and explicit/caption-inferred duck activity.
+Audio click_sound selects enabled original soft/crisp sounds at edited click times.
+audio_overlays evaluates split gain envelopes with crossing corners; effects_at
+includes exact-time gain_at and layers/options. Assets remain available for redo;
+Swift importMusic validates/copies/registers/adds in one edit and cleans failed copies.
+Existing asset directories support repeated music/image imports.
+
+Opt-in cursor.key_overlay renders latest eligible captured key/modifiers. New
+intro/outro zoom/slide modes transform primary frame geometry without allocation
+or renderer tweening. Camera layouts can override existing Vision/shadow options;
+frame_extras, render_options_at and effects_at agree at each time. layers_at now
+returns text + separate styled backgrounds in defined order before the final fade.
+Text payloads and music descriptions cross allocated JSON queries, never pixels or
+new ABI fields. Swift effects(atNs:) returns a matched layers/options/audio state.
+Render adapters own text drawing, external audio decoding/mix and Vision processing;
+Core status records their integration requirements and native-host checks.
+
+
+## Guide audit: cursor and motion (ABI v3)
+
+CUR-12..16 add forced system pointer, velocity tilt, cursor tail hold, shake
+suppression and cursor-type debounce. InputCache builds immutable 1-point-filtered
+position and 80ms-stable type indexes once when events load. The toggles switch
+index views; original event/snapping data remains unchanged. Tail hold samples the
+edited duration minus the requested ns; stops dominate loop-to-start during the
+tail. ANI-02 focused/smooth presets override zoom/pan springs analytically;
+ANI-03 per-kind zoom/pan blur settings inherit the legacy strength when null.
+CAM-07 scales overlay camera size with evaluated zoom progress; full/side-by-side
+layouts retain their fitted regions. Disabled/default fields preserve prior behavior.
+
+ABI version 3 adds YcFrameMotion (24 bytes) and yc_frame_motion_at; old frame 328
+and extras 2600 layouts are unchanged. Motion returns signed bounded cursor tilt
+and active cursor/zoom/pan strengths with no allocation/IO/mutation, and suppresses
+velocity trails across clip boundaries. Legacy frame.motion_blur uses the same
+screen-movement math. Every one of 19 C exports has panic-injection coverage.
+The motion read also completes with zero allocations while durable apply/undo/
+redo/save IO is paused outside project locks. Cold motion_at/render_options_at/
+effects_at expose the same math; Swift frameMotion/motion bridge both surfaces.
+Original procedural music_library descriptors match Render's calm/bright loops.
+
+Full paths/defaults/queries were documented before implementation in FORMATS.md;
+Swift signatures/layouts in SWIFT_API.md. Tests exercise repeat/backward seeks,
+cuts, undo/save/reopen, zero allocation, layout/clamp bounds, type-flicker and jitter
+fixtures, long Int64 tail settings, and prerelease schema migration with unchanged
+media/clocks. Cursor tilt/per-kind rendering and UI controls remain integration
+work for Render/Editor; actual hardware pixel checks are separate from model proof.

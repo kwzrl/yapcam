@@ -13,7 +13,7 @@ extension Project {
         let directory = packageURL.appendingPathComponent("assets")
         let root = packageURL.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         guard directory.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(root) else { throw CoreError.status(1, "Asset directory escapes package") }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // ImageIO detects encoding from bytes; this package-local filename is stable
         // even when the imported file has an unusual or absent extension.
         let relative = "assets/background-\(UUID().uuidString).image"

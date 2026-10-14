@@ -292,31 +292,81 @@ fn activity<'a>(p: &'a ProjectData, m: &'a MusicTrack) -> Vec<(i64, i64)> {
             .collect()
     }
 }
+fn range_duck_db(m: &MusicTrack, t: i64, (a, b): (i64, i64)) -> f64 {
+    if t < a {
+        0.0
+    } else if t < b {
+        if m.ducking.attack_ns == 0 {
+            m.ducking.gain_db
+        } else {
+            m.ducking.gain_db * ((t - a) as f64 / m.ducking.attack_ns as f64).min(1.0)
+        }
+    } else if m.ducking.release_ns > 0 && t - b < m.ducking.release_ns {
+        let peak = if m.ducking.attack_ns == 0 {
+            1.0
+        } else {
+            ((b - a) as f64 / m.ducking.attack_ns as f64).min(1.0)
+        };
+        m.ducking.gain_db * peak * (1.0 - (t - b) as f64 / m.ducking.release_ns as f64)
+    } else {
+        0.0
+    }
+}
 fn duck_db(m: &MusicTrack, t: i64, ranges: &[(i64, i64)]) -> f64 {
     ranges
         .iter()
-        .map(|&(a, b)| {
-            if t < a {
-                0.0
-            } else if t < b {
-                if m.ducking.attack_ns == 0 {
-                    m.ducking.gain_db
-                } else {
-                    m.ducking.gain_db * ((t - a) as f64 / m.ducking.attack_ns as f64).min(1.0)
-                }
-            } else if m.ducking.release_ns > 0 && t - b < m.ducking.release_ns {
-                m.ducking.gain_db
-                    * if m.ducking.attack_ns == 0 {
-                        1.0
-                    } else {
-                        ((b - a) as f64 / m.ducking.attack_ns as f64).min(1.0)
-                    }
-                    * (1.0 - (t - b) as f64 / m.ducking.release_ns as f64)
-            } else {
-                0.0
-            }
-        })
+        .map(|&r| range_duck_db(m, t, r))
         .fold(0.0, f64::min)
+}
+/// Minima of overlapping release/attack lines can cross between the ordinary
+/// range boundaries. A lower envelope hull adds those corners, so consumers can
+/// interpolate endpoint gains in dB without approximating overlapping speech.
+fn envelope_corners(m: &MusicTrack, ranges: &[(i64, i64)], points: &mut Vec<i64>) {
+    let base = points.clone();
+    for pair in base.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        if b - a <= 1 {
+            continue;
+        }
+        let mut lines = vec![(0.0, 0.0)];
+        for &r in ranges {
+            if a >= r.1.saturating_add(m.ducking.release_ns) || b <= r.0 {
+                continue;
+            }
+            let y0 = range_duck_db(m, a, r);
+            let y1 = range_duck_db(m, b - 1, r);
+            lines.push((y1 - y0, y0));
+        }
+        lines.sort_by(|x, y| y.0.total_cmp(&x.0).then(x.1.total_cmp(&y.1)));
+        let mut hull: Vec<(f64, f64, f64)> = vec![];
+        for (slope, offset) in lines {
+            if hull.last().is_some_and(|l| l.0 == slope) {
+                continue;
+            }
+            let mut start = f64::NEG_INFINITY;
+            while let Some(&(last_slope, last_offset, last_start)) = hull.last() {
+                start = (offset - last_offset) / (last_slope - slope);
+                if start > last_start {
+                    break;
+                }
+                hull.pop();
+            }
+            if hull.is_empty() {
+                start = f64::NEG_INFINITY;
+            }
+            hull.push((slope, offset, start));
+        }
+        for (_, _, fraction) in hull {
+            if fraction > 0.0 && fraction < 1.0 {
+                let at = a.saturating_add(((b - a - 1) as f64 * fraction).round() as i64);
+                if at > a && at < b {
+                    points.push(at);
+                }
+            }
+        }
+    }
+    points.sort_unstable();
+    points.dedup();
 }
 fn amp(db: f64) -> f64 {
     10_f64.powf(db / 20.0)
@@ -351,6 +401,7 @@ impl Project {
             }
             points.sort_unstable();
             points.dedup();
+            envelope_corners(m, &ranges, &mut points);
             for pair in points.windows(2) {
                 let (a, b) = (pair[0], pair[1]);
                 let elapsed = a - m.tl_start_ns;
@@ -418,10 +469,10 @@ impl Project {
             active.push(row);
         }
         Ok(
-            json!({"layers":self.layers_at(tl)?,"render_options":self.render_options(Some(tl)),"audio":active}),
+            json!({"layers":self.layers_at(tl)?,"render_options":self.render_options(Some(tl))?,"audio":active}),
         )
     }
-    pub fn render_options(&self, tl: Option<i64>) -> Value {
+    pub fn render_options(&self, tl: Option<i64>) -> Result<Value> {
         let p = &self.data;
         let (remove, face, shadow) = tl.map_or(
             (
@@ -431,7 +482,26 @@ impl Project {
             ),
             |t| camera_options(p, t),
         );
-        json!({"cursor_style":p.cursor.style,"cursor_motion_blur":p.cursor.motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow})
+        let motion = match tl {
+            Some(t) => self.frame_motion(t)?,
+            None => crate::motion::FrameMotion {
+                cursor_motion_blur: p.cursor.motion_blur as f32,
+                zoom_motion_blur: p
+                    .canvas
+                    .motion_blur_settings
+                    .zoom
+                    .unwrap_or(p.canvas.motion_blur) as f32,
+                pan_motion_blur: p
+                    .canvas
+                    .motion_blur_settings
+                    .pan
+                    .unwrap_or(p.canvas.motion_blur) as f32,
+                ..crate::motion::FrameMotion::default()
+            },
+        };
+        Ok(
+            json!({"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
+        )
     }
 }
 
@@ -769,5 +839,88 @@ mod tests {
         assert!(p
             .query(&json!({"q":"render_options_at","tl_ns":0.5}))
             .is_err());
+    }
+}
+
+#[cfg(test)]
+mod envelope_regressions {
+    use super::*;
+    use crate::project::tests::Fixture;
+    #[test]
+    fn overlapping_short_speech_envelopes_preserve_corners_and_continuity() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.apply(&json!({"op":"add_music","record":{"source":"calm","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"gain_db":0,"fade_in_ns":0,"fade_out_ns":0,"ducking":{"enabled":true,"gain_db":-20,"attack_ns":200_000_000,"release_ns":400_000_000,"ranges":[{"tl_start_ns":1_000_000_000,"tl_end_ns":1_100_000_000},{"tl_start_ns":1_200_000_000,"tl_end_ns":1_500_000_000}]}}})).unwrap();
+        let m = &p.data.audio.music[0];
+        let ranges = activity(&p.data, m);
+        assert!(
+            (duck_db(m, 1_100_000_000, &ranges) - duck_db(m, 1_099_999_999, &ranges)).abs() < 1e-6
+        );
+        let rows = p.audio_overlays().unwrap();
+        assert!(rows.as_array().unwrap().iter().any(|r| {
+            let a = r["tl_start_ns"].as_i64().unwrap();
+            a > 1_200_000_000 && a < 1_400_000_000
+        }));
+        for t in (1_000_000_000..1_950_000_000).step_by(1_000_000) {
+            let actual = p.effects_at(t).unwrap()["audio"][0]["gain_at"]
+                .as_f64()
+                .unwrap();
+            let expected = amp(duck_db(m, t, &ranges));
+            assert!(
+                (actual - expected).abs() < 1e-7,
+                "at {t}: {actual} != {expected}"
+            );
+        }
+        // Caption-inferred speech is the same as explicit ranges; no transcript
+        // means no guessed voice activity, and short ranges release smoothly.
+        p.data.audio.music[0].ducking.ranges.clear();
+        assert_eq!(
+            p.effects_at(1_250_000_000).unwrap()["audio"][0]["gain_at"],
+            json!(1.0)
+        );
+        p.apply(&json!({"op":"add_caption","record":{"text":"hello","tl_start_ns":1_000_000_000,"tl_end_ns":1_100_000_000}})).unwrap();
+        assert!(
+            p.effects_at(1_150_000_000).unwrap()["audio"][0]["gain_at"]
+                .as_f64()
+                .unwrap()
+                < 1.0
+        );
+    }
+    #[test]
+    fn invalid_transcript_rejected_even_when_timeline_is_empty() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.data.timeline.clips.clear();
+        for bad_word in [
+            json!({"text":"hello","src_start_ns":0,"src_end_ns":1,"confidence":2}),
+            json!({"text":" ","src_start_ns":0,"src_end_ns":1}),
+            json!({"text":"hello","src_start_ns":0.5,"src_end_ns":1}),
+        ] {
+            let before = p.data.clone();
+            assert!(p.apply(&json!({"op":"import_transcript","transcript":{"schema_version":1,"words":[bad_word]}})).is_err());
+            assert_eq!(p.data, before);
+        }
+    }
+    #[test]
+    fn source_text_geometry_matches_crop_zoom_and_scene_animation() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"canvas.crop","value":[0.1,0.1,0.7,0.7]},{"op":"set","path":"canvas.animation.entrance","value":"slide_left"},{"op":"add_annotation","record":{"text":"source","space":"source","rect":[0.1,0.1,0.7,0.7]}},{"op":"add_reaction","record":{"text":"fixed","rect":[0.1,0.1,0.7,0.7]}}]})).unwrap();
+        let f = p.frame(0).unwrap();
+        let rows = p.layers_at(0).unwrap();
+        let source = &rows[1]["rect"];
+        let canvas = &rows[3]["rect"];
+        assert_eq!(
+            *source,
+            json!([
+                f.screen_dest.x,
+                f.screen_dest.y,
+                f.screen_dest.w,
+                f.screen_dest.h
+            ])
+        );
+        assert_eq!(*canvas, json!([192.0, 108.0, 1344.0, 756.0]));
+        assert!(source[0].as_f64().unwrap() < 0.0);
+        assert_eq!(p.frame_extras(0).unwrap().fade_opacity, 0.0);
     }
 }

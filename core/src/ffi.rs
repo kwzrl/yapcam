@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
 
-pub const YC_ABI_VERSION: u32 = 2;
+pub const YC_ABI_VERSION: u32 = 3;
 
 thread_local! {
     static LAST_ERROR: RefCell<CString> = RefCell::new(CString::default());
@@ -401,6 +401,26 @@ pub unsafe extern "C" fn yc_frame_extras_at(
     })
 }
 /// # Safety
+/// `p` must be live and `out` writable/aligned for FrameMotion, without a racing
+/// free. Null pointers return an argument error. Errors do not touch the output.
+#[no_mangle]
+pub unsafe extern "C" fn yc_frame_motion_at(
+    p: *const YcProject,
+    tl_ns: i64,
+    out: *mut crate::motion::FrameMotion,
+) -> i32 {
+    boundary(|| {
+        output(
+            out,
+            handle(p)?
+                .inner
+                .read()
+                .map_err(|_| Error::new(99, "Poisoned project"))?
+                .frame_motion(tl_ns)?,
+        )
+    })
+}
+/// # Safety
 /// Non-null arguments must be valid for the call, outputs writable, and strings
 /// NUL-terminated UTF-8. Handles must belong to this library and must not race free.
 /// Returned strings/handles transfer ownership; free them with this library.
@@ -450,6 +470,7 @@ mod tests {
         let mut duration = 0;
         let mut frame = crate::frame::Frame::default();
         let mut extras = crate::layers::FrameExtras::default();
+        let mut motion = crate::motion::FrameMotion::default();
         let mut covered = BTreeSet::new();
         macro_rules! probe {
             ($name:ident, $call:expr, $expected:expr) => {{
@@ -511,6 +532,11 @@ mod tests {
             probe!(
                 yc_frame_extras_at,
                 yc_frame_extras_at(p, 0, &mut extras),
+                99
+            );
+            probe!(
+                yc_frame_motion_at,
+                yc_frame_motion_at(p, 0, &mut motion),
                 99
             );
             probe!(yc_query, yc_query(p, query.as_ptr(), &mut text), 99);
@@ -598,11 +624,16 @@ mod tests {
             let reader = thread::spawn(move || {
                 let mut f = crate::frame::Frame::default();
                 let mut extras = crate::layers::FrameExtras::default();
+                let mut motion = crate::motion::FrameMotion::default();
                 let allocations = crate::allocation_test::count(|| {
                     for _ in 0..100 {
                         assert_eq!(unsafe { yc_frame_at(Arc::as_ptr(&reader_h), 0, &mut f) }, 0);
                         assert_eq!(
                             unsafe { yc_frame_extras_at(Arc::as_ptr(&reader_h), 0, &mut extras) },
+                            0
+                        );
+                        assert_eq!(
+                            unsafe { yc_frame_motion_at(Arc::as_ptr(&reader_h), 1, &mut motion) },
                             0
                         );
                     }

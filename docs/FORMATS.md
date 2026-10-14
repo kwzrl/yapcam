@@ -255,7 +255,8 @@ interpolate in dB between gain_start/gain_end rather than hold legacy gain const
 
 ## C ABI version 2: frame extras
 
-YC_ABI_VERSION and yc_abi_version() are 2. Schema version remains 1. All existing
+YC_ABI_VERSION and yc_abi_version() are now 3 (motion extension below). Schema
+version remains 1; these ABI-v2 extras retain their layout. All existing
 YcFrame fields and signatures retain their v1 layout (328 bytes on arm64 macOS).
 `yc_frame_extras_at(project, tl_ns, &extras)` fills the separate YcFrameExtras
 defined in core/include/yapcam_core.h. Successful evaluation allocates nothing,
@@ -418,3 +419,82 @@ and returns sorted merged `{tl_start_ns,tl_end_ns}` intervals. It maps every ret
 file occurrence through clips, track offsets and speeds without IO or mutation.
 Presets omit annotations, reactions, captions, music and duck activity ranges,
 as well as existing project-specific collections.
+
+## Guide audit: cursor, screen motion and camera zoom (Core contracts)
+
+Additive schema-1 fields default to prior behavior. `set` accepts each listed path,
+including whole `canvas.motion_blur_settings` objects. All edits are undoable,
+journaled, validated and included in portable presets. Arrays and recorded events
+are unchanged. No invented reference option values: defaults/thresholds below are
+Yapcam choices; implementation/checkpoint progress is in Core status.
+
+| New set path | Type / limits / default |
+|---|---|
+| `cursor.always_default` | bool, false; force pointer style and cursor_id=0 |
+| `cursor.rotate_on_move` | bool, false; evaluated tilt up to ±15° |
+| `cursor.stop_before_end_ns` | nonnegative Int64 ns, 0 (off) |
+| `cursor.remove_shakes` | bool, false; suppress displacements under 1 captured point |
+| `cursor.optimize_types` | bool, false; debounce recorded cursor type changes by 80ms |
+| `zoom_settings.animation_style` | custom / focused / smooth, custom |
+| `camera.zoom_scale` | 0.25…4, 1; overlay size multiplier at full zoom |
+| `canvas.motion_blur_settings` | object `{zoom:null,pan:null}` |
+| `canvas.motion_blur_settings.zoom` | null inherits canvas.motion_blur, or 0…1 |
+| `canvas.motion_blur_settings.pan` | null inherits canvas.motion_blur, or 0…1 |
+
+CUR-12 `always_default` wins over recorded/touch style and suppresses recorded
+cursor IDs. CUR-13 tilt uses evaluated horizontal canvas displacement over the
+previous 16,666,667 timeline ns, clamped at ±15° for ±600 canvas pixels/second.
+Invisible or stopped cursors have zero tilt; backward seeks are stateless.
+
+CUR-14 holds the cursor's canvas hotspot from `max(0,duration-stop_before_end_ns)`
+through the endpoint. Visibility and click effects still evaluate at the current
+time. Zero disables; a duration longer than the video holds its initial hotspot.
+Loop-to-start runs before the hold point is sampled; stopping wins during the tail.
+Cuts/speeds recompute the hold time from the edited duration; no event/media edits.
+
+CUR-15 uses a cold-built positional index: each captured coordinate within 1 point
+of the last accepted coordinate keeps that anchor; larger displacements advance
+it. Original timestamps/interpolation are retained so removing jitters does not
+introduce motion before the next captured sample interval. The same filtered
+positions feed cursor smoothing, loop-to-start and automatic follow-pan. Events
+and click positions remain original; no changes to snapping or recorded data.
+CUR-16 retains a cursor type until a replacement survives 80ms in source time;
+shorter flickers are removed. The initial type is accepted immediately. The indexes
+are built when event data loads and reused; toggles need no IO or frame allocation.
+
+ANI-02 custom retains the existing speed_preset/custom spring. Focused selects
+(tension=500,friction=45,mass=1,allow_overshoot=false); smooth selects
+(160,22,1,false). Both zoom transitions and follow-pan use that effective spring.
+Follow-pan eases analytically over the previous 100ms timeline window so seek and
+export use identical motion without mutable simulation state. Mode changes do
+not rewrite existing explicit springs or zoom ease durations. Per-kind blur gates
+zoom strength on crop/destination-scale changes, pan strength on crop/destination-center changes, and the
+existing cursor.motion_blur strength on cursor movement. Legacy frame.motion_blur
+is the maximum active zoom/pan strength; static plateaus are sharp.
+
+CAM-07 camera.zoom_scale blends from 1 to the configured factor with the actual
+zoom crop progress, including crop and instant zoom. It applies to overlay camera
+layouts; full-camera and side-by-side layouts retain their explicit fitted areas.
+Overlay position remains the configured center with robust canvas clamping.
+
+New query `{"q":"motion_at","tl_ns":<integer>}` returns
+`{tl_ns,cursor_rotation_rad,cursor_motion_blur,zoom_motion_blur,pan_motion_blur}`.
+Time validation matches frame_at; negative, empty or after-duration clocks fail.
+Motion across a clip boundary is suppressed so cuts cannot create a velocity trail.
+`render_options_at` and `effects_at.render_options` append cursor_rotation_rad,
+zoom_motion_blur, pan_motion_blur and evaluated cursor_motion_blur. Parameterless
+render_options supplies zero rotation and configured strengths for old consumers.
+`music_library` returns original procedural source descriptors:
+`[{id:"calm",name:"Calm",duration_ns:8000000000},
+{id:"bright",name:"Bright",duration_ns:8000000000}]`; audio.music.source accepts
+these IDs. No external/reference samples are bundled or read.
+
+ABI v3 appends `YcFrameMotion` and `yc_frame_motion_at`; YcFrame remains 328 bytes
+and YcFrameExtras remains 2600 bytes. YcFrameMotion is 24 bytes/alignment 8:
+int64 tl_ns + four float fields cursor_rotation_rad, cursor_motion_blur,
+zoom_motion_blur, pan_motion_blur. Successful evaluation allocates nothing, reads
+no files and mutates nothing. Errors leave output unchanged. Every entry point
+has the same top-level unwind containment guarantee; snapshots match frame,
+extras and motion at a time. ABI_VERSION becomes 3; all old signatures/layouts
+remain valid. Renderer must opt into tilt/per-kind motion evaluation; no pixels
+cross C. Swift adds Project.frameMotion(atNs:) and typed motion(atNs:).

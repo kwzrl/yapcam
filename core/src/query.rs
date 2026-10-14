@@ -124,9 +124,18 @@ impl Project {
             "annotations" => Ok(serde_json::to_value(&self.data.canvas.annotations)?),
             "reactions" => Ok(serde_json::to_value(&self.data.canvas.reactions)?),
             "captions" => Ok(serde_json::to_value(&self.data.canvas.captions)?),
+            "music_library" => Ok(
+                json!([{"id":"calm","name":"Calm","duration_ns":8_000_000_000_i64},{"id":"bright","name":"Bright","duration_ns":8_000_000_000_i64}]),
+            ),
+            "motion_at" => {
+                let tl = query["tl_ns"]
+                    .as_i64()
+                    .ok_or_else(|| Error::new(1, "Missing integer tl_ns"))?;
+                Ok(serde_json::to_value(self.frame_motion(tl)?)?)
+            }
             "music" => Ok(serde_json::to_value(&self.data.audio.music)?),
             "audio_overlays" => self.audio_overlays(),
-            "render_options" => Ok(self.render_options(None)),
+            "render_options" => self.render_options(None),
             "effects_at" | "render_options_at" => {
                 let tl = query["tl_ns"]
                     .as_i64()
@@ -135,7 +144,7 @@ impl Project {
                     self.effects_at(tl)
                 } else {
                     self.frame(tl)?;
-                    Ok(self.render_options(Some(tl)))
+                    self.render_options(Some(tl))
                 }
             }
             "layers_at" => {

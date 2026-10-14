@@ -15,7 +15,7 @@ extension Project {
         let directory = packageURL.appendingPathComponent("assets")
         let root = packageURL.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         guard directory.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(root) else { throw CoreError.status(1, "Music asset directory escapes package") }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let suffix = file.pathExtension.isEmpty ? "audio" : file.pathExtension.lowercased()
         let relative = "assets/music-\(UUID().uuidString).\(suffix)"
         let staged = packageURL.appendingPathComponent(relative)

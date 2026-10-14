@@ -259,6 +259,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     let cur = &p.cursor;
     if !(0.1..=10.0).contains(&cur.size)
         || !(0.0..=1.0).contains(&cur.smoothing)
+        || cur.stop_before_end_ns < 0
         || cur.idle_timeout_ns < 0
         || cur.click_duration_ns <= 0
         || !matches!(cur.click_effect.as_str(), "none" | "ring" | "highlight")
@@ -274,6 +275,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         || !(0.0..=16384.0).contains(&cam.radius)
         || !(0.0..=1.0).contains(&cam.opacity)
         || !matches!(cam.shape.as_str(), "rounded_rect" | "circle" | "squircle")
+        || !(0.25..=4.0).contains(&cam.zoom_scale)
         || !(0.0..=16384.0).contains(&cam.shadow_radius)
     {
         return invalid("Invalid camera settings");
@@ -298,6 +300,19 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         || !(-96.0..=24.0).contains(&p.audio.system_gain_db)
     {
         return invalid("Invalid audio gain");
+    }
+    if !matches!(
+        p.zoom_settings.animation_style.as_str(),
+        "custom" | "focused" | "smooth"
+    ) || c
+        .motion_blur_settings
+        .zoom
+        .is_some_and(|v| !(0.0..=1.0).contains(&v))
+        || c.motion_blur_settings
+            .pan
+            .is_some_and(|v| !(0.0..=1.0).contains(&v))
+    {
+        return invalid("Invalid screen animation or per-kind blur");
     }
     let preset_ok = |p: &str| matches!(p, "custom" | "slow" | "mellow" | "quick" | "rapid");
     let spring_ok = |s: &Spring| {

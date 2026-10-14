@@ -109,7 +109,7 @@ public final class Project: @unchecked Sendable {   // calls serialized internal
 public enum CoreError: LocalizedError { case status(Int32, String), missingMedia([String]), unsupportedVersion(Int) }
 ```
 
-`YapcamCore.abiVersion` and `YC_ABI_VERSION` are 2. The original YcFrame stays
+`YapcamCore.abiVersion` and `YC_ABI_VERSION` are now 3 (motion API below). The original YcFrame stays
 328 bytes; the new C-exported YcFrameExtras is 2600 bytes (layout in FORMATS.md).
 `frameExtras(atNs:)` serializes calls like `frame(atNs:)`, returning evaluated
 render options, up to 32 visible highlight instructions and final fade opacity.
@@ -202,3 +202,85 @@ public struct EditorView: View { public init(document: EditorDocument) }
 Uses everything above. Owns the vertical toolbar, source pickers, area overlay,
 countdown, recording HUD, settings, onboarding, menu bar item, recent projects, and
 the open/save/export menu commands (delegating to EditorWindows).
+
+## Core additive backlog APIs (ABI-v2 structs unchanged)
+
+Models and JSON contracts are in FORMATS.md's additive schema-1 effects section.
+New public Core types: TextEffectKind (annotation/reaction/caption), TextStyle,
+TextEffectRecord, MusicTrack, MusicDucking, TimelineActivityRange, CoreAudioOverlay,
+CoreEffectsAt. Codable model fields use Swift camelCase; EditCommand emits nested
+snake_case JSON with exact Int64 ns. Query decoding uses convertFromSnakeCase.
+TextEffectRecord(id:"",startNs:endNs:text:rect:space:style:) generates an id on add.
+MusicTrack(id:"",startNs:endNs:source:path:fileStartNs:fileDurationNs:gainDb:loop:
+fadeInNs:fadeOutNs:ducking:) defaults match FORMATS.md. Built-in source calm/bright
+uses an effective 8s duration; file source requires registered package media.
+
+```swift
+// New EditCommand cases:
+case addText(TextEffectKind, TextEffectRecord)
+case updateText(TextEffectKind, id: String, patch: [String: JSONValue])
+case removeText(TextEffectKind, id: String)
+case addMusic(MusicTrack)
+case updateMusic(id: String, patch: [String: JSONValue])
+case removeMusic(id: String)
+case importTranscript(JSONValue, style: TextStyle, replace: Bool)
+
+// New Project methods:
+func textEffects(_ kind: TextEffectKind) throws -> [TextEffectRecord]
+func musicTracks() throws -> [MusicTrack]
+func audioOverlays() throws -> [CoreAudioOverlay]
+func effects(atNs: Int64) throws -> CoreEffectsAt
+func renderOptions(atNs: Int64) throws -> CoreRenderOptions
+@discardableResult func importTranscript(_ data: Data,
+    style: TextStyle = TextStyle(), replace: Bool = true) throws -> ChangeSet
+@discardableResult func importMusic(_ file: URL, startNs: Int64 = 0,
+    endNs: Int64? = nil, gainDb: Double = -18, loop: Bool = true) async throws -> ChangeSet
+```
+
+CoreRenderLayer appends optional text, fontSize, color; all existing properties
+stay required. Text creates a `.text(String,fontSize:color:)` Render layer; a
+separate preceding highlight supplies its rounded background. CoreEffectsAt has
+layers, renderOptions and audio, evaluated from one state at one time. Each audio
+row has source/path, timeline/file clocks, loop, gain/start/end, envelope anchors,
+fades and optional gainAt. File/calm/bright map to Render's corresponding sources;
+soft/crisp map to original click sounds. Interpolate split segment gains in dB;
+keep fades anchored to envelopeStartNs/envelopeEndNs across all splits. Renderer
+adapters must preserve these endpoints/anchors rather than flatten duck ramps.
+
+Camera options are evaluated per active layout in frameExtras/renderOptions(atNs:)
+and effects(atNs:). The parameterless renderOptions() retains root defaults for
+existing callers. Scene zoom/slide transforms are already applied to YcFrame
+geometry; adapters must not apply a second tween. Capture supplies
+RecordingTranscript encoded JSON; Core consumes its word source ranges without a
+Speech-module dependency, IO or permissions. importMusic validates a local audio
+track, copies it into package assets, registers its fingerprint and adds its model
+as one transaction; failed edits remove the staged file. Undo keeps immutable
+asset bytes available for redo. These text/audio APIs use the existing JSON boundary; the separate guide-audit
+motion extension below adds ABI v3 without changing existing structs.
+
+## Guide-audit Core additions (ABI v3)
+
+The additional set paths and query contracts are in FORMATS.md's guide-audit
+section. All existing YcFrame and YcFrameExtras fields/offsets remain unchanged.
+New YcFrameMotion is 24 bytes/alignment 8; Project.abiVersion and YC_ABI_VERSION=3.
+CoreRenderOptions appends cursorRotationRad, zoomMotionBlur and panMotionBlur.
+The timed form supplies evaluated strengths; the parameterless form supplies
+configured strengths and zero rotation. The existing extras still expose legacy
+cursor options; use motion for tilt and per-kind evaluation.
+
+```swift
+func frameMotion(atNs: Int64) throws -> YcFrameMotion  // no core allocation/IO
+func motion(atNs: Int64) throws -> CoreFrameMotion    // typed motion_at JSON
+func musicLibrary() throws -> [CoreMusicSource]       // original calm/bright sources
+// CoreFrameMotion: tlNs:Int64, cursorRotationRad:Double,
+// cursorMotionBlur:Double, zoomMotionBlur:Double, panMotionBlur:Double
+// CoreMusicSource: id:String, name:String, durationNs:Int64
+```
+
+Renderer should apply motion.cursor_rotation_rad once about the cursor hotspot
+(positive clockwise), and opt into independent zoom/pan blur. The legacy frame
+still supplies max active screen blur for old consumers. CUR-12 forcing pointer,
+CUR-14 end hold, CUR-15 shake filtering, CUR-16 type debounce, ANI-02 zoom/pan
+presets, and CAM-07 overlay camera resizing are already evaluated by Core.
+Snapshots use the same indexes/settings and give deterministic backward seeks.
+Each frame/extras/motion call reads independently; export uses an immutable snapshot.
