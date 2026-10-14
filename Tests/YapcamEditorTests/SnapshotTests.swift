@@ -43,3 +43,21 @@ import AppKit
         }
     }
 }
+
+@MainActor @Suite struct OverlaySnapshotTests {
+    @Test func renderOverlayInspector() throws {
+        guard let dir = ProcessInfo.processInfo.environment["YAPCAM_SNAPSHOT_DIR"] else { return }
+        let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer())
+        m.addHighlightAtPlayhead(kind: .highlight)
+        m.set("canvas.animation.entrance", string: "fade")
+        _ = NSApplication.shared
+        let host = NSHostingView(rootView: InspectorView(model: m, initialTab: .overlays).frame(width: 300, height: 700).background(Color(nsColor: .windowBackgroundColor)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host; window.orderBack(nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4)); host.layoutSubtreeIfNeeded()
+        let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+        host.cacheDisplay(in: host.bounds, to: rep)
+        try rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: dir).appending(path: "overlays-inspector.png"))
+        window.orderOut(nil)
+    }
+}

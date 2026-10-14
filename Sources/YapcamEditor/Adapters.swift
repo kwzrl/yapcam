@@ -12,6 +12,9 @@ final class ProjectRenderSource: RenderProjectSource, @unchecked Sendable {
     func frame(atNs: Int64) throws -> YcFrame { try project.frame(atNs: atNs) }
     func renderSnapshot() throws -> any RenderProjectSource { ProjectRenderSource(try project.snapshot()) }
     func renderBackgroundAsset(index: UInt32) throws -> URL { try project.mediaURL(atIndex: index) }
+    // Core-driven effects (highlights, fades, cursor/camera options) and gain automation.
+    func renderEffects(atNs: Int64, canvasSize: CGSize) throws -> RenderFrameEffects { try project.renderEffects(atNs: atNs, canvasSize: canvasSize) }
+    func renderAudioRanges() throws -> [RenderAudioRange]? { try project.renderAudioRanges() }
     func renderClips() throws -> [RenderClip] {
         try project.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
             .map { RenderClip(srcStartNs: $0.srcStartNs, srcEndNs: $0.srcEndNs, speed: $0.speed) }

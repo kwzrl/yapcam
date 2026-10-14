@@ -75,8 +75,9 @@ public enum AspectPreset: String, CaseIterable {
 
 struct InspectorView: View {
     @ObservedObject var model: EditorModel
-    @State private var tab: Tab = .appearance
-    enum Tab: String, CaseIterable { case appearance = "Look", cursor = "Cursor", camera = "Camera", audio = "Audio" }
+    @State private var tab: Tab
+    init(model: EditorModel, initialTab: Tab = .appearance) { self.model = model; _tab = State(initialValue: initialTab) }
+    enum Tab: String, CaseIterable { case appearance = "Look", overlays = "Overlays", cursor = "Cursor", camera = "Camera", audio = "Audio" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,6 +86,7 @@ struct InspectorView: View {
             Form {
                 switch tab {
                 case .appearance: appearance
+                case .overlays: overlays
                 case .cursor: cursor
                 case .camera: camera
                 case .audio: audio
@@ -96,6 +98,7 @@ struct InspectorView: View {
             case .zoom, .clip: tab = .appearance
             case .layout: tab = .camera
             case .cursorHide: tab = .cursor
+            case .highlight: tab = .overlays
             case .none: break
             }
         }
@@ -133,9 +136,38 @@ struct InspectorView: View {
             NumberRow(model: model, title: "Shadow blur", path: "canvas.shadow.radius", range: 0...80, unit: "pt", format: "%.0f")
             NumberRow(model: model, title: "Inset", path: "canvas.inset", range: 0...24, unit: "pt", format: "%.0f")
             if model.number("canvas.inset") > 0 { ColorRow(model: model, title: "Inset color", path: "canvas.inset_color") }
-            NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1)
+            NumberRow(model: model, title: "Zoom motion blur", path: "canvas.motion_blur", range: 0...1)
+            ToggleRow(model: model, title: "Window frame", path: "canvas.window_chrome")
+            NumberRow(model: model, title: "Background noise", path: "canvas.background.noise", range: 0...1)
         }
         CropSection(model: model)
+    }
+
+    @ViewBuilder private var overlays: some View {
+        Section("Masks and highlights") {
+            if case .highlight(let id) = model.selection, let h = model.highlights.first(where: { $0.id == id }) { HighlightControls(model: model, region: h) }
+            HStack {
+                Button("Highlight") { model.addHighlightAtPlayhead(kind: .highlight) }
+                Button("Spotlight") { model.addHighlightAtPlayhead(kind: .spotlight) }
+                Button("Mask") { model.addHighlightAtPlayhead(kind: .mask) }
+            }
+            Text("Adds a 3 s region at the playhead. Drag its box in the preview; drag the yellow bar on the timeline to retime it.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        Section("Intro and outro") {
+            Picker("Intro", selection: Binding(get: { model.string("canvas.animation.entrance", default: "none") }, set: { model.set("canvas.animation.entrance", string: $0) })) {
+                Text("None").tag("none"); Text("Fade in").tag("fade")
+            }
+            if model.string("canvas.animation.entrance", default: "none") == "fade" {
+                DurationRow(model: model, title: "Intro length", path: "canvas.animation.entrance_duration_ns")
+            }
+            Picker("Outro", selection: Binding(get: { model.string("canvas.animation.exit", default: "none") }, set: { model.set("canvas.animation.exit", string: $0) })) {
+                Text("None").tag("none"); Text("Fade out").tag("fade")
+            }
+            if model.string("canvas.animation.exit", default: "none") == "fade" {
+                DurationRow(model: model, title: "Outro length", path: "canvas.animation.exit_duration_ns")
+            }
+        }
     }
 
     private var speedPresets: [(label: String, value: String)] {
@@ -152,6 +184,8 @@ struct InspectorView: View {
             Picker("Mode", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) })) {
                 Text("Automatic").tag(TimelineZoom.Mode.auto); Text("Manual").tag(TimelineZoom.Mode.manual)
             }
+            Toggle("Instant (no easing)", isOn: Binding(get: { z.easeInNs == 0 && z.easeOutNs == 0 },
+                                                         set: { model.setZoomEase(id: z.id, inNs: $0 ? 0 : 300_000_000, outNs: $0 ? 0 : 300_000_000) }))
             Toggle("Enabled", isOn: Binding(get: { z.enabled }, set: { model.setZoomEnabled(id: z.id, $0) }))
             Button("Delete zoom", role: .destructive) { model.deleteSelection() }
         }
@@ -176,6 +210,10 @@ struct InspectorView: View {
             PickerRow(model: model, title: "Click effect", path: "cursor.click_effect",
                       options: [("None", "none"), ("Ring", "ring"), ("Highlight", "highlight")])
             ToggleRow(model: model, title: "Loop cursor to start", path: "cursor.loop_to_start")
+            PickerRow(model: model, title: "Cursor style", path: "cursor.style",
+                      options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch")])
+            NumberRow(model: model, title: "Motion blur", path: "cursor.motion_blur", range: 0...1)
+            NumberRow(model: model, title: "Spotlight radius", path: "cursor.spotlight_radius", range: 0...600, unit: "px", format: "%.0f")
         }
         Section("Hidden sections") {
             if case .cursorHide(let i) = model.selection, let h = model.cursorHides.first(where: { $0.index == i }) {
@@ -199,6 +237,9 @@ struct InspectorView: View {
                 NumberRow(model: model, title: "Corner radius", path: "camera.radius", range: 0...64, unit: "pt", format: "%.0f")
                 NumberRow(model: model, title: "Opacity", path: "camera.opacity", range: 0...1)
                 ToggleRow(model: model, title: "Mirror", path: "camera.mirrored", defaultValue: true)
+                NumberRow(model: model, title: "Shadow", path: "camera.shadow_radius", range: 0...60, unit: "pt", format: "%.0f")
+                ToggleRow(model: model, title: "Remove background", path: "camera.background_removal")
+                ToggleRow(model: model, title: "Frame face", path: "camera.face_framing")
                 CameraPositionRow(model: model)
             }
             Section("Layout over time") {
@@ -327,5 +368,52 @@ struct CropSection: View {
                 Text("\(Int(v.wrappedValue * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
             }
         }
+    }
+}
+
+struct DurationRow: View {
+    @ObservedObject var model: EditorModel
+    let title: String, path: String
+    @State private var seconds = 0.4
+    @State private var editing = false
+    var body: some View {
+        LabeledContent(title) {
+            HStack {
+                Slider(value: $seconds, in: 0.1...3) { e in editing = e; if !e { model.set(path, number: (seconds * 1e9).rounded()) } }
+                Text(String(format: "%.1f s", seconds)).monospacedDigit().frame(width: 46, alignment: .trailing)
+            }
+        }
+        .onAppear { seconds = model.number(path, default: 400_000_000) / 1e9 }
+        .onChange(of: model.revision) { _, _ in if !editing { seconds = model.number(path, default: 400_000_000) / 1e9 } }
+    }
+}
+
+struct HighlightControls: View {
+    @ObservedObject var model: EditorModel
+    let region: HighlightRegion
+    var body: some View {
+        let id = region.id
+        Picker("Style", selection: Binding(get: { region.kind }, set: { model.setHighlightKind(id: id, $0) })) {
+            ForEach(HighlightRegion.Kind.allCases, id: \.self) { Text($0.label).tag($0) }
+        }
+        Picker("Follows", selection: Binding(get: { region.space }, set: { v in model.updateHighlight(id: id) { $0.space = v } })) {
+            Text("Screen (zoom/crop)").tag("source"); Text("Canvas (fixed)").tag("canvas")
+        }
+        LabeledContent("Time") { Text("\(formatTimecode(region.startNs)) – \(formatTimecode(region.endNs))").monospacedDigit() }
+        regionColor("Fill", get: { region.fill }, set: { c in model.updateHighlight(id: id) { $0.fill = c } })
+        if region.kind != .mask { regionColor("Outline", get: { region.stroke }, set: { c in model.updateHighlight(id: id) { $0.stroke = c } }) }
+        Stepper("Outline width \(Int(region.strokeWidth)) pt", value: Binding(get: { region.strokeWidth }, set: { v in model.updateHighlight(id: id) { $0.strokeWidth = v } }), in: 0...16)
+        Stepper("Corner radius \(Int(region.radius)) pt", value: Binding(get: { region.radius }, set: { v in model.updateHighlight(id: id) { $0.radius = v } }), in: 0...64, step: 2)
+        if region.kind != .mask {
+            Stepper("Dim outside \(Int(region.dimOpacity * 100))%", value: Binding(get: { region.dimOpacity }, set: { v in model.updateHighlight(id: id) { $0.dimOpacity = min(max(v, 0), 1) } }), in: 0...1, step: 0.1)
+        }
+        Button("Remove region", role: .destructive) { model.deleteSelection() }
+    }
+    private func regionColor(_ title: String, get: @escaping () -> [Double], set: @escaping ([Double]) -> Void) -> some View {
+        ColorPicker(title, selection: Binding(
+            get: { let c = get(); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: 1) },
+            set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
+                   let alpha = get()[3]; set([Double(n.redComponent), Double(n.greenComponent), Double(n.blueComponent), alpha == 0 ? 0.3 : alpha]) }),
+                    supportsOpacity: false)
     }
 }
