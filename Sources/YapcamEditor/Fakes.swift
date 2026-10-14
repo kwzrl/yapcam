@@ -16,6 +16,7 @@ public final class FakeProject: EditingProject {
     public private(set) var autoZoomRuns = 0
     public private(set) var typingRuns = 0
     public var silences: [TimeSpan] = []
+    public var silenceDelay: Duration = .zero
     public var clickTimesNs: [Int64] = []
     public var hasCamera = true
     public func frameGeometry(atNs: Int64) -> FrameGeometry? {
@@ -116,7 +117,7 @@ public final class FakeProject: EditingProject {
         undoStack.append(Snapshot(clips: clips, zooms: zooms, settings: settings))
         clips = s.clips; zooms = s.zooms; settings = s.settings
     }
-    public func silentSpans() async throws -> [TimeSpan] { silences }
+    public func silentSpans() async throws -> [TimeSpan] { try await Task.sleep(for: silenceDelay); return silences }
     public func save() throws {
         if failSave { throw NSError(domain: "Fake", code: 2, userInfo: [NSLocalizedDescriptionKey: "disk full"]) }
         saveCount += 1

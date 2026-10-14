@@ -11,6 +11,7 @@ final class ProjectRenderSource: RenderProjectSource, @unchecked Sendable {
     var durationNs: Int64 { project.durationNs }
     func frame(atNs: Int64) throws -> YcFrame { try project.frame(atNs: atNs) }
     func renderSnapshot() throws -> any RenderProjectSource { ProjectRenderSource(try project.snapshot()) }
+    func renderBackgroundAsset(index: UInt32) throws -> URL { try project.mediaURL(atIndex: index) }
     func renderClips() throws -> [RenderClip] {
         try project.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
             .map { RenderClip(srcStartNs: $0.srcStartNs, srcEndNs: $0.srcEndNs, speed: $0.speed) }
@@ -30,12 +31,20 @@ public final class CoreEditingProject: EditingProject {
     public private(set) var clips: [TimelineClip] = []
     public private(set) var zooms: [TimelineZoom] = []
     public private(set) var settings: JSONValue = .null
-    public private(set) var clickTimesNs: [Int64] = []
+    private var clickCache: [Int64] = []
+    private var clicksStale = true
+    /// Click times are timeline-mapped, so they are re-queried lazily after every project change.
+    public var clickTimesNs: [Int64] {
+        if clicksStale {
+            clickCache = ((try? project.query("{\"q\":\"clicks\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
+            clicksStale = false
+        }
+        return clickCache
+    }
 
     public init(project: Project) {
         self.project = project
         refresh()
-        clickTimesNs = ((try? project.query("{\"q\":\"clicks\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
     }
 
     public func frameGeometry(atNs ns: Int64) -> FrameGeometry? {
@@ -52,6 +61,7 @@ public final class CoreEditingProject: EditingProject {
 
     private var editCount = 0
     private func refresh() {
+        clicksStale = true
         clips = ((try? project.query("{\"q\":\"clips\"}", as: [ClipInfo].self)) ?? [])
             .map { TimelineClip(id: $0.id, srcStartNs: $0.srcStartNs, srcEndNs: $0.srcEndNs, speed: $0.speed) }
         zooms = ((try? project.query("{\"q\":\"zooms\"}", as: [CoreZoom].self)) ?? []).map {
@@ -152,10 +162,10 @@ final class PreviewPlayerAdapter: PlaybackEngine {
 struct RenderExportEngine: ExportEngine {
     let source: ProjectRenderSource
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
-        // The save panel already asked the user about replacing an existing file.
-        if FileManager.default.fileExists(atPath: request.destination.path) { try FileManager.default.removeItem(at: request.destination) }
         let settings = ExportSettings(format: .mp4, codec: .h264, outputHeight: request.height, fps: request.fps, includeAudio: request.includeAudio)
-        let exporter = try Exporter(project: source, settings: settings, destination: request.destination)
-        return try await exporter.run(progress: progress)
+        return try await AtomicExport.run(to: request.destination) { temp in
+            let exporter = try Exporter(project: source, settings: settings, destination: temp)
+            return try await exporter.run(progress: progress)
+        }
     }
 }

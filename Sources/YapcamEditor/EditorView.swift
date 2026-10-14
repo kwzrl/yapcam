@@ -145,17 +145,19 @@ struct FocusPickerOverlay: View {
                 }
             }
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
-                model.setFocus(fromPreview: CGPoint(x: v.location.x / geo.size.width, y: v.location.y / geo.size.height))
-            })
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { v in model.previewFocus(fromPreview: CGPoint(x: v.location.x / geo.size.width, y: v.location.y / geo.size.height)) }
+                .onEnded { _ in model.commitFocusPreview() })
         }
         .help("Click to set the zoom focus point")
         .accessibilityLabel("Zoom focus picker")
     }
     private func markerPosition(_ z: TimelineZoom, in size: CGSize) -> CGPoint {
         guard let g = model.project.frameGeometry(atNs: model.playheadNs) else { return .zero }
-        let cx = g.dest.minX + (z.focusX - g.crop.minX) / max(g.crop.width, 0.001) * g.dest.width
-        let cy = g.dest.minY + (z.focusY - g.crop.minY) / max(g.crop.height, 0.001) * g.dest.height
+        let fx = model.focusPreview?.id == z.id ? model.focusPreview!.x : z.focusX
+        let fy = model.focusPreview?.id == z.id ? model.focusPreview!.y : z.focusY
+        let cx = g.dest.minX + (fx - g.crop.minX) / max(g.crop.width, 0.001) * g.dest.width
+        let cy = g.dest.minY + (fy - g.crop.minY) / max(g.crop.height, 0.001) * g.dest.height
         return CGPoint(x: cx / g.canvasWidth * size.width, y: cy / g.canvasHeight * size.height)
     }
 }
