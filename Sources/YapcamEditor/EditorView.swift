@@ -17,7 +17,14 @@ public struct EditorContent<Preview: View>: View {
     public var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                preview.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black.opacity(0.88))
+                ZStack {
+                    Color.black.opacity(0.88)
+                    preview
+                        .aspectRatio(model.previewAspect, contentMode: .fit)
+                        .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model) } }
+                        .padding(8)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if showInspector { Divider(); InspectorView(model: model).frame(width: 280) }
             }
             Divider()
@@ -34,9 +41,11 @@ public struct EditorContent<Preview: View>: View {
                 Button { model.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }.disabled(!model.canUndo)
                 Button { model.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }.disabled(!model.canRedo)
                 Button { showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
+                Button { model.paletteVisible = true } label: { Label("Commands", systemImage: "command") }
                 Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
             }
         }
+        .sheet(isPresented: $model.paletteVisible) { CommandPaletteView(model: model) }
         .sheet(isPresented: $showExport) { ExportSheet(export: export, suggestedName: title) }
         .alert("Something went wrong", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })) {
             Button("OK") { model.lastError = nil }
@@ -46,7 +55,11 @@ public struct EditorContent<Preview: View>: View {
     }
 
     private func handleKey(_ p: KeyPress) -> KeyPress.Result {
-        if p.modifiers.contains(.command) { return .ignored }
+        if p.modifiers.contains(.command) {
+            if p.characters.lowercased() == "k" { model.paletteVisible = true; return .handled }
+            if p.characters.lowercased() == "c", p.modifiers.contains(.shift) { model.copyFrameHandler?(); return .handled }
+            return .ignored
+        }
         switch p.key {
         case .space: model.togglePlay(); return .handled
         case .delete, .deleteForward: model.deleteSelection(); return .handled
@@ -57,7 +70,11 @@ public struct EditorContent<Preview: View>: View {
         switch p.characters.lowercased() {
         case "j", "k", "l": model.shuttle(Character(p.characters.lowercased())); return .handled
         case "s": model.splitAtPlayhead(); return .handled
-        case "z": model.addZoomAtPlayhead(); return .handled
+        case "z":
+            if p.modifiers.contains(.shift) { model.fitTimeline(width: 900) } else { model.addZoomAtPlayhead() }
+            return .handled
+        case "[": model.trim(keepAfter: true); return .handled
+        case "]": model.trim(keepAfter: false); return .handled
         case "=", "+": model.zoomTimeline(by: 1.25, anchorX: model.geometry.x(forNs: model.playheadNs)); return .handled
         case "-": model.zoomTimeline(by: 0.8, anchorX: model.geometry.x(forNs: model.playheadNs)); return .handled
         default: return .ignored
@@ -107,7 +124,38 @@ public struct EditorCommands: Commands {
         }
         CommandMenu("Edit Timeline") {
             Button("Split at Playhead") { model?.splitAtPlayhead() }.keyboardShortcut("b").disabled(model == nil)
+            Button("Command Palette…") { model?.paletteVisible = true }.keyboardShortcut("k").disabled(model == nil)
             Button("Add Zoom at Playhead") { model?.addZoomAtPlayhead() }.keyboardShortcut("z", modifiers: [.command, .option]).disabled(model == nil)
         }
+    }
+}
+
+/// Transparent layer over the preview while a zoom is selected: click or drag to place its focus point.
+struct FocusPickerOverlay: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                Color.clear
+                if let z = model.selectedZoom {
+                    // Marker shows the stored focus in the same (uncropped) preview space as the click mapping.
+                    Circle().strokeBorder(Color.orange, lineWidth: 2).background(Circle().fill(Color.orange.opacity(0.25)))
+                        .frame(width: 22, height: 22)
+                        .position(markerPosition(z, in: geo.size))
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                model.setFocus(fromPreview: CGPoint(x: v.location.x / geo.size.width, y: v.location.y / geo.size.height))
+            })
+        }
+        .help("Click to set the zoom focus point")
+        .accessibilityLabel("Zoom focus picker")
+    }
+    private func markerPosition(_ z: TimelineZoom, in size: CGSize) -> CGPoint {
+        guard let g = model.project.frameGeometry(atNs: model.playheadNs) else { return .zero }
+        let cx = g.dest.minX + (z.focusX - g.crop.minX) / max(g.crop.width, 0.001) * g.dest.width
+        let cy = g.dest.minY + (z.focusY - g.crop.minY) / max(g.crop.height, 0.001) * g.dest.height
+        return CGPoint(x: cx / g.canvasWidth * size.width, y: cy / g.canvasHeight * size.height)
     }
 }
