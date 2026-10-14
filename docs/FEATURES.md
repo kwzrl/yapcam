@@ -66,7 +66,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | AUD-07 | Audio | Background music library + volume | technical (bundled music in 5 genres) | Own royalty-free tracks only (not reference files); loop, fade | editor+render | todo (core model + editor UI for music tracks; render has procedural loops only) | Add music, export has 3rd source |
 | AUD-08 | Audio | Mouse click sounds | docs / technical (click sound sets) | Own click sounds (2 variants), volume | render | implemented (render primitive: original click sounds; no core setting/editor control yet -> core+editor) | Click event → audio impulse at time |
 | AUD-09 | Audio | Recording start/stop sounds | technical | Optional | ui | implemented (ui: start/stop sounds, played outside capture; build only) | Setting toggles |
-| AUD-10 | Audio | Captions via local transcription | docs / technical (whisper binary) | On-device speech recognition (Speech/ whisper.cpp later); caption style | editor | todo (captions: core model, transcription, editor UI, render text) | Transcribe sample; caption times align ±200 ms |
+| AUD-10 | Audio | Captions via local transcription | docs / technical (whisper binary) | On-device speech recognition (Speech/ whisper.cpp later); caption style | editor | implemented (partial: capture TranscriptionService + transcript.json, unit tests; real Speech host gate pending; no editor caption UI/render text -> core+editor+render) | Transcribe sample; caption times align ±200 ms |
 | AUD-11 | Audio | Silence detection → speed-up/cut | technical (detect-silence) | Offer to cut/speed silent ranges | core+editor | implemented (core PCM silence analysis verified; AAC decode unavailable in sandbox; editor Audio tab -> cut/speed) | Silence range detected in known file |
 
 ## C. Camera
@@ -76,8 +76,8 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | CAM-01 | Camera | Record webcam as separate track | docs | camera.mov host-time stamped | capture | limited (no camera; no-device path) | No camera: option unavailable, message |
 | CAM-02 | Camera | Camera shape, size, position, radius, shadow, mirror | docs | camera.* settings | editor+render | integrated (editor Camera tab -> core -> render; pixel output unverified, no camera) | Fixture camera track: rect/shape in frame |
 | CAM-03 | Camera | Dynamic camera layouts (hide/enlarge/fullscreen over time) | docs | camera layout segments on timeline | core+editor | integrated (editor layout lane -> core layouts; Rust layer tests; pixels unverified) | Layout change at t → frame description changes |
-| CAM-04 | Camera | Background removal for camera | technical (matting/segmentation models) | Vision person segmentation | render | limited (no camera: render Vision matting primitive compiled, not driven by project data) | Synthetic still image test |
-| CAM-05 | Camera | Face detection to frame camera | technical (face-detector) | Vision face rect | render | limited (no camera: render Vision face framing primitive compiled, not driven by project data) | Fixture image |
+| CAM-04 | Camera | Background removal for camera | technical (matting/segmentation models) | Vision person segmentation | render | limited (no camera: render Vision matting wired through frameExtras, synthetic tests; editor forwards render effects) | Synthetic still image test |
+| CAM-05 | Camera | Face detection to frame camera | technical (face-detector) | Vision face rect | render | limited (no camera: render Vision face framing wired through frameExtras, synthetic tests) | Fixture image |
 | CAM-06 | Camera | Camera lost mid-recording | assumption | Continue, warning | capture | limited | simulated |
 
 ## D. Cursor and input events
@@ -89,12 +89,12 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | CUR-03 | Cursor | Smooth cursor movement toggle | docs | cursor.smoothing; off = raw | core+render | integrated (editor toggle -> core spring -> render; Rust frame goldens; pixels unverified) | Off: frame cursor == raw event pos |
 | CUR-04 | Cursor | Cursor speed presets Slow/Mellow/Quick/Rapid + tension/friction/mass | docs | spring params; presets map to values | core | integrated (editor speed presets -> core spring params; Rust spring test) | Spring step response unit tests |
 | CUR-05 | Cursor | Cursor size, show/hide, hide when idle, hide in sections | docs | cursor.size/visible/hide_when_idle + range overrides | core+editor | integrated (editor cursor tab + hidden-sections lane -> core ranges) | Hidden section frame has no cursor |
-| CUR-06 | Cursor | Cursor sets (macOS, tahoe, touch, many custom) | technical (assets: ~24 sets) | Native macOS cursor images + a few own styles | render | implemented (partial: render recorded/pointer/touch styles only; no cursor-set library or picker -> render+editor) | Switch set changes image |
+| CUR-06 | Cursor | Cursor sets (macOS, tahoe, touch, many custom) | technical (assets: ~24 sets) | Native macOS cursor images + a few own styles | render | implemented (partial: render original vector cursors + editor style recorded/pointer/touch; no larger set library) | Switch set changes image |
 | CUR-07 | Cursor | Click effect (ripple/ring) | docs/assumption | cursor.click_effect | render | integrated (editor click effect -> core -> render procedural effect; pixels unverified) | Click frame differs from idle frame |
-| CUR-08 | Cursor | Cursor motion blur | docs | strength slider | render | implemented (core extras + render cursor blur; no dedicated editor slider -> editor) | Fast move frame blurred |
+| CUR-08 | Cursor | Cursor motion blur | docs | strength slider | render | integrated (editor cursor motion blur control -> core extras -> render) | Fast move frame blurred |
 | CUR-09 | Cursor | Loop cursor to start position | assumption | option | core | integrated (editor loop toggle -> core) | last pos = first pos |
 | CUR-10 | Cursor | Keystroke display (opt-in) | assumption (key events in format) | key overlay with modifiers | capture+render | implemented (partial: capture records opt-in keys, render key-overlay primitive; no core model/editor control -> core+editor) | cmd+k shows overlay |
-| CUR-11 | Cursor | Cursor click highlights/spotlight | assumption | optional | render | implemented (core extras spotlight + render; no editor control -> editor) | – |
+| CUR-11 | Cursor | Cursor click highlights/spotlight | assumption | optional | render | integrated (editor spotlight radius -> core extras -> render) | – |
 
 ## E. Zoom
 
@@ -107,8 +107,8 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ZOM-05 | Zoom | Disable automatic zooms (global/per zoom) | docs | setting | core | integrated (editor auto-zoom toggle -> core) | No auto zooms generated when off |
 | ZOM-06 | Zoom | Zoom speed presets + tension/friction/mass | docs | ease_in/out + spring | core | integrated (editor speed preset -> core ease/spring) | Curve unit tests (no overshoot unless set) |
 | ZOM-07 | Zoom | Camera follows cursor while zoomed | docs | pan with cursor, dead-zone | core | integrated (editor follow-cursor toggle -> core pan; Rust frame goldens) | Cursor at edge pans view |
-| ZOM-08 | Zoom | Instant zoom | docs | zoom without easing | core | implemented (core supports ease 0 (used by E2E); no editor 'instant' switch -> editor) | ease=0 |
-| ZOM-09 | Zoom | Zoom motion blur | docs | strength slider | render | implemented (editor Look motion blur -> render; pixel effect unverified) | – |
+| ZOM-08 | Zoom | Instant zoom | docs | zoom without easing | core | integrated (editor 'Instant (no easing)' per zoom) | ease=0 |
+| ZOM-09 | Zoom | Zoom motion blur | docs | strength slider | render | integrated (editor zoom motion blur control; pixels unverified) | – |
 | ZOM-10 | Zoom | Zoom-aware sharpness (render from source resolution) | assumption | sample source at needed resolution | render | implemented (render samples source at native size; sharpness check pending Metal host test) | Zoomed export has native detail |
 
 ## F. Timeline / editing
@@ -122,24 +122,24 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EDT-05 | Edit | Undo/redo | assumption | command stack | core+editor | verified (testCutUndoRedoDuration + testNoDriftOverManyEdits (300 edits)) | 100 ops undo/redo exact |
 | EDT-06 | Edit | Autosave + reopen | docs | autosave journal, project.json.prev | core | verified (editor RealStackTests journal restore/discard + core autosave Rust tests; kill -9 on app untested) | Kill app, reopen, edits intact |
 | EDT-07 | Edit | Aspect ratio + crop | docs | canvas.aspect, screen crop | core+render | integrated (editor aspect/crop -> core canvas; output sizes 1440x1080/1080x1080/1080x1920/2520x1080 awaiting core confirmation) | 9:16 export size correct |
-| EDT-08 | Edit | Mask/highlight regions | docs | rect/rounded highlight with dim outside | core+render | todo (editor UI for mask/highlight regions; core extras + render ready) | – |
+| EDT-08 | Edit | Mask/highlight regions | docs | rect/rounded highlight with dim outside | core+render | integrated (editor Overlays tab + lane + rect editor -> core highlights; editor OverlayTests; pixels unverified) | – |
 | EDT-09 | Edit | Annotations / text overlays | assumption | text blocks on timeline | editor+render | todo (core model for text/annotations, editor UI; render text primitive exists) | – |
 | EDT-10 | Edit | Command menu (⌘K style) | docs | searchable action palette | editor | verified (editor palette unit tests; also cheat sheet) | – |
 | EDT-11 | Edit | Copy current frame as image | docs | clipboard PNG of composited frame | editor | verified (editor RealStackTests: copy-frame PNG 1920x1080) | Clipboard image equals frame |
 | EDT-12 | Edit | Timeline zoom, snapping, keyboard shortcuts | docs | per shortcut list | editor | verified (editor snapping/geometry/gesture unit tests; one undo step per gesture) | – |
 | EDT-13 | Edit | Reactions (emoji reactions on timeline) | docs | emoji sprites with animation | editor+render | todo (core model + editor UI for reactions; render has emoji primitive) | – |
-| EDT-14 | Edit | Animations (intro/outro, scene transitions) | docs (Look & Feel/animations) | entrance/exit animation presets | core+render | todo (editor UI; core supports none/fade only, scene transforms rejected) | – |
+| EDT-14 | Edit | Animations (intro/outro, scene transitions) | docs (Look & Feel/animations) | entrance/exit animation presets | core+render | integrated (editor Overlays tab none/fade -> core fade_opacity, verified at start/mid; scene transforms rejected by core) | – |
 
 ## G. Look and canvas
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
 | LOK-01 | Canvas | Background: solid, gradient (M1) | docs | canvas.background | render | verified (RenderTests solid + gradient pixel tests; need Metal host) | Pixel check of background |
-| LOK-02 | Canvas | Background: wallpaper images in categories | technical (9 categories) | Own generated gradients/images only | render | todo (render/editor: own wallpaper/gradient library; no assets shipped) | – |
+| LOK-02 | Canvas | Background: wallpaper images in categories | technical (9 categories) | Own generated gradients/images only | render | implemented (render BackgroundLibrary: 12 original wallpapers/gradients, 2 tests pass; editor picker not yet wired -> editor) | – |
 | LOK-03 | Canvas | Background: macOS wallpaper / custom image | technical | custom image import; system wallpaper | render | verified (editor ReviewFixTests: import image background, resolve asset, render frame) | – |
-| LOK-04 | Canvas | Background blur / noise texture | technical (noise asset) | option | render | implemented (render Gaussian blur + noise extras; pixel check needs Metal host) | – |
+| LOK-04 | Canvas | Background blur / noise texture | technical (noise asset) | option | render | integrated (editor background blur/noise controls; pixels unverified) | – |
 | LOK-05 | Canvas | Padding (M1), corner radius, shadow, inset/border | docs | canvas.* | render | verified (RenderTests crop + rounded-corner pixel test; shadow/inset unverified) | Frame: content rect inset equals padding |
-| LOK-06 | Canvas | Window device frame / macOS window chrome | technical (devices assets) | optional frames | render | implemented (partial: render chrome primitive via core extras; no editor control -> editor) | – |
+| LOK-06 | Canvas | Window device frame / macOS window chrome | technical (devices assets) | optional frames | render | integrated (editor window frame control -> core extras -> render) | – |
 | LOK-07 | Canvas | Output size/aspect presets | docs | canvas.output_size | core | integrated (editor aspect presets set canvas.output_size) | – |
 | LOK-08 | Canvas | Watermark | n/a | none: no watermark ever | – | verified (by design) | Export has no overlay |
 
@@ -148,7 +148,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
 | PRJ-01 | Project | Package save/open (M1) | docs | .yapcam package, atomic writes | core | verified (testSaveReopen (.prev kept)) | Save/open roundtrip |
-| PRJ-02 | Project | Presets create/apply/share (file-based) | docs | export/import preset JSON (local file sharing only) | core+ui | implemented (core preset export/import helpers; no ui -> ui) | Apply preset changes settings |
+| PRJ-02 | Project | Presets create/apply/share (file-based) | docs | export/import preset JSON (local file sharing only) | core+ui | integrated (ui Presets menu: save/apply/import/export/library -> core presets; YapcamUITests) | Apply preset changes settings |
 | PRJ-03 | Project | Default settings for new recordings | docs | settings panel | ui | implemented (ui: Settings Recording tab; build only) | – |
 | PRJ-04 | Project | Recent projects, open file association | assumption | – | ui | implemented (ui: recent projects + .yapcam association; build only) | – |
 | PRJ-05 | Project | Missing media detection + relink | architecture | open throws missingMedia | core+ui | verified (testMissingMediaIsReported) | Remove screen.mov → clear error |
@@ -202,7 +202,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
 
 ## Audit log
-Last audit: against main 6d91a7f (REC-21 moved to implemented); earlier pass 4a1cee5, from code, team status files and test names (not re-run
+Last audit: against main 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
 named test or measurement passed; **limited (why)** = cannot be verified here. Live-capture
@@ -216,11 +216,10 @@ Screen Studio is still blocked (see docs/status/qa.md), so option values stay TB
 | core + editor | AUD-10 | caption model, on-device transcription, editor UI, render text |
 | core + editor | EDT-09 | text/annotation model + editor UI |
 | core + editor | EDT-13 | reactions model + editor UI |
-| editor | EDT-08 | mask/highlight region UI (core extras + render exist) |
-| editor | EDT-14 | intro/outro UI (core: none/fade only) |
 | render | AUD-06 | offline speech-enhancement pipeline ([technical]: reference ships Core ML MossFormer2 SE 48 kHz; use an Apple/own model, no reference weights) |
 | core+editor(+render) | CUR-12..16, ANI-02, CAM-07 | extra cursor/motion/camera options from the guides (section K) |
-| render + editor | LOK-02 | own wallpaper/gradient library with picker |
+| editor | LOK-02 | wire render BackgroundLibrary into a picker |
+| core+editor+render | AUD-10 | editor caption UI + render text (capture transcription exists) |
 
 Partial rows (`implemented`, missing a piece): CUR-06 cursor-set library (render+editor),
 CUR-08/CUR-11/ZOM-08/LOK-06 editor controls, CUR-10 key-overlay model+UI (core+editor),
