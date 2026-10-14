@@ -24,6 +24,7 @@ final class FrameSource {
     let track: AVAssetTrack
     let cache: CVMetalTextureCache
     let preferredTransform: CGAffineTransform
+    private let mediaEnd: CMTime
     private var reader: AVAssetReader?
     private var output: AVAssetReaderTrackOutput?
     private var frames: [TextureFrame] = []
@@ -33,7 +34,12 @@ final class FrameSource {
         asset = AVURLAsset(url: url)
         guard let track = asset.tracks(withMediaType: .video).first else { throw RenderError.decode("No video track in \(url.lastPathComponent)") }
         self.track = track; self.cache = cache; preferredTransform=track.preferredTransform
+        let end=track.timeRange.end
+        guard end.isNumeric, end > .zero else { throw RenderError.decode("Video track has invalid duration") }
+        mediaEnd=end
     }
+    /// Optional device media may end before the recording segment; do not invent later frames.
+    func hasEnded(atNs ns: Int64) -> Bool { CMTime(value: ns,timescale: 1_000_000_000)>=mediaEnd }
     private func restart(at time: CMTime) throws {
         reader?.cancelReading()
         let r = try AVAssetReader(asset: asset)

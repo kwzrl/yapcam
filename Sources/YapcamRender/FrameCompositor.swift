@@ -51,6 +51,7 @@ public final class FrameCompositor: @unchecked Sendable {
         if sources[path] == nil {
             if sources.count >= 3 { sources.removeAll() }
             sources[path] = try FrameSource(url: packageMediaURL(path, root: project.packageURL.appendingPathComponent("recording")), cache: cache) }
+        if track=="camera", sources[path]!.hasEnded(atNs: sample.file_ns) { return nil }
         return try sources[path]!.frame(atNs: sample.file_ns)
     }
     private func image(_ url: URL) throws -> MTLTexture {
@@ -61,11 +62,16 @@ public final class FrameCompositor: @unchecked Sendable {
     }
     struct Cursor: Decodable { var file: String; var hotspot: [Double]; var sizePoints: [Double]; enum CodingKeys: String, CodingKey { case file, hotspot, sizePoints = "size_points" } }
     public func encode(_ frame: YcFrame, to target: MTLTexture, in cb: MTLCommandBuffer) throws {
+        try encode(frame,from: project,to: target,in: cb)
+    }
+    /// A preview generation supplies its frozen source so edits cannot mix frame/effects.
+    func encode(_ frame: YcFrame,from project: any RenderProjectSource,to target: MTLTexture,in cb: MTLCommandBuffer) throws {
         lock.lock(); defer { lock.unlock() }
         let invalidate = invalidationLock.withLock { let value=needsInvalidation; needsInvalidation=false; return value }
         if invalidate { sources.removeAll(); images.removeAll(); cursorMetadata.removeAll(); cameraEffects.invalidate(); layerRenderer.invalidate(); CVMetalTextureCacheFlush(cache,0) }
         guard target.pixelFormat == .bgra8Unorm_srgb, frame.canvas_w > 0, frame.canvas_h > 0 else { throw RenderError.metal("Compositor requires an sRGB BGRA target and nonzero canvas") }
-        let options = project.renderConfiguration
+        let effects = try project.renderEffects(atNs: frame.tl_ns,canvasSize: CGSize(width: Int(frame.canvas_w),height: Int(frame.canvas_h)))
+        let options = effects.configuration
         try validateFrame(frame,configuration: options)
         let screen = try decoded(frame.screen, track: "screen")
         let camera = try decoded(frame.camera, track: "camera")
@@ -131,7 +137,7 @@ public final class FrameCompositor: @unchecked Sendable {
         encoder.setFragmentBytes(&uniforms, length: uniforms.count * MemoryLayout<SIMD4<Float>>.stride, index: 0)
         for (index, texture) in [screen?.texture ?? empty, camera?.texture ?? empty, cursorTexture, background, matte?.texture ?? empty].enumerated() { encoder.setFragmentTexture(texture, index: index) }
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3); encoder.endEncoding()
-        try layerRenderer.encode(project.renderLayers(atNs: frame.tl_ns), canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)), project: project, target: target, cb: cb)
+        try layerRenderer.encode(effects.layers, canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)), project: project, target: target, cb: cb)
         // CVMetalTexture and its IOSurface must survive until GPU completion.
         let retainedMatte = matte
         cb.addCompletedHandler { _ in _ = screen; _ = camera; _ = retainedMatte }

@@ -8,6 +8,7 @@ final class CameraEffects {
     private let faces = VNDetectFaceRectanglesRequest()
     private let cache: CVMetalTextureCache
     private var previous: ObjectIdentifier?
+    private var previousBuffer: CVPixelBuffer?
     private var previousTime: CMTime?
     private var previousOptions: (Bool,Bool)?
     private var matte: TextureFrame?
@@ -15,14 +16,15 @@ final class CameraEffects {
     init(cache: CVMetalTextureCache) {
         self.cache = cache; segmentation.qualityLevel = .accurate; segmentation.outputPixelFormat = kCVPixelFormatType_OneComponent8
     }
-    func invalidate() { previous=nil; previousTime=nil; previousOptions=nil; matte=nil }
+    func invalidate() { previous=nil; previousBuffer=nil; previousTime=nil; previousOptions=nil; matte=nil }
     func evaluate(_ frame: TextureFrame, removeBackground: Bool, faceFraming: Bool) throws -> (TextureFrame?, SIMD4<Float>) {
         let identity = ObjectIdentifier(frame.pixelBuffer as AnyObject)
         if previous == identity, previousTime == frame.time, previousOptions?.0 == removeBackground, previousOptions?.1 == faceFraming { return (matte,crop) }
         var requests: [VNRequest] = []
         if removeBackground { requests.append(segmentation) }
         if faceFraming { requests.append(faces) }
-        guard !requests.isEmpty else { return (nil,SIMD4(0,0,1,1)) }
+        if !removeBackground { matte=nil }
+        guard !requests.isEmpty else { invalidate(); return (nil,SIMD4(0,0,1,1)) }
         try VNImageRequestHandler(cvPixelBuffer: frame.pixelBuffer,orientation: .up,options: [:]).perform(requests)
         if removeBackground {
             guard let output = segmentation.results?.first?.pixelBuffer else { throw RenderError.unavailable("Vision did not produce a camera segmentation mask") }
@@ -36,6 +38,7 @@ final class CameraEffects {
             let displayed=frame.geometry.displayRect(fromNativeNormalized: native)
             crop=SIMD4(Float(displayed.minX),Float(displayed.minY),Float(displayed.width),Float(displayed.height))
         }
-        previous = identity; previousTime = frame.time; previousOptions = (removeBackground,faceFraming); return (matte,crop)
+        // Retain the identity's buffer so allocator reuse cannot produce a false cache hit.
+        previous = identity; previousBuffer=frame.pixelBuffer; previousTime = frame.time; previousOptions = (removeBackground,faceFraming); return (matte,crop)
     }
 }
