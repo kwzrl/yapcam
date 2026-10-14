@@ -128,6 +128,20 @@ final class AudioTimeline: @unchecked Sendable {
             var boundaries=[start,end]
             if fadeInEnd>start && fadeInEnd<end { boundaries.append(fadeInEnd) }
             if fadeOutStart>start && fadeOutStart<end { boundaries.append(fadeOutStart) }
+            if overlay.fadeInNs>0 && overlay.fadeOutNs>0 {
+                // When fades overlap, their minimum peaks where the two ramps cross.
+                // Connecting only the fade endpoints would flatten this peak to silence.
+                let duration=overlay.endNs-overlay.startNs
+                let sum=Double(overlay.fadeInNs)+Double(overlay.fadeOutNs)
+                // Convert the smaller distance so Int64.max never rounds beyond Int64.
+                let crossing: Int64
+                if overlay.fadeInNs<=overlay.fadeOutNs {
+                    crossing=overlay.startNs+Int64((Double(duration)*(Double(overlay.fadeInNs)/sum)).rounded())
+                } else {
+                    crossing=overlay.endNs-Int64((Double(duration)*(Double(overlay.fadeOutNs)/sum)).rounded())
+                }
+                if crossing>start && crossing<end && crossing<fadeInEnd && crossing>fadeOutStart { boundaries.append(crossing) }
+            }
             boundaries=Array(Set(boundaries)).sorted()
             func gain(at t: Int64) -> Float {
                 let incoming=overlay.fadeInNs>0 ? min(1,Double(t-overlay.startNs)/Double(overlay.fadeInNs)) : 1

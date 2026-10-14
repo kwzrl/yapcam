@@ -1,6 +1,3 @@
-// This guard is temporary until Lead rebases the render worktree onto integrated core.
-// Integration validation defines it against the real Core implementation, never a production fake.
-#if YAPCAM_CORE_PROJECT_AVAILABLE
 import YapcamCore
 import Metal
 import Foundation
@@ -33,4 +30,3 @@ public extension FrameCompositor {
 public extension Exporter {
     convenience init(project: Project,settings: ExportSettings,destination: URL) throws { try self.init(project: project as any RenderProjectSource,settings: settings,destination: destination) }
 }
-#endif

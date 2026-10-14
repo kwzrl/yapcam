@@ -11,6 +11,7 @@ public final class FrameCompositor: @unchecked Sendable {
     private let pipeline: MTLRenderPipelineState
     private let loader: MTKTextureLoader
     private let layerRenderer: LayerRenderer
+    private let backgroundBlur: BackgroundBlur
     private let cameraEffects: CameraEffects
     private let lock = NSLock()
     private let invalidationLock = NSLock()
@@ -25,6 +26,7 @@ public final class FrameCompositor: @unchecked Sendable {
         manifest = try RecordingManifest.load(package: project.packageURL)
         loader = MTKTextureLoader(device: device)
         layerRenderer = try LayerRenderer(device: device)
+        backgroundBlur = try BackgroundBlur(device: device)
         var cache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, [kCVMetalTextureUsage as String: MTLTextureUsage.shaderRead.rawValue] as CFDictionary, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Metal texture cache unavailable") }
         self.cache = cache
@@ -72,7 +74,7 @@ public final class FrameCompositor: @unchecked Sendable {
         if let camera { (matte,cameraCrop) = try cameraEffects.evaluate(camera,removeBackground: options.cameraBackgroundRemoval,faceFraming: options.cameraFaceFraming) }
         var cursorTexture = empty
         var cursorRect = SIMD4<Float>.zero
-        if frame.cursor_visible != 0, frame.cursor_opacity > 0, let segment = manifest.segment(at: frame.screen.segment), let path = segment.files["cursors"] {
+        if options.cursorStyle == .recorded, frame.cursor_visible != 0, frame.cursor_opacity > 0, let segment = manifest.segment(at: frame.screen.segment), let path = segment.files["cursors"] {
             let root = project.packageURL.appendingPathComponent("recording")
             let metadataURL = try packageMediaURL(path, root: root)
             if cursorMetadata[segment.index] == nil {
@@ -92,6 +94,7 @@ public final class FrameCompositor: @unchecked Sendable {
         }
         var background = empty
         if frame.background_kind == 2 { background = try image(project.renderBackgroundAsset(index: frame.background_asset)) }
+        if frame.background_kind == 3, frame.background_blur>0, let screen { background = try backgroundBlur.encode(source: screen,canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)),radius: frame.background_blur,in: cb) }
         func rect(_ r: YcRect) -> SIMD4<Float> { SIMD4(Float(r.x), Float(r.y), Float(r.w), Float(r.h)) }
         func color(_ c: (Float, Float, Float, Float)) -> SIMD4<Float> { SIMD4(c.0, c.1, c.2, c.3) }
         let crop = rect(frame.screen_crop)
@@ -159,14 +162,12 @@ public final class FrameCompositor: @unchecked Sendable {
         float4 result = float4(linearRGB(u[1].rgb),u[1].a);
         if (u[0].z == 1) {
             float2 direction = float2(cos(u[3].x), sin(u[3].x));
-            float t = clamp(dot(v.uv-.5,direction) / (abs(direction.x)+abs(direction.y)) + .5,0.0,1.0);
+            float t = clamp(dot((v.uv-.5)*u[0].xy,direction) / dot(abs(direction),u[0].xy) + .5,0.0,1.0);
             result = float4(mix(linearRGB(u[1].rgb),linearRGB(u[2].rgb),t),mix(u[1].a,u[2].a,t));
         } else if (u[0].z == 2) result = bg.sample(s,coverUV(v.uv,u[0].xy,float2(bg.get_width(),bg.get_height())));
         else if (u[0].z == 3 && u[3].z > 0) {
-            result = 0; float weight = 0;
-            float2 uv = coverUV(v.uv,u[0].xy,u[23].xy);
-            for (int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) { float w=exp(-float(x*x+y*y)*.5); result+=screen.sample(s,sourceUV(uv+float2(x,y)*max(u[3].y,1.0)/u[0].xy,u[19],u[20]))*w; weight+=w; }
-            result /= weight;
+            if(u[3].y<=0) result=screen.sample(s,sourceUV(coverUV(v.uv,u[0].xy,u[23].xy),u[19],u[20]));
+            else result=bg.sample(s,coverUV(v.uv,u[0].xy,float2(bg.get_width(),bg.get_height())));
         }
         float noise=fract(sin(dot(floor(p),float2(12.9898,78.233)))*43758.5453)-.5;
         result.rgb=clamp(result.rgb+noise*u[15].x,0.0,1.0);
