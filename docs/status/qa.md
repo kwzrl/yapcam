@@ -1,4 +1,4 @@
-READY dec2735 qa: E2E 11 tests green, run-e2e.sh simplified, FEATURES statuses
+READY HEAD qa: verify-package.sh fixture-verified; backlog empty except blocked items
 
 # qa status
 
@@ -16,6 +16,8 @@ READY dec2735 qa: E2E 11 tests green, run-e2e.sh simplified, FEATURES statuses
 
 - F5 E2E now 11 tests green (formats HEVC/MOV/GIF, 60 fps, cut/duration, A/V duration agreement after cut, cancel removes partial file, export crop at zoom). FEATURES.md rows EXP-01/03/05/06/07, EDT-02/05, PRJ-01/05, ZOM-02 marked verified (library level; UI and live capture not covered).
 - run-e2e.sh simplified (E2E is a real target on main).
+
+- verify-package.sh run against synthetic fixture: ok (project.json now optional). Re-checked 2026-10-15: main unchanged, screen access still false (probe -3801) → live QA still blocked.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
