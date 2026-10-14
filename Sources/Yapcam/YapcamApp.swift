@@ -1,159 +1,154 @@
-import AVFoundation
-import ScreenCaptureKit
+import AppKit
 import SwiftUI
-
-// Setup probe: a minimal app with the final bundle identity so macOS privacy
-// permissions are granted to the real Yapcam app from day one.
-// `--probe-record <seconds>` records the main display (excluding Yapcam's own
-// windows) to ~/Movies/Yapcam/Probes and quits; results go to ~/Library/Logs/Yapcam.
 
 @main
 struct YapcamApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        WindowGroup("Yapcam") {
-            ProbeView()
-        }
+        // All windows are AppKit-managed; this scene only satisfies the App protocol.
+        Settings { EmptyView() }
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let startStopKey = GlobalHotKey()
+    private let pauseKey = GlobalHotKey()
+    private var statusItem: NSStatusItem?
+    private var recordingObserver: Any?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = CommandLine.arguments
-        guard let i = args.firstIndex(of: "--probe-record") else { return }
-        let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
-        Task {
-            await Probe.report()
-            do {
-                let url = try await Probe.record(seconds: seconds)
-                Probe.log("record ok \(url.path)")
-            } catch {
-                Probe.log("record failed \(error)")
+        if let i = args.firstIndex(of: "--probe-record") {
+            let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
+            Task {
+                await Probe.report()
+                do { Probe.log("record ok \(try await Probe.record(seconds: seconds).path)") }
+                catch { Probe.log("record failed \(error)") }
+                NSApp.terminate(nil)
             }
-            NSApp.terminate(nil)
+            return
         }
-    }
-}
 
-struct ProbeView: View {
-    @State private var status = "Ready"
+        if let i = args.firstIndex(of: "--snapshot-ui"), args.indices.contains(i + 1) {
+            let dir = URL(filePath: args[i + 1], directoryHint: .isDirectory)
+            Task { await UISnapshot.run(into: dir) }
+            return
+        }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Yapcam setup probe").font(.headline)
-            Text(status).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-            HStack {
-                Button("Request permissions") {
-                    Task {
-                        await Probe.report()
-                        status = "Screen access: \(CGPreflightScreenCaptureAccess())"
-                    }
-                }
-                Button("Record 5 s") {
-                    status = "Recording…"
-                    Task {
-                        do { status = "Saved \(try await Probe.record(seconds: 5).path)" }
-                        catch { status = "Failed: \(error.localizedDescription)" }
-                    }
-                }
+        let settings = AppSettings.shared
+        NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
+        NSApp.mainMenu = MainMenu.build(target: self)
+        applyMenuBarItem()
+        bindShortcuts()
+
+        ToolbarPanelController.shared.show()
+        if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {
+            OnboardingWindow.shared.show(reason: nil)
+        }
+
+        // Re-apply settings that need side effects.
+        Task { @MainActor in
+            for await _ in settings.objectWillChange.values {
+                try? await Task.sleep(for: .milliseconds(50))
+                self.applyLiveSettings()
             }
         }
-        .padding(20)
-        .frame(minWidth: 420)
     }
-}
 
-enum Probe {
-    static let logURL = FileManager.default.homeDirectoryForCurrentUser
-        .appending(path: "Library/Logs/Yapcam/probe.log")
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    static func log(_ line: String) {
-        try? FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let entry = "\(Date().ISO8601Format()) \(line)\n"
-        if let handle = try? FileHandle(forWritingTo: logURL) {
-            handle.seekToEndOfFile()
-            handle.write(Data(entry.utf8))
-            try? handle.close()
-        } else {
-            try? Data(entry.utf8).write(to: logURL)
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        ToolbarPanelController.shared.show()
+        return true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if RecordingController.shared.isRecording {
+            let a = NSAlert()
+            a.messageText = "A recording is in progress"
+            a.informativeText = "Quit and discard it, or keep recording."
+            a.addButton(withTitle: "Keep Recording")
+            a.addButton(withTitle: "Discard and Quit")
+            if a.runModal() == .alertFirstButtonReturn { return .terminateCancel }
+            RecordingController.shared.cancel()
+        }
+        return .terminateNow
+    }
+
+    // MARK: Shortcuts / settings side effects
+
+    private var boundCombos: (KeyCombo, KeyCombo)?
+
+    private func bindShortcuts() {
+        let s = AppSettings.shared
+        boundCombos = (s.startStopShortcut, s.pauseShortcut)
+        if !startStopKey.register(s.startStopShortcut, action: { RecordingController.shared.toggleStartStop() }) {
+            Probe.log("could not register start/stop shortcut \(s.startStopShortcut.display)")
+        }
+        if !pauseKey.register(s.pauseShortcut, action: { RecordingController.shared.togglePause() }) {
+            Probe.log("could not register pause shortcut \(s.pauseShortcut.display)")
         }
     }
 
-    static func report() async {
-        log("bundle \(Bundle.main.bundleIdentifier ?? "nil")")
-        if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
-        log("screen access \(CGPreflightScreenCaptureAccess())")
-        let mic = await AVCaptureDevice.requestAccess(for: .audio)
-        let cam = await AVCaptureDevice.requestAccess(for: .video)
-        log("mic access \(mic) camera access \(cam)")
-        let video = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
-            mediaType: .video, position: .unspecified).devices
-        let audio = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified).devices
-        log("cameras \(video.map(\.localizedName)) microphones \(audio.map(\.localizedName))")
+    private func applyLiveSettings() {
+        let s = AppSettings.shared
+        if let b = boundCombos, b != (s.startStopShortcut, s.pauseShortcut) { bindShortcuts() }
+        let wanted: NSApplication.ActivationPolicy = s.showInDock ? .regular : .accessory
+        if NSApp.activationPolicy() != wanted { NSApp.setActivationPolicy(wanted) }
+        applyMenuBarItem()
     }
 
-    static func record(seconds: Double) async throws -> URL {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        guard let display = content.displays.first else { throw ProbeError.noDisplay }
-        let own = content.applications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }
-        let filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
+    // MARK: Menu bar item
 
-        let config = SCStreamConfiguration()
-        let scale = Int(filter.pointPixelScale)
-        config.width = Int(filter.contentRect.width) * scale
-        config.height = Int(filter.contentRect.height) * scale
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
-        config.showsCursor = true
-        config.capturesAudio = true
-
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Movies/Yapcam/Probes")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appending(path: "probe-\(Int(Date().timeIntervalSince1970)).mov")
-
-        let outputConfig = SCRecordingOutputConfiguration()
-        outputConfig.outputURL = url
-        outputConfig.outputFileType = .mov
-        outputConfig.videoCodecType = .hevc
-
-        let finished = RecordingFinished()
-        let output = SCRecordingOutput(configuration: outputConfig, delegate: finished)
-        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
-        try stream.addRecordingOutput(output)
-        log("recording \(config.width)x\(config.height) display \(display.displayID) excluded apps \(own.count)")
-        try await stream.startCapture()
-        try await Task.sleep(for: .seconds(seconds))
-        try await stream.stopCapture()
-        try await finished.wait()
-        return url
+    private func applyMenuBarItem() {
+        if AppSettings.shared.showMenuBarItem {
+            if statusItem == nil {
+                let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+                item.button?.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Yapcam")
+                item.menu = MainMenu.statusMenu(target: self)
+                statusItem = item
+            }
+        } else if let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item); statusItem = nil
+        }
     }
+
+    // MARK: Actions
+
+    @objc func toggleRecording() { RecordingController.shared.toggleStartStop() }
+    @objc func togglePause() { RecordingController.shared.togglePause() }
+    @objc func toggleToolbar() { ToolbarPanelController.shared.toggle() }
+    @objc func showSettings() { SettingsWindow.shared.show() }
+    @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil) }
+    @objc func openProject() {
+        let p = NSOpenPanel()
+        p.canChooseFiles = true; p.canChooseDirectories = true; p.treatsFilePackagesAsDirectories = false
+        p.directoryURL = AppSettings.shared.storageDirectory
+        p.message = "Choose a .yapcam recording"
+        if p.runModal() == .OK, let url = p.url, url.pathExtension == "yapcam" {
+            RecordingController.shared.engine.openEditor(package: url)
+        }
+    }
+    @objc func showAbout() { AboutWindow.show() }
+    @objc func showStorageFolder() { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) }
 }
 
-enum ProbeError: Error { case noDisplay }
-
-final class RecordingFinished: NSObject, SCRecordingOutputDelegate, @unchecked Sendable {
-    private var continuation: CheckedContinuation<Void, Error>?
-    private var result: Result<Void, Error>?
-    private let lock = NSLock()
-
-    func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) { finish(.success(())) }
-    func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) { finish(.failure(error)) }
-
-    private func finish(_ value: Result<Void, Error>) {
-        lock.lock()
-        if let continuation { self.continuation = nil; lock.unlock(); continuation.resume(with: value); return }
-        result = value
-        lock.unlock()
-    }
-
-    func wait() async throws {
-        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-            lock.lock()
-            if let result { lock.unlock(); c.resume(with: result); return }
-            continuation = c
-            lock.unlock()
+extension AppDelegate: NSMenuItemValidation {
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        let r = RecordingController.shared
+        switch item.action {
+        case #selector(toggleRecording):
+            item.title = r.isRecording || r.phase == .countdown(0) ? "Stop Recording" : "Start Recording"
+            if case .countdown = r.phase { item.title = "Cancel Countdown" }
+            return r.phase != .starting && r.phase != .finishing
+        case #selector(togglePause):
+            item.title = r.phase == .paused ? "Resume Recording" : "Pause Recording"
+            return r.isRecording
+        case #selector(toggleToolbar):
+            item.title = ToolbarPanelController.shared.isVisible ? "Hide Toolbar" : "Show Toolbar"
+            return true
+        default: return true
         }
     }
 }

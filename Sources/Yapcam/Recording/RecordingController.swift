@@ -1,0 +1,285 @@
+import AppKit
+import SwiftUI
+
+enum RecordingPhase: Equatable {
+    case idle
+    case countdown(Int)
+    case starting
+    case recording
+    case paused
+    case finishing
+}
+
+/// Owns the recording lifecycle for the UI: countdown → start → pause/resume → stop → editor.
+@MainActor final class RecordingController: ObservableObject {
+    static let shared = RecordingController()
+
+    @Published private(set) var phase: RecordingPhase = .idle
+    @Published private(set) var elapsed: TimeInterval = 0
+    @Published private(set) var micLevel: Float = 0
+    @Published private(set) var warnings: [String] = []
+    @Published var alert: AppAlert?
+
+    var engine: RecordingEngine = UnavailableEngine()
+    private let settings = AppSettings.shared
+    private var session: EngineSession?
+    private var countdownTask: Task<Void, Never>?
+    private var ticker: Timer?
+    private let countdownWindow = CountdownWindow()
+    private var lastOptions: UIRecordingOptions?
+
+    var isBusy: Bool { phase != .idle }
+    var isRecording: Bool { phase == .recording || phase == .paused }
+
+    /// UI snapshot tooling only: forces a phase without a session.
+    func debugSetPhase(_ p: RecordingPhase) { phase = p; if p == .recording || p == .paused { elapsed = 754 } }
+
+    // MARK: Entry points (toolbar button, menu, global shortcut)
+
+    func toggleStartStop() {
+        switch phase {
+        case .idle: begin()
+        case .countdown: cancelCountdown()
+        case .recording, .paused: stop()
+        case .starting, .finishing: break
+        }
+    }
+
+    func togglePause() {
+        switch phase {
+        case .recording: pause()
+        case .paused: resume()
+        default: break
+        }
+    }
+
+    func begin() {
+        guard phase == .idle else { return }
+        let perms = PermissionsModel.shared
+        perms.refresh()
+        if perms.state(.screen) != .granted {
+            OnboardingWindow.shared.show(reason: "Screen recording permission is required to record.")
+            return
+        }
+        let options: UIRecordingOptions
+        do { options = try makeOptions() } catch {
+            alert = AppAlert(title: "Can't start recording", message: error.localizedDescription)
+            return
+        }
+        lastOptions = options
+        runCountdown(then: options)
+    }
+
+    // MARK: Options
+
+    private func makeOptions() throws -> UIRecordingOptions {
+        let target: UITarget
+        switch settings.sourceMode {
+        case .display:
+            guard let d = Displays.resolve(settings.displayID) else { throw EngineError.failed("No display found.") }
+            target = .display(d.id)
+        case .window:
+            guard settings.windowID != 0 else { throw EngineError.failed("Choose a window to record first.") }
+            target = .window(settings.windowID)
+        case .area:
+            guard let rect = settings.areaRect, rect.width >= 16, rect.height >= 16,
+                  Displays.info(for: settings.areaDisplayID) != nil else {
+                throw EngineError.failed("Select an area to record first.")
+            }
+            target = .area(display: settings.areaDisplayID, rect: rect)
+        }
+        try FileManager.default.createDirectory(at: settings.storageDirectory, withIntermediateDirectories: true)
+        if let free = try? settings.storageDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            .volumeAvailableCapacityForImportantUsage, free < 1_000_000_000 {
+            throw EngineError.diskFull(availableBytes: free)
+        }
+        return UIRecordingOptions(
+            target: target,
+            systemAudio: settings.systemAudio,
+            microphoneID: PermissionsModel.shared.state(.microphone) == .granted ? settings.microphoneID : nil,
+            cameraID: PermissionsModel.shared.state(.camera) == .granted ? settings.cameraID : nil,
+            recordKeystrokes: settings.recordKeystrokes && PermissionsModel.shared.state(.inputMonitoring) == .granted,
+            maxFPS: settings.maxFPS,
+            outputDirectory: settings.storageDirectory)
+    }
+
+    private func screenForCountdown(_ o: UIRecordingOptions) -> NSScreen? {
+        switch o.target {
+        case .display(let id), .area(let id, _): return Displays.screen(for: id)
+        case .window: return NSScreen.main
+        }
+    }
+
+    // MARK: Countdown
+
+    private func runCountdown(then options: UIRecordingOptions) {
+        let n = settings.countdown
+        guard n > 0 else { startSession(options); return }
+        phase = .countdown(n)
+        countdownTask = Task { [weak self] in
+            guard let self else { return }
+            for i in stride(from: n, through: 1, by: -1) {
+                self.phase = .countdown(i)
+                self.countdownWindow.show(i, on: self.screenForCountdown(options), engine: self.engine)
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+            }
+            self.countdownWindow.hide()
+            self.startSession(options)
+        }
+    }
+
+    func cancelCountdown() {
+        countdownTask?.cancel(); countdownTask = nil
+        countdownWindow.hide()
+        phase = .idle
+    }
+
+    // MARK: Session
+
+    private func startSession(_ options: UIRecordingOptions) {
+        phase = .starting
+        let s = engine.makeSession(options)
+        session = s
+        elapsed = 0
+        Task {
+            do {
+                try await s.start()
+                phase = .recording
+                startTicker()
+            } catch {
+                session = nil
+                phase = .idle
+                alert = AppAlert(title: "Recording could not start", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func pause() {
+        guard phase == .recording, let s = session else { return }
+        Task { do { try await s.pause(); phase = .paused } catch { fail(error) } }
+    }
+
+    func resume() {
+        guard phase == .paused, let s = session else { return }
+        Task { do { try await s.resume(); phase = .recording } catch { fail(error) } }
+    }
+
+    func stop() {
+        guard isRecording, let s = session else { return }
+        phase = .finishing
+        stopTicker()
+        Task {
+            do {
+                let url = try await s.stop()
+                finish(); 
+                if settings.openEditorAfterRecording { engine.openEditor(package: url) }
+                else { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            } catch {
+                finish()
+                alert = AppAlert(title: "Recording could not be saved", message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Discards the recording in progress (or countdown).
+    func cancel() {
+        if case .countdown = phase { cancelCountdown(); return }
+        guard isRecording, let s = session else { return }
+        phase = .finishing
+        stopTicker()
+        Task { await s.cancel(); finish() }
+    }
+
+    /// Discards the current take and starts a new one with the same options, no countdown.
+    func restart() {
+        guard isRecording, let s = session, let options = lastOptions else { return }
+        phase = .finishing
+        stopTicker()
+        Task { await s.cancel(); finish(); startSession(options) }
+    }
+
+    private func finish() { session = nil; phase = .idle; elapsed = 0; micLevel = 0; warnings = [] }
+
+    private func fail(_ error: Error) {
+        alert = AppAlert(title: "Recording problem", message: error.localizedDescription)
+    }
+
+    // MARK: Ticker
+
+    private func startTicker() {
+        stopTicker()
+        ticker = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+    }
+    private func stopTicker() { ticker?.invalidate(); ticker = nil }
+
+    private func tick() {
+        guard let s = session else { return }
+        elapsed = s.elapsed
+        micLevel = s.micLevel
+        if s.warnings != warnings { warnings = s.warnings }
+        if let f = s.failure, isRecording {
+            // The engine ended the recording itself; salvage what was written.
+            stopTicker()
+            phase = .finishing
+            Task {
+                let saved = try? await s.stop()
+                finish()
+                var msg = f.localizedDescription
+                if let saved { msg += " The part that was recorded is saved."; engine.openEditor(package: saved) }
+                alert = AppAlert(title: "Recording stopped", message: msg)
+            }
+        }
+    }
+}
+
+struct AppAlert: Identifiable {
+    let id = UUID()
+    var title: String
+    var message: String
+}
+
+// MARK: - Countdown overlay
+
+@MainActor final class CountdownWindow {
+    private var window: NSPanel?
+    private var model = CountdownModel()
+
+    final class CountdownModel: ObservableObject { @Published var value = 0 }
+
+    func show(_ n: Int, on screen: NSScreen?, engine: RecordingEngine) {
+        model.value = n
+        guard let screen = screen ?? NSScreen.main else { return }
+        if window == nil {
+            let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false
+            p.level = .screenSaver; p.ignoresMouseEvents = true
+            p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+            p.contentView = NSHostingView(rootView: CountdownView(model: model))
+            p.isReleasedWhenClosed = false
+            engine.registerExcluded(p)
+            window = p
+        }
+        let size = CGSize(width: 160, height: 160)
+        window?.setFrame(CGRect(x: screen.frame.midX - size.width / 2, y: screen.frame.midY - size.height / 2,
+                                width: size.width, height: size.height), display: true)
+        window?.orderFrontRegardless()
+    }
+
+    func hide() { window?.orderOut(nil) }
+}
+
+private struct CountdownView: View {
+    @ObservedObject var model: CountdownWindow.CountdownModel
+    var body: some View {
+        Text("\(model.value)")
+            .font(.system(size: 84, weight: .semibold, design: .rounded).monospacedDigit())
+            .foregroundStyle(.primary)
+            .frame(width: 148, height: 148)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(.separator))
+            .frame(width: 160, height: 160)
+    }
+}
