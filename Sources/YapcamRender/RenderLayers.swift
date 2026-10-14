@@ -69,7 +69,7 @@ final class LayerRenderer {
         if let texture = texts[key] { return texture }
         let width = Int(ceil(size.width)), height = Int(ceil(size.height))
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width*4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw RenderError.write("Cannot rasterize text overlay") }
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width*4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue|CGBitmapInfo.byteOrder32Big.rawValue) else { throw RenderError.write("Cannot rasterize text overlay") }
         let font = CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
         let attributes: [NSAttributedString.Key: Any] = [NSAttributedString.Key(kCTFontAttributeName as String): font, NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(colorSpace: space, components: [CGFloat(color.x),CGFloat(color.y),CGFloat(color.z),CGFloat(color.w)])!]
         let text = NSAttributedString(string: value, attributes: attributes)
@@ -77,7 +77,7 @@ final class LayerRenderer {
         let path = CGPath(rect: CGRect(x: 0,y: 0,width: width,height: height), transform: nil)
         CTFrameDraw(CTFramesetterCreateFrame(framesetter,CFRange(location: 0,length: 0),path,nil),context)
         guard let image = context.makeImage() else { throw RenderError.write("Cannot create text image") }
-        let texture = try loader.newTexture(cgImage: image, options: [.SRGB: true, .origin: MTKTextureLoader.Origin.topLeft])
+        let texture = try generatedSRGBTexture(image,device: device)
         if texts.count >= 32 { texts.removeAll() }; texts[key] = texture
         return texture
     }
@@ -93,7 +93,9 @@ final class LayerRenderer {
             var texture = solid
             var uniforms: [SIMD4<Float>] = [SIMD4(canvas.x,canvas.y,0,0), SIMD4(Float(r.minX),Float(r.minY),Float(r.width),Float(r.height)), SIMD4(layer.cornerRadius,layer.opacity,0,0), .zero, .zero]
             switch layer.content {
-            case .text(let value, let size, let color): texture = try text(value,fontSize: size,color: color,size: r.size); uniforms[2].z = 1
+            case .text(let value, let size, let color):
+                let scale=max(1,max(Double(target.width)/Double(canvas.x),Double(target.height)/Double(canvas.y)))
+                texture = try text(value,fontSize: size*scale,color: color,size: CGSize(width: r.width*scale,height: r.height*scale)); uniforms[2].z = 1
             case .image(let path):
                 if images[path] == nil {
                     if images.count >= 8 { images.removeAll() }

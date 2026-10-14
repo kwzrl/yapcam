@@ -11,10 +11,50 @@ private final class SpeechReadCancellation: @unchecked Sendable {
 }
 private final class SpeechSourceTrack: @unchecked Sendable {
     let asset: AVURLAsset
-    let track: AVAssetTrack
+    let track: AVAssetTrack?
     let channels: Int
     let endFrame: Int64
-    init(asset: AVURLAsset,track: AVAssetTrack,channels: Int,endFrame: Int64) { self.asset=asset; self.track=track; self.channels=channels; self.endFrame=endFrame }
+    init(asset: AVURLAsset,track: AVAssetTrack?,channels: Int,endFrame: Int64) { self.asset=asset; self.track=track; self.channels=channels; self.endFrame=endFrame }
+}
+
+/// AVAudioFile handles PCM locally without requiring AVAssetReader codec services.
+private final class SpeechPCMReader: @unchecked Sendable {
+    let file: AVAudioFile
+    let format: AVAudioFormat
+    let converter: AVAudioConverter?
+    private var failure: Error?
+    init(url: URL,format: AVAudioFormat) throws {
+        file=try AVAudioFile(forReading: url,commonFormat: .pcmFormatFloat32,interleaved: false)
+        self.format=format
+        if file.processingFormat.sampleRate != 48_000 {
+            guard let converter=AVAudioConverter(from: file.processingFormat,to: format) else { throw RenderError.unavailable("PCM sample-rate conversion unavailable") }
+            converter.primeMethod = .none; self.converter=converter
+        } else { converter=nil }
+    }
+    func next() throws -> [Float]? {
+        if converter==nil && file.framePosition>=file.length { return nil }
+        guard let buffer=AVAudioPCMBuffer(pcmFormat: format,frameCapacity: 4096) else { throw RenderError.write("Cannot allocate speech PCM") }
+        if let converter {
+            var error: NSError?
+            let status=converter.convert(to: buffer,error: &error) { [self] count,status in
+                if file.framePosition>=file.length { status.pointee = .endOfStream; return nil }
+                do {
+                    guard let input=AVAudioPCMBuffer(pcmFormat: file.processingFormat,frameCapacity: max(1,min(count,4096))) else { throw RenderError.write("Cannot allocate resampler input") }
+                    try file.read(into: input)
+                    status.pointee=input.frameLength>0 ? .haveData : .endOfStream
+                    return input.frameLength>0 ? input : nil
+                } catch { failure=error; status.pointee = .noDataNow; return nil }
+            }
+            if let failure { throw failure }; if let error { throw error }
+            if status == .error { throw RenderError.decode("Speech resampling failed") }
+        } else { try file.read(into: buffer) }
+        guard buffer.frameLength>0 else { return nil }
+        guard let data=buffer.floatChannelData else { throw RenderError.decode("Speech PCM has no channel data") }
+        let channels=Int(format.channelCount)
+        var pcm=[Float](repeating: 0,count: Int(buffer.frameLength)*channels)
+        for frame in 0..<Int(buffer.frameLength) { for channel in 0..<channels { pcm[frame*channels+channel]=data[channel][frame] } }
+        return pcm
+    }
 }
 
 public extension SpeechEnhancer {
@@ -26,6 +66,12 @@ public extension SpeechEnhancer {
         guard source.isFileURL,destination.isFileURL,["caf","wav"].contains(destination.pathExtension.lowercased()) else { throw RenderError.invalidSettings("Speech output must be a local CAF or WAV file") }
         guard !FileManager.default.fileExists(atPath: destination.path) else { throw RenderError.write("Speech output already exists") }
         let asset=AVURLAsset(url: source)
+        if ["wav","caf","aif","aiff"].contains(source.pathExtension.lowercased()) {
+            let file=try AVAudioFile(forReading: source,commonFormat: .pcmFormatFloat32,interleaved: false)
+            let channels=Int(file.processingFormat.channelCount), frames=Double(file.length)*48_000/file.processingFormat.sampleRate
+            guard (1...2).contains(channels),frames.isFinite,frames>0,frames<Double(Int64.max) else { throw RenderError.invalidSettings("Speech PCM input must be nonempty mono/stereo") }
+            return try await processSource(SpeechSourceTrack(asset: asset,track: nil,channels: channels,endFrame: Int64(frames.rounded())),to: destination,settings: settings,progress: progress)
+        }
         guard let track=try await asset.loadTracks(withMediaType: .audio).first else { throw RenderError.decode("Speech input has no audio track") }
         let descriptions=try await track.load(.formatDescriptions)
         guard let description=descriptions.first,let format=CMAudioFormatDescriptionGetStreamBasicDescription(description) else { throw RenderError.decode("Speech input audio format is unavailable") }
@@ -35,8 +81,16 @@ public extension SpeechEnhancer {
         let end=CMTimeConvertScale(timeRange.end,timescale: 48_000,method: .roundHalfAwayFromZero)
         guard end.isNumeric,end.value>0 else { throw RenderError.decode("Speech input has invalid duration") }
         let context=SpeechSourceTrack(asset: asset,track: track,channels: channels,endFrame: end.value)
+        return try await processSource(context,to: destination,settings: settings,progress: progress)
+    }
+    private static func processSource(_ context: SpeechSourceTrack,to destination: URL,settings: SpeechEnhancementSettings,progress: @escaping @Sendable (Double) -> Void) async throws -> SpeechEnhancementReport {
         let cancellation=SpeechReadCancellation()
-        let task=Task.detached(priority: .userInitiated) { try processFile(context,to: destination,settings: settings,cancellation: cancellation,progress: progress) }
+        let task=Task.detached(priority: .userInitiated) {
+            do { return try processFile(context,to: destination,settings: settings,cancellation: cancellation,progress: progress) }
+            catch is CancellationError { throw CancellationError() }
+            catch let error as RenderError { throw error }
+            catch { throw RenderError.write("Offline speech file IO failed: \(error as NSError)") }
+        }
         return try await withTaskCancellationHandler { try await task.value } onCancel: { cancellation.cancel(); task.cancel() }
     }
     private static func processFile(_ source: SpeechSourceTrack,to destination: URL,settings: SpeechEnhancementSettings,cancellation: SpeechReadCancellation,progress: @Sendable (Double) -> Void) throws -> SpeechEnhancementReport {
@@ -48,31 +102,39 @@ public extension SpeechEnhancer {
         defer { try? FileManager.default.removeItem(at: partial) }
         let channels=source.channels
         let format=AVAudioFormat(commonFormat: .pcmFormatFloat32,sampleRate: 48_000,channels: AVAudioChannelCount(channels),interleaved: false)!
-        let reader=try AVAssetReader(asset: source.asset)
-        let output=AVAssetReaderTrackOutput(track: source.track,outputSettings: [AVFormatIDKey:kAudioFormatLinearPCM,AVSampleRateKey:48_000,AVNumberOfChannelsKey:channels,AVLinearPCMBitDepthKey:32,AVLinearPCMIsFloatKey:true,AVLinearPCMIsBigEndianKey:false,AVLinearPCMIsNonInterleaved:false])
-        output.alwaysCopiesSampleData=false
-        guard reader.canAdd(output) else { throw RenderError.decode("Speech PCM decoder is unavailable") }
-        reader.add(output); try cancellation.attach(reader); try cancellation.check()
-        guard reader.startReading() else { throw RenderError.unavailable(reader.error?.localizedDescription ?? "Speech decoder unavailable") }
-        defer { reader.cancelReading() }
+        var fileSettings=format.settings; fileSettings[AVLinearPCMIsNonInterleaved]=false
+        var reader: AVAssetReader?, nativeOutput: AVAssetReaderTrackOutput?
+        if let track=source.track {
+            let value=try AVAssetReader(asset: source.asset)
+            let output=AVAssetReaderTrackOutput(track: track,outputSettings: [AVFormatIDKey:kAudioFormatLinearPCM,AVSampleRateKey:48_000,AVNumberOfChannelsKey:channels,AVLinearPCMBitDepthKey:32,AVLinearPCMIsFloatKey:true,AVLinearPCMIsBigEndianKey:false,AVLinearPCMIsNonInterleaved:false])
+            output.alwaysCopiesSampleData=false
+            guard value.canAdd(output) else { throw RenderError.decode("Speech PCM decoder is unavailable") }
+            value.add(output); try cancellation.attach(value); try cancellation.check()
+            guard value.startReading() else { throw RenderError.unavailable(value.error.map { String(describing: $0 as NSError) } ?? "Speech decoder unavailable") }
+            reader=value; nativeOutput=output
+        }
+        defer { reader?.cancelReading() }
         var processor=try SpeechProcessor48k(channels: channels,settings: settings)
-        var meter=try LoudnessMeter48k(channels: channels), written: Int64=0
+        var meter=try LoudnessMeter48k(channels: channels), written: Int64=0, decodedFrames: Int64=0
         try autoreleasepool {
-            let file=try AVAudioFile(forWriting: intermediate,settings: format.settings,commonFormat: .pcmFormatFloat32,interleaved: false)
+            let file=try AVAudioFile(forWriting: intermediate,settings: fileSettings,commonFormat: .pcmFormatFloat32,interleaved: false)
             func write(_ samples: [Float]) throws {
                 let processed=try processor.process(samples)
                 try meter.process(interleaved: processed)
                 try writePCM(processed,channels: channels,format: format,to: file)
                 written+=Int64(processed.count/channels)
             }
+            if let output=nativeOutput {
             while let sample=output.copyNextSampleBuffer() {
                 try cancellation.check()
                 guard let block=CMSampleBufferGetDataBuffer(sample) else { throw RenderError.decode("Speech sample has no PCM data") }
                 let length=CMBlockBufferGetDataLength(block)
+                if length==0 { continue }
                 guard length%(channels*4)==0 else { throw RenderError.decode("Speech PCM layout is invalid") }
                 var pcm=[Float](repeating: 0,count: length/4)
                 let status=pcm.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block,atOffset: 0,dataLength: length,destination: $0.baseAddress!) }
                 guard status==kCMBlockBufferNoErr else { throw RenderError.decode("Cannot read speech PCM") }
+                decodedFrames+=Int64(pcm.count/channels)
                 let time=CMTimeConvertScale(CMSampleBufferGetPresentationTimeStamp(sample),timescale: 48_000,method: .roundHalfAwayFromZero)
                 guard time.isNumeric else { throw RenderError.decode("Speech sample has invalid timestamp") }
                 let start=max(0,time.value)
@@ -85,18 +147,28 @@ public extension SpeechEnhancer {
                 progress(min(0.5,Double(written)/Double(source.endFrame)*0.5))
             }
             try cancellation.check()
-            guard reader.status == .completed else { throw RenderError.decode(reader.error?.localizedDescription ?? "Speech decoder stopped") }
+            guard reader?.status == .completed else { throw RenderError.decode(reader?.error?.localizedDescription ?? "Speech decoder stopped") }
+            } else {
+                let input=try SpeechPCMReader(url: source.asset.url,format: format)
+                while let pcm=try input.next() {
+                    try cancellation.check(); decodedFrames+=Int64(pcm.count/channels)
+                    let count=Int(min(Int64(pcm.count/channels),max(0,source.endFrame-written)))
+                    if count>0 { try write(Array(pcm.prefix(count*channels))) }
+                    progress(min(0.5,Double(written)/Double(source.endFrame)*0.5))
+                }
+            }
+            guard decodedFrames>0 else { throw RenderError.decode("Speech decoder returned no audio samples") }
             while written<source.endFrame { try cancellation.check(); try write([Float](repeating: 0,count: Int(min(4096,source.endFrame-written))*channels)) }
         }
         let before=meter.integratedLUFS
-        var gainDB=settings.normalizeLoudness ? before.map { min(24,settings.targetLUFS-$0) } ?? 0 : 0
+        var gainDB=settings.normalizeLoudness ? before.map { min(60,settings.targetLUFS-$0) } ?? 0 : 0
         var final: Double?, finalPeak=0.0, limited=false
         for attempt in 0..<4 {
             try cancellation.check()
             var result=try LoudnessMeter48k(channels: channels), limiter=SpeechPeakLimiter(channels: channels,ceilingDBFS: settings.peakCeilingDBFS)
             try autoreleasepool {
                 let input=try AVAudioFile(forReading: intermediate,commonFormat: .pcmFormatFloat32,interleaved: false)
-                let output=try AVAudioFile(forWriting: partial,settings: format.settings,commonFormat: .pcmFormatFloat32,interleaved: false)
+                let output=try AVAudioFile(forWriting: partial,settings: fileSettings,commonFormat: .pcmFormatFloat32,interleaved: false)
                 guard let buffer=AVAudioPCMBuffer(pcmFormat: format,frameCapacity: 4096) else { throw RenderError.write("Cannot allocate speech buffer") }
                 var frames: Int64=0
                 while frames<written {
@@ -112,8 +184,8 @@ public extension SpeechEnhancer {
                 }
             }
             final=result.integratedLUFS; finalPeak=limiter.peak; limited=limiter.limited
-            guard attempt<3,settings.normalizeLoudness,let final,abs(final-settings.targetLUFS)>=0.2,gainDB<24 else { break }
-            gainDB=min(24,gainDB+settings.targetLUFS-final)
+            guard attempt<3,settings.normalizeLoudness,let final,abs(final-settings.targetLUFS)>=0.2,gainDB<60 else { break }
+            gainDB=min(60,gainDB+settings.targetLUFS-final)
             try FileManager.default.removeItem(at: partial)
         }
         try cancellation.check()

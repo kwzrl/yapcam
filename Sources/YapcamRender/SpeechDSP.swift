@@ -160,14 +160,14 @@ public enum SpeechEnhancer {
         let processed=try processor.process(samples)
         var meter=try LoudnessMeter48k(channels: channels); try meter.process(interleaved: processed)
         let before=meter.integratedLUFS
-        var gainDB=settings.normalizeLoudness ? before.map { min(24,settings.targetLUFS-$0) } ?? 0 : 0
+        var gainDB=settings.normalizeLoudness ? before.map { min(60,settings.targetLUFS-$0) } ?? 0 : 0
         var output=processed, final: Double?, limiter=SpeechPeakLimiter(channels: channels,ceilingDBFS: settings.peakCeilingDBFS)
         for attempt in 0..<4 {
             limiter=SpeechPeakLimiter(channels: channels,ceilingDBFS: settings.peakCeilingDBFS)
             output=limiter.process(processed,normalizationGain: pow(10,gainDB/20))
             var result=try LoudnessMeter48k(channels: channels); try result.process(interleaved: output); final=result.integratedLUFS
-            guard attempt<3,settings.normalizeLoudness,let final,abs(final-settings.targetLUFS)>=0.2,gainDB<24 else { break }
-            gainDB=min(24,gainDB+settings.targetLUFS-final)
+            guard attempt<3,settings.normalizeLoudness,let final,abs(final-settings.targetLUFS)>=0.2,gainDB<60 else { break }
+            gainDB=min(60,gainDB+settings.targetLUFS-final)
         }
         return (output,SpeechEnhancementReport(frames: Int64(samples.count/channels),channels: channels,targetLUFS: settings.targetLUFS,processedLUFS: before,outputLUFS: final,normalizationGainDB: gainDB,samplePeakDBFS: limiter.peak>0 ? 20*log10(limiter.peak) : nil,peakLimited: limiter.limited))
     }
