@@ -23,6 +23,7 @@ recordings/
 captures/
 exports/
 local/
+!Tests/Fixtures/synthetic/*.yapcam/
 !Tests/Fixtures/synthetic/**
 
 # Reference material from other products stays local

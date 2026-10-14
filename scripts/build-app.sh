@@ -9,6 +9,7 @@ IDENTITY="${YAPCAM_SIGN_IDENTITY:-Yapcam Local Dev}"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 cd "$ROOT"
+"$ROOT/scripts/build-core.sh"
 swift build -c "$CONFIG" --product Yapcam
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/Yapcam"
 

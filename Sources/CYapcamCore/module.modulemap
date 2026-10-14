@@ -1,0 +1,5 @@
+module CYapcamCore {
+    header "../../core/include/yapcam_core.h"
+    link "yapcam_core"
+    export *
+}
