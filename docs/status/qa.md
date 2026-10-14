@@ -1,4 +1,4 @@
-READY f219e6a qa: rebased on 0dfab41; push needs Lead (see Requests)
+READY 98b85ca qa: audit vs 60902da
 
 # qa status
 
@@ -24,6 +24,8 @@ READY f219e6a qa: rebased on 0dfab41; push needs Lead (see Requests)
 - Audit vs main 6d91a7f: REC-21 now implemented (core notes + ui popover); 8 todo rows left. E2E 11/11 green on 6d91a7f. Waiting for Lead's REA output in ~/yapcam-ref-local/rea/ (empty at 01:00) to fill TBD values.
 
 - REA limits noted in FEATURES.md + reference notes; guide pages folded in (new section K: CUR-12..17, ANI-01..03, LOK-09/10, CAM-07, EXP-12). [observed] rows deferred to the morning session with the user.
+
+- Audit vs main 60902da: EDT-08/14, PRJ-02, CUR-08/11, ZOM-08/09, LOK-04/06 integrated; LOK-02, CUR-06, AUD-10 partial; backlog table updated (todo: AUD-06/07, EDT-09/13, CUR-12..16, ANI-02, CAM-07 + partials).
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
