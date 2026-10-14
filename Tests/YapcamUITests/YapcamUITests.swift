@@ -101,3 +101,19 @@ import YapcamCapture
         #expect(edit?.items.first { $0.title == "Undo" }?.keyEquivalent == "z")
     }
 }
+
+@MainActor @Suite struct NotesTests {
+    @Test func notesPersistInProject() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-notes-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let pkg = dir.appending(path: "N.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pkg, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/synthetic/basic.yapcam")
+        try? FileManager.default.removeItem(at: pkg)
+        try FileManager.default.copyItem(at: fixture, to: pkg)
+        try ProjectActions.attachNotes("remember the intro", to: pkg)
+        let json = try String(contentsOf: pkg.appending(path: "project.json"), encoding: .utf8)
+        #expect(json.contains("remember the intro"))
+    }
+}

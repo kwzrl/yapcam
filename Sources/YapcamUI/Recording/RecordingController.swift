@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import YapcamCore
 
 enum RecordingPhase: Equatable {
     case idle
@@ -19,6 +20,8 @@ enum RecordingPhase: Equatable {
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var warnings: [String] = []
     @Published private(set) var lowDisk = false
+    /// Speaker notes typed before or during a recording; saved into the project on stop.
+    @Published var notes = ""
     @Published var alert: AppAlert?
 
     var engine: RecordingEngine = LiveEngine()
@@ -203,6 +206,10 @@ enum RecordingPhase: Equatable {
             do {
                 let url = try await s.stop()
                 finish()
+                if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    do { try ProjectActions.attachNotes(notes, to: url); notes = "" }
+                    catch { alert = AppAlert(title: "Notes were not saved", message: "The recording is fine, but its speaker notes could not be stored: \(error.localizedDescription)") }
+                }
                 if settings.openEditorAfterRecording { engine.openEditor(package: url) }
                 else { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             } catch {
