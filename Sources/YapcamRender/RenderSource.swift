@@ -47,13 +47,19 @@ struct RecordingManifest: Decodable {
         enum CodingKeys: String, CodingKey { case index, dir, files, srcStartNs = "src_start_ns", durationNs = "duration_ns", trackStartNs = "track_start_ns" }
     }
     var segments: [Segment]
+    func segment(at index: UInt32) -> Segment? { Int(index)<segments.count ? segments[Int(index)] : nil }
     static func load(package: URL) throws -> Self {
-        try JSONDecoder().decode(Self.self, from: Data(contentsOf: package.appendingPathComponent("recording/session.json")))
+        let value=try JSONDecoder().decode(Self.self, from: Data(contentsOf: package.appendingPathComponent("recording/session.json")))
+        guard Set(value.segments.map { $0.index }).count == value.segments.count,
+              value.segments.allSatisfy({ segment in
+                  segment.srcStartNs >= 0 && segment.durationNs >= 0 && !segment.srcStartNs.addingReportingOverflow(segment.durationNs).overflow && segment.trackStartNs.values.allSatisfy { $0 >= 0 && $0 <= segment.durationNs }
+              }) else { throw RenderError.invalidSettings("Recording segment timestamps or indices are invalid") }
+        return value
     }
 }
 
 /// Reject escaping relative references, including symlinks, before reading project assets.
-func mediaURL(_ relative: String, root: URL) throws -> URL {
+func packageMediaURL(_ relative: String, root: URL) throws -> URL {
     let base = root.resolvingSymlinksInPath().standardizedFileURL
     let result = base.appendingPathComponent(relative).resolvingSymlinksInPath().standardizedFileURL
     guard !relative.hasPrefix("/"), result.path.hasPrefix(base.path + "/") else { throw RenderError.missingMedia("Media reference escapes its package: \(relative)") }

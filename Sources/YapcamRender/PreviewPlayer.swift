@@ -1,6 +1,6 @@
 @preconcurrency import AVFoundation
 import SwiftUI
-import MetalKit
+@preconcurrency import MetalKit
 import Combine
 
 public struct PreviewMetrics: Sendable {
@@ -18,19 +18,24 @@ public struct PreviewMetrics: Sendable {
     let project: any RenderProjectSource
     let compositor: FrameCompositor
     let queue: MTLCommandQueue
+    private var observation: ProjectObservation?
     private var player: AVPlayer?
     private var audioTimeline: AudioTimeline?
     private var audioTask: Task<Void, Never>?
     private var audioGeneration = 0
     private var audioLoading = false
+    private var audioPreparationFailed = false
     private var seekGeneration = 0
     private var seeking = false
+    private var atEnd = false
     private var anchorHost = 0.0
     private var anchorNs: Int64 = 0
     private var metricStart: Double?
     private var lastMetricUpdate = 0.0
     private var frameCount = 0
     private var dropped = 0
+    private var drawPending = false
+    private var redrawRevision = 0
     weak var view: MTKView?
 
     public init(project: any RenderProjectSource) throws {
@@ -39,9 +44,14 @@ public struct PreviewMetrics: Sendable {
         self.queue = queue; compositor = try FrameCompositor(device: device, project: project)
         rebuildAudio()
     }
+    func observeChanges(name: Notification.Name,object: AnyObject) {
+        observation=ProjectObservation(name: name,object: object) { [weak self] in
+            Task { @MainActor [weak self] in self?.invalidate() }
+        }
+    }
     public func play() {
-        guard project.durationNs > 0 else { return }
-        if currentNs >= project.durationNs { seek(toNs: 0, precise: true) }
+        guard !isPlaying, !audioPreparationFailed, project.durationNs > 0 else { return }
+        if atEnd || currentNs >= project.durationNs { seek(toNs: 0, precise: true) }
         anchorNs = currentNs; anchorHost = ProcessInfo.processInfo.systemUptime
         isPlaying = true
         if !audioLoading && !seeking { player?.play() }
@@ -53,9 +63,10 @@ public struct PreviewMetrics: Sendable {
     }
     public func togglePlay() { isPlaying ? pause() : play() }
     public func seek(toNs ns: Int64, precise: Bool) {
+        atEnd = ns >= project.durationNs
         currentNs = max(0, min(ns, max(0, project.durationNs - 1)))
         anchorNs = currentNs; anchorHost = ProcessInfo.processInfo.systemUptime
-        seekGeneration += 1
+        seekGeneration += 1; redrawRevision += 1
         let tolerance = precise ? CMTime.zero : CMTime(value: 1, timescale: 30)
         if let player {
             seeking = true
@@ -75,6 +86,7 @@ public struct PreviewMetrics: Sendable {
     public func invalidate() {
         // Rebuild the same clip mapping after edits; keep the current timeline location.
         let playing = isPlaying
+        compositor.invalidateSources()
         pause(); seek(toNs: currentNs, precise: true); rebuildAudio()
         if playing { play() }
         view?.needsDisplay = true
@@ -82,7 +94,7 @@ public struct PreviewMetrics: Sendable {
     private func rebuildAudio() {
         audioTask?.cancel(); audioGeneration += 1; seekGeneration += 1
         let generation = audioGeneration
-        player?.pause(); player = nil; audioTimeline = nil; audioLoading = true; seeking = false
+        player?.pause(); player = nil; audioTimeline = nil; audioLoading = true; audioPreparationFailed = false; seeking = false
         guard project.durationNs > 0 else { audioLoading = false; return }
         let source = project
         audioTask = Task { [weak self] in
@@ -90,7 +102,7 @@ public struct PreviewMetrics: Sendable {
                 let snapshot = try source.renderSnapshot()
                 let timeline = try await Task.detached(priority: .userInitiated) { try AudioTimeline(project: snapshot, range: 0..<snapshot.durationNs) }.value
                 guard !Task.isCancelled, let self, self.audioGeneration == generation else { return }
-                self.audioTimeline = timeline
+                self.audioTimeline = timeline; self.error = nil
                 if timeline.hasAudio {
                     let item = AVPlayerItem(asset: timeline.composition); item.audioMix = timeline.mix; item.audioTimePitchAlgorithm = .spectral
                     let player = AVPlayer(playerItem: item); self.player = player
@@ -103,7 +115,7 @@ public struct PreviewMetrics: Sendable {
                 self.anchorNs = self.currentNs; self.anchorHost = ProcessInfo.processInfo.systemUptime
             } catch {
                 guard let self, self.audioGeneration == generation else { return }
-                self.audioLoading = false; self.error = error.localizedDescription
+                self.audioLoading = false; self.audioPreparationFailed = true; self.error = error.localizedDescription
                 self.pause()
             }
         }
@@ -119,33 +131,45 @@ public struct PreviewMetrics: Sendable {
         } else if audioLoading { return }
         else { time = anchorNs + Int64((ProcessInfo.processInfo.systemUptime - anchorHost) * 1e9) }
         if time >= project.durationNs {
-            currentNs = max(0, project.durationNs - 1); isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
+            currentNs = max(0, project.durationNs - 1); atEnd = true; isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
         } else { currentNs = max(0, time) }
     }
     func draw(in view: MTKView) {
         updateClock()
+        guard !drawPending else { dropped += 1; return }
         guard let drawable = view.currentDrawable, let cb = queue.makeCommandBuffer() else { dropped += 1; return }
-        do {
-            let frame = try project.frame(atNs: currentNs)
-            try compositor.encode(frame, to: drawable.texture, in: cb)
-            cb.present(drawable)
-            cb.addCompletedHandler { [weak self] buffer in
-                let failed = buffer.status == .error
-                let message = buffer.error?.localizedDescription
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if failed { self.error = message ?? "Preview GPU failed"; self.pause(); self.dropped += 1 }
-                    else { self.frameCount += 1 }
-                    let now = ProcessInfo.processInfo.systemUptime
-                    if let start = self.metricStart, now-self.lastMetricUpdate >= 0.5 {
-                        self.metrics = PreviewMetrics(renderedFrames: self.frameCount, droppedFrames: self.dropped, elapsedSeconds: now-start)
-                        self.lastMetricUpdate = now
-                    }
+        drawPending = true
+        let ns = currentNs, revision = redrawRevision
+        let source = project, compositor = compositor
+        let resources = PreviewDrawResources(drawable: drawable,commandBuffer: cb)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let receiver = self else { return }
+            do {
+                let frame = try source.frame(atNs: ns)
+                try compositor.encode(frame,to: resources.drawable.texture,in: resources.commandBuffer)
+                resources.commandBuffer.present(resources.drawable)
+                resources.commandBuffer.addCompletedHandler { buffer in
+                    let message = buffer.status == .error ? (buffer.error?.localizedDescription ?? "Preview GPU failed") : nil
+                    Task { @MainActor in receiver.drawFinished(ns: ns,revision: revision,error: message) }
                 }
+                resources.commandBuffer.commit()
+            } catch {
+                await receiver.drawFinished(ns: ns,revision: revision,error: error.localizedDescription)
             }
-            cb.commit()
-        } catch { self.error = error.localizedDescription; pause() }
+        }
     }
+    private func drawFinished(ns: Int64,revision: Int,error: String?) {
+        drawPending = false
+        if let error { self.error = error; pause(); dropped += 1 }
+        else { frameCount += 1 }
+        let now = ProcessInfo.processInfo.systemUptime
+        if let start = metricStart, now-lastMetricUpdate >= 0.5 {
+            metrics = PreviewMetrics(renderedFrames: frameCount,droppedFrames: dropped,elapsedSeconds: now-start)
+            lastMetricUpdate = now
+        }
+        if error == nil && (!isPlaying && ns != currentNs || revision != redrawRevision) { view?.needsDisplay = true }
+    }
+
 }
 
 public struct PreviewView: NSViewRepresentable {
@@ -155,7 +179,7 @@ public struct PreviewView: NSViewRepresentable {
     public func makeNSView(context: Context) -> MTKView {
         let view = MTKView(frame: .zero, device: player.compositor.device)
         view.colorPixelFormat = .bgra8Unorm_srgb; view.framebufferOnly = true
-        view.enableSetNeedsDisplay = true; view.isPaused = !player.isPlaying; view.preferredFramesPerSecond = 60
+        view.enableSetNeedsDisplay = !player.isPlaying; view.isPaused = !player.isPlaying; view.preferredFramesPerSecond = 60
         view.delegate = context.coordinator; player.view = view
         return view
     }
@@ -165,6 +189,31 @@ public struct PreviewView: NSViewRepresentable {
         let player: PreviewPlayer
         init(player: PreviewPlayer) { self.player = player }
         nonisolated public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
-        nonisolated public func draw(in view: MTKView) { MainActor.assumeIsolated { player.draw(in: view) } }
+        nonisolated public func draw(in view: MTKView) {
+            if Thread.isMainThread { MainActor.assumeIsolated { player.draw(in: view) } }
+            else {
+                let reference=PreviewViewReference(view)
+                Task { @MainActor [weak self] in if let view=reference.view { self?.player.draw(in: view) } }
+            }
+        }
     }
+}
+
+private final class ProjectObservation: @unchecked Sendable {
+    let token: NSObjectProtocol
+    init(name: Notification.Name,object: AnyObject,callback: @escaping @Sendable () -> Void) {
+        token=NotificationCenter.default.addObserver(forName: name,object: object,queue: nil) { _ in callback() }
+    }
+    deinit { NotificationCenter.default.removeObserver(token) }
+}
+
+private final class PreviewDrawResources: @unchecked Sendable {
+    let drawable: CAMetalDrawable
+    let commandBuffer: MTLCommandBuffer
+    init(drawable: CAMetalDrawable,commandBuffer: MTLCommandBuffer) { self.drawable=drawable; self.commandBuffer=commandBuffer }
+}
+
+private final class PreviewViewReference: @unchecked Sendable {
+    weak var view: MTKView?
+    init(_ view: MTKView) { self.view=view }
 }

@@ -7,10 +7,13 @@ final class TextureFrame: @unchecked Sendable {
     let cvTexture: CVMetalTexture
     let texture: MTLTexture
     let time: CMTime
-    init(buffer: CVPixelBuffer, cache: CVMetalTextureCache, time: CMTime, pixelFormat: MTLPixelFormat = .bgra8Unorm_srgb) throws {
+    let geometry: SourceGeometry
+    init(buffer: CVPixelBuffer, cache: CVMetalTextureCache, time: CMTime, pixelFormat: MTLPixelFormat = .bgra8Unorm_srgb, transform: CGAffineTransform = .identity, usage: MTLTextureUsage = .shaderRead) throws {
         var wrapped: CVMetalTexture?
-        let result = CVMetalTextureCacheCreateTextureFromImage(nil, cache, buffer, nil, pixelFormat, CVPixelBufferGetWidth(buffer), CVPixelBufferGetHeight(buffer), 0, &wrapped)
+        let attributes=[kCVMetalTextureUsage as String: usage.rawValue] as CFDictionary
+        let result = CVMetalTextureCacheCreateTextureFromImage(nil, cache, buffer, attributes, pixelFormat, CVPixelBufferGetWidth(buffer), CVPixelBufferGetHeight(buffer), 0, &wrapped)
         guard result == kCVReturnSuccess, let wrapped, let texture = CVMetalTextureGetTexture(wrapped) else { throw RenderError.metal("Cannot map decoded IOSurface to Metal (\(result))") }
+        geometry=SourceGeometry(size: CGSize(width: CVPixelBufferGetWidth(buffer),height: CVPixelBufferGetHeight(buffer)),transform: transform)
         pixelBuffer = buffer; cvTexture = wrapped; self.texture = texture; self.time = time
     }
 }
@@ -20,6 +23,7 @@ final class FrameSource {
     let asset: AVURLAsset
     let track: AVAssetTrack
     let cache: CVMetalTextureCache
+    let preferredTransform: CGAffineTransform
     private var reader: AVAssetReader?
     private var output: AVAssetReaderTrackOutput?
     private var frames: [TextureFrame] = []
@@ -28,9 +32,9 @@ final class FrameSource {
     init(url: URL, cache: CVMetalTextureCache) throws {
         asset = AVURLAsset(url: url)
         guard let track = asset.tracks(withMediaType: .video).first else { throw RenderError.decode("No video track in \(url.lastPathComponent)") }
-        self.track = track; self.cache = cache
+        self.track = track; self.cache = cache; preferredTransform=track.preferredTransform
     }
-    private func restart(at time: CMTime, pixelFormat: MTLPixelFormat = .bgra8Unorm_srgb) throws {
+    private func restart(at time: CMTime) throws {
         reader?.cancelReading()
         let r = try AVAssetReader(asset: asset)
         let o = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferIOSurfacePropertiesKey as String: [:]])
@@ -44,7 +48,8 @@ final class FrameSource {
         reader = r; output = o; frames.removeAll(); exhausted = false
     }
     func frame(atNs ns: Int64) throws -> TextureFrame {
-        let time = CMTime(value: max(0, ns), timescale: 1_000_000_000)
+        guard ns >= 0 else { throw RenderError.decode("Negative source frame timestamp") }
+        let time = CMTime(value: ns, timescale: 1_000_000_000)
         if reader == nil || (frames.first.map { time < $0.time } ?? false) || (frames.last.map { time.seconds - $0.time.seconds > 1 } ?? false) {
             try restart(at: time)
         }
@@ -54,7 +59,7 @@ final class FrameSource {
                 exhausted = true; break
             }
             guard let buffer = CMSampleBufferGetImageBuffer(sample) else { throw RenderError.decode("Video sample has no pixel buffer") }
-            frames.append(try TextureFrame(buffer: buffer, cache: cache, time: CMSampleBufferGetPresentationTimeStamp(sample)))
+            frames.append(try TextureFrame(buffer: buffer, cache: cache, time: CMSampleBufferGetPresentationTimeStamp(sample),transform: preferredTransform))
             if frames.count > capacity { frames.removeFirst() }
         }
         guard let best = frames.min(by: { abs($0.time.seconds - time.seconds) < abs($1.time.seconds - time.seconds) }) else { throw RenderError.decode("No video samples at requested time") }

@@ -33,7 +33,7 @@ final class AudioTimelineTests: XCTestCase {
         XCTAssertEqual(segments[1].timeMapping.target.start.seconds,0.5,accuracy: 0.001)
     }
     func testMixedPCMReaderProducesZeroBasedMonotonicSamples() throws {
-        guard MTLCreateSystemDefaultDevice() != nil else { throw XCTSkip("Host media-service check required: sandbox AVAssetReader start fails -11800/-1 and Metal is unavailable") }
+        _ = try requireRenderDevice()
         let source = source(clips: [.init(srcStartNs: 1_000_000_000, srcEndNs: 2_000_000_000)], duration: 1_000_000_000)
         let timeline = try AudioTimeline(project: source, range: 0..<source.durationNs)
         let (reader, output) = try XCTUnwrap(timeline.reader(rangeDuration: source.durationNs))

@@ -4,6 +4,7 @@ import CoreVideo
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
+import VideoToolbox
 
 public final class Exporter: @unchecked Sendable {
     private let project: any RenderProjectSource
@@ -27,14 +28,14 @@ public final class Exporter: @unchecked Sendable {
         let range = try settings.validatedRange(duration: project.durationNs)
         let first = try project.frame(atNs: range.lowerBound)
         let width = try settings.outputWidth(canvasWidth: first.canvas_w, canvasHeight: first.canvas_h)
-        let count = Int(ceil(Double(range.count) / 1e9 * Double(settings.fps)))
+        let count = ExportTiming.frameCount(durationNs: Int64(range.count),fps: settings.fps)
         guard !FileManager.default.fileExists(atPath: destination.path) else { throw RenderError.write("Destination already exists; choose a new filename") }
         let partial = destination.deletingLastPathComponent().appendingPathComponent(".yapcam-export-\(UUID().uuidString).\(settings.format.rawValue)")
         defer { if FileManager.default.fileExists(atPath: partial.path) { try? FileManager.default.removeItem(at: partial) } }
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw RenderError.metal("Metal unavailable") }
         let compositor = try FrameCompositor(device: device, project: project)
         var cache: CVMetalTextureCache?
-        guard CVMetalTextureCacheCreate(nil, nil, device, nil, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Export texture cache unavailable") }
+        guard CVMetalTextureCacheCreate(nil, nil, device, [kCVMetalTextureUsage as String: MTLTextureUsage([.shaderRead,.renderTarget]).rawValue] as CFDictionary, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Export texture cache unavailable") }
         progress(0)
         if settings.format == .gif {
             try await writeGIF(partial, range: range, count: count, width: width, compositor: compositor, queue: queue, cache: cache, progress: progress)
@@ -55,20 +56,23 @@ public final class Exporter: @unchecked Sendable {
         return pool
     }
     private func render(index: Int, range: Range<Int64>, pool: CVPixelBufferPool, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache) throws -> CVPixelBuffer {
-        let timestamp = range.lowerBound + Int64((Double(index) * 1e9 / Double(settings.fps)).rounded())
+        let offset = ExportTiming.offsetNs(index: index,fps: settings.fps)
+        let timestamp = range.lowerBound + offset
         let frame = try project.frame(atNs: min(timestamp, range.upperBound - 1))
         var buffer: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer) == kCVReturnSuccess, let buffer else { throw RenderError.metal("Cannot allocate export frame") }
-        let target = try TextureFrame(buffer: buffer, cache: cache, time: .zero)
+        let target = try TextureFrame(buffer: buffer, cache: cache, time: .zero, usage: [.shaderRead,.renderTarget])
         guard let cb = queue.makeCommandBuffer() else { throw RenderError.metal("Cannot create export command buffer") }
         try compositor.encode(frame, to: target.texture, in: cb)
-        cb.commit(); cb.waitUntilCompleted()
+        withExtendedLifetime(target) { cb.commit(); cb.waitUntilCompleted() }
         guard cb.status == .completed else { throw RenderError.metal(cb.error?.localizedDescription ?? "GPU export failed") }
         return buffer
     }
     private func ready(_ input: AVAssetWriterInput, writer: AVAssetWriter) async throws {
+        let deadline=ProcessInfo.processInfo.systemUptime+30
         while !input.isReadyForMoreMediaData {
             try Task.checkCancellation()
+            guard ProcessInfo.processInfo.systemUptime<deadline else { throw RenderError.write("Timed out waiting for the \(input.mediaType.rawValue) encoder") }
             guard writer.status == .writing else { throw RenderError.write(writer.error?.localizedDescription ?? "Writer stopped") }
             try await Task.sleep(for: .milliseconds(2))
         }
@@ -77,7 +81,7 @@ public final class Exporter: @unchecked Sendable {
         let writer = try AVAssetWriter(outputURL: url, fileType: settings.format == .mp4 ? .mp4 : .mov)
         defer { if writer.status != .completed { writer.cancelWriting() } }
         let compression: [String: Any] = [AVVideoAverageBitRateKey: settings.videoBitrate(width: width), AVVideoExpectedSourceFrameRateKey: settings.fps, AVVideoMaxKeyFrameIntervalKey: settings.fps * 2, AVVideoAllowFrameReorderingKey: false]
-        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: settings.codec == .h264 ? AVVideoCodecType.h264 : .hevc, AVVideoWidthKey: width, AVVideoHeightKey: settings.outputHeight, AVVideoCompressionPropertiesKey: compression, AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2, AVVideoTransferFunctionKey: kCVImageBufferTransferFunction_sRGB as String, AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2]])
+        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: settings.codec == .h264 ? AVVideoCodecType.h264 : .hevc, AVVideoWidthKey: width, AVVideoHeightKey: settings.outputHeight, AVVideoEncoderSpecificationKey: [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String: true], AVVideoCompressionPropertiesKey: compression, AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2, AVVideoTransferFunctionKey: kCVImageBufferTransferFunction_sRGB as String, AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2]])
         video.expectsMediaDataInRealTime = false
         guard writer.canAdd(video) else { throw RenderError.write("Requested video codec is unavailable") }
         writer.add(video)
@@ -95,33 +99,43 @@ public final class Exporter: @unchecked Sendable {
         }
         guard writer.startWriting() else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot start writer") }
         writer.startSession(atSourceTime: .zero)
-        var nextAudio = audioReader?.1.copyNextSampleBuffer()
-        for index in 0..<count {
-            try Task.checkCancellation()
-            let time = CMTime(value: Int64(index), timescale: Int32(settings.fps))
-            // Feed interleaved audio/video so neither writer input waits on the other.
-            while let sample = nextAudio, CMSampleBufferGetPresentationTimeStamp(sample) <= time, let audio {
-                try await ready(audio, writer: writer)
-                guard audio.append(sample) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append audio") }
-                nextAudio = audioReader?.1.copyNextSampleBuffer()
+        let context = audioReader.flatMap { pair in audio.map { AudioPumpContext(reader: pair.0,output: pair.1,input: $0,writer: writer) } }
+        // Each input advances whenever it is ready. Feeding only up to the current
+        // video PTS can deadlock the writer's muxer at an interleave/segment boundary.
+        let audioTask = context.map { context in
+            Task.detached(priority: .userInitiated) { [self] in
+                do { try await pumpAudio(context) }
+                catch { context.writer.cancelWriting(); throw error }
             }
-            try await ready(video, writer: writer)
-            let buffer = try autoreleasepool { try render(index: index, range: range, pool: pool, compositor: compositor, queue: queue, cache: cache) }
-            guard adaptor.append(buffer, withPresentationTime: time) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append video") }
-            progress(Double(index + 1) / Double(count) * 0.95)
         }
-        video.markAsFinished()
-        while let sample = nextAudio, let audio {
-            try Task.checkCancellation(); try await ready(audio, writer: writer)
-            guard audio.append(sample) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append trailing audio") }
-            nextAudio = audioReader?.1.copyNextSampleBuffer()
-        }
-        if audioReader?.0.status == .failed { throw RenderError.decode(audioReader?.0.error?.localizedDescription ?? "Audio decode failed") }
-        audio?.markAsFinished()
-        writer.endSession(atSourceTime: CMTime(value: Int64(count), timescale: Int32(settings.fps)))
-        await writer.finishWriting()
-        try Task.checkCancellation()
-        guard writer.status == .completed else { throw RenderError.write(writer.error?.localizedDescription ?? "Export did not finish") }
+        let cancellation=ExportCancellation(writer: writer,reader: audioReader?.0,pump: audioTask)
+        try await withTaskCancellationHandler {
+            do {
+                for index in 0..<count {
+                    try Task.checkCancellation()
+                    let time = CMTime(value: Int64(index), timescale: Int32(settings.fps))
+                    try await ready(video, writer: writer)
+                    let buffer = try autoreleasepool { try render(index: index, range: range, pool: pool, compositor: compositor, queue: queue, cache: cache) }
+                    try Task.checkCancellation()
+                    guard adaptor.append(buffer, withPresentationTime: time) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append video") }
+                    progress(Double(index + 1) / Double(count) * 0.95)
+                }
+                video.markAsFinished()
+                try await audioTask?.value
+                writer.endSession(atSourceTime: CMTime(value: Int64(count), timescale: Int32(settings.fps)))
+                await writer.finishWriting()
+                try Task.checkCancellation()
+                guard writer.status == .completed else { throw RenderError.write(writer.error?.localizedDescription ?? "Export did not finish") }
+            } catch {
+                let original=error
+                audioTask?.cancel(); writer.cancelWriting(); audioReader?.0.cancelReading()
+                // Join the pump before deleting any files or releasing its media sources.
+                var audioFailure: Error?
+                do { try await audioTask?.value } catch { if !(error is CancellationError) { audioFailure=error } }
+                try Task.checkCancellation()
+                throw audioFailure ?? original
+            }
+        } onCancel: { cancellation.cancel() }
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration)
         let videos = try await asset.loadTracks(withMediaType: .video), audios = try await asset.loadTracks(withMediaType: .audio)
@@ -129,19 +143,32 @@ public final class Exporter: @unchecked Sendable {
         let size = try await videos[0].load(.naturalSize)
         guard Int(size.width) == width, Int(size.height) == settings.outputHeight else { throw RenderError.verification("Export dimensions differ from settings") }
     }
+    private func pumpAudio(_ context: AudioPumpContext) async throws {
+        while true {
+            try Task.checkCancellation()
+            guard let sample=context.output.copyNextSampleBuffer() else { break }
+            try await ready(context.input,writer: context.writer)
+            guard context.input.append(sample) else { throw RenderError.write(context.writer.error?.localizedDescription ?? "Cannot append audio") }
+        }
+        guard context.reader.status == .completed else { throw RenderError.decode(context.reader.error?.localizedDescription ?? "Audio reader stopped before completion") }
+        context.input.markAsFinished()
+    }
     private func writeGIF(_ url: URL, range: Range<Int64>, count: Int, width: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @Sendable (Double) -> Void) async throws {
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, count, nil) else { throw RenderError.write("Cannot create GIF") }
         CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
         let context = CIContext(mtlDevice: compositor.device)
         let colors = CGColorSpace(name: CGColorSpace.sRGB)!
         let pool = try makePool(width: width)
+        // GIF delays are integral centiseconds. Distribute rounding error across frames
+        // so total timing remains correct instead of losing time on every frame.
         for index in 0..<count {
             try Task.checkCancellation()
+            let delay = ExportTiming.gifDelay(index: index,count: count,durationNs: Int64(range.count))
             try autoreleasepool {
                 let buffer = try render(index: index, range: range, pool: pool, compositor: compositor, queue: queue, cache: cache)
                 let image = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: colors])
                 guard let cg = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: colors) else { throw RenderError.write("Cannot convert GIF frame") }
-                CGImageDestinationAddImage(destination, cg, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 1 / Double(settings.fps), kCGImagePropertyGIFUnclampedDelayTime: 1 / Double(settings.fps)]] as CFDictionary)
+                CGImageDestinationAddImage(destination, cg, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay, kCGImagePropertyGIFUnclampedDelayTime: delay]] as CFDictionary)
             }
             progress(Double(index+1)/Double(count)*0.95)
         }
@@ -153,4 +180,20 @@ public final class Exporter: @unchecked Sendable {
         }
         guard abs(duration - Double(range.count)/1e9) <= 1/Double(settings.fps)+0.000_001 else { throw RenderError.verification("GIF timing differs from requested duration") }
     }
+}
+
+private final class AudioPumpContext: @unchecked Sendable {
+    let reader: AVAssetReader
+    let output: AVAssetReaderAudioMixOutput
+    let input: AVAssetWriterInput
+    let writer: AVAssetWriter
+    init(reader: AVAssetReader,output: AVAssetReaderAudioMixOutput,input: AVAssetWriterInput,writer: AVAssetWriter) { self.reader=reader; self.output=output; self.input=input; self.writer=writer }
+}
+
+private final class ExportCancellation: @unchecked Sendable {
+    let writer: AVAssetWriter
+    let reader: AVAssetReader?
+    let pump: Task<Void, Error>?
+    init(writer: AVAssetWriter,reader: AVAssetReader?,pump: Task<Void, Error>?) { self.writer=writer; self.reader=reader; self.pump=pump }
+    func cancel() { pump?.cancel(); writer.cancelWriting(); reader?.cancelReading() }
 }
