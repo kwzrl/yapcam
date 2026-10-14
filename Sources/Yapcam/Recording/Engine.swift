@@ -1,0 +1,59 @@
+import AppKit
+
+/// What the UI asks the capture layer to record. Mirrors `RecordingOptions` /
+/// `CaptureTarget` from docs/SWIFT_API.md; `LiveEngine` converts 1:1.
+enum UITarget: Equatable, Codable {
+    case display(CGDirectDisplayID)
+    case window(CGWindowID)
+    case area(display: CGDirectDisplayID, rect: CGRect)
+}
+
+struct UIRecordingOptions {
+    var target: UITarget
+    var systemAudio: Bool
+    var microphoneID: String?
+    var cameraID: String?
+    var recordKeystrokes: Bool
+    var maxFPS: Int
+    var outputDirectory: URL
+}
+
+enum EngineError: LocalizedError {
+    case unavailable(String)
+    case permissionDenied(String)
+    case diskFull(availableBytes: Int64)
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable(let m): return m
+        case .permissionDenied(let p): return "Yapcam needs \(p) access to record."
+        case .diskFull(let b):
+            return "Not enough free disk space (\(ByteCountFormatter.string(fromByteCount: b, countStyle: .file)) left)."
+        case .failed(let m): return m
+        }
+    }
+}
+
+/// One recording in flight. The only place the app talks to the capture layer.
+@MainActor protocol EngineSession: AnyObject {
+    var elapsed: TimeInterval { get }
+    var micLevel: Float { get }
+    var warnings: [String] { get }
+    /// True when the session ended on its own (stream failure, disk full, device loss).
+    var failure: EngineError? { get }
+    func start() async throws
+    func pause() async throws
+    func resume() async throws
+    func stop() async throws -> URL
+    func cancel() async
+}
+
+@MainActor protocol RecordingEngine {
+    func makeSession(_ options: UIRecordingOptions) -> EngineSession
+    func registerExcluded(_ window: NSWindow)
+    func unregisterExcluded(_ window: NSWindow)
+    func openEditor(package: URL)
+    func interruptedPackages(in directory: URL) -> [URL]
+    func recover(_ package: URL) throws -> URL
+}
