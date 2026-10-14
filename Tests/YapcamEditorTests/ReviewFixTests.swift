@@ -75,7 +75,7 @@ private func fixtureCopy() throws -> URL {
         p.silences = [TimeSpan(startNs: 8_000_000_000, endNs: 9_000_000_000)]
         let m = EditorModel(project: p, player: FakePlayer())
         m.findSilences()
-        for _ in 0..<1000 where m.silenceState == .analyzing { try await Task.sleep(for: .milliseconds(5)) }
+        await m.waitForSilenceAnalysis()
         #expect(m.silenceState == .found(p.silences))
         m.seek(toNs: 2_000_000_000); m.trim(keepAfter: true)     // timeline shifted by 2 s
         #expect(m.silenceState == .idle)
@@ -90,7 +90,7 @@ private func fixtureCopy() throws -> URL {
         let m = EditorModel(project: p, player: FakePlayer())
         m.findSilences()
         m.seek(toNs: 2_000_000_000); m.trim(keepAfter: true)
-        try await Task.sleep(for: .milliseconds(400))
+        await m.waitForSilenceAnalysis()
         #expect(m.silenceState == .idle)
     }
 

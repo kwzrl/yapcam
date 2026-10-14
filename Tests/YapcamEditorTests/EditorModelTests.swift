@@ -285,7 +285,7 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         let (m, p) = make()
         p.silences = [TimeSpan(startNs: 1_000_000_000, endNs: 2_000_000_000), TimeSpan(startNs: 5_000_000_000, endNs: 7_000_000_000)]
         m.findSilences()
-        for _ in 0..<1000 where m.silenceState == .analyzing || m.silenceState == .idle { try await Task.sleep(for: .milliseconds(10)) }
+        await m.waitForSilenceAnalysis()
         #expect(m.silenceState == .found(p.silences))
         m.applySilences(speed: nil)
         #expect(m.silenceState == .idle)

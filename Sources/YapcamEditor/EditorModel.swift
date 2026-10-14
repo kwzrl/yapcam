@@ -118,11 +118,15 @@ public final class EditorModel: ObservableObject {
     }
     public func speedUpTyping(speed: Double = 3) { perform(.autoSpeedTyping(speed: speed)) }
 
+    private var silenceTask: Task<Void, Never>?
+    /// Suspends until a running silence analysis has finished (for deterministic tests).
+    public func waitForSilenceAnalysis() async { await silenceTask?.value }
+
     public func findSilences() {
         guard silenceState != .analyzing else { return }
         silenceState = .analyzing
         let started = revision
-        Task { [weak self] in
+        silenceTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let spans = try await project.silentSpans()
