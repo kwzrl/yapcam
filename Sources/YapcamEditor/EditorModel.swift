@@ -1,10 +1,14 @@
 import Foundation
 import Combine
+import YapcamCore
+import CoreGraphics
 
 public enum EditorSelection: Equatable, Sendable {
     case none
     case clip(String)
     case zoom(String)
+    case layout(String)
+    case cursorHide(Int)
 }
 
 public let minZoomDurationNs: Int64 = 300_000_000
@@ -25,9 +29,11 @@ public final class EditorModel: ObservableObject {
     @Published public private(set) var isPlaying = false
     @Published public var snapGuideNs: Int64?
     @Published public var lastError: String?
+    @Published public private(set) var silenceState: SilenceState = .idle
     @Published public private(set) var saveState: SaveState = .clean
 
     public enum SaveState: Equatable { case clean, dirty, failed(String) }
+    public enum SilenceState: Equatable { case idle, analyzing, found([TimeSpan]), failed(String) }
 
     private var autosaveTask: Task<Void, Never>?
     public var autosaveDelay: Duration = .seconds(2)
@@ -41,20 +47,83 @@ public final class EditorModel: ObservableObject {
 
     // MARK: derived
 
-    public var clips: [ClipInfo] { project.clips }
-    public var zooms: [ZoomInfo] { project.zooms }
+    public var clips: [TimelineClip] { project.clips }
+    public var zooms: [TimelineZoom] { project.zooms }
     public var durationNs: Int64 { project.durationNs }
     public var canUndo: Bool { project.canUndo }
     public var canRedo: Bool { project.canRedo }
-    public var canvas: CanvasSettings { project.canvas }
+    public var settings: JSONValue { project.settings }
 
-    public var selectedZoom: ZoomInfo? {
+    // Typed reads of project settings by dotted path (e.g. "canvas.padding").
+    public func value(_ path: String) -> JSONValue? {
+        var cur: JSONValue? = project.settings
+        for part in path.split(separator: ".") {
+            guard case .object(let o)? = cur else { return nil }
+            cur = o[String(part)]
+        }
+        return cur
+    }
+    public func number(_ path: String, default d: Double = 0) -> Double { if case .number(let v)? = value(path) { v } else { d } }
+    public func bool(_ path: String, default d: Bool = false) -> Bool { if case .bool(let v)? = value(path) { v } else { d } }
+    public func string(_ path: String, default d: String = "") -> String { if case .string(let v)? = value(path) { v } else { d } }
+    public func numbers(_ path: String) -> [Double] {
+        if case .array(let a)? = value(path) { return a.compactMap { if case .number(let v) = $0 { v } else { nil } } }
+        return []
+    }
+    /// RGBA color stored as [r,g,b,a] 0…1 under `path`.
+    public func color(_ path: String) -> [Double] { let n = numbers(path); return n.count == 4 ? n : [0, 0, 0, 1] }
+
+    public func set(_ path: String, _ value: JSONValue) { perform(.set(path: path, value: value)) }
+    public func set(_ path: String, number v: Double) { set(path, .number(v)) }
+    public func set(_ path: String, bool v: Bool) { set(path, .bool(v)) }
+    public func set(_ path: String, string v: String) { set(path, .string(v)) }
+    public func set(_ path: String, color c: [Double]) { set(path, .array(c.map { .number($0) })) }
+    public var hasCamera: Bool { project.hasCamera }
+    public var hasMic: Bool { project.hasMic }
+
+    public var previewAspect: Double { project.frameGeometry(atNs: playheadNs)?.aspect ?? 16.0 / 9 }
+
+    /// Click in the preview (0…1 of the whole preview) → focus point of the selected zoom.
+    @discardableResult public func setFocus(fromPreview p: CGPoint) -> Bool {
+        guard let z = selectedZoom, let g = project.frameGeometry(atNs: playheadNs), let s = g.sourcePoint(fromPreview: p) else { return false }
+        setZoomFocus(id: z.id, x: Double(s.x), y: Double(s.y))
+        return true
+    }
+
+    /// Aspect change updates the stored output size in the same undo step.
+    public func setAspect(_ a: AspectPreset) {
+        var cmds: [EditorCommand] = [.set(path: "canvas.aspect", value: .string(a.rawValue))]
+        if let size = a.outputSize { cmds.append(.set(path: "canvas.output_size", value: .array(size.map { .number($0) }))) }
+        perform(.batch(cmds))
+    }
+    public func speedUpTyping(speed: Double = 3) { perform(.autoSpeedTyping(speed: speed)) }
+
+    public func findSilences() {
+        guard silenceState != .analyzing else { return }
+        silenceState = .analyzing
+        Task { [weak self] in
+            guard let self else { return }
+            do { silenceState = .found(try await project.silentSpans()) }
+            catch { silenceState = .failed(error.localizedDescription) }
+        }
+    }
+    /// Cut (`speed == nil`) or speed up the silences found by `findSilences()` in one undo step.
+    public func applySilences(speed: Double?) {
+        guard case .found(let spans) = silenceState, !spans.isEmpty else { return }
+        perform(.processSilence(spans: spans, speed: speed))
+        silenceState = .idle
+    }
+    public func dismissSilences() { silenceState = .idle }
+
+    public func regenerateAutoZooms() { perform(.autoZooms) }
+
+    public var selectedZoom: TimelineZoom? {
         if case .zoom(let id) = selection { return zooms.first { $0.id == id } }
         return nil
     }
 
     /// Timeline start (ns) of each clip, in order.
-    public func clipStarts() -> [(clip: ClipInfo, startNs: Int64)] {
+    public func clipStarts() -> [(clip: TimelineClip, startNs: Int64)] {
         var t: Int64 = 0
         return clips.map { c in defer { t += c.timelineDurationNs }; return (c, t) }
     }
@@ -90,7 +159,7 @@ public final class EditorModel: ObservableObject {
 
     // MARK: editing
 
-    private func perform(_ command: EditorCommand) {
+    func perform(_ command: EditorCommand) {
         do {
             try project.apply(command)
             didEdit()
@@ -118,6 +187,8 @@ public final class EditorModel: ObservableObject {
         switch selection {
         case .none: return
         case .zoom(let id): perform(.removeZoom(id: id)); selection = .none
+        case .layout(let id): removeLayout(id: id); selection = .none
+        case .cursorHide(let i): removeCursorHide(index: i); selection = .none
         case .clip(let id):
             guard let entry = clipStarts().first(where: { $0.clip.id == id }) else { return }
             if clips.count == 1 { lastError = "Can't delete the only clip."; return }
@@ -138,28 +209,50 @@ public final class EditorModel: ObservableObject {
         if let new = zooms.first(where: { !before.contains($0.id) }) { selection = .zoom(new.id) }
     }
 
-    public func moveZoom(id: String, toStartNs start: Int64) {
-        guard let z = zooms.first(where: { $0.id == id }) else { return }
-        let len = z.endNs - z.startNs
-        let s = min(max(start, 0), max(0, durationNs - len))
-        perform(.updateZoom(id: id, startNs: s, endNs: s + len, scale: nil, focusX: nil, focusY: nil))
+    // Zoom drags preview locally and commit once on release → one undo step per gesture.
+    @Published public private(set) var zoomPreview: [String: (start: Int64, end: Int64)] = [:]
+    func zoomPreviewSet(_ k: String, _ v: (start: Int64, end: Int64)) { zoomPreview[k] = v }
+    func zoomPreviewTake(_ k: String) -> (start: Int64, end: Int64)? { zoomPreview.removeValue(forKey: k) }
+
+    public func displayedRange(of z: TimelineZoom) -> (start: Int64, end: Int64) {
+        zoomPreview[z.id] ?? (z.startNs, z.endNs)
     }
 
-    public func resizeZoom(id: String, startNs: Int64? = nil, endNs: Int64? = nil) {
+    public func previewZoom(id: String, startNs: Int64? = nil, endNs: Int64? = nil, moveToStartNs: Int64? = nil) {
         guard let z = zooms.first(where: { $0.id == id }) else { return }
-        var s = startNs ?? z.startNs, e = endNs ?? z.endNs
-        s = max(0, s); e = min(durationNs, e)
-        if e - s < minZoomDurationNs { if startNs != nil { s = e - minZoomDurationNs } else { e = s + minZoomDurationNs } }
-        guard s >= 0, e <= durationNs else { return }
-        perform(.updateZoom(id: id, startNs: s, endNs: e, scale: nil, focusX: nil, focusY: nil))
+        var s = z.startNs, e = z.endNs
+        if let m = moveToStartNs {
+            let len = z.endNs - z.startNs
+            s = min(max(m, 0), max(0, durationNs - len)); e = s + len
+        } else {
+            if let startNs { s = max(0, min(startNs, e - minZoomDurationNs)) }
+            if let endNs { e = min(durationNs, max(endNs, s + minZoomDurationNs)) }
+        }
+        zoomPreview[id] = (s, e)
+    }
+
+    public func commitZoomPreview(id: String) {
+        guard let r = zoomPreview.removeValue(forKey: id), let z = zooms.first(where: { $0.id == id }),
+              r.start != z.startNs || r.end != z.endNs else { return }
+        perform(.updateZoom(id: id, startNs: r.start, endNs: r.end, scale: nil, focusX: nil, focusY: nil))
+    }
+
+    public func moveZoom(id: String, toStartNs start: Int64) { previewZoom(id: id, moveToStartNs: start); commitZoomPreview(id: id) }
+    public func resizeZoom(id: String, startNs: Int64? = nil, endNs: Int64? = nil) {
+        previewZoom(id: id, startNs: startNs, endNs: endNs); commitZoomPreview(id: id)
+    }
+
+    public func setZoomEnabled(id: String, _ on: Bool) {
+        perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: nil, focusX: nil, focusY: nil, enabled: on))
+    }
+    public func setZoomEase(id: String, inNs: Int64, outNs: Int64) {
+        perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: nil, focusX: nil, focusY: nil, easeInNs: max(0, inNs), easeOutNs: max(0, outNs)))
     }
 
     public func setZoomScale(id: String, _ scale: Double) {
         perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: min(max(scale, 1), 6), focusX: nil, focusY: nil))
     }
 
-    public func setCanvasNumber(_ path: String, _ value: Double) { perform(.setNumber(path: path, value: value)) }
-    public func setCanvasString(_ path: String, _ value: String) { perform(.setString(path: path, value: value)) }
 
     public func undo() {
         guard canUndo else { return }

@@ -1,21 +1,35 @@
 import Foundation
+import YapcamCore
 
 /// In-memory project used for development and tests until the Rust-backed `Project` lands.
 /// Mirrors core semantics: split creates clips, deleteRange ripples, each command = one undo step.
 @MainActor
 public final class FakeProject: EditingProject {
-    public private(set) var clips: [ClipInfo]
-    public private(set) var zooms: [ZoomInfo] = []
-    public private(set) var canvas = CanvasSettings()
+    public private(set) var clips: [TimelineClip]
+    public private(set) var zooms: [TimelineZoom] = []
+    public private(set) var settings: JSONValue = .object([
+        "canvas": .object(["padding": .number(48), "radius": .number(18), "background": .object(["kind": .string("solid"), "color": .array([.number(0.12), .number(0.14), .number(0.18), .number(1)])]), "shadow": .object(["opacity": .number(0.3), "radius": .number(24)])]),
+        "cursor": .object(["visible": .bool(true), "size": .number(1), "smoothing": .number(0.15), "hide_when_idle": .bool(false), "click_effect": .string("ring")]),
+        "audio": .object(["mic_gain_db": .number(0), "system_gain_db": .number(0), "mic_muted": .bool(false), "system_muted": .bool(false)]),
+        "zoom_settings": .object(["automatic": .bool(true), "follow_cursor": .bool(true)]),
+    ])
+    public private(set) var autoZoomRuns = 0
+    public private(set) var typingRuns = 0
+    public var silences: [TimeSpan] = []
     public var clickTimesNs: [Int64] = []
+    public var hasCamera = true
+    public func frameGeometry(atNs: Int64) -> FrameGeometry? {
+        FrameGeometry(canvasWidth: 1920, canvasHeight: 1080, dest: CGRect(x: 96, y: 54, width: 1728, height: 972))
+    }
+    public var hasMic = true
     public private(set) var saveCount = 0
     public var failSave = false
     private var nextID = 1
-    private struct Snapshot { var clips: [ClipInfo]; var zooms: [ZoomInfo]; var canvas: CanvasSettings }
+    private struct Snapshot { var clips: [TimelineClip]; var zooms: [TimelineZoom]; var settings: JSONValue }
     private var undoStack: [Snapshot] = [], redoStack: [Snapshot] = []
 
     public init(durationNs: Int64 = 10_000_000_000) {
-        clips = [ClipInfo(id: "c0", srcStartNs: 0, srcEndNs: durationNs)]
+        clips = [TimelineClip(id: "c0", srcStartNs: 0, srcEndNs: durationNs)]
     }
 
     public var durationNs: Int64 { clips.reduce(0) { $0 + $1.timelineDurationNs } }
@@ -23,7 +37,7 @@ public final class FakeProject: EditingProject {
     public var canRedo: Bool { !redoStack.isEmpty }
 
     public func apply(_ command: EditorCommand) throws {
-        let snap = Snapshot(clips: clips, zooms: zooms, canvas: canvas)
+        let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
         try run(command)
         undoStack.append(snap); redoStack.removeAll()
     }
@@ -48,7 +62,7 @@ public final class FakeProject: EditingProject {
             throw NSError(domain: "Fake", code: 1, userInfo: [NSLocalizedDescriptionKey: "split out of range"])
         case .deleteRange(let s, let e):
             var t: Int64 = 0
-            var out: [ClipInfo] = []
+            var out: [TimelineClip] = []
             for clip in clips {
                 let d = clip.timelineDurationNs
                 defer { t += d }
@@ -67,33 +81,42 @@ public final class FakeProject: EditingProject {
             guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
             clips[i].speed = speed
         case .addZoom(let s, let e, let scale, let fx, let fy):
-            zooms.append(ZoomInfo(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: scale, focusX: fx, focusY: fy))
-        case .updateZoom(let id, let s, let e, let scale, let fx, let fy):
+            zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: scale, focusX: fx, focusY: fy))
+        case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en):
             guard let i = zooms.firstIndex(where: { $0.id == id }) else { return }
             if let s { zooms[i].startNs = s }; if let e { zooms[i].endNs = e }
+            if let ei { zooms[i].easeInNs = ei }; if let eo { zooms[i].easeOutNs = eo }; if let en { zooms[i].enabled = en }
             if let scale { zooms[i].scale = scale }; if let fx { zooms[i].focusX = fx }; if let fy { zooms[i].focusY = fy }
         case .removeZoom(let id): zooms.removeAll { $0.id == id }
-        case .setNumber(let path, let v):
-            switch path {
-            case "canvas.padding": canvas.padding = v
-            case "canvas.radius": canvas.cornerRadius = v
-            case "canvas.shadow": canvas.shadow = v
-            default: break
+        case .set(let path, let v): settings = Self.setting(settings, path.split(separator: ".").map(String.init)[...], v)
+        case .autoZooms: autoZoomRuns += 1
+        case .autoSpeedTyping: typingRuns += 1
+        case .processSilence(let spans, let speed):
+            for sp in spans.sorted(by: { $0.startNs > $1.startNs }) {
+                if speed == nil { try run(.deleteRange(startNs: sp.startNs, endNs: sp.endNs)) }
             }
-        case .setString(let path, let v): if path == "canvas.background" { canvas.backgroundColorHex = v }
         }
+    }
+
+    private static func setting(_ node: JSONValue, _ path: ArraySlice<String>, _ v: JSONValue) -> JSONValue {
+        guard let head = path.first else { return v }
+        var obj: [String: JSONValue] = [:]
+        if case .object(let o) = node { obj = o }
+        obj[head] = setting(obj[head] ?? .object([:]), path.dropFirst(), v)
+        return .object(obj)
     }
 
     public func undo() throws {
         guard let s = undoStack.popLast() else { return }
-        redoStack.append(Snapshot(clips: clips, zooms: zooms, canvas: canvas))
-        clips = s.clips; zooms = s.zooms; canvas = s.canvas
+        redoStack.append(Snapshot(clips: clips, zooms: zooms, settings: settings))
+        clips = s.clips; zooms = s.zooms; settings = s.settings
     }
     public func redo() throws {
         guard let s = redoStack.popLast() else { return }
-        undoStack.append(Snapshot(clips: clips, zooms: zooms, canvas: canvas))
-        clips = s.clips; zooms = s.zooms; canvas = s.canvas
+        undoStack.append(Snapshot(clips: clips, zooms: zooms, settings: settings))
+        clips = s.clips; zooms = s.zooms; settings = s.settings
     }
+    public func silentSpans() async throws -> [TimeSpan] { silences }
     public func save() throws {
         if failSave { throw NSError(domain: "Fake", code: 2, userInfo: [NSLocalizedDescriptionKey: "disk full"]) }
         saveCount += 1

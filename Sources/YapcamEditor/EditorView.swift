@@ -17,7 +17,14 @@ public struct EditorContent<Preview: View>: View {
     public var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                preview.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black.opacity(0.88))
+                ZStack {
+                    Color.black.opacity(0.88)
+                    preview
+                        .aspectRatio(model.previewAspect, contentMode: .fit)
+                        .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model) } }
+                        .padding(8)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if showInspector { Divider(); InspectorView(model: model).frame(width: 280) }
             }
             Divider()
@@ -109,5 +116,35 @@ public struct EditorCommands: Commands {
             Button("Split at Playhead") { model?.splitAtPlayhead() }.keyboardShortcut("b").disabled(model == nil)
             Button("Add Zoom at Playhead") { model?.addZoomAtPlayhead() }.keyboardShortcut("z", modifiers: [.command, .option]).disabled(model == nil)
         }
+    }
+}
+
+/// Transparent layer over the preview while a zoom is selected: click or drag to place its focus point.
+struct FocusPickerOverlay: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                Color.clear
+                if let z = model.selectedZoom {
+                    // Marker shows the stored focus in the same (uncropped) preview space as the click mapping.
+                    Circle().strokeBorder(Color.orange, lineWidth: 2).background(Circle().fill(Color.orange.opacity(0.25)))
+                        .frame(width: 22, height: 22)
+                        .position(markerPosition(z, in: geo.size))
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                model.setFocus(fromPreview: CGPoint(x: v.location.x / geo.size.width, y: v.location.y / geo.size.height))
+            })
+        }
+        .help("Click to set the zoom focus point")
+        .accessibilityLabel("Zoom focus picker")
+    }
+    private func markerPosition(_ z: TimelineZoom, in size: CGSize) -> CGPoint {
+        guard let g = model.project.frameGeometry(atNs: model.playheadNs) else { return .zero }
+        let cx = g.dest.minX + (z.focusX - g.crop.minX) / max(g.crop.width, 0.001) * g.dest.width
+        let cy = g.dest.minY + (z.focusY - g.crop.minY) / max(g.crop.height, 0.001) * g.dest.height
+        return CGPoint(x: cx / g.canvasWidth * size.width, y: cy / g.canvasHeight * size.height)
     }
 }

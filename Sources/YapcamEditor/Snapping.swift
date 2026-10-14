@@ -27,7 +27,7 @@ public enum Snapping {
         return SnapResult(ns: ns, target: nil)
     }
 
-    public static func targets(clips: [ClipInfo], zooms: [ZoomInfo], clicks: [Int64], playheadNs: Int64,
+    public static func targets(clips: [TimelineClip], zooms: [TimelineZoom], clicks: [Int64], playheadNs: Int64,
                                durationNs: Int64, excludingZoom: String? = nil) -> [SnapTarget] {
         var out: [SnapTarget] = [.init(ns: 0, kind: .start), .init(ns: durationNs, kind: .end),
                                  .init(ns: playheadNs, kind: .playhead)]

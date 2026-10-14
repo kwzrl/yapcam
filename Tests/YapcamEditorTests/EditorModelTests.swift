@@ -180,3 +180,65 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         #expect(TimelineGeometry(pixelsPerSecond: 1e9).pixelsPerSecond == TimelineGeometry.maxPPS)
     }
 }
+
+@MainActor @Suite struct GestureAndSettingsTests {
+    @Test func zoomDragIsOneUndoStep() {
+        let p = FakeProject(), pl = FakePlayer(), m = EditorModel(project: p, player: pl)
+        m.addZoomAtPlayhead()
+        let id = m.zooms[0].id
+        for s in stride(from: 100_000_000, through: 3_000_000_000, by: 100_000_000) { m.previewZoom(id: id, moveToStartNs: Int64(s)) }
+        #expect(m.zooms[0].startNs == 0)                       // not committed yet
+        #expect(m.displayedRange(of: m.zooms[0]).start == 3_000_000_000)
+        m.commitZoomPreview(id: id)
+        #expect(m.zooms[0].startNs == 3_000_000_000)
+        m.undo()
+        #expect(m.zooms[0].startNs == 0 && m.zooms.count == 1)  // one undo reverts the whole drag
+    }
+
+    @Test func settingsReadWriteByPath() {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        m.set("cursor.size", number: 2); m.set("cursor.hide_when_idle", bool: true)
+        m.set("canvas.background.color", color: [1, 0, 0.5, 1]); m.set("cursor.click_effect", string: "none")
+        #expect(m.number("cursor.size") == 2 && m.bool("cursor.hide_when_idle"))
+        #expect(m.color("canvas.background.color") == [1, 0, 0.5, 1] && m.string("cursor.click_effect") == "none")
+        #expect(m.number("missing.path", default: 7) == 7)
+        m.undo(); #expect(m.string("cursor.click_effect") == "ring")
+    }
+
+    @Test func aspectChangeIsOneStep() {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        m.setAspect(.vertical)
+        #expect(m.string("canvas.aspect") == "9:16" && m.numbers("canvas.output_size") == [1080, 1920])
+        m.undo(); #expect(m.string("canvas.aspect") == "")
+    }
+
+    @Test func focusPickerMapsThroughPaddingAndCrop() {
+        let g = FrameGeometry(canvasWidth: 1920, canvasHeight: 1080, dest: CGRect(x: 96, y: 54, width: 1728, height: 972))
+        #expect(g.sourcePoint(fromPreview: CGPoint(x: 0.01, y: 0.5)) == nil)
+        let tl = g.sourcePoint(fromPreview: CGPoint(x: 96 / 1920.0, y: 54 / 1080.0))!
+        #expect(abs(tl.x) < 1e-9 && abs(tl.y) < 1e-9)
+        var z = g; z.crop = CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
+        let c = z.sourcePoint(fromPreview: CGPoint(x: 0.5, y: 0.5))!
+        #expect(abs(c.x - 0.5) < 1e-9)
+    }
+
+    @Test func clickingPreviewSetsFocusOfSelectedZoom() {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        #expect(!m.setFocus(fromPreview: CGPoint(x: 0.5, y: 0.5)))      // nothing selected
+        m.addZoomAtPlayhead()
+        #expect(m.setFocus(fromPreview: CGPoint(x: 0.5, y: 0.5)))
+        #expect(abs(m.zooms[0].focusX - 0.5) < 0.01)
+    }
+
+    @Test func zoomEnableAndEase() {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        m.addZoomAtPlayhead(); let id = m.zooms[0].id
+        m.setZoomEnabled(id: id, false); m.setZoomEase(id: id, inNs: 500_000_000, outNs: -5)
+        #expect(!m.zooms[0].enabled && m.zooms[0].easeInNs == 500_000_000 && m.zooms[0].easeOutNs == 0)
+    }
+
+    @Test func autoZoomRegenerationGoesToProject() {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        m.regenerateAutoZooms(); #expect(p.autoZoomRuns == 1)
+    }
+}
