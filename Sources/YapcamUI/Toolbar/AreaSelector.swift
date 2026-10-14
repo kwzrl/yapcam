@@ -9,6 +9,7 @@ import SwiftUI
     private var done: ((CGRect?) -> Void)?
 
     var isActive: Bool { window != nil }
+    func cancelForTesting() { end(nil) }
     var debugContentView: NSView? { window?.contentView }
 
     func begin(on screen: NSScreen, initial: CGRect?, completion: @escaping (CGRect?) -> Void) {
