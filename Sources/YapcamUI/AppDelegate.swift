@@ -1,5 +1,6 @@
 import AppKit
 import YapcamCapture
+import YapcamEditor
 
 /// Entry point used by the thin `Yapcam` executable.
 @MainActor public enum YapcamAppMain {
@@ -74,7 +75,10 @@ import YapcamCapture
         for u in urls { ProjectActions.open(u) }
     }
 
-    func applicationWillTerminate(_ notification: Notification) { DesktopIcons.restoreIfNeeded() }
+    func applicationWillTerminate(_ notification: Notification) {
+        EditorWindows.saveAll()
+        DesktopIcons.restoreIfNeeded()
+    }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 

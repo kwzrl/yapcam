@@ -1,7 +1,8 @@
 import AppKit
 import YapcamCapture
+import YapcamEditor
 
-/// Real engine: YapcamCapture for recording. The editor hook is isolated in `openEditor`.
+/// Real engine: YapcamCapture for recording, YapcamEditor for opening results.
 @MainActor struct LiveEngine: RecordingEngine {
     @MainActor final class Session: EngineSession {
         private let inner: RecordingSession
@@ -49,10 +50,7 @@ import YapcamCapture
     }
     func unregisterExcluded(_ window: NSWindow) { CaptureExclusions.unregister(window) }
 
-    func openEditor(package: URL) {
-        // EditorWindows is not on main yet (docs/status/editor.md); reveal the package until it is.
-        NSWorkspace.shared.activateFileViewerSelecting([package])
-    }
+    func openEditor(package: URL) { EditorWindows.open(package: package) }
 
     func interruptedPackages(in directory: URL) -> [URL] { RecordingSession.interruptedPackages(in: directory) }
     func recover(_ package: URL) throws -> URL { try RecordingSession.recover(package) }
