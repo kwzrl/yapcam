@@ -1,6 +1,6 @@
 # editor status
 
-READY f6eb65f editor on real core/render: EditorDocument, EditorWindows.open (recovery prompt + relink), timeline, M2 inspectors, lanes, palette
+READY 510c3ec editor on real core/render: EditorDocument, EditorWindows.open (recovery prompt + relink), timeline, M2 inspectors, lanes, palette
 
 ## Done (verified)
 - **Real adapters** (`Adapters.swift`): `CoreEditingProject` over `Project`, `PreviewPlayerAdapter` over `PreviewPlayer`, `RenderExportEngine` over `Exporter`, `ProjectRenderSource: RenderProjectSource` (core→render bridge; nobody else provides it). Verified by `RealStackTests` against `Tests/Fixtures/synthetic/basic.yapcam`: edit → save → reopen, invalid values rejected by core with state unchanged, clicks/geometry from core, journal restore/discard, missing media error, real export, copy-frame PNG 1920×1080.
@@ -12,7 +12,7 @@ READY f6eb65f editor on real core/render: EditorDocument, EditorWindows.open (re
 - **Inspector tabs**: Look (background solid/gradient/blur, aspect, padding, radius, shadow, inset, motion blur), Cursor (visible, size, smoothing, speed preset, hide idle, click effect, loop, hidden sections lane), Camera (visible, shape, size, radius, opacity, mirror, corners, layout lane; "no camera track" state), Audio (mute/volume per track, speed up typing, silence → cut/speed).
 - **Lanes**: camera layouts, cursor hidden ranges (drag/resize/delete). Crop controls (canvas.crop) and volume-over-time ranges accepted by real core (RealCoreRangesTests).
 - ⌘K command palette (also cheat sheet), copy current frame (⇧⌘C → PNG clipboard), export sheet (720/1080, 30/60, progress/cancel/error/Show in Finder).
-- Tests: `swift test` green, editor 63 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
+- Tests: `swift test` green, editor 73 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
 
 - ZOM-04 per-zoom Auto/Manual switch (reaches core). EDT-05 verified: 100 mixed edits on real core undo to the exact initial state and redo to the exact final state. Short (<2 s) project: zoom clipped to project end; 3 h project: timeline fits, ruler steps ≥ 60 s.
 - Export sheet has an "Include audio" toggle (default on). Workaround for the render hang; the real-export test uses audio off.
@@ -42,6 +42,14 @@ READY f6eb65f editor on real core/render: EditorDocument, EditorWindows.open (re
 - Text overlays/annotations (EDT-09), reactions (EDT-13), masks/highlight regions (EDT-08), intro/outro animations (EDT-14), captions (AUD-10), background music (AUD-07), cursor sets (CUR-06), camera background removal/face framing (render config not driven by project data), volume-over-time is an inspector list (add/edit/remove), not a timeline lane.
 - J/K/L has no variable-rate shuttle (player has no rate API).
 - Real camera/mic devices untested (none on this Mac); camera/mic inspector only checked via fakes + "no track" state.
+
+## Backlog batch 2 (Lead, main 6d91a7f) — items 1–3 done
+- **Render integration fix**: `ProjectRenderSource` now forwards `renderEffects` and `renderAudioRanges` to core/render's Project adapter. Before this, the editor's preview and export ignored highlights, fades, cursor/camera options and gain automation.
+- **1) EDT-08 masks/highlights/spotlights**: timeline lane (drag/resize), Overlays tab (style Highlight/Spotlight/Mask, follows screen or canvas, fill/outline colors, width, radius, dim), rect editor over the preview (drag body, drag corners, one command per gesture, correct through zoom/crop). Core's 32-overlap limit surfaces as an error with state unchanged. Verified: model tests, real core accepts all kinds, `frameExtras` highlight_count 3 and render effects layers 3 via the editor's source, 33rd overlapping region rejected, rect drag = one undo step, snapshot of the Overlays tab.
+- **2) EDT-14 intro/outro**: Overlays tab, none/fade with lengths (core: fade only). Verified against core fade_opacity at start/mid, and core rejection of non-positive length (state unchanged).
+- **3) Controls**: CUR-08 cursor motion blur, CUR-11 cursor spotlight radius, cursor style (recorded/pointer/touch, CUR-06 partial), ZOM-08 "Instant (no easing)" per zoom, LOK-06 window frame, background noise (LOK-04), zoom motion blur, camera shadow / background removal / face framing toggles. Verified: all paths accepted by real core; extras reflect them.
+- Not verified: pixels of highlights/fades in a real preview (needs a Metal host run through the app); UI interaction of the rect editor was tested through its geometry/model functions, not by synthesized mouse events.
+- **4) waiting on core**: no music, caption, text, reaction, key-overlay or click-sound fields in `core/src/model.rs` / FORMATS.md yet. Will build each when its path lands.
 
 ## Backlog state (checked after rebase on f0862b0)
 Every editor-owned FEATURES row that core/render can support is implemented. Core still has no commands/model for annotations (EDT-09), reactions (EDT-13), masks (EDT-08), animations (EDT-14), captions (AUD-10) or background music (AUD-07), so those stay unimplemented (no fake UI). Blocked on others, not on editor work: app wiring (`LiveEngine.openEditor` still reveals in Finder, `EditorCommands` not installed — ui/Lead), render audio-export hang.

@@ -9,6 +9,7 @@ public enum EditorSelection: Equatable, Sendable {
     case zoom(String)
     case layout(String)
     case cursorHide(Int)
+    case highlight(String)
 }
 
 public let minZoomDurationNs: Int64 = 300_000_000
@@ -28,6 +29,8 @@ public final class EditorModel: ObservableObject {
     @Published public private(set) var playheadNs: Int64 = 0
     @Published public private(set) var isPlaying = false
     @Published public var paletteVisible = false
+    /// Rect drag in progress on the preview (normalized rect), committed once on release.
+    @Published public var highlightRectPreview: (id: String, rect: [Double])?
     @Published public var snapGuideNs: Int64?
     /// Additional zooms selected with ⇧/⌘-click (the primary one is in `selection`).
     @Published public var extraZoomSelection: Set<String> = []
@@ -230,6 +233,7 @@ public final class EditorModel: ObservableObject {
             selection = .none; extraZoomSelection = []
         case .layout(let id): removeLayout(id: id); selection = .none
         case .cursorHide(let i): removeCursorHide(index: i); selection = .none
+        case .highlight(let id): removeHighlight(id: id); selection = .none
         case .clip(let id):
             guard let entry = clipStarts().first(where: { $0.clip.id == id }) else { return }
             if clips.count == 1 { lastError = "Can't delete the only clip."; return }

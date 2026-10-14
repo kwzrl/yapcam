@@ -71,6 +71,29 @@ public struct FrameGeometry: Equatable, Sendable {
     }
     public var aspect: Double { canvasHeight > 0 ? canvasWidth / canvasHeight : 16.0 / 9 }
 
+    /// Unclamped linear map from preview fractions to normalized source coordinates (may fall outside 0…1).
+    public func sourceCoords(fromPreview p: CGPoint) -> CGPoint {
+        CGPoint(x: crop.minX + (p.x * canvasWidth - dest.minX) / max(dest.width, 1) * crop.width,
+                y: crop.minY + (p.y * canvasHeight - dest.minY) / max(dest.height, 1) * crop.height)
+    }
+    /// Preview-fraction drag deltas → normalized deltas in the given highlight space.
+    public func normalizedDelta(dx: Double, dy: Double, space: String) -> CGSize {
+        if space == "canvas" { return CGSize(width: dx, height: dy) }
+        return CGSize(width: dx * canvasWidth / max(dest.width, 1) * crop.width, height: dy * canvasHeight / max(dest.height, 1) * crop.height)
+    }
+    /// Normalized rect in `space` → rect in preview fractions.
+    public func previewRect(fromNormalized r: [Double], space: String) -> CGRect {
+        if space == "canvas" { return CGRect(x: r[0], y: r[1], width: r[2], height: r[3]) }
+        let a = previewPoint(fromSource: CGPoint(x: r[0], y: r[1])), b = previewPoint(fromSource: CGPoint(x: r[0] + r[2], y: r[1] + r[3]))
+        return CGRect(x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y)
+    }
+
+    /// Inverse: normalized source coordinates → preview fractions.
+    public func previewPoint(fromSource s: CGPoint) -> CGPoint {
+        CGPoint(x: (dest.minX + (s.x - crop.minX) / max(crop.width, 1e-6) * dest.width) / canvasWidth,
+                y: (dest.minY + (s.y - crop.minY) / max(crop.height, 1e-6) * dest.height) / canvasHeight)
+    }
+
     /// Maps a point given in 0…1 of the whole preview to a normalized source position (nil outside the screen).
     public func sourcePoint(fromPreview p: CGPoint) -> CGPoint? {
         let cx = p.x * canvasWidth, cy = p.y * canvasHeight

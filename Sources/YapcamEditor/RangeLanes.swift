@@ -93,6 +93,8 @@ extension EditorModel {
            case .object(var o) = rows[i] {
             o["tl_start_ns"] = .number(Double(r.start)); o["tl_end_ns"] = .number(Double(r.end)); rows[i] = .object(o)
             set("cursor.ranges", .array(rows))
+        } else if highlights.contains(where: { $0.id == key }) {
+            updateHighlight(id: key) { $0.startNs = r.start; $0.endNs = r.end }
         } else if layouts.contains(where: { $0.id == key }) {
             writeLayouts(layouts.map { var l = $0; if l.id == key { l.startNs = r.start; l.endNs = r.end }; return l })
         }

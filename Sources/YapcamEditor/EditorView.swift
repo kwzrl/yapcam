@@ -22,6 +22,7 @@ public struct EditorContent<Preview: View>: View {
                     preview
                         .aspectRatio(model.previewAspect, contentMode: .fit)
                         .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model) } }
+                        .overlay { if case .highlight(let id) = model.selection, model.highlights.contains(where: { $0.id == id }) { HighlightEditOverlay(model: model, id: id) } }
                         .padding(8)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -159,5 +160,64 @@ struct FocusPickerOverlay: View {
         let cx = g.dest.minX + (fx - g.crop.minX) / max(g.crop.width, 0.001) * g.dest.width
         let cy = g.dest.minY + (fy - g.crop.minY) / max(g.crop.height, 0.001) * g.dest.height
         return CGPoint(x: cx / g.canvasWidth * size.width, y: cy / g.canvasHeight * size.height)
+    }
+}
+
+/// Rectangle editor over the preview for the selected mask/highlight: drag the body to move,
+/// drag a corner to resize. One command is committed on release.
+struct HighlightEditOverlay: View {
+    @ObservedObject var model: EditorModel
+    let id: String
+    @State private var start: (mode: Mode, rect: [Double], origin: CGPoint)?
+    enum Mode { case move, corner(Int) }   // 0 TL, 1 TR, 2 BL, 3 BR
+
+    var body: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            ZStack(alignment: .topLeading) {
+                Color.clear.contentShape(Rectangle())
+                if let h = model.highlights.first(where: { $0.id == id }), let g = model.project.frameGeometry(atNs: model.playheadNs) {
+                    let r = g.previewRect(fromNormalized: model.displayedRect(of: h), space: h.space)
+                    let frame = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
+                    Rectangle().strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                        .background(Color.accentColor.opacity(0.08))
+                        .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
+                    ForEach(0..<4, id: \.self) { i in
+                        Circle().fill(Color.white).overlay(Circle().stroke(Color.accentColor, lineWidth: 2)).frame(width: 12, height: 12)
+                            .position(x: i % 2 == 0 ? frame.minX : frame.maxX, y: i < 2 ? frame.minY : frame.maxY)
+                    }
+                }
+            }
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { v in
+                    guard let h = model.highlights.first(where: { $0.id == id }), let g = model.project.frameGeometry(atNs: model.playheadNs) else { return }
+                    if start == nil {
+                        let r = g.previewRect(fromNormalized: h.rect, space: h.space)
+                        let f = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
+                        let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.minX, y: f.maxY), CGPoint(x: f.maxX, y: f.maxY)]
+                        let hit = corners.firstIndex { hypot($0.x - v.startLocation.x, $0.y - v.startLocation.y) <= 14 }
+                        guard hit != nil || f.contains(v.startLocation) else { return }
+                        start = (hit.map { .corner($0) } ?? .move, h.rect, v.startLocation)
+                    }
+                    guard let s = start else { return }
+                    let d = g.normalizedDelta(dx: (v.location.x - s.origin.x) / size.width, dy: (v.location.y - s.origin.y) / size.height, space: h.space)
+                    model.previewHighlightRect(id: id, rect: HighlightGeometry.apply(rect: s.rect, delta: d, mode: s.mode))
+                }
+                .onEnded { _ in start = nil; model.commitHighlightRect() })
+        }
+        .accessibilityLabel("Region editor")
+    }
+}
+
+enum HighlightGeometry {
+    static func apply(rect r: [Double], delta d: CGSize, mode: HighlightEditOverlay.Mode) -> [Double] {
+        switch mode {
+        case .move: return [r[0] + d.width, r[1] + d.height, r[2], r[3]]
+        case .corner(let i):
+            var x0 = r[0], y0 = r[1], x1 = r[0] + r[2], y1 = r[1] + r[3]
+            if i % 2 == 0 { x0 += d.width } else { x1 += d.width }
+            if i < 2 { y0 += d.height } else { y1 += d.height }
+            return [min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0)]
+        }
     }
 }

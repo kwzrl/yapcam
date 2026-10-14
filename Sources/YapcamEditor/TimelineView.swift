@@ -12,7 +12,8 @@ struct TimelineLayout {
     var zoomTop: CGFloat { clipTop + Self.clipTrackHeight + Self.gap }
     var cameraTop: CGFloat { zoomTop + Self.zoomTrackHeight + Self.gap }
     var cursorTop: CGFloat { hasCamera ? cameraTop + Self.laneHeight + Self.gap : cameraTop }
-    var totalHeight: CGFloat { cursorTop + Self.laneHeight + 8 }
+    var highlightTop: CGFloat { cursorTop + Self.laneHeight + Self.gap }
+    var totalHeight: CGFloat { highlightTop + Self.laneHeight + 8 }
 }
 
 struct TimelineView: View {
@@ -43,6 +44,7 @@ struct TimelineView: View {
                 zoomTrack(g)
                 if model.hasCamera { cameraLane(g) }
                 cursorLane(g)
+                highlightLane(g)
                 if let snap = model.snapGuideNs {
                     Rectangle().fill(Color.yellow.opacity(0.9)).frame(width: 1, height: layout.totalHeight)
                         .offset(x: g.x(forNs: snap) + g.scrollOffsetPx)
@@ -139,6 +141,16 @@ struct TimelineView: View {
         }
     }
 
+    private func highlightLane(_ g: TimelineGeometry) -> some View {
+        ZStack(alignment: .topLeading) {
+            laneBackground(g, top: layout.highlightTop, label: "")
+            ForEach(model.highlights) { h in
+                rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, tint: .yellow,
+                          title: h.kind.label, selected: model.selection == .highlight(h.id))
+            }
+        }
+    }
+
     private func cursorLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
             laneBackground(g, top: layout.cursorTop, label: "")
@@ -179,6 +191,7 @@ struct TimelineView: View {
     private func hitRange(at p: CGPoint, _ g: TimelineGeometry) -> DragKind? {
         var items: [(key: String, span: TimeSpan, top: CGFloat, sel: EditorSelection)] = []
         if model.hasCamera { items += model.layouts.map { ($0.id, TimeSpan(startNs: $0.startNs, endNs: $0.endNs), layout.cameraTop, .layout($0.id)) } }
+        items += model.highlights.map { ($0.id, $0.span, layout.highlightTop, .highlight($0.id)) }
         items += model.cursorHides.map { (EditorModel.cursorKey($0.index), $0.span, layout.cursorTop, .cursorHide($0.index)) }
         for it in items where p.y >= it.top && p.y < it.top + TimelineLayout.laneHeight {
             let r = model.zoomPreview[it.key] ?? (it.span.startNs, it.span.endNs)
@@ -195,6 +208,7 @@ struct TimelineView: View {
 
     private func currentSpan(_ key: String) -> TimeSpan? {
         if let l = model.layouts.first(where: { $0.id == key }) { return TimeSpan(startNs: l.startNs, endNs: l.endNs) }
+        if let h = model.highlights.first(where: { $0.id == key }) { return h.span }
         if key.hasPrefix("cursor:"), let i = Int(key.dropFirst(7)) { return model.cursorHides.first { $0.index == i }?.span }
         return nil
     }
