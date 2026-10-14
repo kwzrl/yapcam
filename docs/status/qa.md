@@ -1,4 +1,4 @@
-READY 16f73c1 qa: guide-derived options (FEATURES section K), REA limitation notes
+READY HEAD qa: rebased on 0dfab41; push needs Lead (see Requests)
 
 # qa status
 
@@ -37,5 +37,6 @@ READY 16f73c1 qa: guide-derived options (FEATURES section K), REA limitation not
 - Bundle strings are obfuscated anyway; REA/observation is the only practical route.
 
 ## Requests (to Lead)
+- Push: after `git rebase main` my local team/qa (head: see git log) diverged from origin/team/qa; plain push is non-fast-forward and the classifier denied force-push and an ours-merge. Please fetch from ~/yapcam-team/qa directly (worktrees share the repo) or push it yourself; content is identical apart from the rebase.
 - Package.swift: add `.testTarget(name: "E2E", dependencies: ["YapcamRender","YapcamCore"], path: "Tests/E2E")`.
 - Re-grant Screen Recording (and system audio) for the current signed build, or tell me how the grant is keyed (F2).
