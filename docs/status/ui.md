@@ -1,4 +1,4 @@
-READY (d475be3) M1+M2 UI complete against the engine seam; end-to-end recording/editor open blocked only on capture+editor integration (Requests)
+READY 423ba6e UI on real capture: YapcamUI library + thin exe, LiveEngine, --capture-selftest; builds, 48 tests green. LIVE RECORDING NOT VERIFIED: screen-recording TCC not granted for 'Yapcam Dev Signing' (see Blockers)
 
 # ui status
 
@@ -15,8 +15,15 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - Recordings window (thumbnails, open, reveal, trash) with interrupted-recording banner + Recover; launch-time recovery alert; low-disk check before start (<1 GB blocks) and during recording (<2 GB warns). (snap of empty state)
 - Toolbar position remembered per display as fraction of display frame; clamped to visible frame on display changes; default right edge, vertically centred.
 
+## Done since integration (build + unit tests, 48 green)
+- Rebased on main 35ba7c5. UI split into library `YapcamUI` + thin `Yapcam` executable (`main.swift`), test target `YapcamUITests` (key combos, error mapping, rename/duplicate, permission table).
+- `LiveEngine` wraps real `RecordingSession` (area = top-left display-local points). Engine failure observed via `state == .failed`: alert + Recordings window (interrupted banner); package is never cancelled.
+- `--capture-selftest <seconds>` → `CaptureSelfTest.run`, result in `~/Library/Logs/Yapcam/probe.log`.
+- Backlog done (build only, not run live): PRJ-04 .yapcam file association + Open With handler, PRJ-07 rename/duplicate/trash, PRJ-06 extract raw files, REC-16 Import Video… (Project.importVideo), OOS-06 Export Diagnostics…, AUD-09 start/stop sounds (played outside capture), REC-13 hide desktop icons (Finder CreateDesktop with crash-safe restore marker), REC-14 Dock toggle (exists).
+
 ## In progress / Next
-- `LiveEngine` mapping `RecordingEngine` → capture/editor APIs as soon as they exist on main (one file, one line to set `RecordingController.engine`).
+- `openEditor` currently only reveals the package in Finder: `EditorWindows`/`EditorDocument` do not exist on main yet (docs/status/editor.md). One-line swap in `LiveEngine.openEditor` once they land.
+- REC-21 speaker notes needs a notes field in project.json (core) — request below.
 
 ## Not verified (open)
 - Real mouse/click interaction with the toolbar and popovers (no screen-recording permission for my shell, so no live screenshots; popover side logic: arrowEdge `.trailing` when toolbar on left half, `.leading` on right half — from Apple docs, not seen).
@@ -24,6 +31,7 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - Whole record → stop → editor path (engine is `UnavailableEngine`: starting a recording shows "The capture engine is not integrated in this build yet." — explicit, not simulated).
 
 ## Blockers
+- Signing identity changed to `Yapcam Dev Signing` on main; macOS TCC grants made for `Yapcam Local Dev` do not carry over. `--capture-selftest 3` fails with SCStream -3801 (screen recording not granted; app logs `screen access false`). Needs one manual grant in System Settings → Privacy → Screen & System Audio Recording for build/Yapcam.app (I did not touch TCC). Until then no real record → stop run from UI.
 - `YapcamCapture` / `YapcamEditor` are empty stubs on all branches at the time of writing.
 
 ## Assumptions
@@ -33,6 +41,12 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - Default storage `~/Movies/Yapcam`.
 
 ## Requests (to Lead)
+- Grant screen recording (and mic/camera/input monitoring/accessibility as wanted) to the `Yapcam Dev Signing` build, then run `open -n build/Yapcam.app --args --capture-selftest 3`.
+- Editor: provide `EditorWindows.open(package:)` per SWIFT_API.md.
+- Core: a `notes` field in project.json (+ `set(path:)` support) for REC-21 speaker notes.
 - SWIFT_API.md: confirm `CaptureTarget.area` rect is top-left-origin display-local points.
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
+
+## Backlog check (latest)
+Main unchanged (35ba7c5), branch already rebased. Re-ran `--capture-selftest 3`: still SCStream -3801 (no screen-recording grant for `Yapcam Dev Signing`). Every remaining ui item depends on something outside my files: live record/stop verification (TCC grant), editor hand-off (`EditorWindows.open`), speaker notes (core field). Nothing else open in docs/briefs/ui.md or FEATURES.md rows owned by ui.

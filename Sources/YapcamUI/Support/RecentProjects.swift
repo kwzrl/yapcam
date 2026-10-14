@@ -55,6 +55,22 @@ struct ProjectEntry: Identifiable, Equatable {
         }
     }
 
+    func rename(_ p: ProjectEntry) {
+        guard let name = Prompt.text(title: "Rename Recording", message: "New name for “\(p.name)”", initial: p.name) else { return }
+        do { _ = try ProjectActions.rename(p.url, to: name) } catch { RecordingController.shared.alert = AppAlert(title: "Could not rename", message: error.localizedDescription) }
+        reload()
+    }
+
+    func duplicate(_ p: ProjectEntry) {
+        do { _ = try ProjectActions.duplicate(p.url) } catch { RecordingController.shared.alert = AppAlert(title: "Could not duplicate", message: error.localizedDescription) }
+        reload()
+    }
+
+    func extractRaw(_ p: ProjectEntry) {
+        do { if let dest = try ProjectActions.extractRaw(p.url) { NSWorkspace.shared.activateFileViewerSelecting([dest]) } }
+        catch { RecordingController.shared.alert = AppAlert(title: "Could not extract files", message: error.localizedDescription) }
+    }
+
     func trash(_ p: ProjectEntry) {
         try? FileManager.default.trashItem(at: p.url, resultingItemURL: nil)
         reload()
@@ -102,7 +118,8 @@ struct RecentProjectsView: View {
                 List(model.projects) { p in
                     Row(entry: p, thumbnail: model.thumbnails[p.url], open: { open(p) },
                         reveal: { NSWorkspace.shared.activateFileViewerSelecting([p.url]) },
-                        trash: { model.trash(p) })
+                        rename: { model.rename(p) }, duplicate: { model.duplicate(p) },
+                        extract: { model.extractRaw(p) }, trash: { model.trash(p) })
                         .onAppear { model.loadThumbnail(p) }
                 }
             }
@@ -110,6 +127,7 @@ struct RecentProjectsView: View {
         }
         .frame(minWidth: 480, minHeight: 320)
         .toolbar {
+            ToolbarItem { Button { ProjectActions.importVideo() } label: { Image(systemName: "square.and.arrow.down") }.help("Import a video") }
             ToolbarItem { Button { model.reload() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh") }
             ToolbarItem { Button { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) } label: { Image(systemName: "folder") }.help("Show folder in Finder") }
         }
@@ -149,6 +167,9 @@ struct RecentProjectsView: View {
         let thumbnail: NSImage?
         let open: () -> Void
         let reveal: () -> Void
+        let rename: () -> Void
+        let duplicate: () -> Void
+        let extract: () -> Void
         let trash: () -> Void
         var body: some View {
             HStack(spacing: 12) {
@@ -172,9 +193,24 @@ struct RecentProjectsView: View {
             .contextMenu {
                 Button("Open", action: open)
                 Button("Show in Finder", action: reveal)
+                Button("Rename…", action: rename)
+                Button("Duplicate", action: duplicate)
+                Button("Extract Raw Files…", action: extract)
                 Divider()
                 Button("Move to Trash", role: .destructive, action: trash)
             }
         }
+    }
+}
+
+@MainActor enum Prompt {
+    static func text(title: String, message: String, initial: String) -> String? {
+        let a = NSAlert()
+        a.messageText = title; a.informativeText = message
+        let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24)); f.stringValue = initial
+        a.accessoryView = f
+        a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = f
+        return a.runModal() == .alertFirstButtonReturn ? f.stringValue : nil
     }
 }

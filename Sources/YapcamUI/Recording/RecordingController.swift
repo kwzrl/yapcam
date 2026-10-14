@@ -21,7 +21,7 @@ enum RecordingPhase: Equatable {
     @Published private(set) var lowDisk = false
     @Published var alert: AppAlert?
 
-    var engine: RecordingEngine = UnavailableEngine()
+    var engine: RecordingEngine = LiveEngine()
     private let settings = AppSettings.shared
     private var session: EngineSession?
     private var countdownTask: Task<Void, Never>?
@@ -143,10 +143,15 @@ enum RecordingPhase: Equatable {
 
     private func startSession(_ options: UIRecordingOptions) {
         phase = .starting
+        // Sound first: it must be finished before capture starts so it never reaches the recording.
+        let lead: Duration = settings.playSounds ? .milliseconds(450) : .zero
+        if settings.playSounds { NSSound(named: "Tink")?.play() }
+        if settings.hideDesktopIcons { DesktopIcons.hide() }
         let s = engine.makeSession(options)
         session = s
         elapsed = 0
         Task {
+            try? await Task.sleep(for: lead)
             do {
                 try await s.start()
                 phase = .recording
@@ -154,6 +159,7 @@ enum RecordingPhase: Equatable {
             } catch {
                 session = nil
                 phase = .idle
+                DesktopIcons.restoreIfNeeded()
                 alert = AppAlert(title: "Recording could not start", message: error.localizedDescription)
             }
         }
@@ -203,7 +209,11 @@ enum RecordingPhase: Equatable {
         Task { await s.cancel(); finish(); startSession(options) }
     }
 
-    private func finish() { session = nil; phase = .idle; elapsed = 0; micLevel = 0; warnings = []; lowDisk = false }
+    private func finish() {
+        DesktopIcons.restoreIfNeeded()
+        if settings.playSounds, session != nil { NSSound(named: "Pop")?.play() }
+        session = nil; phase = .idle; elapsed = 0; micLevel = 0; warnings = []; lowDisk = false
+    }
 
     private func fail(_ error: Error) {
         alert = AppAlert(title: "Recording problem", message: error.localizedDescription)
@@ -231,16 +241,12 @@ enum RecordingPhase: Equatable {
             lowDisk = free < 2_000_000_000
         }
         if let f = s.failure, isRecording {
-            // The engine ended the recording itself; salvage what was written.
+            // The engine ended the recording itself. The package stays on disk as an
+            // interrupted recording; never cancel() it (that deletes the package).
             stopTicker()
-            phase = .finishing
-            Task {
-                let saved = try? await s.stop()
-                finish()
-                var msg = f.localizedDescription
-                if let saved { msg += " The part that was recorded is saved."; engine.openEditor(package: saved) }
-                alert = AppAlert(title: "Recording stopped", message: msg)
-            }
+            finish()
+            alert = AppAlert(title: "Recording stopped", message: f.localizedDescription + " What was written to disk can be recovered from the Recordings window.")
+            RecentProjectsWindow.shared.show()
         }
     }
 }

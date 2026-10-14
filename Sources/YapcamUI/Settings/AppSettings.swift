@@ -85,6 +85,8 @@ struct KeyCombo: Codable, Equatable {
     @Published var recordKeystrokes: Bool { didSet { d.set(recordKeystrokes, forKey: "recordKeystrokes") } }
     @Published var maxFPS: Int { didSet { d.set(maxFPS, forKey: "maxFPS") } }
     @Published var openEditorAfterRecording: Bool { didSet { d.set(openEditorAfterRecording, forKey: "openEditor") } }
+    @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "playSounds") } }
+    @Published var hideDesktopIcons: Bool { didSet { d.set(hideDesktopIcons, forKey: "hideDesktopIcons") } }
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
     @Published var showMenuBarItem: Bool { didSet { d.set(showMenuBarItem, forKey: "showMenuBarItem") } }
     @Published var storageDirectory: URL { didSet { d.set(storageDirectory.path, forKey: "storageDirectory") } }
@@ -117,6 +119,8 @@ struct KeyCombo: Codable, Equatable {
         recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? false
         maxFPS = d.object(forKey: "maxFPS") as? Int == 30 ? 30 : 60
         openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
+        playSounds = d.object(forKey: "playSounds") as? Bool ?? false
+        hideDesktopIcons = d.object(forKey: "hideDesktopIcons") as? Bool ?? false
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
         storageDirectory = d.string(forKey: "storageDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) } ?? Self.defaultStorage
