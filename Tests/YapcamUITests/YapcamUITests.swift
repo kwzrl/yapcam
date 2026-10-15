@@ -123,6 +123,7 @@ import YapcamEditor
 
 @MainActor @Suite struct PresetTests {
     @Test func saveListApplyRoundTrip() throws {
+        try withIsolatedPresets {
         let tmp = FileManager.default.temporaryDirectory.appending(path: "yapcam-preset-\(UUID().uuidString)", directoryHint: .isDirectory)
         let pkg = tmp.appending(path: "P.yapcam", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -138,6 +139,7 @@ import YapcamEditor
         try PresetStore.apply(file, to: project)           // restores the exported look
         #expect(PresetStore.clean("  a/b ") == "a-b")
         #expect(throws: EngineError.self) { try PresetStore.save(project, as: "   ") }
+    }
     }
 }
 
@@ -231,7 +233,7 @@ import YapcamEditor
     // new #2: adding a preset that already is the library copy must not delete it.
     @Test func addingLibraryPresetToItselfKeepsIt() throws {
         let lib = try temp(); defer { try? FileManager.default.removeItem(at: lib) }
-        PresetStore.directoryOverride = lib; defer { PresetStore.directoryOverride = nil }
+        try PresetIsolation.$directory.withValue(lib) {
         let file = lib.appending(path: "Look.yapcampreset")
         try Data("one".utf8).write(to: file)
         try PresetStore.addToLibrary(file)
@@ -244,19 +246,22 @@ import YapcamEditor
         #expect(try String(contentsOf: file, encoding: .utf8) == "two")
         #expect(FileManager.default.fileExists(atPath: other.path))
         #expect(PresetStore.names() == ["Look"])                 // no leftover temp files
+        }
     }
 
     @Test func failedAddKeepsExistingPreset() throws {
         let lib = try temp(); defer { try? FileManager.default.removeItem(at: lib) }
-        PresetStore.directoryOverride = lib; defer { PresetStore.directoryOverride = nil }
-        let file = lib.appending(path: "Look.yapcampreset")
-        try Data("keep".utf8).write(to: file)
-        #expect(throws: (any Error).self) { try PresetStore.addToLibrary(URL(filePath: "/nonexistent/Look.yapcampreset")) }
-        #expect(try String(contentsOf: file, encoding: .utf8) == "keep")
+        try PresetIsolation.$directory.withValue(lib) {
+            let file = lib.appending(path: "Look.yapcampreset")
+            try Data("keep".utf8).write(to: file)
+            #expect(throws: (any Error).self) { try PresetStore.addToLibrary(URL(filePath: "/nonexistent/Look.yapcampreset")) }
+            #expect(try String(contentsOf: file, encoding: .utf8) == "keep")
+        }
     }
 
     // new #4: applying a preset refreshes the editor model and persists.
     @Test func applyingPresetUpdatesEditorAndSaves() throws {
+        try withIsolatedPresets {
         let dir = try temp(); defer { try? FileManager.default.removeItem(at: dir) }
         let target = try fixturePackage(in: dir, name: "T")
         let source = try fixturePackage(in: dir, name: "S")
@@ -272,6 +277,7 @@ import YapcamEditor
         let saved = try Project.open(package: target)
         let json = try String(data: saved.toJSON(), encoding: .utf8) ?? ""
         #expect(json.contains("0.31"))                                       // persisted without another edit
+    }
     }
 
     // new #5: production transcriber is installed (never a fake).
@@ -575,6 +581,7 @@ import YapcamEditor
 
     /// The same edit sequence the flag runs, on a model over a synthetic package, then the reopen comparison.
     @Test func scriptedEditsSurviveSaveAndReopen() throws {
+        try withIsolatedPresets {
         let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-edsel-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -601,6 +608,7 @@ import YapcamEditor
         let again = try EditorDocument(package: pkg, restoreUnsavedChanges: true)
         #expect((again.model.clips.count, again.model.zooms.count, again.model.durationNs) == want)
         #expect(abs(again.model.number("canvas.padding") - 72) < 1e-9)
+    }
     }
 }
 
@@ -869,5 +877,40 @@ import YapcamEditor
     @Test func displayFrameInCGCoordinates() {
         let f = CGRect(x: 0, y: 1050, width: 1512, height: 982)        // display above the primary
         #expect(OverlayGeometry.cgFrame(of: f, primaryMaxY: 1050) == CGRect(x: 0, y: -982, width: 1512, height: 982))
+    }
+}
+
+/// Own preset folder and own defaults for the duration of `body`: tests never touch the user's real preset
+/// library or default-preset choice, and parallel tests can't see each other's.
+@MainActor func withIsolatedPresets<T>(_ body: () throws -> T) throws -> T {
+    let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-presets-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let suiteName = "mov.yapcam.Yapcam.test-\(UUID().uuidString)"
+    let suite = UserDefaults(suiteName: suiteName)!
+    defer { try? FileManager.default.removeItem(at: dir); suite.removePersistentDomain(forName: suiteName) }
+    return try PresetIsolation.$directory.withValue(dir) {
+        try PresetIsolation.$defaultsSuiteName.withValue(suiteName) { try body() }
+    }
+}
+
+@MainActor @Suite struct WindowSizeAndIgnoreTests {
+    @Test func sizeTextParsing() {
+        #expect(WindowAX.parseSize("1280x720") == CGSize(width: 1280, height: 720))
+        #expect(WindowAX.parseSize(" 1280 × 720 ") == CGSize(width: 1280, height: 720))
+        #expect(WindowAX.parseSize("1024,768") == CGSize(width: 1024, height: 768))
+        for bad in ["", "1280", "axb", "100x720", "1280x100", "9000x800", "1x2x3"] { #expect(WindowAX.parseSize(bad) == nil, "\(bad)") }
+    }
+
+    @Test func ignoredWindowsAreSkippedWhenPointing() {
+        func row(_ id: UInt32, _ r: CGRect) -> WindowRow { WindowRow(id: id, pid: 10, layer: 0, app: "A", title: "t", bounds: r) }
+        let rows = [row(1, CGRect(x: 0, y: 0, width: 500, height: 400)), row(2, CGRect(x: 0, y: 0, width: 800, height: 600))]
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99)?.id == 1)
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99, ignoring: [1])?.id == 2)
+    }
+
+    @Test func savedSizesPersistMostRecentFirst() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
+        let s = AppSettings(store: suite)
+        s.savedWindowSizes = ["1280x720", "800x600"]
+        #expect(AppSettings(store: suite).savedWindowSizes == ["1280x720", "800x600"])
     }
 }

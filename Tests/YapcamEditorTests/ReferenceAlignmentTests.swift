@@ -340,6 +340,7 @@ import YapcamCore
     }
 
     @Test func presetManagementRenameUpdateMatchAndDefault() throws {
+        try withIsolatedPresets {
         let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
         let base = "ut-\(UUID().uuidString.prefix(6))"
         defer { for n in [base, base + "-b"] { try? FileManager.default.removeItem(at: EditorPresets.url(n)) }; EditorPresets.defaultName = nil }
@@ -356,8 +357,10 @@ import YapcamCore
         let after = try Data(contentsOf: EditorPresets.url(base))
         #expect(m.lastError == nil, "\(m.lastError ?? "")"); #expect(after == before)                                                      // fake exports "{}" both times
     }
+    }
 
     @Test func defaultPresetStartsNewProjects() throws {
+        try withIsolatedPresets {
         let src = try fixture(); defer { try? FileManager.default.removeItem(at: src) }
         let name = "ut-def-\(UUID().uuidString.prefix(6))"
         defer { try? FileManager.default.removeItem(at: EditorPresets.url(name)); EditorPresets.defaultName = nil }
@@ -375,6 +378,7 @@ import YapcamCore
         let plain = try fixture(); defer { try? FileManager.default.removeItem(at: plain) }
         let plainPadding = try EditorDocument(package: plain).model.number("canvas.padding")
         #expect(plainPadding == 48)
+    }
     }
 }
 

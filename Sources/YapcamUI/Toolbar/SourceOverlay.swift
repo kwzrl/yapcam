@@ -28,8 +28,8 @@ struct WindowRow: Equatable {
 
 enum WindowHit {
     /// Topmost recordable window under `point`. `rows` must be ordered front to back (as CGWindowList returns them).
-    static func pick(from rows: [WindowRow], at point: CGPoint, excludingPID: Int32) -> WindowRow? {
-        rows.first { $0.layer == 0 && $0.pid != excludingPID && $0.bounds.width >= 80 && $0.bounds.height >= 60 && $0.bounds.contains(point) }
+    static func pick(from rows: [WindowRow], at point: CGPoint, excludingPID: Int32, ignoring: Set<UInt32> = []) -> WindowRow? {
+        rows.first { $0.layer == 0 && $0.pid != excludingPID && !ignoring.contains($0.id) && $0.bounds.width >= 80 && $0.bounds.height >= 60 && $0.bounds.contains(point) }
     }
 
     static func onScreenRows() -> [WindowRow] {
@@ -54,6 +54,14 @@ enum WindowAX {
         var ratio: CGFloat {
             switch self { case .wide: 16.0 / 9; case .standard: 4.0 / 3; case .tall: 9.0 / 16; case .wide1610: 16.0 / 10; case .square: 1 }
         }
+    }
+
+    /// "1280x720", "1280 × 720" or "1280,720" → a size within 150…8192 per side; nil when it isn't two numbers.
+    static func parseSize(_ text: String) -> CGSize? {
+        let parts = text.lowercased().replacingOccurrences(of: "×", with: "x").replacingOccurrences(of: ",", with: "x")
+            .split(separator: "x").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count == 2, let w = Double(parts[0]), let h = Double(parts[1]), w >= 150, h >= 150, w <= 8192, h <= 8192 else { return nil }
+        return CGSize(width: w.rounded(), height: h.rounded())
     }
 
     /// New size for a window of `size` that has the preset's aspect ratio, keeping its width where it fits
@@ -151,6 +159,8 @@ struct SourceCard: View {
     @Published var activeDisplayID: UInt32 = 0
     @Published var hover: WindowRow?
     @Published var notice: String?
+    /// Windows the user chose to ignore for this overlay session (they are skipped when pointing).
+    @Published var ignored: Set<UInt32> = []
     var onAdjustAsArea: ((CGRect, UInt32) -> Void)?
     var onRecordDisplay: ((UInt32) -> Void)?
     init(kind: Kind) { self.kind = kind }
@@ -161,6 +171,28 @@ struct SourceCard: View {
             notice = AXIsProcessTrusted() ? "This window can't be resized." : "Allow Accessibility for Yapcam to resize windows."
         }
     }
+
+    func resize(_ w: WindowRow, toSize size: CGSize) {
+        if !WindowAX.resize(pid: w.pid, bounds: w.bounds, to: size) {
+            notice = AXIsProcessTrusted() ? "This window can't be resized." : "Allow Accessibility for Yapcam to resize windows."
+        }
+    }
+
+    func promptSize(_ w: WindowRow) {
+        guard let text = Prompt.text(title: "Window size", message: "Width × height in points, for example 1280x720",
+                                     initial: "\(Int(w.bounds.width))x\(Int(w.bounds.height))") else { return }
+        guard let size = WindowAX.parseSize(text) else { notice = "Enter two numbers between 150 and 8192, like 1280x720."; return }
+        resize(w, toSize: size)
+    }
+
+    func saveSize(of w: WindowRow) {
+        let t = "\(Int(w.bounds.width))x\(Int(w.bounds.height))"
+        var list = AppSettings.shared.savedWindowSizes
+        list.removeAll { $0 == t }; list.insert(t, at: 0)
+        AppSettings.shared.savedWindowSizes = Array(list.prefix(8))
+    }
+
+    func ignore(_ w: WindowRow) { ignored.insert(w.id); hover = nil }
 
     /// The window's rectangle becomes the area to record (then the area overlay opens to fine-tune it).
     func adjustAsArea(_ w: WindowRow, screenFrame: CGRect, primaryMaxY: CGFloat) {
@@ -206,7 +238,14 @@ extension WindowOverlayRoot {
                 ForEach(WindowAX.Preset.allCases) { p in
                     Button(p.rawValue) { model.resize(w, to: p, in: screenFrame.size) }
                 }
+                Divider()
+                Button("Set size…") { model.promptSize(w) }
+                Button("Save current size") { model.saveSize(of: w) }
+                ForEach(AppSettings.shared.savedWindowSizes, id: \.self) { t in
+                    Button(t) { if let size = WindowAX.parseSize(t) { model.resize(w, toSize: size) } }
+                }
             }
+            Button("Ignore this window") { model.ignore(w) }
             Button("Bring to front") { WindowAX.raise(pid: w.pid, bounds: w.bounds) }
             Button("Adjust as area") { model.adjustAsArea(w, screenFrame: screenFrame, primaryMaxY: primaryMaxY) }
             Button("Record entire display") { model.recordDisplay(containing: w) }
@@ -335,7 +374,7 @@ private final class OverlayWindow: NSWindow {
         if let screen = NSScreen.screens.first(where: { $0.frame.contains(p) }), let id = screen.displayID, m.activeDisplayID != id { m.activeDisplayID = id }
         if m.kind == .window {
             let cg = OverlayGeometry.cgPoint(fromAppKit: p, primaryMaxY: primaryMaxY)
-            let hit = WindowHit.pick(from: WindowHit.onScreenRows(), at: cg, excludingPID: ProcessInfo.processInfo.processIdentifier)
+            let hit = WindowHit.pick(from: WindowHit.onScreenRows(), at: cg, excludingPID: ProcessInfo.processInfo.processIdentifier, ignoring: m.ignored)
             if hit != m.hover { m.hover = hit }
         }
     }
