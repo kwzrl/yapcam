@@ -49,13 +49,17 @@ private final class AutosaveObservation: @unchecked Sendable {
         pending?.cancel(); pending = nil
         observation.cancel()
     }
+    // Allows deterministic clock tests to join the scheduled save after waking it.
+    func waitForScheduledSave() async { await pending?.value }
     private func schedule() {
         pending?.cancel(); pending = nil
-        guard active, project.isDirty, (try? project.autosavePolicy().enabled) == true else { return }
+        guard active, project.isDirty else { return }
+        do { guard try project.autosavePolicy().enabled else { return } }
+        catch { lastError = error.localizedDescription; return }
         let expected = project.revision, delay = self.delay, sleep = self.sleep
         pending = Task { [weak self] in
             do { try await sleep(delay) } catch { return }
-            guard !Task.isCancelled, let self, self.active else { return }
+            guard !Task.isCancelled, let self, self.active, self.project.isDirty else { return }
             do {
                 let project = self.project
                 let saved = try await Task.detached(priority: .utility) { try project.save(ifRevision: expected) }.value

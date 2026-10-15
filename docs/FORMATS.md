@@ -228,6 +228,29 @@ and exit fades use the darker result. No frames/time or audio edits are added.
 Zoom/slide transforms are specified in the additive contracts below. Presets omit project-specific
 highlights, cursor ranges, camera layouts and audio ranges.
 
+### Portable preset boundary
+
+`{"q":"preset"}` exports only style fields from canvas, cursor, camera, audio,
+zoom_settings and export. `apply_preset` uses the same field filter and merges
+provided style leaves into the destination. Omitted fields keep their current
+values; it never replaces whole setting groups. Known style values still undergo
+normal transactional validation and one-step undo/redo.
+
+Presets omit and ignore project/recording metadata, timeline/clips and their
+settings, zoom records, insertion history, notes, typing suggestions, media paths
+and indices, source crop, highlights/annotations/reactions/captions, cursor/audio
+ranges, camera layouts and music tracks (including duck activity ranges). Unknown
+fields and these legacy fields are ignored on import, even if their IDs/ranges are
+invalid in the destination. Style durations (animation, cursor idle/click/key
+visibility) and palette `cursor.set_id` remain portable style settings.
+
+Background image bytes travel only as the Swift file wrapper's `_background_image`
+base64 payload. No source media index is exported/applied. Image import registers
+fresh destination media and selects it in the same atomic batch; a raw
+`background.kind:"image"` without embedded bytes does not select a destination
+asset. Existing target effects, recording references, IDs and timeline times stay
+unchanged when applying a preset from another project.
+
 ## Read-only queries (`yc_query`)
 
 Queries are cold paths returning allocated UTF-8 JSON, freed with yc_string_free.
@@ -791,7 +814,9 @@ keys, ordinary discrete commands, undo and redo end a group. Failed/no-op comman
 never add a step. The key must be nonempty and <=256 UTF-8 bytes. Editor should
 use a stable key per edited object/property during a gesture; discrete actions
 remain separate even if clicked quickly. This explicit envelope preserves the
-existing precision command API's one-command/one-step contract.
+existing precision command API's one-command/one-step contract. Put the
+coalesced_edit envelope outside timeline_edit when combining them; a batch is
+a single discrete operation unless wrapped by an outer coalesced_edit.
 
 All histories retain at most1000 undo steps, dropping the oldest after adding a
 new step. History clocks/groups are runtime state, not serialized project style;

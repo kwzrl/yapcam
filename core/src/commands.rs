@@ -527,20 +527,9 @@ pub(crate) fn apply_inner(
         "apply_preset" => {
             let settings = v
                 .get("preset")
-                .and_then(Value::as_object)
+                .filter(|v| v.is_object())
                 .ok_or_else(|| Error::new(1, "Missing preset"))?;
-            let mut data = serde_json::to_value(&*p)?;
-            for (key, value) in settings {
-                if !matches!(
-                    key.as_str(),
-                    "canvas" | "cursor" | "camera" | "audio" | "zoom_settings" | "export"
-                ) {
-                    return Err(Error::new(1, "Preset contains a non-setting field"));
-                }
-                data[key] = value.clone();
-                cs.changed.push(key.clone());
-            }
-            *p = serde_json::from_value(data)?;
+            cs.changed.extend(crate::preset::apply(p, settings)?);
         }
         "set" => {
             let path = string(v, "path")?;

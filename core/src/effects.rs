@@ -721,9 +721,9 @@ mod tests {
         );
         let preset = p.query(&json!({"q":"preset"})).unwrap();
         for key in ["annotations", "reactions", "captions"] {
-            assert_eq!(preset["canvas"][key], json!([]));
+            assert!(preset["canvas"].get(key).is_none());
         }
-        assert_eq!(preset["audio"]["music"], json!([]));
+        assert!(preset["audio"].get("music").is_none());
         p.apply(&json!({"op":"delete_range","tl_start_ns":500_000_000,"tl_end_ns":1_500_000_000}))
             .unwrap();
         assert!(p.data.canvas.captions.is_empty());

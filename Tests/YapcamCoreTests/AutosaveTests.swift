@@ -72,3 +72,21 @@ private actor AutosaveSleeps {
     for _ in 0..<200 { if autosaver.lastError != nil { break }; try await Task.sleep(for: .milliseconds(1)) }
     #expect(autosaver.lastError?.contains("closed") == true && p.isDirty)
 }
+
+@MainActor @Test func manualSaveMakesPendingAutosaveSkipASecondDiskWrite() async throws {
+    let package = try autosaveFixture(); defer { try? FileManager.default.removeItem(at: package) }
+    let p = try Project.create(package: package); try p.save()
+    let sleeps = AutosaveSleeps()
+    let autosaver = ProjectAutosaver(project: p, delay: .seconds(30), sleep: { await sleeps.sleep($0) })
+    defer { autosaver.cancel() }
+    try p.apply(.set(path: "notes", value: .string("manually saved")))
+    for _ in 0..<1000 { if await sleeps.contains(1) { break }; await Task.yield() }
+    #expect(await sleeps.contains(1))
+    try p.save()
+    let file = package.appendingPathComponent("project.json")
+    let inode = try #require(FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? NSNumber).uint64Value
+    await sleeps.release(1); await autosaver.waitForScheduledSave()
+    let after = try #require(FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? NSNumber).uint64Value
+    #expect(after == inode)
+    #expect(!p.isDirty && autosaver.lastError == nil)
+}

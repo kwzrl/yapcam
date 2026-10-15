@@ -23,8 +23,18 @@ extension Project {
     public func exportPreset(to url: URL) throws {
         let snapshot = try snapshot()
         var settings = try snapshot.query("{\"q\":\"preset\"}", as: [String: JSONValue].self)
-        if case .object(let canvas)? = settings["canvas"], case .object(let background)? = canvas["background"],
-           case .string("image")? = background["kind"], let index = background["asset"]?.integerValue {
+        // The portable query omits recording-local media indices. Read the
+        // original reference only to package the image bytes alongside the look.
+        struct BackgroundReference: Decodable {
+            struct Canvas: Decodable {
+                struct Background: Decodable { var kind: String; var asset: Int }
+                var background: Background
+            }
+            var canvas: Canvas
+        }
+        let background = try JSONDecoder().decode(BackgroundReference.self, from: snapshot.toJSON()).canvas.background
+        if background.kind == "image" {
+            let index = background.asset
             struct Media: Decodable { var path: String }
             let media = try snapshot.query("{\"q\":\"media\"}", as: [Media].self)
             guard index >= 0 && index < media.count else { throw CoreError.status(1, "Background asset is unavailable") }

@@ -558,8 +558,16 @@ private func expectClosed(_ operation: () throws -> Void) {
             #expect(try p.frame(atNs: 0).background_kind == 2)
             let preset = first.appendingPathComponent("image-preset.json")
             try p.exportPreset(to: preset)
+            let exported = try JSONDecoder().decode([String: JSONValue].self, from: Data(contentsOf: preset))
+            if case .object(let canvas)? = exported["canvas"], case .object(let background)? = canvas["background"] {
+                #expect(background["asset"] == nil)
+            } else { Issue.record("Missing background look") }
+            // Deliberately give the destination a different media index.
+            try other.importBackgroundImage(image)
+            try other.apply(.set(path: "canvas.background.kind", value: .string("solid")))
             try other.importPreset(from: preset)
             #expect(try other.frame(atNs: 0).background_kind == 2)
+            #expect(try other.frame(atNs: 0).background_asset != p.frame(atNs: 0).background_asset)
             try other.save()
             #expect(try Project.open(package: second).frame(atNs: 0).background_kind == 2)
             try other.undo()
@@ -1183,5 +1191,56 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         try p.save()
         #expect(try Project.open(package: package).capabilities().deviceFrameActive)
         try p.undo(); #expect(try p.frame(atNs: 0).screen_crop.w == before.screen_crop.w)
+    }
+}
+
+@Test func presetSavedInProjectAAppliesToProjectB() throws {
+    try withFixture { first in
+        try withFixture { second in
+            let source = try Project.create(package: first)
+            let target = try Project.create(package: second)
+            try source.apply(.split(atNs: 2_000_000_000))
+            let sourceClips = try source.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+            try source.apply(.setClipSettings(clipID: sourceClips[1].id, patch: ["hide_cursor": .bool(true)]))
+            try source.apply(.addZoom(ZoomSpec(startNs: 0, endNs: 2_000_000_000)))
+            try source.apply(.set(path: "canvas.padding", value: .number(75)))
+            try source.apply(.set(path: "canvas.crop", value: .array([.number(0.1), .number(0.1), .number(0.7), .number(0.7)])))
+            try target.apply(.split(atNs: 1_000_000_000))
+            try target.apply(.addZoom(ZoomSpec(startNs: 1_000_000_000, endNs: 3_000_000_000)))
+            try target.apply(.insertTimelineItem(.layout))
+            try target.apply(.insertTimelineItem(.mask))
+            func state() throws -> [String: JSONValue] { try JSONDecoder().decode([String: JSONValue].self, from: target.toJSON()) }
+            let before = try state()
+            let file = first.appendingPathComponent("A.yapcampreset")
+            try source.exportPreset(to: file)
+            let exported = try JSONDecoder().decode([String: JSONValue].self, from: Data(contentsOf: file))
+            #expect(exported["timeline"] == nil && exported["zooms"] == nil && exported["recording"] == nil)
+            if case .object(let canvas)? = exported["canvas"] {
+                #expect(canvas["highlights"] == nil && canvas["crop"] == nil && canvas["captions"] == nil)
+            } else { Issue.record("Missing portable canvas style") }
+            try target.importPreset(from: file)
+            let after = try state()
+            for key in ["id", "recording", "media", "timeline", "zooms", "insertion_styles", "notes", "typing"] {
+                #expect(after[key] == before[key])
+            }
+            if case .object(var canvas)? = before["canvas"] {
+                canvas["padding"] = .number(75)
+                canvas["padding_ratio"] = .null
+                #expect(after["canvas"] == .object(canvas))
+            }
+            #expect(after["camera"] == before["camera"])
+            try target.undo()
+            var undone = try state(); undone["modified_at"] = before["modified_at"]
+            #expect(undone == before)
+            try target.redo()
+            try target.save()
+            #expect(try Project.open(package: second).query("{\"q\":\"zooms\"}", as: [JSONValue].self)
+                == target.query("{\"q\":\"zooms\"}", as: [JSONValue].self))
+            // Older files may contain an entire source project. Keep only its look.
+            try source.toJSON().write(to: file)
+            try target.importPreset(from: file)
+            #expect(try state()["timeline"] == before["timeline"])
+            #expect(try state()["zooms"] == before["zooms"])
+        }
     }
 }

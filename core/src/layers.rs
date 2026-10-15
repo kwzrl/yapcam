@@ -378,10 +378,9 @@ mod tests {
             Project::open(&f.0).unwrap().data.canvas.highlights,
             before.canvas.highlights
         );
-        assert_eq!(
-            p.query(&json!({"q":"preset"})).unwrap()["canvas"]["highlights"],
-            json!([])
-        );
+        assert!(p.query(&json!({"q":"preset"})).unwrap()["canvas"]
+            .get("highlights")
+            .is_none());
     }
     #[test]
     fn fixed_arrow_roundtrips_and_always_default_keeps_precedence() {

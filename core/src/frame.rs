@@ -805,6 +805,9 @@ mod m2_tests {
         assert_eq!(p.data, original);
         assert!(p
             .apply(&json!({"op":"apply_preset","preset":{"recording":"../elsewhere"}}))
-            .is_err());
+            .unwrap()
+            .changed
+            .is_empty());
+        assert_eq!(p.data, original);
     }
 }

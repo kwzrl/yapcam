@@ -457,7 +457,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 .as_str()
                 .unwrap_or("missing");
             let random = arbitrary_json(&mut seed, 4);
-            let mut command = match n % 24 {
+            let mut command = match n % 25 {
                 0 => random.clone(),
                 1 => json!({"op":"set","path":"canvas.padding","value":random}),
                 2 => json!({"op":"set","path":"notes","value":format!("fuzz-{n} ☕\0字幕")}),
@@ -497,7 +497,10 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 20 => json!({"op":"insert_mask","patch":random}),
                 21 => json!({"op":"insert_layout","tl_start_ns":random}),
                 22 => json!({"op":"set_clip_settings","clip_id":clip_id,"patch":random}),
-                _ => json!({"op":"set","path":"canvas.device_frame","value":random}),
+                23 => json!({"op":"set","path":"canvas.device_frame","value":random}),
+                _ => {
+                    json!({"op":"apply_preset","preset":{"timeline":random,"zooms":[{"id":"foreign"}],"canvas":{"shadow":arbitrary_json(&mut seed,2),"highlights":random},"cursor":{"key_overlay":arbitrary_json(&mut seed,2)}}})
+                }
             };
             if step % 97 == 0 {
                 for _ in 0..40 {

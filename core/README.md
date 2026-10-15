@@ -138,8 +138,10 @@ Effects use normalized coordinates; canvas lengths use output pixels.
 - clicks (cursor_clicks alias): down events with segment, src_ns and tl_ns.
 - events: all retained events with the same mapping; removed events disappear.
 - session / project: complete immutable session or current project data.
-- preset: portable settings only; omits camera layouts, cursor/audio ranges,
-  recording IDs, notes and media references.
+- preset: portable style fields only; omits clips, zoom records, timed effects,
+  source crop, recording IDs, notes and media references. Export and apply share
+  one schema filter. Apply ignores old foreign IDs/ranges and recursively merges
+  style leaves, preserving destination edits and omitted settings.
 
 ## Files and recovery
 
@@ -204,8 +206,10 @@ with independent integer oracles and real Swift/C ABI edits.
 - `exportPreset(to:)` / `importPreset(from:)`: local JSON presets, including custom
   background image bytes in an optional Swift-owned `_background_image` base64 field.
   Swift extracts this field and copies the image before invoking a Rust batch, so
-  image bytes never cross C. Plain settings-only presets remain supported.
-  Imported files remain on disk after undo (references are non-destructive).
+  image bytes never cross C. No source media index travels in the preset; image
+  imports select a fresh destination index. A bare image-kind setting without
+  embedded bytes never selects an unrelated destination asset.
+  Plain settings-only presets remain supported. Imported files remain on disk after undo (references are non-destructive).
 - `AudioAnalysis.silence(in:thresholdDB:minimumNs:) async`: native PCM decoding and
   cancellation; returns file-local intervals. Pass those to
   `Project.mapAudioRanges(_:track:mediaPath:)` (track mic/system_audio; mediaPath
@@ -431,3 +435,34 @@ selects our own offline DSP recipes; SpeechEnhancementPlan.micPreset/stereoMic
 carry additive metadata. stereoMic is a consumer preference; Core's prepared
 microphone files preserve original channels. Renderer/Editor consumers must wire
 the x shadow offset and UI controls separately; no C layout changes are needed.
+
+
+## Interactive edit policy and document autosave
+
+`timeline_constraints` reports100ms clip/zoom minimums,500ms layout/mask minimums
+and3s insertion defaults. Wrap Editor interactions in
+`EditCommand.timelineEdit(...)`; old precision commands can still operate on
+legacy sub-minimum timelines. `insertTimelineItem` supplies defaults/clamps, and
+`setClipSettings` controls per-clip amplitudes and cursor flags. Default settings
+may be omitted in JSON; use `ClipInfo.effectiveSettings`. Mic/system settings feed
+frames and cold audio plans; external gain is metadata while the external mixer
+capability is unavailable.
+
+Wrap a continuous gesture in `coalescedEdit(key:command:)`, retaining the same key
+for the same object/property. Commits less than100ms apart share the first undo
+state and final redo state. Discrete commands remain separate. Put coalescedEdit outside timelineEdit when
+combining policies. History caps1000.
+`historyState()`, `insertionStyles()` and `capabilities()` expose cold metadata.
+Zoom/mask style inheritance excludes geometry/time/identity/disabled state and is
+undoable/persisted. Capability gates preserve stored appearance; Core does not
+provide device-frame artwork or an external audio mixer.
+
+One MainActor `ProjectAutosaver(project:)` per document performs trailing30s full
+saves. It respects autosave off, cancels/reset timers after edits, and uses
+`save(ifRevision:)` on a worker task. Project.revision/isDirty only change after
+successful mutations/save; a stale captured revision cannot write or clear a
+newer dirty state. Recovery journals remain immediate. Cancel the coordinator
+before the document's final save and close; replace the existing Editor timer
+rather than installing two coordinators. Deterministic virtual-clock tests cover
+reset/cancellation, stale revisions, disabled autosave and closed save failures.
+Full path/query/command contracts are in FORMATS.md. ABI3 and C layouts unchanged.
