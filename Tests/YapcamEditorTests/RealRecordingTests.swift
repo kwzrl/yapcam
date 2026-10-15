@@ -1,3 +1,4 @@
+import SwiftUI
 import Testing
 import Foundation
 import AVFoundation
@@ -127,5 +128,37 @@ import YapcamCore
         #expect(doc.player.error == nil, "\(doc.player.error ?? "")")
         #expect(doc.model.isPlaying || doc.model.playheadNs > 0)
         doc.model.pause()
+    }
+}
+
+@MainActor @Suite(.serialized) struct RealRecordingLiveWindowTests {
+    /// Real window + MTKView + display link on a real recording: playback must advance in real time and render at display rate.
+    @Test func livePlaybackOfARealRecording() async throws {
+        guard let path = ProcessInfo.processInfo.environment["YAPCAM_REAL_PKG"] else { return }
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("reallive-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: work); defer { try? FileManager.default.removeItem(at: work) }
+        try? FileManager.default.removeItem(at: work.appendingPathComponent("recording/.capture.lock"))
+        _ = NSApplication.shared
+        let doc = try EditorDocument(package: work)
+        let host = NSHostingView(rootView: EditorView(document: doc))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1280, height: 800), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
+        try await Task.sleep(for: .seconds(2))
+        doc.model.seek(toNs: 0)
+        let t0 = ContinuousClock.now
+        doc.model.togglePlay()
+        try await Task.sleep(for: .seconds(4))
+        let wall = Double((ContinuousClock.now - t0).components.seconds) + Double((ContinuousClock.now - t0).components.attoseconds) / 1e18
+        let advanced = Double(doc.player.currentNs) / 1e9
+        let m = doc.player.metrics
+        print("REAL live playback: wall \(String(format: "%.2f", wall)) s, timeline advanced \(String(format: "%.2f", advanced)) s, rendered \(m.renderedFrames) frames, \(String(format: "%.1f", m.framesPerSecond)) fps, dropped \(m.droppedFrames), playing \(doc.model.isPlaying), error \(String(describing: doc.player.error))")
+        #expect(doc.player.error == nil)
+        #expect(abs(advanced - min(wall, Double(doc.model.durationNs) / 1e9)) < 0.7)      // clock follows real time (or stopped at the end)
+        doc.model.pause()
+        // Scrub on the real recording and confirm the displayed frame time follows.
+        doc.model.seek(toNs: 5_000_000_000, precise: true)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(abs(Double(doc.player.currentNs) / 1e9 - 5.0) < 0.1)
+        window.orderOut(nil)
     }
 }
