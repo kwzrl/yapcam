@@ -16,11 +16,19 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Latest continuation check: 2026-10-15 17:01 UTC; main f611874, local HEAD 73221c6.
-  No source/test/brief delta or new capture finding since the thaw audit. Local
-  capture Next is empty; remaining rows are consumer/native acceptance. Lead's
-  rebase and the two-file status/README checkpoint remain pending; no Git retry,
-  app launch or unchanged test rerun performed.
+- Latest continuation check: 2026-10-15 17:11 UTC; main eacbd4d, local HEAD d14646b
+  (rebased through f611874). Capture source/tests match main; Lead's next rebase
+  remains pending. UI reports preset/default isolation fixed (three 465-test runs).
+  No capture-owned code change or native failure was added; local Next is empty.
+- CAP-3 integration discrepancy in updated main FEATURES: the row now lists only
+  editor presentation as pending, but RecordingController.addMarker still writes
+  elapsed*1e9 into its UI array and EngineSession/LiveEngine expose no capture marker
+  action. The hotkey exists, but never calls RecordingSession.addMarker; therefore
+  it does not produce durable events.jsonl markers for Project.markers(). Keep UI
+  forwarding pending alongside editor presentation, as well as native acceptance.
+  This is a code audit, not a live defect reproduction; files are UI/QA owned.
+- Module APIs and docs/host commands remain ready. No app launch, unchanged tests
+  or denied Git mutation repeated. Only this integration status needs checkpointing.
 - Freeze lifted / integration audit: 2026-10-15 16:40 UTC. Lead reports main f611874
   integrated and green: 465 Swift + 189 XCTest + 91 Rust. This is Lead's host
   evidence, not a capture rerun; it supersedes the earlier full-suite integration
@@ -796,17 +804,16 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
 
 ## Next
 No remaining capture module implementation item in the integrated gap list.
-Address findings from native acceptance or API integration after UI/editor's
-preset/test isolation fix. Core marker mapping is delivered on f611874; UI wiring,
-editor marker presentation and hardware acceptance remain with their owners.
+Address findings from native acceptance or API integration. UI reports its
+preset/test isolation fixed on main eacbd4d. Core marker mapping is delivered; UI
+forwarding/options/prompts, editor presentation and hardware acceptance remain.
 Dispatch note for Lead: capture needs a new concrete assignment or native failure
 report to continue implementation; the unchanged consumer rows are already handed off.
 
 ## External handoffs / Lead requests
-1. Lead: rebase clean capture HEAD 73221c6 onto integrated main f611874 after
-   checkpointing this status/README handoff (Git remains read-only here). UI/editor
-   first fix preset/test isolation. Then consume the capture audio/camera/preflight
-   APIs and forward marker actions to RecordingSession.addMarker. Core's exact
+1. Lead: checkpoint this status and rebase capture HEAD d14646b onto main eacbd4d
+   (Git remains read-only here). UI reports isolation fixed; consume the capture
+   audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
    event marker query/TimelineMarker is complete; editor uses tlNs for display and
    snapping. Lead: document public capture additions/optional derived UI sidecar in
    SWIFT_API/FORMATS. QA's GAP-CAP module statuses are now reconciled; consumer and
