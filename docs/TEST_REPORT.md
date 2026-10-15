@@ -10,7 +10,7 @@ A fresh clone builds without manual steps (Lead check 05:05, main aa70d91).
 Status 2026-10-15 ~12:35, main 3b68bde (Mac mini M4, 1680x1050, signed build, all permissions granted).
 - **Automated:** Rust 68 pass (1 ignored); Swift: XCTest 129 pass (9 skipped, 0 failures), Swift Testing 340 tests in 65 suites pass; render on Metal 86/86 (Lead run); E2E 11/11 plus 5 live-recording tests.
 - **Live (real captures):** display, window, area, pause/resume, 10-minute recording with A/V sync (drift 7.3 ms), crash recovery, scripted input (max 15 ms / 0.98 pt), auto-zoom from real clicks, toolbar/HUD/countdown excluded, export with audio of a real 10-min recording at 1080p (4.3x realtime): all PASS.
-- **Defects found:** F6 export with audio failed on real recordings (**fixed, re-verified**); F8 window `pixel_size` mismatch (**fixed, re-verified with a 201x151 window: pixel_size [200,150] == video**); **F9 (HIGH, still open on 3b68bde): completed window recordings cannot be opened in core (`missing field display_name`)**; F4 absolute home path in docs/status/editor.md (low, open).
+- **Defects found:** F6 export with audio failed on real recordings (**fixed, re-verified**); F8 window `pixel_size` mismatch (**fixed, re-verified with a 201x151 window: pixel_size [200,150] == video**); F9 completed window recordings could not be opened in core (**fixed on main badc4e4, re-verified**); F4 absolute home path in docs/status/editor.md (low, open).
 - **Also verified live now:** hotkey-driven recording (start/pause/resume/stop), UI-driven editor sequence (split, delete, zoom, padding, undo/redo via menu), crash after autosave and crash with only the journal (edits restored on reopen), UI export with audio (1920x1080).
 - **Not tested:** real camera/mic, Retina/multi-display, permission-revoked and low-disk live (deliberately not done: injected-fault tests only), mouse-level toolbar/editor clicking (self-tests call the same actions), reference observation of Screen Studio.
 - **Go/no-go:** M1 (record -> edit -> export 1080p) works end to end for display and area recordings. **Window recordings are blocked by F9** until capture/core fix `display_name`; all other recording modes pass. M2 rows: 113 in FEATURES.md (38 verified, 47 integrated, 18 implemented, 10 limited, 0 todo). M3 hardening: long export, soak, recovery, sync verified; see section 9 for limits.
@@ -70,7 +70,7 @@ Method: the app's own launch flags (`--capture-selftest N [--target window:<id>|
 | Scripted input vs events.jsonl (`--drive-input-selftest 10`, all permissions granted, launched with `open -n -W`) | PASS | 38 scripted events (34 moves, 4 clicks) all found; time error events.t - sent hostNs: min 0.40 / max 15.43 / mean 2.33 ms; position error max 0.98 pt; down=4 up=4 (`scripts/qa/compare-input.py`) |
 | Cursor + click -> auto zoom -> export (same recording, `LiveRecordingTests.testAutoZoomFromRealClicks`) | PASS | 4 clicks -> 4 auto zooms (x2.0, 1.3 s, start 0.3-0.4 s before click), target = click point exactly; frame crop narrower mid-zoom; export 10.2 s video+audio |
 | Source disappears (target window closed 6 s into a 12 s window recording) | PASS for capture; **recovery of window packages FAIL (F9)** | state failed(sourceUnavailable), package kept with status interrupted and 5.79 s of media; `recover` finalizes, but core cannot open any window package: `missing field display_name` |
-| Completed window recording opens in core | **FAIL (F9)** | `Project.create` on a complete `--target window` package: `status(2, "missing field `display_name`")`; area and display packages open fine |
+| Completed window recording opens in core | **PASS after F9 fix** (was FAIL; retested on main badc4e4: session now has display_name, opens, edit+export 1080p with audio OK) |  (original failure: `Project.create` on a complete `--target window` package: `status(2, "missing field `display_name`")`; area and display packages open fine |
 | Editor UI sequence via real menu/model actions (`--editor-selftest`): split, delete clip, add zoom, padding, undo/redo | PASS | clips 1->2->1, duration 8085 -> 2695 ms, zoom added, padding 48->72, undo/redo 72->48->72 |
 | Autosave then kill (exit 9) then reopen (`--editor-selftest --crash-after-autosave` + `--editor-reopen-check`) | PASS | save state clean before crash; reopened with clips=1 zooms=1 duration 2695 ms padding 72 |
 | Kill with only the journal (`--crash-now` + reopen check) | PASS | unsavedJournalPresent=true; restore path recovers clips=1 zooms=1 padding 72 (state dirty = unsaved restore) |
@@ -100,7 +100,7 @@ From docs/FEATURES.md (113 rows): verified 38, integrated 47, implemented 18, li
 ## 7. Findings
 | ID | Severity | Owner | Repro | Status |
 |---|---|---|---|---|
-| F9 | HIGH | capture (write `display_name` for window sources) + core (make it optional/default) | `--capture-selftest 6 --target window:<id>` then open the package in core (`YAPCAM_LIVE_PACKAGE=<pkg> swift test --filter LiveRecordingTests/testOpenRealRecording`) -> `missing field display_name` | open |
+| F9 | HIGH (FIXED, verified on badc4e4) | capture + core | `--capture-selftest 6 --target window:<id>` then open the package in core (`YAPCAM_LIVE_PACKAGE=<pkg> swift test --filter LiveRecordingTests/testOpenRealRecording`) -> `missing field display_name` | open |
 | F6 | HIGH | render + core | export real recording with audio over the final ~100 ms | fixed, verified on main 529f208+ (10-min export, UI default flow) |
 | F8 | LOW | capture | window recording: session.json pixel_size 1627x1015, video 1626x1014 | fixed in 3b68bde, verified (201x151 window -> [200,150]) |
 | F7 | MEDIUM | process | other processes killed two long runs | resolved by .app-lock rule |
@@ -120,6 +120,7 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | Date | Main | What changed in this report |
 |---|---|---|
 | 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
+| 2026-10-15 14:00 | badc4e4 | F9 fixed and verified (window package opens, edit+export OK); default live flow still OK after ui/editor redesigns |
 | 2026-10-15 13:00 | 511f831 | F9 retested: still fails; only the decision doc is on main |
 | 2026-10-15 12:40 | 3b68bde | Final handover pass: suites re-run (Swift 340 + XCTest 129, Rust 68), editor UI rows PASS (autosave/kill/reopen, export), hotkeys PASS, F8 verified fixed, F9 still open |
 | 2026-10-15 12:30 | fc29d18 | Permissions granted: scripted input vs events PASS (max 15 ms / 0.98 pt), auto-zoom from real clicks PASS |

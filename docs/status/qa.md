@@ -1,4 +1,4 @@
-READY 8c2f615 qa: reference gap list folded into FEATURES.md (sections L/M, backlog by impact)
+READY HEAD qa: F9 verified fixed on badc4e4
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -62,6 +62,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - Gap list folded into FEATURES.md (section L: 57 GAP-* rows with impact H/M/L, owners, status; section M: extras beyond the reference; 14 existing rows corrected to reference values; per-team backlog by impact). Lead decisions recorded: keep extras, own dark default background (no Apple wallpapers), adopt reference hotkey layout.
 
+- Main badc4e4: F9 verified fixed; `--live-e2e` default flow still passes after ui recording-flow and editor layout redesigns. Open: F4 (editor status home path).
+
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
 
@@ -74,7 +76,7 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - Bundle strings are obfuscated anyway; REA/observation is the only practical route.
 
 ## Findings (live, main b5d1268)
-- F9 [capture + core, HIGH] A completed WINDOW recording cannot be opened in core: `Project.create` -> `status(2, "missing field `display_name`")`. session.json source for kind=window has no `display_name` (capture leaves it nil: keys are app_bundle_id, content_rect_points, display_id, kind, scale, window_title); core model.rs `display_name: String` is required. Area/display packages are fine. Impact: window recordings cannot be edited/exported/recovered-then-opened. Repro: `open -n -W build/Yapcam.app --args --capture-selftest 6 --target window:<id>` then LiveRecordingTests/testOpenRealRecording. Fix: capture writes display_name (e.g. the display the window is on) and/or core defaults it to "".
+- F9 FIXED (verified by qa on main badc4e4: window package has display_name, opens, edit+export OK). Original: [capture + core, HIGH] A completed WINDOW recording cannot be opened in core: `Project.create` -> `status(2, "missing field `display_name`")`. session.json source for kind=window has no `display_name` (capture leaves it nil: keys are app_bundle_id, content_rect_points, display_id, kind, scale, window_title); core model.rs `display_name: String` is required. Area/display packages are fine. Impact: window recordings cannot be edited/exported/recovered-then-opened. Repro: `open -n -W build/Yapcam.app --args --capture-selftest 6 --target window:<id>` then LiveRecordingTests/testOpenRealRecording. Fix: capture writes display_name (e.g. the display the window is on) and/or core defaults it to "".
 - F6 FIXED (verified by qa on main 529f208: LiveRecordingTests 4/4 on the 10-min package). Original report: [render (AudioTimeline/Exporter) + core (audio_ranges), HIGH] Export of a REAL recording fails with `decode("The operation could not be completed")` when the export range includes the last ~100 ms and audio is on. Repro: record `build/Yapcam.app --capture-selftest 600`, then `YAPCAM_LIVE_PACKAGE=<pkg> swift test --disable-sandbox --filter LiveRecordingTests/testTailExportDiagnostics` -> `full-tail+audio: FAIL | tail-100ms+audio: OK | full-tail,no-audio: OK`. Cause hypothesis: system.m4a (decodes cleanly in ffmpeg) is 16 ms shorter than the segment (600.067 s vs 600.083 s); the audio range is built from segment duration, not the audio file's real end, so AVAssetReader reads past EOF. Fix: clamp audio ranges to the file duration (or treat EOF as silence). Same as Lead's live-e2e "HYPOTHESIS CONFIRMED". Blocks M1 export for every real recording with system audio (the editor's default export).
 - F7 [Lead/process, MEDIUM] Two of my long runs (1 s and 7.5 min) were killed by other processes without a crash report (4-min and 10-min runs under the lock file were fine). Lock-file rule works.
 - F8 FIXED (verified by qa on 3b68bde). Original: [capture, LOW] Window recording: session.json `tracks.screen.pixel_size` = [1627,1015] but screen.mov is 1626x1014 (even-size rounding). Consumers that trust pixel_size (render source geometry) may be off by 1 px; either write the real file size or document rounding. Repro: `Yapcam --live-e2e <dir> window`.
