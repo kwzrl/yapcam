@@ -1,6 +1,7 @@
 import XCTest
 import YapcamCore
 import AVFoundation
+import Metal
 @testable import YapcamRender
 
 final class ProjectAdapterTests: XCTestCase {
@@ -75,6 +76,137 @@ final class ProjectAdapterTests: XCTestCase {
         }
         XCTAssertEqual(images["arrow"],images["pointer"])
         XCTAssertNotEqual(images["arrow"],images["touch"])
+    }
+    private let shapes: [(CoreRenderOptions.CursorShape, RenderConfiguration.CursorStyle)] = [
+        (.arrow,.arrow), (.pointingHand,.pointer), (.touch,.touch), (.text,.text),
+        (.resizeHorizontal,.resizeHorizontal), (.resizeVertical,.resizeVertical),
+        (.resizeDiagonalNWSE,.resizeDiagonalNWSE), (.resizeDiagonalNESW,.resizeDiagonalNESW),
+        (.openHand,.openHand), (.closedHand,.closedHand)
+    ]
+    private let sizes: [(CoreRenderOptions.CursorLogicalSize, VectorCursorSize)] = [
+        (.small,.small), (.regular,.regular), (.large,.large), (.extraLarge,.extraLarge)
+    ]
+    func testEveryPersistedCursorSelectionMapsOnRealProjectAndSnapshot() throws {
+        let project=try Project.create(package: package)
+        let library=try project.cursorLibrary()
+        XCTAssertEqual(Set(library.sets.map(\.id)),Set(VectorCursorLibrary.presets.map(\.id)))
+        XCTAssertEqual(Set(library.shapes),Set(shapes.map { $0.0 }))
+        XCTAssertEqual(Set(library.shapes),Set(CoreRenderOptions.CursorShape.allCases))
+        XCTAssertEqual(Set(library.logicalSizes.map(\.id)),Set(sizes.map { $0.0 }))
+        XCTAssertEqual(Set(library.logicalSizes.map(\.id)),Set(CoreRenderOptions.CursorLogicalSize.allCases))
+        for (core,render) in sizes {
+            XCTAssertEqual(try XCTUnwrap(library.logicalSizes.first { $0.id==core }).scale,Double(render.multiplier))
+        }
+        let canvas=CGSize(width: 1920,height: 1080)
+        try project.apply(.set(path: "cursor.style",value: .string("touch")))
+        let scale=try project.frame(atNs: 500_000_000).cursor_scale
+        for preset in library.sets {
+            for (shape,expectedShape) in shapes {
+                for (size,expectedSize) in sizes {
+                    try project.apply(.batch([
+                        .set(path: "cursor.set_id",value: .string(preset.id)),
+                        .set(path: "cursor.shape",value: .string(shape.rawValue)),
+                        .set(path: "cursor.logical_size",value: .string(size.rawValue))
+                    ]))
+                    let snapshot=try project.renderSnapshot()
+                    for source in [project as any RenderProjectSource,snapshot] {
+                        for ns: Int64 in [0,500_000_000,4_999_999_999] {
+                            let configuration=try source.renderEffects(atNs: ns,canvasSize: canvas).configuration
+                            XCTAssertEqual(configuration.cursorSetID,preset.id)
+                            XCTAssertEqual(configuration.cursorStyle,expectedShape)
+                            XCTAssertEqual(configuration.cursorSize,expectedSize)
+                        }
+                        XCTAssertEqual(try source.frame(atNs: 500_000_000).cursor_scale,scale,"Logical size is applied only to authored artwork")
+                    }
+                }
+            }
+        }
+    }
+    func testCursorSelectionPersistenceDefaultPrecedenceAndSnapshotIsolation() throws {
+        let project=try Project.create(package: package)
+        let canvas=CGSize(width: 1920,height: 1080)
+        let defaults=try project.renderEffects(atNs: 0,canvasSize: canvas).configuration
+        XCTAssertNil(defaults.cursorSetID)
+        XCTAssertEqual(defaults.cursorStyle,.recorded)
+        XCTAssertEqual(defaults.cursorSize,.regular)
+        try project.apply(.batch([
+            .set(path: "cursor.style",value: .string("touch")),
+            .set(path: "cursor.set_id",value: .string("coral")),
+            .set(path: "cursor.shape",value: .string("pointing_hand")),
+            .set(path: "cursor.logical_size",value: .string("extra_large"))
+        ]))
+        let frozen=try project.renderSnapshot()
+        let selected=try frozen.renderEffects(atNs: 0,canvasSize: canvas).configuration
+        XCTAssertEqual(selected.cursorStyle,.pointer)
+        XCTAssertEqual(selected.cursorSetID,"coral")
+        XCTAssertEqual(selected.cursorSize,.extraLarge)
+        try project.save()
+        let reopened=try Project.open(package: package)
+        XCTAssertEqual(try reopened.renderEffects(atNs: 0,canvasSize: canvas).configuration,selected)
+        try project.apply(.set(path: "cursor.always_default",value: .bool(true)))
+        var expected=selected; expected.cursorStyle = .arrow
+        XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,expected)
+        XCTAssertEqual(try frozen.renderEffects(atNs: 0,canvasSize: canvas).configuration,selected)
+        try project.undo()
+        XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,selected)
+        try project.apply(.set(path: "cursor.shape",value: .null))
+        expected.cursorStyle = .touch
+        XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,expected)
+        try project.apply(.set(path: "cursor.style",value: .string("recorded")))
+        XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration.cursorSetID,"coral","Palette alone must select authored artwork")
+        try project.apply(.batch([
+            .set(path: "cursor.set_id",value: .null),
+            .set(path: "cursor.logical_size",value: .string("regular"))
+        ]))
+        XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,defaults)
+    }
+    func testPersistedCursorSelectionsChangeRealProjectPixelsThroughOneCompositor() throws {
+        let device=try requireRenderDevice()
+        let project=try Project.create(package: package)
+        try project.apply(.batch([
+            .set(path: "cursor.size",value: .number(4)),
+            .set(path: "cursor.click_effect",value: .string("none"))
+        ]))
+        let compositor=try FrameCompositor(device: device,project: project)
+        let target=try XCTUnwrap(device.makeTexture(descriptor: .texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb,width: 320,height: 180,mipmapped: false)))
+        let queue=try XCTUnwrap(device.makeCommandQueue())
+        func pixels(_ source: any RenderProjectSource) throws -> Data {
+            let frame=try source.frame(atNs: 500_000_000)
+            XCTAssertNotEqual(frame.cursor_visible,0)
+            let buffer=try XCTUnwrap(queue.makeCommandBuffer())
+            try compositor.encode(frame,from: source,to: target,in: buffer)
+            buffer.commit(); buffer.waitUntilCompleted()
+            XCTAssertEqual(buffer.status,.completed,buffer.error?.localizedDescription ?? "")
+            var bytes=[UInt8](repeating: 0,count: 320*180*4)
+            target.getBytes(&bytes,bytesPerRow: 320*4,from: MTLRegionMake2D(0,0,320,180),mipmapLevel: 0)
+            return Data(bytes)
+        }
+        let recorded=try pixels(project)
+        var distinct=Set<Data>(), first: (any RenderProjectSource)?, firstPixels: Data?
+        for preset in ["classic","lagoon"] {
+            for (shape,_) in shapes {
+                for (size,_) in sizes {
+                    try project.apply(.batch([
+                        .set(path: "cursor.set_id",value: .string(preset)),
+                        .set(path: "cursor.shape",value: .string(shape.rawValue)),
+                        .set(path: "cursor.logical_size",value: .string(size.rawValue))
+                    ]))
+                    let source=try project.renderSnapshot(), image=try pixels(source)
+                    if first==nil { first=source; firstPixels=image }
+                    XCTAssertTrue(distinct.insert(image).inserted,"Persisted palette/shape/size must change pixels: \(preset)/\(shape)/\(size)")
+                }
+            }
+        }
+        XCTAssertEqual(distinct.count,80)
+        XCTAssertEqual(try pixels(XCTUnwrap(first)),firstPixels,"Snapshot and cache retain the first selection after 80 edits")
+        try project.apply(.batch([
+            .set(path: "cursor.set_id",value: .null),
+            .set(path: "cursor.shape",value: .null),
+            .set(path: "cursor.logical_size",value: .string("regular"))
+        ]))
+        XCTAssertEqual(try pixels(project),recorded)
+        try project.apply(.set(path: "cursor.set_id",value: .string("lagoon")))
+        XCTAssertNotEqual(try pixels(project),recorded,"Palette alone replaces captured PNG")
     }
     func testCoreFrameExtrasMapConfigurationHighlightsAndFinalFadeOnce() throws {
         let project=try Project.create(package: package)
