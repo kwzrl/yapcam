@@ -241,7 +241,10 @@ struct InspectorView: View {
                       options: [("None", "none"), ("Ring", "ring"), ("Highlight", "highlight")])
             ToggleRow(model: model, title: "Loop cursor to start", path: "cursor.loop_to_start")
             PickerRow(model: model, title: "Cursor style", path: "cursor.style",
-                      options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch")])
+                      options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch"), ("Arrow", "arrow")])
+            NullableChoiceRow(model: model, title: "Cursor set", path: "cursor.set_id", automatic: "Recorded", options: cursorSets)
+            NullableChoiceRow(model: model, title: "Cursor shape", path: "cursor.shape", automatic: "Automatic", options: cursorShapes)
+            PickerRow(model: model, title: "Cursor size", path: "cursor.logical_size", options: cursorSizes)
             NumberRow(model: model, title: "Motion blur", path: "cursor.motion_blur", range: 0...1)
             NumberRow(model: model, title: "Spotlight radius", path: "cursor.spotlight_radius", range: 0...600, unit: "px", format: "%.0f")
         }
@@ -711,3 +714,28 @@ struct VoiceCleanupSection: View {
         }
     }
 }
+
+/// A picker whose first entry means "unset" (stored as JSON null).
+struct NullableChoiceRow: View {
+    @ObservedObject var model: EditorModel
+    let title: String, path: String, automatic: String
+    let options: [(label: String, value: String)]
+    var body: some View {
+        Picker(title, selection: Binding(
+            get: { if case .string(let s)? = model.value(path) { s } else { "" } },
+            set: { model.set(path, $0.isEmpty ? .null : .string($0)) })) {
+            Text(automatic).tag("")
+            ForEach(options, id: \.value) { Text($0.label).tag($0.value) }
+        }
+    }
+}
+
+/// Mirrors core's `cursor_library` query (a test keeps these lists in step with the real core).
+let cursorSets: [(label: String, value: String)] = [
+    ("Classic", "classic"), ("Paper", "paper"), ("Soft slate", "soft-slate"), ("Soft cloud", "soft-cloud"), ("Lagoon", "lagoon"), ("Coral", "coral"),
+    ("Sage", "sage"), ("Violet", "violet"), ("Gold", "gold"), ("Precision dark", "precision-dark"), ("Precision light", "precision-light"), ("Signal", "signal")]
+let cursorShapes: [(label: String, value: String)] = [
+    ("Arrow", "arrow"), ("Pointing hand", "pointing_hand"), ("Touch", "touch"), ("Text", "text"), ("Resize horizontal", "resize_horizontal"),
+    ("Resize vertical", "resize_vertical"), ("Resize diagonal ↘", "resize_diagonal_nwse"), ("Resize diagonal ↗", "resize_diagonal_nesw"),
+    ("Open hand", "open_hand"), ("Closed hand", "closed_hand")]
+let cursorSizes: [(label: String, value: String)] = [("Small", "small"), ("Regular", "regular"), ("Large", "large"), ("Extra large", "extra_large")]

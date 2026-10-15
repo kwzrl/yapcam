@@ -1,6 +1,6 @@
 # editor status
 
-READY 974cb31 editor on real core/render: EditorDocument, EditorWindows.open (recovery prompt + relink), timeline, M2 inspectors, lanes, palette
+READY 2dc85e9 editor on real core/render: EditorDocument, EditorWindows.open (recovery prompt + relink), timeline, M2 inspectors, lanes, palette
 
 ## Done (verified)
 - **Real adapters** (`Adapters.swift`): `CoreEditingProject` over `Project`, `PreviewPlayerAdapter` over `PreviewPlayer`, `RenderExportEngine` over `Exporter`, `ProjectRenderSource: RenderProjectSource` (core→render bridge; nobody else provides it). Verified by `RealStackTests` against `Tests/Fixtures/synthetic/basic.yapcam`: edit → save → reopen, invalid values rejected by core with state unchanged, clicks/geometry from core, journal restore/discard, missing media error, real export, copy-frame PNG 1920×1080.
@@ -12,7 +12,7 @@ READY 974cb31 editor on real core/render: EditorDocument, EditorWindows.open (re
 - **Inspector tabs**: Look (background solid/gradient/blur, aspect, padding, radius, shadow, inset, motion blur), Cursor (visible, size, smoothing, speed preset, hide idle, click effect, loop, hidden sections lane), Camera (visible, shape, size, radius, opacity, mirror, corners, layout lane; "no camera track" state), Audio (mute/volume per track, speed up typing, silence → cut/speed).
 - **Lanes**: camera layouts, cursor hidden ranges (drag/resize/delete). Crop controls (canvas.crop) and volume-over-time ranges accepted by real core (RealCoreRangesTests).
 - ⌘K command palette (also cheat sheet), copy current frame (⇧⌘C → PNG clipboard), export sheet (720/1080, 30/60, progress/cancel/error/Show in Finder).
-- Tests: `swift test` green, editor 128 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
+- Tests: `swift test` green, editor 131 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
 
 - ZOM-04 per-zoom Auto/Manual switch (reaches core). EDT-05 verified: 100 mixed edits on real core undo to the exact initial state and redo to the exact final state. Short (<2 s) project: zoom clipped to project end; 3 h project: timeline fits, ruler steps ≥ 60 s.
 - Export sheet has an "Include audio" toggle (default on). Workaround for the render hang; the real-export test uses audio off.
@@ -25,6 +25,9 @@ Look tab → Wallpapers: category grid of the 12 original render wallpapers/grad
 
 ## FEATURES section K (done)
 Controls for every path core documented in "Guide audit": CUR-12 always default arrow, CUR-13 tilt while moving, CUR-14 stop cursor before end (toggle + length), CUR-15 remove tiny shakes, CUR-16 reduce cursor-type flicker, ANI-02 screen animation Custom/Focused/Smooth, CAM-07 camera size while zoomed, ANI-03 per-kind blur (zoom, screen move; "same as motion blur" = null inherits). Verified: real core accepts all, rejects out-of-range `camera.zoom_scale` with state unchanged, `motion_at` evaluates; inherit/explicit semantics tested. Not verified: how tilt/hold/blur look in a real preview (Metal host run).
+
+## CUR-06 cursor palette / shape / size (core + render landed, main 8600691)
+Cursor tab: Cursor set (12 original palettes or Recorded), Cursor shape (10 shapes or Automatic), Cursor size (small…extra large), plus the Arrow style. **Gap found and closed in the editor**: render's `Project` adapter does not apply `cursor.set_id/shape/logical_size` to `RenderConfiguration` (FORMATS.md says Editor must connect them), so the editor's `ProjectRenderSource.renderEffects` now reads core's `render_options_at` (cached, cleared on `Project.didChange`) and sets `cursorSetID`, `cursorSize` and the shape-derived `cursorStyle` for both preview and the export snapshot. Verified on the real core: picker lists equal core's `cursor_library`, selections reach the render configuration (and update after edits), `always_default` forces the arrow while set/size stay, null resets, export snapshot carries the selection, invalid IDs rejected with state unchanged. Not verified: the rendered cursor pixels in preview/export (Metal host run). Suggestion for render: do this mapping in `Project.renderEffects` so every client gets it.
 
 ## M3 hardening (Lead, main a02a89e)
 **0) AUD-06 toggle**: already done and wired earlier (Audio tab → Microphone → Clean up voice; preview `setSpeechEnhancement`, export `ExportSettings.speechEnhancement`); still passes after rebase.

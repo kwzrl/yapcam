@@ -241,3 +241,50 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         lock.withLock { requests.append(request) }; return request.destination
     }
 }
+
+@MainActor @Suite struct CursorLibraryTests {
+    private struct Library: Decodable {
+        struct Item: Decodable { var id: String }
+        var sets: [Item]; var shapes: [String]; var logicalSizes: [Item]
+    }
+
+    @Test func pickerListsMatchCoreLibrary() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d)
+        let lib = try doc.project.query("{\"q\":\"cursor_library\"}", as: Library.self)
+        #expect(cursorSets.map(\.value) == lib.sets.map(\.id))
+        #expect(cursorShapes.map(\.value) == lib.shapes)
+        #expect(cursorSizes.map(\.value) == lib.logicalSizes.map(\.id))
+    }
+
+    @Test func selectionsReachTheRenderConfigurationAndInvalidateTheCache() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d); let m = doc.model
+        let source = ProjectRenderSource(doc.project)
+        let size = CGSize(width: 1920, height: 1080)
+        var cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
+        #expect(cfg.cursorSetID == nil && cfg.cursorSize == .regular)
+        m.set("cursor.set_id", string: "lagoon"); m.set("cursor.logical_size", string: "large"); m.set("cursor.shape", string: "text")
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
+        #expect(cfg.cursorSetID == "lagoon" && cfg.cursorSize == .large && cfg.cursorStyle == .text)
+        m.set("cursor.always_default", bool: true)
+        cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
+        #expect(cfg.cursorStyle == .arrow && cfg.cursorSetID == "lagoon")     // default arrow wins over the shape, set and size stay
+        m.set("cursor.always_default", bool: false); m.set("cursor.set_id", .null); m.set("cursor.shape", .null); m.set("cursor.logical_size", string: "regular")
+        cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
+        #expect(cfg.cursorSetID == nil && cfg.cursorSize == .regular)
+        // The immutable export snapshot carries the same selection.
+        m.set("cursor.shape", string: "open_hand")
+        let snap = try source.renderSnapshot().renderEffects(atNs: 500_000_000, canvasSize: size).configuration
+        #expect(snap.cursorStyle == .openHand)
+    }
+
+    @Test func invalidChoicesAreRejectedWithStateUnchanged() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        m.set("cursor.set_id", string: "nope"); #expect(m.lastError != nil && m.value("cursor.set_id") == .null)
+        m.lastError = nil
+        m.set("cursor.logical_size", string: "huge"); #expect(m.lastError != nil && m.string("cursor.logical_size") == "regular")
+    }
+}
