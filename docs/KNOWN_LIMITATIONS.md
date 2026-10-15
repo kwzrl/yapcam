@@ -1,4 +1,4 @@
-# Known limitations (draft, 2026-10-15, main a02a89e)
+# Known limitations (2026-10-15, main b90ee0d)
 
 Honest list of what was **not** verified or **not** built. Details per row: `docs/FEATURES.md`.
 
@@ -45,7 +45,7 @@ Honest list of what was **not** verified or **not** built. Details per row: `doc
 - Native AAC decoding for silence detection is unavailable in restricted sandboxes (explicit
   error); PCM verified.
 - GIF: no audio; very short frame delays may be clamped by viewers.
-- Third-party licence acknowledgements file not yet generated (docs/THIRD_PARTY.md).
+- Third-party notices exist (docs/THIRD_PARTY_NOTICES.md) but are not yet bundled into the app (planned, ui/Lead).
 
 ## Process limits
 - Codex-team worktrees could not write `.git`; Lead committed their work, so history has
@@ -53,3 +53,5 @@ Honest list of what was **not** verified or **not** built. Details per row: `doc
   worktree rather than pushing (non-fast-forward after rebase).
 - Test suites that need Metal/ffprobe only run outside the sandbox (strict mode:
   `YAPCAM_REQUIRE_RENDER_HARDWARE=1`).
+
+Setup/build requirements: docs/SETUP.md (macOS 15+, Apple Silicon, Xcode 26, Rust stable; `xcode-select -s` needs sudo, done by the user).

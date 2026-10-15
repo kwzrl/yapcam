@@ -1,4 +1,4 @@
-READY 18f5ab4 qa: regression on aa70d91
+READY HEAD qa: THIRD_PARTY approved, TEST_REPORT/KNOWN_LIMITATIONS refreshed (b90ee0d)
 
 # qa status
 
@@ -46,6 +46,8 @@ READY 18f5ab4 qa: regression on aa70d91
 - Audit vs main 065a117: M3 long-export/soak/preview results folded into FEATURES (EXP-09 verified), KNOWN_LIMITATIONS.
 
 - Regression on main aa70d91: E2E 11/11 green after core rebuild; fresh-checkout build verified by Lead (05:05). Privacy scan flags docs/status/render.md (absolute home path, F4).
+
+- THIRD_PARTY.md approved (title no longer draft, decisions recorded); TEST_REPORT.md links SETUP.md and has an update log; KNOWN_LIMITATIONS.md refreshed for b90ee0d.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
