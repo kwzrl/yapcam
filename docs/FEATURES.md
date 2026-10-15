@@ -161,9 +161,9 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
 | EXP-01 | Export | MP4 export 1080p H.264 (M1) | docs | Exporter | render | verified (PipelineE2E testM1OpenEditExport: ffprobe 1080p) | ffprobe 1920×1080, duration ±1 frame |
-| EXP-02 | Export | Resolution options (720/1080/1440/2160/…) | docs/assumption | outputHeight | render | implemented (E2E verifies 720 and 1080; 1440/2160 untested) | per size ffprobe |
+| EXP-02 | Export | Resolution options (720/1080/1440/2160/…) | docs/assumption | outputHeight | render | integrated (editor export sheet offers 720-4K since dabe94c, ShortProjectTests; render E2E verifies 720/1080; 1440/2160 file output unverified) | per size ffprobe |
 | EXP-03 | Export | FPS 24/30/60 | docs | fps | render | verified (testFPSAndNoAudio: r_frame_rate 60/1, 300 frames) | ffprobe r_frame_rate |
-| EXP-04 | Export | Quality/compression level | docs | quality 0…1 | render | implemented (quality/bitrate settings validated; bitrate monotonic check not done) | bitrate monotonic |
+| EXP-04 | Export | Quality/compression level | docs | quality 0…1 | render | integrated (editor export sheet quality control since dabe94c; bitrate monotonic check not done) | bitrate monotonic |
 | EXP-05 | Export | GIF export | docs, technical | native ImageIO GIF writer (no gifsicle) | render | verified (testFormatsAndPresets: GIF 30 frames) | valid GIF, frame count |
 | EXP-06 | Export | MOV export, HEVC codec | docs(3rd party), assumption | format/codec | render | verified (testFormatsAndPresets: HEVC mp4 + H.264 mov) | – |
 | EXP-07 | Export | Export progress/cancel, partial file removed | assumption | Task cancel | render+ui | verified (testCancelRemovesPartialFile) | Cancel → no file |
@@ -202,7 +202,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
 
 ## Audit log
-Last audit: against main 065a117 (M3 long-export results); earlier 25f2b97 (CUR-06 integrated); earlier 8600691 (M3 notes added to CUR-06/10, REC-18/19); earlier a02a89e (Metal hardware results folded in); earlier 78a8a0e; earlier 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
+Last audit: against main 7d545a1 (editor export sheet: all formats, 4K, 24 fps, quality); earlier 065a117 (M3 long-export results); earlier 25f2b97 (CUR-06 integrated); earlier 8600691 (M3 notes added to CUR-06/10, REC-18/19); earlier a02a89e (Metal hardware results folded in); earlier 78a8a0e; earlier 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
 named test or measurement passed; **limited (why)** = cannot be verified here. Live-capture

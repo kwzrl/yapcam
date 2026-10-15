@@ -59,3 +59,4 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | Date | Main | What changed in this report |
 |---|---|---|
 | 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
+| 2026-10-15 | 7d545a1 | Editor export sheet now exposes MP4/MOV/GIF, 4K, 24 fps, quality (EXP-02/04 integrated); no new test results by qa |
