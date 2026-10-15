@@ -80,6 +80,32 @@ pixel and global-coordinate math against actual ScreenCaptureKit output.
 system audio; `.microphone` and `.systemAudio` select one track explicitly. Word
 ranges use the pause-removed source clock, including each audio track's start offset.
 Finalization is atomic and retains `.prev`; errors/cancellation keep previous output.
+Apple's specific no-speech error (`kAFAssistantErrorDomain`, 1110) is recoverable per
+45 s window: keep words from the other windows and publish `warnings` with code
+`no_speech_detected`, message, source-time range, segment index and track. Ranges
+use the failed window's disjoint ownership interval (the overlap belongs to its
+neighbors), clipped to the segment end. `RecordingTranscript.isPartial` reports
+whether warnings exist; callers should show their messages before importing words.
+A partial-result warning is also logged through OSLog. Other recognition errors,
+timeouts and cancellation still abort without replacing the old transcript.
+Legacy schema-1 JSON without warnings decodes to an empty array; successful results
+without warnings omit the JSON key. Core's word importer remains compatible.
+
+The C1 regression injects native callback error 1110 between two spoken windows and
+checks both words, offsets, warning persistence and legacy decode. Additional tests
+keep unrelated native domain/codes fatal and verify cancellation after no-speech.
+For the real 45-second silence fixture generated with `say`:
+
+```sh
+YAPCAM_TRANSCRIPTION_MEDIA_TESTS=1 swift test -j 4 --filter SilentWindowSpeechMediaTests
+```
+
+One test reads the generated spoken/silent/spoken CAF through the production decode
+and window path, injecting 1110 only for the entirely silent window. The other uses
+the actual on-device recognizer. Some OS/models return successful empty words for
+silence instead of 1110; that result needs no warning. Both tests require working
+speech synthesis; the native test also requires Speech authorization/local assets.
+They fail explicitly on a missing prerequisite and never request permission.
 
 The default tests inject recognized words, exercise real manifest/output IO and
 test the recognition callback/cancellation/timeout races without Speech permission.

@@ -250,3 +250,195 @@ func actualOnDeviceTranscriptionOfSaySpeech() async throws {
     #expect(transcript.words.allSatisfy { $0.srcStartNs >= 100_000_000 && $0.srcEndNs <= manifest.segments[0].durationNs })
     #expect(FileManager.default.fileExists(atPath: fixture.transcript.path))
 }
+
+@Test func noSpeechMiddleWindowKeepsBothSpokenWindowsAndPublishesPartialWarning() async throws {
+    let fixture = try SpeechFixture(); defer { fixture.cleanup() }
+    var manifest = fixture.manifest
+    manifest.segments = [manifest.segments[0]]
+    manifest.segments[0].durationNs = 100_000_000_000
+    try fixture.save(manifest)
+    let cancellations = SpeechCancellationCount()
+    let service = TranscriptionService(recognizeWithWarnings: { _, _ in
+        let windows = try SpeechChunking.windows(frameCount: 100 * 48_000, sampleRate: 48_000)
+        return try await SpeechChunking.collect(windows: windows, sampleRate: 48_000) { window in
+            try await SpeechRecognitionJob().run { complete in
+                switch window.startFrame {
+                case 0:
+                    complete(.success([RecognizedSpeechWord(text: "before", startNs: 2_000_000_000, endNs: 3_000_000_000, confidence: 1)]))
+                case 44 * 48_000:
+                    complete(.failure(NSError(domain: "kAFAssistantErrorDomain", code: 1110,
+                                              userInfo: [NSLocalizedDescriptionKey: "No speech detected"])))
+                default:
+                    complete(.success([RecognizedSpeechWord(text: "after", startNs: 4_000_000_000, endNs: 5_000_000_000, confidence: 1)]))
+                }
+                return { cancellations.increment() }
+            }
+        }
+    })
+    let result = try await service.transcribe(package: fixture.package, localeIdentifier: "en-US")
+    #expect(cancellations.count == 3)
+    #expect(result.words.map(\.text) == ["before", "after"])
+    #expect(result.words.map(\.srcStartNs) == [2_100_000_000, 92_100_000_000])
+    #expect(result.isPartial)
+    let warning = try #require(result.warnings.first)
+    #expect(result.warnings.count == 1 && warning.code == "no_speech_detected")
+    #expect(warning.message.contains("Partial transcript"))
+    #expect(warning.srcStartNs == 44_600_000_000 && warning.srcEndNs == 88_600_000_000)
+    #expect(warning.segmentIndex == 0 && warning.track == .microphone)
+    let saved = try Data(contentsOf: fixture.transcript)
+    #expect(try JSONDecoder().decode(RecordingTranscript.self, from: saved) == result)
+    let json = try #require(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+    let warnings = try #require(json["warnings"] as? [[String: Any]])
+    #expect(warnings[0]["src_start_ns"] as? Int64 == warning.srcStartNs)
+    #expect(RecordingPackageLease.isAvailable(fixture.package))
+}
+
+@Test(arguments: [NSError(domain: "OtherDomain", code: 1110),
+                  NSError(domain: "kAFAssistantErrorDomain", code: 1101)])
+func unrelatedSpeechWindowErrorsRemainFatalAndPreservePreviousTranscript(error: NSError) async throws {
+    let fixture = try SpeechFixture(); defer { fixture.cleanup() }
+    let previous = Data("previous transcript".utf8)
+    try previous.write(to: fixture.transcript)
+    let service = TranscriptionService(recognizeWithWarnings: { _, _ in
+        let windows = try SpeechChunking.windows(frameCount: 100 * 48_000, sampleRate: 48_000)
+        return try await SpeechChunking.collect(windows: windows, sampleRate: 48_000) { window in
+            if window.startFrame > 0 { throw error }
+            return [RecognizedSpeechWord(text: "before", startNs: 0, endNs: 1, confidence: 1)]
+        }
+    })
+    await #expect(throws: TranscriptionError.recognitionFailed(error.localizedDescription)) {
+        try await service.transcribe(package: fixture.package)
+    }
+    #expect(try Data(contentsOf: fixture.transcript) == previous)
+    #expect(RecordingPackageLease.isAvailable(fixture.package))
+}
+
+@Test func cancellationAfterNoSpeechWindowStillAbortsWithoutPublishing() async throws {
+    let fixture = try SpeechFixture(); defer { fixture.cleanup() }
+    let (started, signal) = AsyncStream<Void>.makeStream()
+    let service = TranscriptionService(recognizeWithWarnings: { _, _ in
+        let windows = try SpeechChunking.windows(frameCount: 100 * 48_000, sampleRate: 48_000)
+        return try await SpeechChunking.collect(windows: windows, sampleRate: 48_000) { window in
+            if window.startFrame == 0 { throw NSError(domain: "kAFAssistantErrorDomain", code: 1110) }
+            signal.yield(()); signal.finish()
+            try await Task.sleep(for: .seconds(60))
+            return []
+        }
+    })
+    let task = Task { try await service.transcribe(package: fixture.package) }
+    for await _ in started { break }
+    task.cancel()
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(!FileManager.default.fileExists(atPath: fixture.transcript.path))
+    #expect(RecordingPackageLease.isAvailable(fixture.package))
+}
+
+@Test func allNoSpeechWindowsProduceEmptyTranscriptWithWarningsAndLegacyJSONStillDecodes() async throws {
+    let fixture = try SpeechFixture(); defer { fixture.cleanup() }
+    let service = TranscriptionService(recognizeWithWarnings: { _, _ in
+        let windows = try SpeechChunking.windows(frameCount: 100 * 48_000, sampleRate: 48_000)
+        return try await SpeechChunking.collect(windows: windows, sampleRate: 48_000) { _ in
+            throw NSError(domain: "kAFAssistantErrorDomain", code: 1110)
+        }
+    })
+    let result = try await service.transcribe(package: fixture.package)
+    #expect(result.words.isEmpty && result.isPartial)
+    // Existing short segments clip the warning to each selected track's source end.
+    #expect(result.warnings.map(\.srcStartNs) == [100_000_000, 5_200_000_000])
+    #expect(result.warnings.map(\.srcEndNs) == [5_000_000_000, 8_000_000_000])
+    let old = Data(#"{"schema_version":1,"engine":"apple_speech_on_device","locale":"en-US","words":[]}"#.utf8)
+    let decoded = try JSONDecoder().decode(RecordingTranscript.self, from: old)
+    #expect(decoded.warnings.isEmpty && !decoded.isPartial)
+    let encoded = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any])
+    #expect(encoded["warnings"] == nil)
+}
+
+/// Generated speech at 2 s and 92 s; the entire 44–89 s request is silent.
+/// Native no-speech is not guaranteed for every OS/model (some return []), so the
+/// injected callback pass always verifies C1's exact error through real file IO.
+@Suite(.serialized) struct SilentWindowSpeechMediaTests {
+    private func makeSayFixture() throws -> (SpeechFixture, URL) {
+        let fixture = try SpeechFixture()
+        do {
+            let speech = fixture.root.appendingPathComponent("say.caf")
+            let say = Process(); say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+            say.arguments = ["-v", "Samantha", "-r", "140", "-o", speech.path, "--data-format=LEF32@48000", "Hello. This is a spoken window."]
+            try say.run(); say.waitUntilExit()
+            guard say.terminationStatus == 0 else { throw TranscriptionError.recognitionFailed("say failed") }
+            let spoken = try AVAudioFile(forReading: speech, commonFormat: .pcmFormatFloat32, interleaved: false)
+            guard spoken.length > 0, spoken.length < 40 * 48_000, spoken.processingFormat.sampleRate == 48_000 else {
+                throw TranscriptionError.recognitionFailed("say produced no usable 48 kHz speech; run this test on the host")
+            }
+            let speechBuffer = AVAudioPCMBuffer(pcmFormat: spoken.processingFormat, frameCapacity: UInt32(spoken.length))!
+            try spoken.read(into: speechBuffer)
+            let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+            let audio = fixture.package.appendingPathComponent("recording/seg-000/spoken-silent-spoken.caf")
+            let frames = 92 * 48_000 + spoken.length + 48_000
+            try autoreleasepool {
+                var settings = format.settings; settings[AVLinearPCMIsNonInterleaved] = false
+                let output = try AVAudioFile(forWriting: audio, settings: settings)
+                let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 8192)!
+                var position: Int64 = 0
+                while position < frames {
+                    let count = Int(min(8192, frames - position))
+                    buffer.frameLength = UInt32(count)
+                    buffer.floatChannelData![0].initialize(repeating: 0, count: count)
+                    for voiceStart: Int64 in [2 * 48_000, 92 * 48_000] {
+                        let start = max(position, voiceStart), end = min(position + Int64(count), voiceStart + spoken.length)
+                        if end > start { for index in start..<end {
+                            buffer.floatChannelData![0][Int(index - position)] = speechBuffer.floatChannelData![0][Int(index - voiceStart)]
+                        } }
+                    }
+                    try output.write(from: buffer)
+                    position += Int64(count)
+                }
+            }
+            var manifest = fixture.manifest
+            manifest.segments = [manifest.segments[0]]
+            manifest.segments[0].files = ["mic": "seg-000/spoken-silent-spoken.caf"]
+            manifest.segments[0].durationNs = 100_000_000 + Int64((Double(frames) / 48_000 * 1_000_000_000).rounded())
+            try fixture.save(manifest)
+            return (fixture, audio)
+        } catch { fixture.cleanup(); throw error }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["YAPCAM_TRANSCRIPTION_MEDIA_TESTS"] == "1"))
+    func saySpeechSilentWindowRetainsSpokenWindowsWithInjectedNoSpeech() async throws {
+        let (fixture, _) = try makeSayFixture(); defer { fixture.cleanup() }
+        let count = SpeechCancellationCount()
+        let service = TranscriptionService(recognizeWithWarnings: { url, _ in
+            try await AppleOnDeviceSpeech.recognizeFile(url) { buffer in
+                let data = buffer.floatChannelData![0]
+                let silent = (0..<Int(buffer.frameLength)).allSatisfy { data[$0] == 0 }
+                return try await SpeechRecognitionJob().run { complete in
+                    if silent { complete(.failure(NSError(domain: "kAFAssistantErrorDomain", code: 1110))) }
+                    else { complete(.success([RecognizedSpeechWord(text: "spoken", startNs: 4_000_000_000, endNs: 5_000_000_000, confidence: 1)])) }
+                    return { count.increment() }
+                }
+            }
+        })
+        let transcript = try await service.transcribe(package: fixture.package, localeIdentifier: "en-US")
+        #expect(count.count == 3)
+        #expect(transcript.words.map(\.text) == ["spoken", "spoken"])
+        #expect(transcript.words.map(\.srcStartNs) == [4_100_000_000, 92_100_000_000])
+        #expect(transcript.warnings.count == 1 && transcript.isPartial)
+        #expect(transcript.warnings[0].srcStartNs == 44_600_000_000)
+        #expect(transcript.warnings[0].srcEndNs == 88_600_000_000)
+        #expect(try JSONDecoder().decode(RecordingTranscript.self, from: Data(contentsOf: fixture.transcript)) == transcript)
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["YAPCAM_TRANSCRIPTION_MEDIA_TESTS"] == "1"))
+    func actualOnDeviceSaySpeechAcrossSilentWindow() async throws {
+        let (fixture, _) = try makeSayFixture(); defer { fixture.cleanup() }
+        let transcript = try await TranscriptionService().transcribe(package: fixture.package, localeIdentifier: "en-US")
+        let before = transcript.words.filter { $0.srcStartNs < 44_600_000_000 }.map(\.text).joined(separator: " ").lowercased()
+        let after = transcript.words.filter { $0.srcStartNs >= 88_600_000_000 }.map(\.text).joined(separator: " ").lowercased()
+        #expect(before.contains("hello") && before.contains("spoken"))
+        #expect(after.contains("hello") && after.contains("spoken"))
+        #expect(!transcript.words.contains { (44_600_000_000..<88_600_000_000).contains($0.srcStartNs) })
+        #expect(transcript.warnings.allSatisfy { $0.code == "no_speech_detected" })
+        print("SILENT_WINDOW_NATIVE words=\(transcript.words.count) warnings=\(transcript.warnings.count)")
+        // An explicit no-speech error must be surfaced; successful [] needs no warning.
+        if !transcript.warnings.isEmpty { #expect(transcript.isPartial) }
+    }
+}
