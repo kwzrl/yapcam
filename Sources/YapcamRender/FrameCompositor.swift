@@ -19,7 +19,7 @@ public final class FrameCompositor: @unchecked Sendable {
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
-    private struct CursorTextureKey: Hashable { let style: VectorCursorStyle; let set: String; let scale: Int }
+    private struct CursorTextureKey: Hashable { let style: VectorCursorStyle; let set: String; let size: VectorCursorSize; let scale: Int }
     private var vectorCursors: [CursorTextureKey: VectorCursorTexture] = [:]
     private let empty: MTLTexture
 
@@ -97,14 +97,26 @@ public final class FrameCompositor: @unchecked Sendable {
             }
         }
         if frame.cursor_visible != 0 && (options.cursorSetID != nil || options.cursorStyle != .recorded || cursorTexture === empty) {
-            let style: VectorCursorStyle=options.cursorStyle == .pointer ? .pointer : options.cursorStyle == .touch ? .touch : .arrow
+            let style: VectorCursorStyle
+            switch options.cursorStyle {
+            case .recorded,.arrow: style = .arrow
+            case .pointer: style = .pointer
+            case .touch: style = .touch
+            case .text: style = .text
+            case .resizeHorizontal: style = .resizeHorizontal
+            case .resizeVertical: style = .resizeVertical
+            case .resizeDiagonalNWSE: style = .resizeDiagonalNWSE
+            case .resizeDiagonalNESW: style = .resizeDiagonalNESW
+            case .openHand: style = .openHand
+            case .closedHand: style = .closedHand
+            }
             let preset=VectorCursorLibrary.preset(id: options.cursorSetID ?? "classic")!
             let pixelsPerPoint=max(Double(target.width)/Double(frame.canvas_w),Double(target.height)/Double(frame.canvas_h))*Double(frame.cursor_scale)
             let rasterScale=Int(ceil(min(8,max(2,pixelsPerPoint))))
-            let key=CursorTextureKey(style: style,set: preset.id,scale: rasterScale)
+            let key=CursorTextureKey(style: style,set: preset.id,size: options.cursorSize,scale: rasterScale)
             if vectorCursors[key]==nil {
                 if vectorCursors.count>=48 { vectorCursors.removeAll() }
-                vectorCursors[key]=try VectorCursorTexture(style: style,preset: preset,scale: CGFloat(rasterScale),device: device)
+                vectorCursors[key]=try VectorCursorTexture(style: style,preset: preset,size: options.cursorSize,scale: CGFloat(rasterScale),device: device)
             }
             let cursor=vectorCursors[key]!, scale=Double(frame.cursor_scale)
             cursorTexture=cursor.texture

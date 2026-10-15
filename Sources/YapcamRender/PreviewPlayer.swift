@@ -153,6 +153,14 @@ public struct PreviewMetrics: Sendable {
             finishMetrics()
         } else { currentNs = max(0, time) }
     }
+    // Exact interval snapshots for host benchmarks; published metrics are throttled.
+    func metricSnapshot() -> PreviewMetrics {
+        guard let start=metricStart else { return metrics }
+        return PreviewMetrics(renderedFrames: frameCount,droppedFrames: dropped,elapsedSeconds: ProcessInfo.processInfo.systemUptime-start)
+    }
+    var audioClockReady: Bool { !audioLoading && !seeking && player?.currentItem?.status == .readyToPlay }
+    var audioClockSeconds: Double? { player?.currentTime().seconds }
+    var audioClockRate: Float { player?.rate ?? 0 }
     private func finishMetrics() {
         if let start = metricStart {
             metrics = PreviewMetrics(renderedFrames: frameCount,droppedFrames: dropped,elapsedSeconds: ProcessInfo.processInfo.systemUptime-start)
