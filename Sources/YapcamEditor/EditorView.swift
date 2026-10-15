@@ -52,6 +52,7 @@ public struct EditorContent<Preview: View>: View {
             Button("OK") { model.lastError = nil }
         } message: { Text(model.lastError ?? "") }
         .focusedSceneValue(\.editorModel, model)
+        .onChange(of: model.selection) { _, new in if new != .none { model.announce(model.describe(new)) } }
         .onDisappear { model.saveNow() }
     }
 
@@ -79,8 +80,15 @@ public struct EditorContent<Preview: View>: View {
         switch p.key {
         case .space: model.togglePlay(); return .handled
         case .delete, .deleteForward: model.deleteSelection(); return .handled
-        case .leftArrow: model.step(bySeconds: p.modifiers.contains(.shift) ? -1 : -1.0 / 30); return .handled
-        case .rightArrow: model.step(bySeconds: p.modifiers.contains(.shift) ? 1 : 1.0 / 30); return .handled
+        case .leftArrow, .rightArrow:
+            let forward = p.key == .rightArrow
+            if p.modifiers.contains(.option) { model.jumpToEditPoint(forward: forward) }
+            else if p.modifiers.contains(.control) { model.nudgeSelection(byNs: (forward ? 1 : -1) * (p.modifiers.contains(.shift) ? 1_000_000_000 : 100_000_000)) }
+            else { model.step(bySeconds: (forward ? 1 : -1) * (p.modifiers.contains(.shift) ? 1 : 1.0 / 30)) }
+            return .handled
+        case .upArrow, .downArrow: return model.selectAdjacent(forward: p.key == .downArrow) ? .handled : .ignored
+        case .escape: if model.selection == .none { return .ignored }; model.selection = .none; return .handled
+        case .return: if let i = model.selectableItems.first(where: { $0.selection == model.selection }) { model.seek(toNs: i.startNs); return .handled }; return .ignored
         default: break
         }
         switch p.characters.lowercased() {
@@ -116,10 +124,10 @@ struct TransportBar: View {
             Button { model.addZoomAtPlayhead() } label: { Label("Add zoom", systemImage: "plus.magnifyingglass") }.help("Add zoom at playhead (Z)")
             Button { model.deleteSelection() } label: { Label("Delete", systemImage: "trash") }
                 .disabled(model.selection == .none).help("Delete selection (⌫)")
-            Toggle(isOn: $model.snappingEnabled) { Image(systemName: "magnet") }.toggleStyle(.button).help("Snapping")
+            Toggle(isOn: $model.snappingEnabled) { Image(systemName: "magnet") }.toggleStyle(.button).help("Snapping").accessibilityLabel("Snapping")
             Divider().frame(height: 16)
-            Button { model.zoomTimeline(by: 0.8, anchorX: model.geometry.x(forNs: model.playheadNs)) } label: { Image(systemName: "minus.magnifyingglass") }.help("Zoom timeline out (-)")
-            Button { model.zoomTimeline(by: 1.25, anchorX: model.geometry.x(forNs: model.playheadNs)) } label: { Image(systemName: "plus.magnifyingglass") }.help("Zoom timeline in (+)")
+            Button { model.zoomTimeline(by: 0.8, anchorX: model.geometry.x(forNs: model.playheadNs)) } label: { Image(systemName: "minus.magnifyingglass") }.help("Zoom timeline out (-)").accessibilityLabel("Zoom timeline out")
+            Button { model.zoomTimeline(by: 1.25, anchorX: model.geometry.x(forNs: model.playheadNs)) } label: { Image(systemName: "plus.magnifyingglass") }.help("Zoom timeline in (+)").accessibilityLabel("Zoom timeline in")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 12).padding(.vertical, 8)
@@ -169,7 +177,13 @@ struct FocusPickerOverlay: View {
                 .onEnded { _ in model.commitFocusPreview() })
         }
         .help("Click to set the zoom focus point")
-        .accessibilityLabel("Zoom focus picker")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Zoom focus point")
+        .accessibilityValue(model.selectedZoom.map { String(format: "%.0f percent across, %.0f percent down", $0.focusX * 100, $0.focusY * 100) } ?? "")
+        .accessibilityAction(named: "Move left") { model.nudgeFocus(dx: -0.05, dy: 0) }
+        .accessibilityAction(named: "Move right") { model.nudgeFocus(dx: 0.05, dy: 0) }
+        .accessibilityAction(named: "Move up") { model.nudgeFocus(dx: 0, dy: -0.05) }
+        .accessibilityAction(named: "Move down") { model.nudgeFocus(dx: 0, dy: 0.05) }
     }
     private func markerPosition(_ z: TimelineZoom, in size: CGSize) -> CGPoint {
         guard let g = model.project.frameGeometry(atNs: model.playheadNs) else { return .zero }
@@ -196,6 +210,12 @@ struct RectEditOverlay: View {
     }
     @State private var start: (mode: Mode, rect: [Double], origin: CGPoint)?
     enum Mode { case move, corner(Int) }   // 0 TL, 1 TR, 2 BL, 3 BR
+
+    private func nudge(_ dx: Double, _ dy: Double, resize: Bool) {
+        guard let r = base() else { return }
+        preview(resize ? [r[0], r[1], r[2] + dx, r[3] + dy] : [r[0] + dx, r[1] + dy, r[2], r[3]])
+        commit()
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -231,7 +251,17 @@ struct RectEditOverlay: View {
                 }
                 .onEnded { _ in start = nil; commit() })
         }
-        .accessibilityLabel("Region editor")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Box editor")
+        .accessibilityValue(current().map { r in String(format: "left %.0f, top %.0f, width %.0f, height %.0f percent", r.rect[0] * 100, r.rect[1] * 100, r.rect[2] * 100, r.rect[3] * 100) } ?? "")
+        .accessibilityAction(named: "Move left") { nudge(-0.02, 0, resize: false) }
+        .accessibilityAction(named: "Move right") { nudge(0.02, 0, resize: false) }
+        .accessibilityAction(named: "Move up") { nudge(0, -0.02, resize: false) }
+        .accessibilityAction(named: "Move down") { nudge(0, 0.02, resize: false) }
+        .accessibilityAction(named: "Make wider") { nudge(0.02, 0, resize: true) }
+        .accessibilityAction(named: "Make narrower") { nudge(-0.02, 0, resize: true) }
+        .accessibilityAction(named: "Make taller") { nudge(0, 0.02, resize: true) }
+        .accessibilityAction(named: "Make shorter") { nudge(0, -0.02, resize: true) }
     }
 }
 

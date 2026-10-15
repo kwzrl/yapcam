@@ -142,6 +142,12 @@ public final class EditorModel: ObservableObject {
         perform(.updateZoom(id: f.id, startNs: nil, endNs: nil, scale: nil, focusX: f.x, focusY: f.y))
     }
 
+    /// Keyboard / VoiceOver equivalent of dragging the focus point (normalized source units).
+    public func nudgeFocus(dx: Double, dy: Double) {
+        guard let z = selectedZoom else { return }
+        setZoomFocus(id: z.id, x: z.focusX + dx, y: z.focusY + dy)
+    }
+
     /// Click in the preview (0…1 of the whole preview) → focus point of the selected zoom.
     @discardableResult public func setFocus(fromPreview p: CGPoint) -> Bool {
         guard let z = selectedZoom, let g = project.frameGeometry(atNs: playheadNs), let s = g.sourcePoint(fromPreview: p) else { return false }

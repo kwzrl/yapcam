@@ -19,13 +19,14 @@ struct NumberRow: View {
                     editing = isEditing
                     if !isEditing { model.set(path, number: value) }
                 }
+                    .accessibilityLabel(title)
+                    .accessibilityValue(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
                 Text(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
-                    .monospacedDigit().frame(width: 62, alignment: .trailing)
+                    .monospacedDigit().frame(width: 62, alignment: .trailing).accessibilityHidden(true)
             }
         }
         .onAppear { value = model.number(path) }
         .onChange(of: model.revision) { _, _ in if !editing { value = model.number(path) } }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -83,8 +84,8 @@ struct InspectorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $tab) { ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
-                .pickerStyle(.segmented).labelsHidden().padding(10)
+            Picker("Inspector section", selection: $tab) { ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                .pickerStyle(.segmented).labelsHidden().padding(10).accessibilityLabel("Inspector section")
             Form {
                 switch tab {
                 case .appearance: appearance
@@ -371,6 +372,7 @@ struct ZoomScaleRow: View {
         LabeledContent("Scale") {
             HStack {
                 Slider(value: $value, in: 1...6) { e in editing = e; if !e { model.setZoomScale(id: zoom.id, value) } }
+                    .accessibilityLabel("Zoom scale").accessibilityValue(String(format: "%.1f times", value))
                 Text(String(format: "%.1f×", value)).monospacedDigit().frame(width: 40, alignment: .trailing)
             }
         }
@@ -416,6 +418,7 @@ struct CropSection: View {
         LabeledContent(title) {
             HStack {
                 Slider(value: v, in: 0...0.9) { e in editing = e; if !e { model.setCrop(left: l, top: t, right: r, bottom: b) } }
+                    .accessibilityLabel("Crop \(title.lowercased())").accessibilityValue("\(Int(v.wrappedValue * 100)) percent")
                 Text("\(Int(v.wrappedValue * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
             }
         }
@@ -432,7 +435,8 @@ struct DurationRow: View {
         LabeledContent(title) {
             HStack {
                 Slider(value: $seconds, in: 0.1...5) { e in editing = e; if !e { model.set(path, number: (seconds * 1e9).rounded()) } }
-                Text(String(format: "%.1f s", seconds)).monospacedDigit().frame(width: 46, alignment: .trailing)
+                    .accessibilityLabel(title).accessibilityValue(String(format: "%.1f seconds", seconds))
+                Text(String(format: "%.1f s", seconds)).monospacedDigit().frame(width: 46, alignment: .trailing).accessibilityHidden(true)
             }
         }
         .onAppear { seconds = model.number(path, default: `default`) / 1e9 }
@@ -485,6 +489,8 @@ struct RectRow: View {
                         editing = e
                         if !e { commit() }
                     }
+                    .accessibilityLabel("\(title) \(["left", "top", "width", "height"][i])")
+                    .accessibilityValue("\(Int(r[i] * 100)) percent")
                 }
             }
         }
@@ -607,6 +613,7 @@ struct MusicControls: View {
         LabeledContent("Volume") {
             HStack {
                 Slider(value: $gain, in: -48...6) { e in editing = e; if !e { model.setMusicGain(id: id, gain) } }
+                    .accessibilityLabel("Music volume").accessibilityValue("\(Int(gain)) decibels")
                 Text("\(Int(gain)) dB").monospacedDigit().frame(width: 52, alignment: .trailing)
             }
         }

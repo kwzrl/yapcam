@@ -12,7 +12,7 @@ READY f869950 editor on real core/render: EditorDocument, EditorWindows.open (re
 - **Inspector tabs**: Look (background solid/gradient/blur, aspect, padding, radius, shadow, inset, motion blur), Cursor (visible, size, smoothing, speed preset, hide idle, click effect, loop, hidden sections lane), Camera (visible, shape, size, radius, opacity, mirror, corners, layout lane; "no camera track" state), Audio (mute/volume per track, speed up typing, silence → cut/speed).
 - **Lanes**: camera layouts, cursor hidden ranges (drag/resize/delete). Crop controls (canvas.crop) and volume-over-time ranges accepted by real core (RealCoreRangesTests).
 - ⌘K command palette (also cheat sheet), copy current frame (⇧⌘C → PNG clipboard), export sheet (720/1080, 30/60, progress/cancel/error/Show in Finder).
-- Tests: `swift test` green, editor 100 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
+- Tests: `swift test` green, editor 128 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
 
 - ZOM-04 per-zoom Auto/Manual switch (reaches core). EDT-05 verified: 100 mixed edits on real core undo to the exact initial state and redo to the exact final state. Short (<2 s) project: zoom clipped to project end; 3 h project: timeline fits, ruler steps ≥ 60 s.
 - Export sheet has an "Include audio" toggle (default on). Workaround for the render hang; the real-export test uses audio off.
@@ -25,6 +25,25 @@ Look tab → Wallpapers: category grid of the 12 original render wallpapers/grad
 
 ## FEATURES section K (done)
 Controls for every path core documented in "Guide audit": CUR-12 always default arrow, CUR-13 tilt while moving, CUR-14 stop cursor before end (toggle + length), CUR-15 remove tiny shakes, CUR-16 reduce cursor-type flicker, ANI-02 screen animation Custom/Focused/Smooth, CAM-07 camera size while zoomed, ANI-03 per-kind blur (zoom, screen move; "same as motion blur" = null inherits). Verified: real core accepts all, rejects out-of-range `camera.zoom_scale` with state unchanged, `motion_at` evaluates; inherit/explicit semantics tested. Not verified: how tilt/hold/blur look in a real preview (Metal host run).
+
+## M3 hardening (Lead, main a02a89e)
+**0) AUD-06 toggle**: already done and wired earlier (Audio tab → Microphone → Clean up voice; preview `setSpeechEnhancement`, export `ExportSettings.speechEnhancement`); still passes after rebase.
+
+**1) Long timelines** — 60-min recording, 500 clips, 200 zooms (`YAPCAM_PERF=1 swift test --filter PerformanceTests`, debug build on the M4 mini; release will be faster):
+| Measure | Before | After |
+|---|---|---|
+| edit latency (settings edit / undo) | 36 ms / 36 ms | 11–13 ms / 11 ms |
+| building the project (499 splits, 200 zooms) | 16 / 31 ms per edit | 9 / 10 ms per edit |
+| playhead move → timeline redraw (700 items) | 22 ms median | 10 ms median (p95 11 ms) |
+| scrub step (seek + core frame + snap) | 0.29 ms median | 0.30 ms (p95 0.35, max 1 ms) |
+| first timeline layout | 140 ms | 143 ms |
+| save / reopen | 16 / 24 ms | 14 / 12 ms |
+| resident memory after build | 565 MB | 228 MB (start 35 MB) |
+Fixes: (a) playhead and play state moved into their own `PlayheadState` observable so scrubbing/playback redraws only the marker, time label and open overlays, not 700 chips; (b) one project read per change (`toJSON` + `JSONSerialization`) instead of three Codable queries, saving ~14 ms/edit; (c) preview refresh coalesced (first edit of a burst at once, one trailing refresh), which cut the invalidate churn and ~2/3 of the memory growth. Remaining: ~170 MB one-time working set after the first project snapshot/audio rebuild of this size; it plateaus (200 → 800 invalidates: 230 → 235 MB), so it is not a leak. For render: each `PreviewPlayer.invalidate()` clones the project and rebuilds audio (~6 ms here); a "redraw only" API for visual-only edits would remove the rebuild.
+
+**2) Sub-second projects**: items (zoom, highlight, text, caption, reaction, cursor-hide, audio range, music) fit projects shorter than the usual minimums (minimum = min(300 ms, project length)); a zoom near the end moves earlier instead of being refused; sub-second geometry/ruler/timecode; edges for seek/split/trim/step; real core accepts every item kind in a 0.4 s project, last frame and effects evaluate, save/reopen, and a 0.6 s project exports (video). Tests in `ShortProjectTests`.
+
+**3) Accessibility**: timeline items are accessibility elements with spoken labels ("Zoom 2.0×, 0:03.00 to 0:05.00"), button/selected traits and actions (Select, Delete, Move earlier/later 0.1 s); the playhead is an adjustable element (up/down = ±1 s) with Previous/Next edit point actions; focus point and box editors have Move/Resize actions; inspector sliders carry explicit label and value; icon-only buttons are labelled; selection changes are announced. Keyboard: ↑/↓ select previous/next item (preview follows), ⌥←/⌥→ previous/next edit point, ⌃←/⌃→ nudge the selected item 0.1 s (⇧ = 1 s), Return = playhead to item, Esc = deselect, plus existing Space/J/K/L/S/Z/⌫/arrows/[ ]/±; all in the ⌘K palette. Verified by model tests (order, wrap, edit-point walk, nudging, focus nudge, speech text). **Not verified**: an actual VoiceOver walk-through and Full Keyboard Access traversal of the inspector — SwiftUI-native nodes are not reachable by a programmatic probe here; only the AppKit-backed inspector section control was probed (named radio buttons). Needs a human VoiceOver pass.
 
 ## Review round 2 (reviews/review-claude-2.md) — editor findings fixed
 - **#1 background work vs reopened document**: `EditorModel.close()` (called from window close) saves pending edits, then cancels music import / wallpaper / caption / silence tasks, cancels autosave and makes the model inert: edits, undo/redo, saves and the completion of background work are refused after close, and results arriving late are dropped. Tests: slow music import / wallpaper / caption+silence cancelled on close with nothing applied, closed model refuses edit/undo/save/import, and a real two-instance test (close, reopen, edit+save the new one, late work on the stale one → no journal, new edits intact). **Residual window**: a core call that already passed its last cancellation check (e.g. the synchronous `apply` at the end of `importMusic`) could still run once after close. Request to core: a `Project.close()` that makes later apply/save/journal throw would remove that window entirely.
