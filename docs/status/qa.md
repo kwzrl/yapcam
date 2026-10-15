@@ -1,4 +1,4 @@
-READY HEAD qa: M3 docs (KNOWN_LIMITATIONS, THIRD_PARTY, TEST_REPORT draft) + Metal-verified rows
+READY 3e7809e qa: M3 docs (KNOWN_LIMITATIONS, THIRD_PARTY, TEST_REPORT draft) + Metal-verified rows
 
 # qa status
 
