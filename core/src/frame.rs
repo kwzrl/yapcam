@@ -210,145 +210,122 @@ impl Project {
             ..Frame::default()
         };
         let mut zoom_camera_factor = 1.0;
-        if let Some(z) = p
-            .zooms
-            .iter()
-            .filter(|z| {
-                z.enabled
-                    && (z.mode != "auto"
-                        || (p.zoom_settings.automatic && capabilities.can_auto_zoom))
-                    && tl_ns
-                        >= if p.zoom_settings.start_early {
-                            z.tl_start_ns.saturating_sub(350_000_000).max(0)
-                        } else {
-                            z.tl_start_ns
-                        }
-                    && tl_ns < z.tl_end_ns
-            })
-            .max_by_key(|z| z.tl_start_ns)
-        {
+        if let Some(z) = crate::zoom_lens::active(self, tl_ns, capabilities.can_auto_zoom) {
             let settings = &p.zoom_settings;
-            let start = if settings.start_early {
-                z.tl_start_ns.saturating_sub(350_000_000).max(0)
-            } else {
-                z.tl_start_ns
-            };
-            let span = z.tl_end_ns - start;
-            let incoming = if settings.start_early {
-                z.tl_start_ns - start
-            } else if settings.physics_version == 1 {
-                z.ease_in_ns.min(span / 2)
-            } else {
-                z.ease_in_ns
-            };
-            let outgoing = if settings.physics_version == 1 {
-                z.ease_out_ns.min(span / 2)
-            } else {
-                z.ease_out_ns
-            };
-            let inside = if incoming == 0 {
-                1.0
-            } else {
-                (tl_ns - start) as f64 / incoming as f64
-            };
-            let outside = if outgoing == 0 {
-                1.0
-            } else {
-                (z.tl_end_ns - tl_ns) as f64 / outgoing as f64
-            };
-            let physics = crate::motion::zoom_spring(settings);
-            let ramp_ns = if inside < outside { incoming } else { outgoing };
-            let weight = if settings.physics_version == 1 {
-                crate::spring::aligned_transition(
-                    inside.min(outside),
-                    ramp_ns as f64 / 1e9,
-                    self.session.tracks.screen.max_fps as f64,
-                    &physics,
-                )
-            } else {
-                crate::spring::transition(inside.min(outside), ramp_ns as f64 / 1e9, &physics)
-            };
+            let weight = crate::zoom_lens::weight(self, z, tl_ns);
             zoom_camera_factor = 1.0 + (p.camera.zoom_scale - 1.0) * weight.clamp(0.0, 1.0);
-            let size = 1.0 / (1.0 + (z.scale - 1.0) * weight);
-            let w = crop[2] * size;
-            let h = crop[3] * size;
-            let mut x = coordinate(
-                z.target[0] - w / 2.0,
-                crop[0],
-                crop[0] + (crop[2] - w).max(0.0),
-            );
-            let mut y = coordinate(
-                z.target[1] - h / 2.0,
-                crop[1],
-                crop[1] + (crop[3] - h).max(0.0),
-            );
+            if z.style == "classic" {
+                let physics = crate::motion::zoom_spring(settings);
+                let size = 1.0 / (1.0 + (z.scale - 1.0) * weight);
+                let w = crop[2] * size;
+                let h = crop[3] * size;
+                let mut x = coordinate(
+                    z.target[0] - w / 2.0,
+                    crop[0],
+                    crop[0] + (crop[2] - w).max(0.0),
+                );
+                let mut y = coordinate(
+                    z.target[1] - h / 2.0,
+                    crop[1],
+                    crop[1] + (crop[3] - h).max(0.0),
+                );
 
-            if z.mode == "auto" && settings.follow_cursor && frame.screen.present != 0 {
-                let seg = &self.session.segments[frame.screen.segment as usize];
-                let input = &self.input[frame.screen.segment as usize];
-                let local = src - seg.src_start_ns;
-                let base = Rect { x, y, w, h };
-                let bounds = Rect {
-                    x: crop[0],
-                    y: crop[1],
-                    w: crop[2],
-                    h: crop[3],
-                };
-                let normalized = |p: crate::input::Point| {
-                    [
-                        p.x / self.session.source.content_rect_points[2],
-                        p.y / self.session.source.content_rect_points[3],
-                    ]
-                };
-                if let Some(point) = input.position_filtered(local, p.cursor.remove_shakes) {
-                    let mut next = follow_pan(base, normalized(point), settings.dead_zone, bounds);
-                    if settings.animation_style != "custom" {
-                        let window =
-                            (100_000_000.0 * p.timeline.clips[clip_i].speed).round() as i64;
-                        let cutoff = local.saturating_sub(window).max(0);
-                        if let Some(initial) =
-                            input.position_filtered(cutoff, p.cursor.remove_shakes)
-                        {
-                            let initial =
-                                follow_pan(base, normalized(initial), settings.dead_zone, bounds);
-                            let mut sx = initial.x;
-                            let mut sy = initial.y;
-                            let mut target = initial;
-                            let positions = input.positions_filtered(p.cursor.remove_shakes);
-                            let a = positions.partition_point(|p| p.t < cutoff);
-                            let b = positions.partition_point(|p| p.t <= local);
-                            for &event in &positions[a..b] {
-                                let next_target =
-                                    follow_pan(base, normalized(event), settings.dead_zone, bounds);
-                                let seconds =
-                                    (local - event.t) as f64 / 1e9 / p.timeline.clips[clip_i].speed;
-                                let k = crate::spring::response(seconds, &physics);
-                                sx += (next_target.x - target.x) * k;
-                                sy += (next_target.y - target.y) * k;
-                                target = next_target;
+                if z.mode == "auto" && settings.follow_cursor && frame.screen.present != 0 {
+                    let seg = &self.session.segments[frame.screen.segment as usize];
+                    let input = &self.input[frame.screen.segment as usize];
+                    let local = src - seg.src_start_ns;
+                    let base = Rect { x, y, w, h };
+                    let bounds = Rect {
+                        x: crop[0],
+                        y: crop[1],
+                        w: crop[2],
+                        h: crop[3],
+                    };
+                    let normalized = |p: crate::input::Point| {
+                        [
+                            p.x / self.session.source.content_rect_points[2],
+                            p.y / self.session.source.content_rect_points[3],
+                        ]
+                    };
+                    if let Some(point) = input.position_filtered(local, p.cursor.remove_shakes) {
+                        let mut next =
+                            follow_pan(base, normalized(point), settings.dead_zone, bounds);
+                        if settings.animation_style != "custom" {
+                            let window =
+                                (100_000_000.0 * p.timeline.clips[clip_i].speed).round() as i64;
+                            let cutoff = local.saturating_sub(window).max(0);
+                            if let Some(initial) =
+                                input.position_filtered(cutoff, p.cursor.remove_shakes)
+                            {
+                                let initial = follow_pan(
+                                    base,
+                                    normalized(initial),
+                                    settings.dead_zone,
+                                    bounds,
+                                );
+                                let mut sx = initial.x;
+                                let mut sy = initial.y;
+                                let mut target = initial;
+                                let positions = input.positions_filtered(p.cursor.remove_shakes);
+                                let a = positions.partition_point(|p| p.t < cutoff);
+                                let b = positions.partition_point(|p| p.t <= local);
+                                for &event in &positions[a..b] {
+                                    let next_target = follow_pan(
+                                        base,
+                                        normalized(event),
+                                        settings.dead_zone,
+                                        bounds,
+                                    );
+                                    let seconds = (local - event.t) as f64
+                                        / 1e9
+                                        / p.timeline.clips[clip_i].speed;
+                                    let k = crate::spring::response(seconds, &physics);
+                                    sx += (next_target.x - target.x) * k;
+                                    sy += (next_target.y - target.y) * k;
+                                    target = next_target;
+                                }
+                                next.x = coordinate(
+                                    sx,
+                                    bounds.x,
+                                    bounds.x + (bounds.w - base.w).max(0.0),
+                                );
+                                next.y = coordinate(
+                                    sy,
+                                    bounds.y,
+                                    bounds.y + (bounds.h - base.h).max(0.0),
+                                );
                             }
-                            next.x =
-                                coordinate(sx, bounds.x, bounds.x + (bounds.w - base.w).max(0.0));
-                            next.y =
-                                coordinate(sy, bounds.y, bounds.y + (bounds.h - base.h).max(0.0));
                         }
+                        x = next.x;
+                        y = next.y;
                     }
-                    x = next.x;
-                    y = next.y;
                 }
+                frame.screen_crop = Rect { x, y, w, h };
             }
-            frame.screen_crop = Rect { x, y, w, h };
+        }
+        let (layout_mode, layout_settings) = crate::camera_layout::current(p, tl_ns);
+        if layout_mode == "cutout" {
+            frame.camera_shape = 0;
         }
         let camera_aspect = if frame.camera_shape == 1 {
             1.0
         } else {
-            self.session.tracks.camera.as_ref().map_or(1.0, |c| {
-                c.pixel_size[0] as f64 / c.pixel_size[1].max(1) as f64
+            layout_settings.aspect.unwrap_or_else(|| {
+                self.session.tracks.camera.as_ref().map_or(1.0, |c| {
+                    c.pixel_size[0] as f64 / c.pixel_size[1].max(1) as f64 * p.camera.style.crop[2]
+                        / p.camera.style.crop[3]
+                })
             })
         };
+        // A legal positive crop can have a subnormal width/height. Keep its
+        // fitted aspect representable even if the ratio under/overflows.
+        let camera_aspect = camera_aspect.clamp(1.0 / 16384.0, 16384.0);
         let mut camera_pos = p.camera.position;
         let mut camera_size = p.camera.size;
-        let mut camera_visible = p.camera.visible;
+        let camera_visible = capabilities.can_camera
+            && p.camera.visible
+            && !crate::camera_layout::hidden_by_silence(p, tl_ns)
+            && layout_mode != "screen";
         if let Some(l) = p
             .camera
             .layouts
@@ -358,33 +335,60 @@ impl Project {
         {
             camera_pos = l.camera_position.unwrap_or(camera_pos);
             camera_size = l.camera_size.unwrap_or(camera_size);
-            match l.mode.as_str() {
-                "screen" => camera_visible = false,
-                "camera" => {
-                    if frame.camera.present != 0 {
-                        frame.screen.present = 0;
-                    }
-                    frame.camera_dest = fit(area, camera_aspect);
+        }
+        match layout_mode {
+            "camera" => {
+                if frame.camera.present != 0 && camera_visible {
+                    frame.screen.present = 0;
                 }
-                "side_by_side" => {
-                    frame.screen_dest = fit(
-                        Rect {
-                            w: area.w * 0.65,
-                            ..area
-                        },
-                        source_aspect,
-                    );
-                    frame.camera_dest = fit(
-                        Rect {
-                            x: area.x + area.w * 0.68,
-                            w: area.w * 0.32,
-                            ..area
-                        },
-                        camera_aspect,
-                    );
-                }
-                _ => {}
+                frame.camera_dest = fit(area, camera_aspect);
             }
+            "side_by_side" if frame.camera.present != 0 && camera_visible => {
+                frame.screen_dest = fit(
+                    Rect {
+                        w: area.w * 0.65,
+                        ..area
+                    },
+                    source_aspect,
+                );
+                frame.camera_dest = fit(
+                    Rect {
+                        x: area.x + area.w * 0.68,
+                        w: area.w * 0.32,
+                        ..area
+                    },
+                    camera_aspect,
+                );
+            }
+            "split" if frame.camera.present != 0 && camera_visible => {
+                let region = if layout_settings.split_padded {
+                    area
+                } else {
+                    canvas
+                };
+                let horizontal = canvas.w >= canvas.h;
+                let auto = if horizontal {
+                    source_aspect / (source_aspect + camera_aspect)
+                } else {
+                    camera_aspect / (source_aspect + camera_aspect)
+                };
+                let ratio = layout_settings
+                    .split_ratio
+                    .unwrap_or(auto.clamp(0.25, 0.75));
+                let (screen_region, camera_region) = crate::camera_layout::split_regions(
+                    region,
+                    ratio,
+                    horizontal,
+                    layout_settings.split_flip,
+                );
+                frame.screen_dest = fit(screen_region, source_aspect);
+                frame.camera_dest = fit(camera_region, camera_aspect);
+            }
+            "cutout" => {
+                camera_pos = layout_settings.cutout_position;
+                camera_size = layout_settings.cutout_size;
+            }
+            _ => {}
         }
         if frame.camera_dest.w == 0.0 {
             let w = (canvas.w * camera_size * zoom_camera_factor)
@@ -397,6 +401,12 @@ impl Project {
                 w,
                 h,
             };
+        }
+        if layout_mode == "cutout" || layout_mode == "split" && !layout_settings.split_padded {
+            frame.camera_corner_radius = 0.0;
+        } else if let Some(ratio) = layout_settings.corner_ratio {
+            frame.camera_corner_radius =
+                (frame.camera_dest.w.min(frame.camera_dest.h) * ratio) as f32;
         }
         if !camera_visible {
             frame.camera.present = 0;
@@ -603,6 +613,8 @@ mod tests {
         for mode in ["manual", "auto"] {
             for start in [0, 1_000_000_000] {
                 p.data.zooms = vec![Zoom {
+                    style: "classic".into(),
+                    lens: Default::default(),
                     id: "rounding".into(),
                     tl_start_ns: start,
                     tl_end_ns: start + 1_000_000_000,
@@ -675,6 +687,8 @@ mod tests {
         assert_eq!(seg.screen.segment, 1);
         assert_eq!(seg.screen.file_ns, 200_000_000);
         p.data.zooms.push(Zoom {
+            style: "classic".into(),
+            lens: Default::default(),
             id: "z".into(),
             tl_start_ns: 0,
             tl_end_ns: 2_000_000_000,
@@ -705,6 +719,7 @@ mod tests {
         p.data.canvas.aspect = "9:16".into();
         assert_eq!(p.frame(0).unwrap().canvas_w, 608);
         p.data.camera.layouts.push(Layout {
+            settings: None,
             camera_background_removal: None,
             camera_face_framing: None,
             camera_shadow_radius: None,
@@ -773,6 +788,7 @@ mod m2_tests {
         assert_eq!(overlay.camera.present, 1);
         assert!((overlay.camera_dest.w / overlay.camera_dest.h - 4.0 / 3.0).abs() < 1e-6);
         p.data.camera.layouts.push(Layout {
+            settings: None,
             camera_background_removal: None,
             camera_face_framing: None,
             camera_shadow_radius: None,

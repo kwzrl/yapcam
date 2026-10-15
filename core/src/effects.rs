@@ -264,9 +264,10 @@ pub fn camera_options(p: &ProjectData, tl: i64) -> (bool, bool, f64) {
         .filter(|l| tl >= l.tl_start_ns && tl < l.tl_end_ns)
         .max_by_key(|l| l.tl_start_ns);
     (
-        layout
-            .and_then(|l| l.camera_background_removal)
-            .unwrap_or(p.camera.background_removal),
+        crate::camera_layout::current(p, tl).0 == "cutout"
+            || layout
+                .and_then(|l| l.camera_background_removal)
+                .unwrap_or(p.camera.background_removal),
         layout
             .and_then(|l| l.camera_face_framing)
             .unwrap_or(p.camera.face_framing),
@@ -493,22 +494,26 @@ impl Project {
         let motion = match tl {
             Some(t) => self.frame_motion(t)?,
             None => crate::motion::FrameMotion {
-                cursor_motion_blur: p.cursor.motion_blur as f32,
+                cursor_motion_blur: (p.cursor.motion_blur
+                    * p.canvas.global_motion_blur.unwrap_or(1.0))
+                    as f32,
                 zoom_motion_blur: p
                     .canvas
                     .motion_blur_settings
                     .zoom
-                    .unwrap_or(p.canvas.motion_blur) as f32,
+                    .unwrap_or(p.canvas.motion_blur) as f32
+                    * p.canvas.global_motion_blur.unwrap_or(1.0) as f32,
                 pan_motion_blur: p
                     .canvas
                     .motion_blur_settings
                     .pan
-                    .unwrap_or(p.canvas.motion_blur) as f32,
+                    .unwrap_or(p.canvas.motion_blur) as f32
+                    * p.canvas.global_motion_blur.unwrap_or(1.0) as f32,
                 ..crate::motion::FrameMotion::default()
             },
         };
         Ok(
-            json!({"camera_style":p.camera.style,"screen_shadow":{"style":p.canvas.shadow.style,"offset_x":p.canvas.shadow.evaluated().0,"offset_y":p.canvas.shadow.evaluated().1,"radius":p.canvas.shadow.evaluated().2,"opacity":p.canvas.shadow.opacity},"padding_ratio":p.canvas.padding_ratio,"cursor_size_points":p.cursor.size_points,"cursor_set_id":p.cursor.set_id,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
+            json!({"global_motion_blur":p.canvas.global_motion_blur,"zoom_lens":match tl { Some(t)=>crate::zoom_lens::query(self,t)?,None=>Value::Null },"camera_layout":crate::camera_layout::query(self,tl)?,"camera_style":p.camera.style,"screen_shadow":{"style":p.canvas.shadow.style,"offset_x":p.canvas.shadow.evaluated().0,"offset_y":p.canvas.shadow.evaluated().1,"radius":p.canvas.shadow.evaluated().2,"opacity":p.canvas.shadow.opacity},"padding_ratio":p.canvas.padding_ratio,"cursor_size_points":p.cursor.size_points,"cursor_set_id":p.cursor.set_id,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur*p.canvas.global_motion_blur.unwrap_or(1.0)} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
         )
     }
 }

@@ -98,6 +98,8 @@ pub fn generate_zooms(
             id = format!("{base}-{suffix}");
         }
         p.zooms.push(Zoom {
+            style: "classic".into(),
+            lens: Default::default(),
             id: id.clone(),
             tl_start_ns: start,
             tl_end_ns: end,

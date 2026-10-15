@@ -147,6 +147,10 @@ pub struct Clip {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Zoom {
+    #[serde(default = "classic_zoom_style")]
+    pub style: String,
+    #[serde(default)]
+    pub lens: ZoomLens,
     pub id: String,
     pub tl_start_ns: i64,
     pub tl_end_ns: i64,
@@ -157,6 +161,9 @@ pub struct Zoom {
     pub ease_out_ns: i64,
     #[serde(default = "enabled")]
     pub enabled: bool,
+}
+fn classic_zoom_style() -> String {
+    "classic".into()
 }
 fn enabled() -> bool {
     true
@@ -170,7 +177,14 @@ macro_rules! settings {
     }
 }
 settings!(InsertionStyles { zoom:Option<ZoomInsertionStyle>=None, mask:Option<MaskInsertionStyle>=None });
+settings!(ZoomLens {
+    radius: f64 = 0.35,
+    bevel: f64 = 0.2,
+    chromatic_aberration: f64 = 0.5
+});
 settings!(ZoomInsertionStyle {
+    style: String = "classic".into(),
+    lens: ZoomLens = ZoomLens::default(),
     mode: String = "auto".into(),
     scale: f64 = 2.0,
     ease_in_ns: i64 = 300_000_000,
@@ -241,7 +255,16 @@ settings!(CameraStyle {
     background_blur: f64 = 0.0, crop: [f64; 4] = [0.0,0.0,1.0,1.0],
     lut_path: Option<String> = None
 });
+settings!(CameraLayoutSettings {
+    mode: String = "overlay".into(), aspect: Option<f64> = None,
+    split_ratio: Option<f64> = None, split_flip: bool = false, split_padded: bool = false,
+    cutout_position: [f64; 2] = [1.0,1.0], cutout_size: f64 = 0.5,
+    edge_softness: f64 = 0.2, edge_inset: f64 = 0.0, corner_ratio: Option<f64> = None
+});
 settings!(Camera {
+    layout_settings: CameraLayoutSettings = CameraLayoutSettings::default(),
+    hide_during_silence: bool = false, min_silence_ns: i64 = 5_000_000_000,
+    silence_ranges: Vec<ActivityRange> = vec![],
     style: CameraStyle = CameraStyle::default(),
     visible: bool = true, position: [f64; 2] = [0.82, 0.78], size: f64 = 0.22,
     shape: String = "rounded_rect".into(), radius: f64 = 24.0,
@@ -251,6 +274,8 @@ settings!(Camera {
 });
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Layout {
+    #[serde(default)]
+    pub settings: Option<CameraLayoutSettings>,
     pub id: String,
     pub tl_start_ns: i64,
     pub tl_end_ns: i64,
@@ -277,6 +302,7 @@ settings!(Canvas {
     inset: f64 = 0.0,
     inset_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
     motion_blur: f64 = 0.0,
+    global_motion_blur: Option<f64> = None,
     motion_blur_settings: MotionBlurSettings = MotionBlurSettings::default(),
     crop: [f64; 4] = [0.0, 0.0, 1.0, 1.0],
     window_chrome: bool = false, highlights: Vec<Highlight> = vec![],
@@ -461,6 +487,7 @@ impl ProjectData {
         data.canvas.shadow.style = "directional".into();
         data.canvas.background.blur = 0.0;
         data.canvas.motion_blur = 1.0;
+        data.canvas.global_motion_blur = Some(1.0);
         data.cursor.size_points = Some(48.0);
         data.cursor.set_id = Some("classic".into());
         data.cursor.click_effect = "none".into();

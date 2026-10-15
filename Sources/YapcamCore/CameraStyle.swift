@@ -105,3 +105,26 @@ extension Project {
         catch { try? FileManager.default.removeItem(at: packageURL.appendingPathComponent(relative)); throw error }
     }
 }
+
+public struct CoreCameraLayoutSettings: Decodable, Sendable, Equatable {
+    public var mode: String
+    public var aspect: Double?
+    public var splitRatio: Double?
+    public var splitFlip: Bool
+    public var splitPadded: Bool
+    public var cutoutPosition: [Double]
+    public var cutoutSize: Double
+    public var edgeSoftness: Double
+    public var edgeInset: Double
+    public var cornerRatio: Double?
+}
+public struct CoreCameraLayout: Decodable, Sendable, Equatable {
+    public var mode: String
+    public var settings: CoreCameraLayoutSettings
+    public var visible: Bool
+}
+extension Project {
+    public func cameraLayout(atNs: Int64) throws -> CoreCameraLayout {
+        try query("{\"q\":\"camera_layout_at\",\"tl_ns\":\(atNs)}", as: CoreCameraLayout.self)
+    }
+}

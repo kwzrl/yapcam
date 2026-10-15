@@ -480,3 +480,26 @@ domains and RGB entries; Project.cameraLUT() resolves the selected local asset.
 Presets omit source crop/LUT path and carry `_camera_lut` bytes through Swift file
 export/import, which registers a fresh destination path. Native grading remains
 Render-owned; parameters are not a substitute for rendering acceptance.
+
+
+Camera layout (ED-9): camera.layout_settings persists overlay/cutout/split parameters;
+per-range Layout.settings replaces root settings in that interval. Existing
+side_by_side retains old geometry. camera_layout_at / Project.cameraLayout(atNs:)
+returns mode/settings/actual visibility; render_options includes camera_layout.
+Camera silence ranges are decoded-input timeline ranges, remapped through edits
+and omitted from presets. Frame/extras share the visibility/matting result and
+remain allocation-free; Render owns softness/inset pixel processing.
+
+Lens zoom (RND-5): ZoomSpec.style/lens and remembered style/lens use classic by
+default. zoom_lens_at / Project.zoomLens(atNs:) returns an optional local drawing
+instruction using the same spring timing as classic, without cropping the base
+screen. Render owns lens shading. C ABI stays3.
+
+Targeted source restoration (ED-7): EditCommand.insertSource inserts immutable
+source bounds at an existing clip boundary (zero/end included), returning a clip
+ID. It preserves later edits and shifts affected effect endpoints by exact rational
+duration, keeping ends at insertion before the new source and starts after it.
+Pass original ClipSettings to preserve local volume/cursor choices. All media and
+events map through the new clip; no recording rewrite or copied media. Editor can
+batch add-caption for the restored word, and must retain original transcript source
+bounds. Split first in the same batch to insert inside an existing retained clip.

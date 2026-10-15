@@ -1347,3 +1347,125 @@ private func identityCubeData() -> Data {
         }
     }
 }
+
+@Test func cameraLayoutSettingsAndSilenceRangesDriveABIFramesAndColdOptions() throws {
+    try withFixture { package in
+        let manifest = package.appendingPathComponent("recording/session.json")
+        var session = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as! [String: Any]
+        var tracks = session["tracks"] as! [String: Any]
+        tracks["camera"] = ["device_name":"Synthetic camera", "pixel_size":[320,200], "fps":30, "mirrored":false]
+        session["tracks"] = tracks
+        var segments = session["segments"] as! [[String: Any]]
+        for index in segments.indices {
+            var files = segments[index]["files"] as! [String: Any]
+            files["camera"] = files["screen"]; segments[index]["files"] = files
+        }
+        session["segments"] = segments
+        try JSONSerialization.data(withJSONObject: session).write(to: manifest)
+        let p = try Project.create(package: package)
+        #expect(try p.frame(atNs: 0).camera.present == 1)
+        try p.apply(.set(path: "camera.layout_settings", value: .object(["mode": .string("split"), "split_ratio": .number(0.5), "aspect": .number(1)])))
+        let split = try p.cameraLayout(atNs: 0)
+        #expect(split.mode == "split" && split.visible && split.settings.splitRatio == 0.5)
+        #expect(try p.renderOptions(atNs: 0).cameraLayout == split)
+        let frame = try p.frame(atNs: 0)
+        #expect(frame.screen_dest.x + frame.screen_dest.w <= frame.camera_dest.x)
+        #expect(frame.camera_corner_radius == 0)
+        let layout: [String: JSONValue] = [
+            "id": .string("cutout-range"), "tl_start_ns": .integer(1_000_000_000), "tl_end_ns": .integer(3_000_000_000),
+            "mode": .string("cutout"), "settings": .object(["edge_softness": .number(0.4), "edge_inset": .number(2)])]
+        try p.apply(.set(path: "camera.layouts", value: .array([.object(layout)])))
+        #expect(try p.cameraLayout(atNs: 1_000_000_000).mode == "cutout")
+        #expect(try p.frameExtras(atNs: 1_000_000_000).camera_background_removal == 1)
+        try p.apply(.batch([.set(path: "camera.hide_during_silence", value: .bool(true)),
+                           .set(path: "camera.min_silence_ns", value: .integer(2_000_000_000)),
+                           .set(path: "camera.silence_ranges", value: .array([.object(["tl_start_ns": .integer(1_000_000_000), "tl_end_ns": .integer(3_000_000_000)])]))]))
+        #expect(try !p.cameraLayout(atNs: 1_000_000_000).visible)
+        #expect(try p.frame(atNs: 1_000_000_000).camera.present == 0)
+        #expect(try p.frame(atNs: 3_000_000_000).camera.present == 1)
+        let hidden = try p.snapshot()
+        try p.undo()
+        #expect(try p.frame(atNs: 1_000_000_000).camera.present == 1)
+        #expect(try hidden.frame(atNs: 1_000_000_000).camera.present == 0)
+        try p.redo(); try p.save()
+        #expect(try Project.open(package: package).cameraLayout(atNs: 1_000_000_000) == hidden.cameraLayout(atNs: 1_000_000_000))
+    }
+}
+
+@Test func lensZoomIsLocalAndPreservesLegacyZoomSpecDecoding() throws {
+    let old = Data("{\"tl_start_ns\":1,\"tl_end_ns\":2,\"mode\":\"manual\",\"target\":[0.5,0.5],\"scale\":2,\"ease_in_ns\":0,\"ease_out_ns\":0}".utf8)
+    #expect(try JSONDecoder().decode(ZoomSpec.self, from: old).style == "classic")
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let before = try p.frame(atNs: 500_000_000)
+        var spec = ZoomSpec(startNs: 100_000_000, endNs: 2_000_000_000, target: [0.25,0.75], easeInNs: 0, easeOutNs: 0)
+        spec.style = "lens"; spec.lens = ZoomLens(radius: 0.4)
+        let changes = try p.apply(.addZoom(spec))
+        let lens = try #require(try p.zoomLens(atNs: 500_000_000))
+        #expect(lens.zoomId == changes.createdIDs.first)
+        #expect(lens.scale == 2 && lens.sourceCenter == [0.25,0.75])
+        let crop = try p.frame(atNs: 500_000_000).screen_crop
+        #expect([crop.x,crop.y,crop.w,crop.h] == [before.screen_crop.x,before.screen_crop.y,before.screen_crop.w,before.screen_crop.h])
+        #expect(try p.zoomLens(atNs: 0) == nil)
+        #expect(try p.zoomLens(atNs: 2_000_000_000) == nil)
+        #expect(try p.renderOptions(atNs: 500_000_000).zoomLens == lens)
+        #expect(try p.insertionStyles().zoom?.style == "lens")
+        try p.save()
+        #expect(try Project.open(package: package).zoomLens(atNs: 500_000_000) == lens)
+        try p.undo()
+        #expect(try p.zoomLens(atNs: 500_000_000) == nil)
+    }
+}
+
+@Test func restoringSourceWordKeepsUnrelatedEditsAndAllMediaClocks() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.deleteRange(startNs: 1_000_000_000, endNs: 2_000_000_000))
+        try p.apply(.set(path: "notes", value: .string("keep later edit")))
+        let old = try p.snapshot()
+        let settings = ClipSettings(micGain: 0.8, systemGain: 0.6, hideCursor: true)
+        let result = try p.apply(.insertSource(startNs: 1_000_000_000, endNs: 2_000_000_000, atNs: 1_000_000_000, settings: settings))
+        #expect(p.durationNs == 5_000_000_000 && old.durationNs == 4_000_000_000)
+        #expect(try p.frame(atNs: 1_500_000_000).screen.src_ns == 1_500_000_000)
+        #expect(try old.frame(atNs: 1_500_000_000).screen.src_ns == 2_500_000_000)
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        #expect(clips[1].id == result.createdIDs.first && clips[1].effectiveSettings == settings)
+        struct RestoredAudio: Decodable { var clipId: String; var srcStartNs: Int64; var tlStartNs: Int64 }
+        let restoredAudio = try p.query("{\"q\":\"audio_ranges\"}", as: [RestoredAudio].self).filter { $0.clipId == clips[1].id }
+        #expect(!restoredAudio.isEmpty)
+        #expect(restoredAudio.allSatisfy { $0.srcStartNs == 1_000_000_000 && $0.tlStartNs == 1_000_000_000 })
+        try p.undo()
+        #expect(p.durationNs == old.durationNs)
+        #expect(try p.query("{\"q\":\"project\"}", as: JSONValue.self) == old.query("{\"q\":\"project\"}", as: JSONValue.self))
+        try p.redo(); try p.save()
+        #expect(try Project.open(package: package).frame(atNs: 1_500_000_000).screen.src_ns == 1_500_000_000)
+        let before = try p.toJSON()
+        #expect(throws: CoreError.self) { try p.apply(.insertSource(startNs: 0, endNs: 10, atNs: 5)) }
+        #expect(try p.toJSON() == before)
+    }
+}
+
+@Test func masterMotionBlurIsPortableAndKeepsLegacyExtrasAvailable() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        #expect(try p.renderOptions().globalMotionBlur == 1)
+        try p.apply(.set(path: "canvas.global_motion_blur", value: .number(0)))
+        let motion = try p.frameMotion(atNs: 500_000_000)
+        #expect(motion.cursor_motion_blur == 0 && motion.zoom_motion_blur == 0 && motion.pan_motion_blur == 0)
+        #expect(try p.frameExtras(atNs: 500_000_000).cursor_motion_blur == 0)
+        #expect(try p.renderOptions().cursorMotionBlur == 0)
+        let file = package.appendingPathComponent("blur.yapcampreset")
+        try p.exportPreset(to: file)
+        try p.apply(.set(path: "canvas.global_motion_blur", value: .number(1)))
+        try p.importPreset(from: file)
+        #expect(try p.renderOptions().globalMotionBlur == 0)
+        try p.save()
+        #expect(try Project.open(package: package).renderOptions().globalMotionBlur == 0)
+        let before = try p.toJSON()
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "canvas.global_motion_blur", value: .number(-1))) }
+        #expect(try p.toJSON() == before)
+        try p.apply(.set(path: "canvas.global_motion_blur", value: .null))
+        #expect(try p.renderOptions().globalMotionBlur == nil)
+        #expect(try p.renderOptions().cursorMotionBlur == 1)
+    }
+}

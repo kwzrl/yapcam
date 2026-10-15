@@ -42,6 +42,8 @@ fn scale_60_minutes() {
         .collect();
     p.data.zooms = (0..1000)
         .map(|i| Zoom {
+            style: "classic".into(),
+            lens: Default::default(),
             id: format!("scale-zoom-{i}"),
             tl_start_ns: i * (END / 1000),
             tl_end_ns: (i + 1) * (END / 1000),
@@ -182,6 +184,10 @@ fn scale_60_minutes() {
             r#"{"op":"set_speed","clip_id":"scale-2500","speed":1.5}"#,
         ),
         ("split", r#"{"op":"split","at_tl_ns":1800100000000}"#),
+        (
+            "insert_source",
+            r#"{"op":"insert_source","src_start_ns":1800000000000,"src_end_ns":1800100000000,"at_tl_ns":1800000000000}"#,
+        ),
         (
             "delete_30min",
             r#"{"op":"delete_range","tl_start_ns":900000000000,"tl_end_ns":2700000000000}"#,
@@ -457,7 +463,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 .as_str()
                 .unwrap_or("missing");
             let random = arbitrary_json(&mut seed, 4);
-            let mut command = match n % 25 {
+            let mut command = match n % 29 {
                 0 => random.clone(),
                 1 => json!({"op":"set","path":"canvas.padding","value":random}),
                 2 => json!({"op":"set","path":"notes","value":format!("fuzz-{n} ☕\0字幕")}),
@@ -498,8 +504,16 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 21 => json!({"op":"insert_layout","tl_start_ns":random}),
                 22 => json!({"op":"set_clip_settings","clip_id":clip_id,"patch":random}),
                 23 => json!({"op":"set","path":"canvas.device_frame","value":random}),
-                _ => {
+                24 => {
                     json!({"op":"apply_preset","preset":{"timeline":random,"zooms":[{"id":"foreign"}],"canvas":{"shadow":arbitrary_json(&mut seed,2),"highlights":random},"cursor":{"key_overlay":arbitrary_json(&mut seed,2)}}})
+                }
+                25 => {
+                    json!({"op":"insert_source","src_start_ns":0,"src_end_ns":(n%5_000_000_000) as i64,"at_tl_ns":0,"speed":random})
+                }
+                26 => json!({"op":"set","path":"camera.style","value":random}),
+                27 => json!({"op":"set","path":"camera.layout_settings","value":random}),
+                _ => {
+                    json!({"op":"update_zoom","id":before["zooms"][0]["id"].as_str().unwrap_or("missing"),"patch":{"style":"lens","lens":random}})
                 }
             };
             if step % 97 == 0 {
@@ -556,9 +570,9 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
             }
             if step % 11 == 0 {
                 let query = if step % 33 == 0 {
-                    json!({"q":(["typing_suggestions","capabilities","history","insertion_styles","autosave_policy","timeline_constraints"][step as usize%6])})
+                    json!({"q":(["typing_suggestions","capabilities","history","insertion_styles","autosave_policy","timeline_constraints","markers","camera_style","camera_style_library"][(step as usize/33)%9])})
                 } else if step % 22 == 0 {
-                    json!({"q":"effects_at","tl_ns":arbitrary_json(&mut seed,2)})
+                    json!({"q":(["effects_at","zoom_lens_at","camera_layout_at"][(n%3) as usize]),"tl_ns":arbitrary_json(&mut seed,2)})
                 } else {
                     arbitrary_json(&mut seed, 3)
                 };

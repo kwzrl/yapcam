@@ -80,6 +80,8 @@ fn check(before: &ProjectData, after: &ProjectData) -> Result<()> {
 }
 pub(crate) fn zoom_style(z: &Zoom) -> ZoomInsertionStyle {
     ZoomInsertionStyle {
+        style: z.style.clone(),
+        lens: z.lens.clone(),
         mode: z.mode.clone(),
         scale: z.scale,
         ease_in_ns: z.ease_in_ns,
@@ -186,10 +188,10 @@ pub(crate) fn command(
             };
             let mut row = match op {
                 "insert_zoom" => {
-                    json!({"mode":"auto","scale":p.zoom_settings.default_scale,"target":[0.5,0.5],"ease_in_ns":300_000_000,"ease_out_ns":300_000_000,"enabled":true})
+                    json!({"style":"classic","lens":ZoomLens::default(),"mode":"auto","scale":p.zoom_settings.default_scale,"target":[0.5,0.5],"ease_in_ns":300_000_000,"ease_out_ns":300_000_000,"enabled":true})
                 }
                 "insert_layout" => {
-                    json!({"mode":"overlay","camera_position":null,"camera_size":null,"camera_background_removal":null,"camera_face_framing":null,"camera_shadow_radius":null})
+                    json!({"mode":"overlay","settings":null,"camera_position":null,"camera_size":null,"camera_background_removal":null,"camera_face_framing":null,"camera_shadow_radius":null})
                 }
                 _ => serde_json::to_value(Highlight::default())?,
             };

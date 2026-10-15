@@ -184,6 +184,7 @@ pub(crate) fn apply_inner(
                 apply_inner(p, cmd, cs, depth + 1, context)?;
             }
         }
+        "insert_source" => crate::source_insert::apply(p, v, cs)?,
         "split" => {
             let at = int(v, "at_tl_ns")?;
             if at <= 0 || at >= time::duration(&p.timeline.clips) {
@@ -669,29 +670,43 @@ pub(crate) fn apply_inner(
     Ok(())
 }
 pub(crate) fn remap_effects(p: &mut ProjectData, map: impl Fn(i64) -> i64) {
+    remap_effect_edges(p, &map, &map);
+}
+pub(crate) fn remap_effect_edges(
+    p: &mut ProjectData,
+    map: impl Fn(i64) -> i64,
+    end: impl Fn(i64) -> i64,
+) {
     for z in &mut p.zooms {
         z.tl_start_ns = map(z.tl_start_ns);
-        z.tl_end_ns = map(z.tl_end_ns);
+        z.tl_end_ns = end(z.tl_end_ns);
     }
     p.zooms.retain(|z| z.tl_end_ns > z.tl_start_ns);
     for l in &mut p.camera.layouts {
         l.tl_start_ns = map(l.tl_start_ns);
-        l.tl_end_ns = map(l.tl_end_ns);
+        l.tl_end_ns = end(l.tl_end_ns);
     }
     p.camera.layouts.retain(|l| l.tl_end_ns > l.tl_start_ns);
+    for r in &mut p.camera.silence_ranges {
+        r.tl_start_ns = map(r.tl_start_ns);
+        r.tl_end_ns = end(r.tl_end_ns);
+    }
+    p.camera
+        .silence_ranges
+        .retain(|r| r.tl_end_ns > r.tl_start_ns);
     for r in &mut p.cursor.ranges {
         r.tl_start_ns = map(r.tl_start_ns);
-        r.tl_end_ns = map(r.tl_end_ns);
+        r.tl_end_ns = end(r.tl_end_ns);
     }
     p.cursor.ranges.retain(|r| r.tl_end_ns > r.tl_start_ns);
     for r in &mut p.audio.ranges {
         r.tl_start_ns = map(r.tl_start_ns);
-        r.tl_end_ns = map(r.tl_end_ns);
+        r.tl_end_ns = end(r.tl_end_ns);
     }
     p.audio.ranges.retain(|r| r.tl_end_ns > r.tl_start_ns);
     for h in &mut p.canvas.highlights {
         h.tl_start_ns = map(h.tl_start_ns);
-        h.tl_end_ns = map(h.tl_end_ns);
+        h.tl_end_ns = end(h.tl_end_ns);
     }
     p.canvas.highlights.retain(|h| h.tl_end_ns > h.tl_start_ns);
     for records in [
@@ -701,16 +716,16 @@ pub(crate) fn remap_effects(p: &mut ProjectData, map: impl Fn(i64) -> i64) {
     ] {
         for r in records.iter_mut() {
             r.tl_start_ns = map(r.tl_start_ns);
-            r.tl_end_ns = map(r.tl_end_ns);
+            r.tl_end_ns = end(r.tl_end_ns);
         }
         records.retain(|r| r.tl_end_ns > r.tl_start_ns);
     }
     for m in &mut p.audio.music {
         m.tl_start_ns = map(m.tl_start_ns);
-        m.tl_end_ns = map(m.tl_end_ns);
+        m.tl_end_ns = end(m.tl_end_ns);
         for r in &mut m.ducking.ranges {
             r.tl_start_ns = map(r.tl_start_ns);
-            r.tl_end_ns = map(r.tl_end_ns);
+            r.tl_end_ns = end(r.tl_end_ns);
         }
         m.ducking.ranges.retain(|r| r.tl_end_ns > r.tl_start_ns);
     }

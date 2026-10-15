@@ -173,7 +173,8 @@ impl Project {
                 "arrow" => 3,
                 _ => 0,
             },
-            cursor_motion_blur: p.cursor.motion_blur as f32,
+            cursor_motion_blur: (p.cursor.motion_blur * p.canvas.global_motion_blur.unwrap_or(1.0))
+                as f32,
             cursor_spotlight_radius: p.cursor.spotlight_radius as f32,
             background_noise: p.canvas.background.noise as f32,
             window_chrome: p.canvas.window_chrome as u8,

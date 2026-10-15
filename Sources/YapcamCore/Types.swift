@@ -37,7 +37,30 @@ public enum JSONValue: Codable, Sendable, Equatable {
 
 }
 
+public struct ZoomLens: Codable, Sendable, Equatable {
+    public var radius: Double
+    public var bevel: Double
+    public var chromaticAberration: Double
+    public init(radius: Double = 0.35, bevel: Double = 0.2, chromaticAberration: Double = 0.5) {
+        self.radius = radius; self.bevel = bevel; self.chromaticAberration = chromaticAberration
+    }
+    enum CodingKeys: String, CodingKey { case radius, bevel, chromaticAberration = "chromatic_aberration", camelAberration = "chromaticAberration" }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(radius: try c.decodeIfPresent(Double.self, forKey: .radius) ?? 0.35,
+                  bevel: try c.decodeIfPresent(Double.self, forKey: .bevel) ?? 0.2,
+                  chromaticAberration: try c.decodeIfPresent(Double.self, forKey: .chromaticAberration)
+                    ?? c.decodeIfPresent(Double.self, forKey: .camelAberration) ?? 0.5)
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(radius, forKey: .radius); try c.encode(bevel, forKey: .bevel)
+        try c.encode(chromaticAberration, forKey: .chromaticAberration)
+    }
+}
 public struct ZoomSpec: Codable, Sendable, Equatable {
+    public var style: String = "classic"
+    public var lens: ZoomLens = ZoomLens()
     public var tlStartNs: Int64
     public var tlEndNs: Int64
     public var mode: String
@@ -50,8 +73,17 @@ public struct ZoomSpec: Codable, Sendable, Equatable {
         tlStartNs = startNs; tlEndNs = endNs; self.target = target; self.scale = scale; self.mode = mode
         self.easeInNs = easeInNs; self.easeOutNs = easeOutNs
     }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(startNs: try c.decode(Int64.self, forKey: .tlStartNs), endNs: try c.decode(Int64.self, forKey: .tlEndNs),
+                  target: try c.decode([Double].self, forKey: .target), scale: try c.decode(Double.self, forKey: .scale),
+                  mode: try c.decode(String.self, forKey: .mode), easeInNs: try c.decode(Int64.self, forKey: .easeInNs),
+                  easeOutNs: try c.decode(Int64.self, forKey: .easeOutNs))
+        style = try c.decodeIfPresent(String.self, forKey: .style) ?? "classic"
+        lens = try c.decodeIfPresent(ZoomLens.self, forKey: .lens) ?? ZoomLens()
+    }
     enum CodingKeys: String, CodingKey {
-        case tlStartNs = "tl_start_ns", tlEndNs = "tl_end_ns", mode, target, scale
+        case tlStartNs = "tl_start_ns", tlEndNs = "tl_end_ns", mode, target, scale, style, lens
         case easeInNs = "ease_in_ns", easeOutNs = "ease_out_ns"
     }
 }
@@ -85,16 +117,20 @@ public enum EditCommand: Encodable, Sendable {
     case processSilence(ranges: [SilenceRange], speed: Double?)
     case relinkProject(project: JSONValue, paths: [String])
     case addMedia(path: String, asBackground: Bool)
+    case insertSource(startNs: Int64, endNs: Int64, atNs: Int64, speed: Double = 1, settings: ClipSettings = ClipSettings())
     // Encode integer times as Int64, never via JSONValue.Double.
     enum Key: String, CodingKey {
         case op, at = "at_tl_ns", start = "tl_start_ns", end = "tl_end_ns", clipID = "clip_id"
-        case key
+        case key, srcStart = "src_start_ns", srcEnd = "src_end_ns", settings
         case command, duration = "duration_ns"
         case speed, zoom, id, patch, path, value, commands, preset, ranges, mode, project, paths, role, record, transcript, style, replace
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: Key.self)
         switch self {
+        case .insertSource(let start, let end, let at, let speed, let settings):
+            try c.encode("insert_source", forKey: .op); try c.encode(start, forKey: .srcStart); try c.encode(end, forKey: .srcEnd)
+            try c.encode(at, forKey: .at); try c.encode(speed, forKey: .speed); try c.encode(EffectCommandValue(value: settings), forKey: .settings)
         case .addText(let kind, let record):
             try c.encode("add_" + kind.rawValue, forKey: .op); try c.encode(EffectCommandValue(value: record), forKey: .record)
         case .updateText(let kind, let id, let patch):

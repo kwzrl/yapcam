@@ -24,6 +24,8 @@ extension Project {
 
 public struct CoreInsertionStyles: Decodable, Sendable, Equatable {
     public struct Zoom: Decodable, Sendable, Equatable {
+        public var style: String?
+        public var lens: ZoomLens?
         public var mode: String
         public var scale: Double
         public var easeInNs: Int64
