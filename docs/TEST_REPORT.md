@@ -39,8 +39,9 @@ Recording grants, so no UI driving or screenshots). Analysis with `scripts/qa/ve
 | Window capture (`--live-e2e window`) | PASS (minor F8) | Terminal 1627x1015 pt -> video 1626x1014 (even-size rounding); session.json pixel_size says 1627x1015 |
 | Pause/resume (`--live-e2e pause`) | PASS | 2 segments 2.15 s + 1.93 s, pause excluded |
 | Default flow (toolbar, countdown, record, stop, editor, export) | PASS up to export; export with audio FAIL (F6) | editor opened on the new package; export without audio OK |
-| Toolbar/HUD/countdown excluded from video | PASS (ui team evidence) | ui extracted frames at 0.3/2/4 s; not repeated by qa |
-| Scripted input vs events.jsonl | NOT RUN | CGEvent posting from my shell is not delivered (no Accessibility); needs in-app `--drive-input` (Request to Lead) |
+| Toolbar/HUD/countdown excluded from video (`--ui-record-selftest 6`) | PASS | qa viewed frames at 0.4 s (countdown phase) and 4.5 s (recording): none of the Yapcam windows visible; frames deleted (they show the desktop) |
+| Pause + resume with A/V sync (`--capture-selftest 24 --pause-after 10` with sync-marker) | PASS | 2 segments (10.18 s, 14.02 s); 12/12 flash/beep pairs, offsets 4.1/15.2/6.9 ms first/mid/last, drift 2.8 ms |
+| Scripted input vs events.jsonl (`--drive-input-selftest`) | BLOCKED | the app has no Accessibility/Input Monitoring (probe.log: accessibility=false inputMonitoring=false), so posted CGEvents are dropped; needs the user to grant both to build/Yapcam.app, then rerun |
 | Toolbar excluded from exported video | NOT RUN | selftest shows no toolbar; needs UI-driven recording |
 | Autosave / kill -9 / reopen via UI, undo/redo via UI, toolbar interaction | NOT RUN | needs UI automation (no AX for qa) |
 | Failure paths live (permission revoked, low disk, device lost) | NOT RUN | covered by capture injected-fault tests only |
