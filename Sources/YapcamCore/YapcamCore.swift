@@ -16,8 +16,11 @@ public final class Project: @unchecked Sendable {
     // Only mutations use this gate. Frame/query reads never wait for journal IO.
     private let mutationGate = NSLock()
     private var closed = false
-    private init(handle: OpaquePointer, package: URL, session: SessionInfo) {
+    private var mutationRevision: UInt64 = 0
+    private var savedRevision: UInt64 = 0
+    private init(handle: OpaquePointer, package: URL, session: SessionInfo, dirty: Bool = false) {
         self.handle = handle; packageURL = package; self.session = session
+        mutationRevision = dirty ? 1 : 0
     }
     deinit { yc_project_free(handle) }
     private static func check(_ status: YcStatus) throws {
@@ -52,7 +55,7 @@ public final class Project: @unchecked Sendable {
         do {
             let bytes = try "{\"q\":\"session\"}".withCString { query in try stringResult { yc_query(raw, query, $0) } }
             let session = try decoder().decode(SessionInfo.self, from: bytes)
-            return Project(handle: raw, package: package, session: session)
+            return Project(handle: raw, package: package, session: session, dirty: create || FileManager.default.fileExists(atPath: package.appendingPathComponent("autosave/project.json").path))
         } catch { yc_project_free(raw); throw error }
     }
     public static func create(package: URL) throws -> Project { try load(package: package, create: true) }
@@ -72,26 +75,46 @@ public final class Project: @unchecked Sendable {
     public func save() throws {
         try withMutation {
             try packageURL.path.withCString { try Self.check(yc_project_save(handle, $0)) }
+            savedRevision = mutationRevision
         }
+    }
+    /// A timer may save only the revision it observed. Stale timers do no IO.
+    @discardableResult public func save(ifRevision expected: UInt64) throws -> Bool {
+        try withMutation {
+            guard mutationRevision == expected else { return false }
+            try packageURL.path.withCString { try Self.check(yc_project_save(handle, $0)) }
+            savedRevision = mutationRevision
+            return true
+        }
+    }
+    public var revision: UInt64 {
+        mutationGate.lock(); defer { mutationGate.unlock() }
+        return mutationRevision
+    }
+    public var isDirty: Bool {
+        mutationGate.lock(); defer { mutationGate.unlock() }
+        return mutationRevision != savedRevision
     }
     @discardableResult public func apply(_ command: EditCommand) throws -> ChangeSet {
         let bytes = try JSONEncoder().encode(command)
-        let result = try withMutation {
-            try String(decoding: bytes, as: UTF8.self).withCString { c in try Self.stringResult { yc_apply(handle, c, $0) } }
+        let changes = try withMutation {
+            let result = try String(decoding: bytes, as: UTF8.self).withCString { c in try Self.stringResult { yc_apply(handle, c, $0) } }
+            let changes = try JSONDecoder().decode(ChangeSet.self, from: result)
+            if !changes.changed.isEmpty { mutationRevision &+= 1 }
+            return changes
         }
-        let changes = try JSONDecoder().decode(ChangeSet.self, from: result)
         if !changes.changed.isEmpty { NotificationCenter.default.post(name: Self.didChange, object: self) }
         return changes
     }
     public func undo() throws {
         let did = try withMutation {
-            var did: UInt8 = 0; try Self.check(yc_undo(handle, &did)); return did
+            var did: UInt8 = 0; try Self.check(yc_undo(handle, &did)); if did != 0 { mutationRevision &+= 1 }; return did
         }
         if did != 0 { NotificationCenter.default.post(name: Self.didChange, object: self) }
     }
     public func redo() throws {
         let did = try withMutation {
-            var did: UInt8 = 0; try Self.check(yc_redo(handle, &did)); return did
+            var did: UInt8 = 0; try Self.check(yc_redo(handle, &did)); if did != 0 { mutationRevision &+= 1 }; return did
         }
         if did != 0 { NotificationCenter.default.post(name: Self.didChange, object: self) }
     }

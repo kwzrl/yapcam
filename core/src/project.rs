@@ -53,6 +53,7 @@ pub struct Project {
     pub undo: Vec<ProjectData>,
     pub redo: Vec<ProjectData>,
     pub snapshot: bool,
+    pub(crate) undo_group: Option<(String, std::time::Instant)>,
 }
 /// Owned journal destination captured while staging, with no live project lock.
 pub(crate) struct JournalTarget {
@@ -190,6 +191,13 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     for c in &p.timeline.clips {
         if c.src_start_ns < 0
             || c.src_end_ns <= c.src_start_ns
+            || [
+                c.settings.mic_gain,
+                c.settings.system_gain,
+                c.settings.external_gain,
+            ]
+            .iter()
+            .any(|v| !(0.0..=1.0).contains(v))
             || !c.speed.is_finite()
             || !(0.05..=32.0).contains(&c.speed)
             || !ids.insert(c.id.as_str())
@@ -215,7 +223,37 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             return invalid("Invalid zoom");
         }
     }
+    if let Some(style) = &p.insertion_styles.zoom {
+        if !matches!(style.mode.as_str(), "auto" | "manual")
+            || !(1.0..=16.0).contains(&style.scale)
+            || style.ease_in_ns < 0
+            || style.ease_out_ns < 0
+        {
+            return invalid("Invalid remembered zoom style");
+        }
+    }
+    if let Some(style) = &p.insertion_styles.mask {
+        if !(0.0..=16384.0).contains(&style.radius)
+            || !(0.0..=16384.0).contains(&style.stroke_width)
+            || [style.opacity, style.dim_opacity]
+                .iter()
+                .any(|v| !(0.0..=1.0).contains(v))
+            || style
+                .fill
+                .iter()
+                .chain(&style.stroke)
+                .any(|v| !(0.0..=1.0).contains(v))
+        {
+            return invalid("Invalid remembered mask style");
+        }
+    }
     let c = &p.canvas;
+    if c.device_frame
+        .as_ref()
+        .is_some_and(|s| s.is_empty() || s.len() > 128)
+    {
+        return invalid("Invalid device frame identifier");
+    }
     if c.padding_ratio.is_some_and(|v| !(0.0..=0.25).contains(&v))
         || !matches!(c.shadow.style.as_str(), "classic" | "directional")
         || !(0.0..=100.0).contains(&c.shadow.distance)
@@ -629,7 +667,9 @@ impl Project {
             }
             events.push(list);
         }
-        if !crate::auto::has_mouse_data(&events) {
+        if !crate::auto::has_mouse_data(&events)
+            || crate::capabilities::external(&session.source.kind)
+        {
             for zoom in &mut data.zooms {
                 if zoom.mode == "auto" {
                     zoom.mode = "manual".into();
@@ -652,6 +692,7 @@ impl Project {
             undo: vec![],
             redo: vec![],
             snapshot: false,
+            undo_group: None,
         })
     }
     /// Cold capture-fixture replacement hook; production events are immutable

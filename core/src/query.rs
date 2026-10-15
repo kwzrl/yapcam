@@ -159,6 +159,15 @@ impl Project {
                     json!({"canvas":canvas,"cursor":cursor,"camera":camera,"audio":audio,"zoom_settings":self.data.zoom_settings,"export":self.data.export_settings}),
                 )
             }
+            "autosave_policy" => {
+                Ok(json!({"enabled":self.data.autosave,"delay_ns":30_000_000_000_i64}))
+            }
+            "capabilities" => Ok(serde_json::to_value(self.capabilities())?),
+            "insertion_styles" => Ok(serde_json::to_value(&self.data.insertion_styles)?),
+            "history" => Ok(
+                json!({"undo_steps":self.undo.len(),"redo_steps":self.redo.len(),"limit":1000,"coalesce_ms":100}),
+            ),
+            "timeline_constraints" => Ok(crate::editing::constraints()),
             "typing_suggestions" => Ok(crate::auto::typing_suggestions(self)),
             "speech_enhancement" => self.speech_enhancement_plan(),
             "audio_automation" => Ok(serde_json::to_value(&self.data.audio.ranges)?),
@@ -217,6 +226,18 @@ impl Project {
                             self.data.audio.system_muted,
                         ),
                     ] {
+                        let clip_gain = if track == "mic" {
+                            c.settings.mic_gain
+                        } else {
+                            c.settings.system_gain
+                        };
+                        let muted = muted || clip_gain == 0.0;
+                        let gain_db = gain_db
+                            + if clip_gain > 0.0 {
+                                20.0 * clip_gain.log10()
+                            } else {
+                                0.0
+                            };
                         for (i, s) in self.session.segments.iter().enumerate() {
                             let Some(path) = s.files.get(track) else {
                                 continue;
@@ -411,6 +432,7 @@ mod tests {
             src_start_ns: 0,
             src_end_ns: length + 1_000,
             speed: 1.3,
+            settings: Default::default(),
         }];
         let result=p.query(&json!({"q":"map_audio_ranges","track":"system_audio","path":"recording/seg-000/system.m4a",
             "ranges":[{"file_start_ns":length+9,"file_end_ns":length+61}]})).unwrap();
@@ -468,6 +490,7 @@ mod tests {
                 src_start_ns: i * length,
                 src_end_ns: (i + 1) * length,
                 speed: 1.3,
+                settings: Default::default(),
             })
             .collect();
         p.session.segments.truncate(1);
@@ -689,6 +712,7 @@ mod speech_enhancement_tests {
             src_start_ns: 0,
             src_end_ns: 900_000_000,
             speed: 2.0,
+            settings: Default::default(),
         }];
         assert_eq!(p.query(&query).unwrap()["media"], json!([]));
         p.data.timeline.clips[0].src_start_ns = 1_000_000_000;

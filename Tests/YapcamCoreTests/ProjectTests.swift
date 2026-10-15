@@ -1111,3 +1111,77 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         #expect(try reopened.frame(atNs: 0).cursor_scale == frame.cursor_scale)
     }
 }
+
+@Test func checkedTimelineMinimumsAndClipSettingsUseAdditiveCommands() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let before = try p.toJSON()
+        #expect(throws: CoreError.self) { try p.apply(.timelineEdit(.split(atNs: 99_999_999))) }
+        #expect(try p.toJSON() == before && !p.canUndo)
+        try p.apply(.timelineEdit(.split(atNs: 100_000_000)))
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        try p.apply(.setClipSettings(clipID: clips[0].id, patch: ["system_gain": .number(0), "hide_cursor": .bool(true)]))
+        #expect(try p.frame(atNs: 0).system_gain == 0 && p.frame(atNs: 0).cursor_visible == 0)
+        #expect(try p.frame(atNs: 200_000_000).system_gain == 1)
+        try p.apply(.insertTimelineItem(.zoom))
+        #expect(try p.query("{\"q\":\"zooms\"}", as: [[String: JSONValue]].self).last?["tl_end_ns"]?.integerValue == 3_000_000_000)
+        try p.apply(.insertTimelineItem(.mask))
+        try p.save()
+        let reopened = try Project.open(package: package)
+        #expect(try reopened.query("{\"q\":\"clips\"}", as: [ClipInfo].self)[0].settings?.systemGain == 0)
+        #expect(throws: CoreError.self) { try p.apply(.insertTimelineItem(.layout, durationNs: 499_999_999)) }
+    }
+}
+
+@Test func coalescedInteractiveEditsKeepOneUndoStateThroughABI() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.set(path: "autosave", value: .bool(false)))
+        let initial = try p.historyState().undoSteps
+        for value: Double in [30, 31, 32] {
+            try p.apply(.coalescedEdit(key: "padding-drag", command: .set(path: "canvas.padding", value: .number(value))))
+        }
+        #expect(try p.historyState().undoSteps == initial + 1)
+        #expect(try p.historyState().limit == 1000 && p.historyState().coalesceMs == 100)
+        try p.undo(); #expect(try p.renderOptions().paddingRatio == 0.1)
+        try p.redo(); #expect(try p.renderOptions().paddingRatio == nil)
+        let limits = try p.timelineConstraints()
+        #expect(limits.clipMinNs == 100_000_000 && limits.maskMinNs == 500_000_000 && limits.insertDurationNs == 3_000_000_000)
+        try p.apply(.set(path: "notes", value: .string("discrete")))
+        #expect(try p.historyState().undoSteps == initial + 2)
+    }
+}
+
+@Test func lastEditedInsertionStylesPersistWithoutCopyingGeometry() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        #expect(try p.insertionStyles().zoom == nil)
+        let changes = try p.apply(.insertTimelineItem(.zoom, patch: ["scale": .number(3), "target": .array([.number(0.1), .number(0.2)])]))
+        let id = try #require(changes.createdIDs.first)
+        try p.apply(.updateZoom(id: id, patch: ["scale": .number(2.5)]))
+        try p.save()
+        let reopened = try Project.open(package: package)
+        #expect(try reopened.insertionStyles().zoom?.scale == 2.5)
+        try reopened.apply(.insertTimelineItem(.zoom, startNs: 1_000_000_000))
+        let zooms = try reopened.query("{\"q\":\"zooms\"}", as: [[String: JSONValue]].self)
+        #expect(zooms.last?["scale"]?.numberValue == 2.5)
+        #expect(zooms.last?["target"] == .array([.number(0.5), .number(0.5)]))
+        try p.undo(); #expect(try p.insertionStyles().zoom?.scale == 3)
+    }
+}
+
+@Test func capabilityGatesPreserveStoredAppearanceThroughABI() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        #expect(try p.capabilities().canCursor && p.capabilities().canCrop)
+        #expect(try !p.capabilities().canCamera && !p.capabilities().canExternalAudio)
+        try p.apply(.batch([.set(path: "canvas.crop", value: .array([0.1,0.1,0.7,0.7].map(JSONValue.number))), .set(path: "canvas.inset", value: .number(4))]))
+        let before = try p.frame(atNs: 0)
+        try p.apply(.set(path: "canvas.device_frame", value: .string("own-generic-frame")))
+        #expect(try !p.capabilities().canCrop && !p.capabilities().canRoundCorners && !p.capabilities().canInset)
+        #expect(try p.frame(atNs: 0).screen_crop.w == 1 && p.frame(atNs: 0).screen_corner_radius == 0 && p.frame(atNs: 0).inset_width == 0)
+        try p.save()
+        #expect(try Project.open(package: package).capabilities().deviceFrameActive)
+        try p.undo(); #expect(try p.frame(atNs: 0).screen_crop.w == before.screen_crop.w)
+    }
+}

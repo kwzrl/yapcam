@@ -109,7 +109,14 @@ impl KeyOverlayIndex {
         })
     }
     pub(crate) fn for_clips(self: &Arc<Self>, clips: &[Clip]) -> Arc<Self> {
-        if self.clips == clips {
+        if self.clips.len() == clips.len()
+            && self.clips.iter().zip(clips).all(|(a, b)| {
+                a.id == b.id
+                    && a.src_start_ns == b.src_start_ns
+                    && a.src_end_ns == b.src_end_ns
+                    && a.speed == b.speed
+            })
+        {
             Arc::clone(self)
         } else {
             Self::mapped(Arc::clone(&self.source), clips)
@@ -265,12 +272,14 @@ mod tests {
                 src_start_ns: 0,
                 src_end_ns: 500_000_000,
                 speed: 1.5,
+                settings: Default::default(),
             },
             Clip {
                 id: "repeat".into(),
                 src_start_ns: 0,
                 src_end_ns: 500_000_000,
                 speed: 2.0,
+                settings: Default::default(),
             },
         ];
         p.rebuild_key_overlay_index();

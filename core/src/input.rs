@@ -8,6 +8,7 @@ pub struct Point {
 }
 #[derive(Clone, Default)]
 pub struct InputCache {
+    pub mouse_data: bool,
     pub positions: Vec<Point>,
     pub cursors: Vec<(i64, u32)>,
     pub steady_positions: Vec<Point>,
@@ -22,6 +23,7 @@ impl InputCache {
         let mut last = (0.0, 0.0);
         let mut has_position = false;
         for e in events {
+            cache.mouse_data |= matches!(e.kind.as_str(), "move" | "down" | "up" | "cursor");
             if let (Some(x), Some(y)) = (e.x, e.y) {
                 last = (x, y);
                 has_position = true;

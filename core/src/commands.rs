@@ -16,6 +16,7 @@ pub(crate) struct PreparedApply {
     pub next: Option<ProjectData>,
     pub changes: ChangeSet,
     pub keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
+    pub group: Option<String>,
 }
 fn int(v: &Value, key: &str) -> Result<i64> {
     v.get(key)
@@ -37,7 +38,7 @@ impl Project {
         let prepared = self.prepare_apply(command)?;
         if let Some(next) = prepared.next {
             self.write_journal(&next)?;
-            drop(self.commit_apply(next, prepared.keys));
+            drop(self.commit_apply(next, prepared.keys, prepared.group));
         }
         Ok(prepared.changes)
     }
@@ -74,17 +75,39 @@ impl Project {
             next,
             changes,
             keys,
+            group: if command["op"] == "coalesced_edit" {
+                command["key"].as_str().map(str::to_owned)
+            } else {
+                None
+            },
         })
     }
     pub(crate) fn commit_apply(
         &mut self,
         next: ProjectData,
         keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
+        group: Option<String>,
     ) -> Vec<ProjectData> {
         self.key_overlay_index = keys;
-        self.undo.push(std::mem::replace(&mut self.data, next));
-        // Drop obsolete history after the FFI releases its write lock.
-        std::mem::take(&mut self.redo)
+        let now = std::time::Instant::now();
+        let merge = group.as_ref().is_some_and(|key| {
+            self.undo_group.as_ref().is_some_and(|(prior, time)| {
+                prior == key && now.duration_since(*time) < std::time::Duration::from_millis(100)
+            })
+        }) && !self.undo.is_empty();
+        let prior = std::mem::replace(&mut self.data, next);
+        let mut obsolete = std::mem::take(&mut self.redo);
+        if merge {
+            obsolete.push(prior);
+        } else {
+            self.undo.push(prior);
+        }
+        if self.undo.len() > 1000 {
+            obsolete.extend(self.undo.drain(..self.undo.len() - 1000));
+        }
+        self.undo_group = group.map(|key| (key, now));
+        // Drop obsolete states after releasing the FFI project lock.
+        obsolete
     }
     pub fn undo(&mut self) -> Result<bool> {
         if let Some(old) = self.undo.last() {
@@ -113,6 +136,7 @@ impl Project {
         keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
     ) -> bool {
         self.key_overlay_index = keys;
+        self.undo_group = None;
         if let Some(previous) = self.undo.pop() {
             self.redo.push(std::mem::replace(&mut self.data, previous));
             true
@@ -125,6 +149,7 @@ impl Project {
         keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
     ) -> bool {
         self.key_overlay_index = keys;
+        self.undo_group = None;
         if let Some(next) = self.redo.pop() {
             self.undo.push(std::mem::replace(&mut self.data, next));
             true
@@ -133,7 +158,7 @@ impl Project {
         }
     }
 }
-fn apply_inner(
+pub(crate) fn apply_inner(
     p: &mut ProjectData,
     v: &Value,
     cs: &mut ChangeSet,
@@ -142,6 +167,9 @@ fn apply_inner(
 ) -> Result<()> {
     if depth > 32 {
         return Err(Error::new(1, "Batch nesting exceeds 32"));
+    }
+    if crate::editing::command(p, v, cs, depth, context)? {
+        return Ok(());
     }
     if crate::effects::collection_command(p, v, cs)? {
         return Ok(());
@@ -261,14 +289,30 @@ fn apply_inner(
                 .remove("op");
             let id = unique_id("zoom");
             spec["id"] = id.clone().into();
-            if spec.get("scale").is_none() {
-                spec["scale"] = p.zoom_settings.default_scale.into();
+            let seed = p
+                .insertion_styles
+                .zoom
+                .clone()
+                .unwrap_or(ZoomInsertionStyle {
+                    scale: p.zoom_settings.default_scale,
+                    ..ZoomInsertionStyle::default()
+                });
+            for (key, value) in serde_json::to_value(seed)?.as_object().unwrap() {
+                if spec.get(key).is_none() {
+                    spec[key] = value.clone();
+                }
             }
+
             let mut z: Zoom = serde_json::from_value(spec)?;
-            if z.mode == "auto" && !crate::auto::has_mouse_data(&context.events) {
+            if z.mode == "auto"
+                && (!crate::auto::has_mouse_data(&context.events)
+                    || crate::capabilities::external(&context.session.source.kind))
+            {
                 z.mode = "manual".into();
             }
+            p.insertion_styles.zoom = Some(crate::editing::zoom_style(&z));
             p.zooms.push(z);
+            cs.changed.push("insertion_styles.zoom".into());
             cs.created_ids.push(id);
             cs.changed.push("zooms".into());
         }
@@ -291,10 +335,15 @@ fn apply_inner(
                 spec[k] = val.clone();
             }
             *z = serde_json::from_value(spec)?;
-            if z.mode == "auto" && !crate::auto::has_mouse_data(&context.events) {
+            if z.mode == "auto"
+                && (!crate::auto::has_mouse_data(&context.events)
+                    || crate::capabilities::external(&context.session.source.kind))
+            {
                 z.mode = "manual".into();
             }
-            cs.changed.push("zooms".into());
+            p.insertion_styles.zoom = Some(crate::editing::zoom_style(z));
+            cs.changed
+                .extend(["zooms".into(), "insertion_styles.zoom".into()]);
         }
         "remove_zoom" => {
             let id = string(v, "id")?;
@@ -518,6 +567,11 @@ fn apply_inner(
             let value = v
                 .get("value")
                 .ok_or_else(|| Error::new(1, "Missing set value"))?;
+            let old_masks = if path == "canvas.highlights" {
+                Some(p.canvas.highlights.clone())
+            } else {
+                None
+            };
             let mut data = serde_json::to_value(&*p)?;
             let mut target = &mut data;
             for part in &parts {
@@ -527,6 +581,12 @@ fn apply_inner(
             }
             *target = value.clone();
             *p = serde_json::from_value(data)?;
+            if let Some(old) = old_masks {
+                if let Some(mask) = p.canvas.highlights.iter().rev().find(|h| !old.contains(h)) {
+                    p.insertion_styles.mask = Some(crate::editing::mask_style(mask));
+                    cs.changed.push("insertion_styles.mask".into());
+                }
+            }
             match path {
                 "audio.mic_preset" => {
                     // Metadata defaults never reinterpret old DSP. Only an explicit
@@ -877,12 +937,14 @@ mod tests {
                 src_start_ns: 0,
                 src_end_ns: length,
                 speed: 1.0,
+                settings: Default::default(),
             },
             Clip {
                 id: "long-2".into(),
                 src_start_ns: length,
                 src_end_ns: 2 * length,
                 speed: 1.0,
+                settings: Default::default(),
             },
         ];
         (fixture, p, length)
@@ -1032,12 +1094,14 @@ mod tests {
                 src_start_ns: 0,
                 src_end_ns: 1,
                 speed: 1.3,
+                settings: Default::default(),
             },
             Clip {
                 id: "short-fast".into(),
                 src_start_ns: 1,
                 src_end_ns: 35,
                 speed: 32.0,
+                settings: Default::default(),
             },
         ];
         assert_eq!(time::clip_bounds(&p.data.timeline.clips, 1), Some((1, 2)));
