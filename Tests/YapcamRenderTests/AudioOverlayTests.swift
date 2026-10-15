@@ -50,6 +50,14 @@ final class AudioOverlayTests: XCTestCase {
         let timeline=try AudioTimeline(project: source,range: 0..<source.durationNs)
         XCTAssertEqual(timeline.composition.duration.seconds,1,accuracy: 0.000_001)
     }
+    func testSubsampleLoopDurationIsRejectedBeforeUnboundedCompositionInsertion() throws {
+        let source=TestSource(package: temp,duration: 1_000_000_000,overlays: [
+            .init(source: .music(.calm),startNs: 0,endNs: 1_000_000_000,loops: true,sourceDurationNs: 1)
+        ])
+        XCTAssertThrowsError(try AudioTimeline(project: source,range: 0..<source.durationNs)) { error in
+            guard case RenderError.invalidSettings = error else { return XCTFail("Expected a bounded invalid-loop error: \(error)") }
+        }
+    }
     func testOverlappingFadesRetainTheirPeakThroughAnExportRange() throws {
         let source=TestSource(package: temp,duration: 1_000_000_000,overlays: [
             .init(source: .music(.calm),startNs: 0,endNs: 1_000_000_000,gain: 0.8,fadeInNs: 1_000_000_000,fadeOutNs: 1_000_000_000)

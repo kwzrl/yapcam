@@ -72,7 +72,7 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertEqual(effects.layers[1].opacity,0.5)
         try project.apply(.set(path: "cursor.style",value: .string("pointer")))
         XCTAssertEqual(try source.renderEffects(atNs: 500_000_000,canvasSize: CGSize(width: 1920,height: 1080)).configuration.cursorStyle,.touch)
-        XCTAssertEqual(try project.renderEffects(atNs: 500_000_000,canvasSize: CGSize(width: 1920,height: 1080)).configuration.cursorStyle,.pointer)
+        XCTAssertEqual(try project.renderEffects(atNs: 500_000_000,canvasSize: CGSize(width: 1920,height: 1080)).configuration.cursorStyle,.arrow)
     }
     @MainActor func testPreviewFreezesAnEditGenerationUntilInvalidated() throws {
         _ = try requireRenderDevice()

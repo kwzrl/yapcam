@@ -13,14 +13,23 @@ extension Project: RenderProjectSource {
     public func renderAudioRanges() throws -> [RenderAudioRange]? {
         try query("{\"q\":\"audio_ranges\"}",as: [RenderAudioRange].self)
     }
+    public func renderAudioOverlays() throws -> [AudioOverlay] {
+        try query("{\"q\":\"audio_overlays\"}",as: [EvaluatedAudioOverlay].self).map { try $0.overlay() }
+    }
     public func renderEffects(atNs: Int64,canvasSize: CGSize) throws -> RenderFrameEffects {
         let extras=try frameExtras(atNs: atNs)
         guard extras.cursor_style<=2, extras.highlight_count<=YC_MAX_FRAME_HIGHLIGHTS else {
             throw RenderError.invalidSettings("Core returned unsupported frame effects")
         }
         var configuration=RenderConfiguration()
-        configuration.cursorStyle=extras.cursor_style==1 ? .pointer : extras.cursor_style==2 ? .touch : .recorded
-        configuration.cursorMotionBlur=extras.cursor_motion_blur
+        // Core "pointer", including always_default, denotes the system arrow.
+        // The separately authored pointing hand remains available through custom source configuration.
+        configuration.cursorStyle=extras.cursor_style==1 ? .arrow : extras.cursor_style==2 ? .touch : .recorded
+        let motion=try frameMotion(atNs: atNs)
+        configuration.cursorRotationRadians=motion.cursor_rotation_rad
+        configuration.zoomMotionBlur=motion.zoom_motion_blur
+        configuration.panMotionBlur=motion.pan_motion_blur
+        configuration.cursorMotionBlur=motion.cursor_motion_blur
         configuration.cursorSpotlightRadius=extras.cursor_spotlight_radius
         configuration.backgroundNoise=extras.background_noise
         configuration.windowChrome=extras.window_chrome != 0
@@ -41,8 +50,8 @@ public extension FrameCompositor {
 }
 
 @MainActor public extension PreviewPlayer {
-    convenience init(project: Project) throws {
-        try self.init(project: project as any RenderProjectSource)
+    convenience init(project: Project,speechEnhancement: SpeechEnhancementSettings? = nil) throws {
+        try self.init(project: project as any RenderProjectSource,speechEnhancement: speechEnhancement)
         observeChanges(name: Project.didChange,object: project)
     }
 }

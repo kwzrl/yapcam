@@ -12,8 +12,37 @@ public struct AudioOverlay: Sendable, Equatable {
     public var loops: Bool
     public var fadeInNs: Int64
     public var fadeOutNs: Int64
-    public init(source: Source, startNs: Int64, endNs: Int64, sourceStartNs: Int64 = 0, gain: Float = 1, loops: Bool = false, fadeInNs: Int64 = 0, fadeOutNs: Int64 = 0) {
+    /// Optional evaluated dB-ramp endpoints; nil retains constant gain.
+    public var gainStart: Float?
+    public var gainEnd: Float?
+    /// Original envelope bounds survive Core duck splits and export-range trimming.
+    public var envelopeStartNs: Int64?
+    public var envelopeEndNs: Int64?
+    public var sourceDurationNs: Int64?
+    /// Core fades multiply; existing custom-source overlays retain their minimum envelope.
+    public var multiplyFades: Bool
+    public init(source: Source, startNs: Int64, endNs: Int64, sourceStartNs: Int64 = 0, gain: Float = 1, loops: Bool = false, fadeInNs: Int64 = 0, fadeOutNs: Int64 = 0, gainStart: Float? = nil, gainEnd: Float? = nil, envelopeStartNs: Int64? = nil, envelopeEndNs: Int64? = nil, sourceDurationNs: Int64? = nil, multiplyFades: Bool = false) {
         self.source = source; self.startNs = startNs; self.endNs = endNs; self.sourceStartNs = sourceStartNs; self.gain = gain; self.loops = loops; self.fadeInNs = fadeInNs; self.fadeOutNs = fadeOutNs
+        self.gainStart=gainStart; self.gainEnd=gainEnd; self.envelopeStartNs=envelopeStartNs
+        self.envelopeEndNs=envelopeEndNs; self.sourceDurationNs=sourceDurationNs; self.multiplyFades=multiplyFades
+    }
+    var envelopeStart: Int64 { envelopeStartNs ?? startNs }
+    var envelopeEnd: Int64 { envelopeEndNs ?? endNs }
+    func validate() throws {
+        guard startNs>=0,endNs>startNs,sourceStartNs>=0,fadeInNs>=0,fadeOutNs>=0,
+              envelopeStart>=0,envelopeStart<=startNs,envelopeEnd>=endNs,
+              [gain,gainStart ?? gain,gainEnd ?? gain].allSatisfy({ $0.isFinite && $0>=0 }),
+              sourceDurationNs.map({ $0>0 && sourceStartNs<$0 }) ?? true else {
+            throw RenderError.invalidSettings("Invalid evaluated audio overlay")
+        }
+    }
+    func gain(atTimelineNs ns: Int64) -> Float {
+        let a=gainStart ?? gain, b=gainEnd ?? gain
+        let fraction=min(1,max(0,Double(ns-startNs)/Double(endNs-startNs)))
+        let ramp=a>0 && b>0 ? exp(log(Double(a))+(log(Double(b))-log(Double(a)))*fraction) : Double(a)+(Double(b)-Double(a))*fraction
+        let incoming=fadeInNs>0 ? min(1,max(0,Double(ns-envelopeStart)/Double(fadeInNs))) : 1
+        let outgoing=fadeOutNs>0 ? min(1,max(0,Double(envelopeEnd-ns)/Double(fadeOutNs))) : 1
+        return Float(ramp*(multiplyFades ? incoming*outgoing : min(incoming,outgoing)))
     }
 }
 

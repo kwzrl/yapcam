@@ -15,6 +15,8 @@ public struct PreviewMetrics: Sendable {
     @Published public private(set) var isPlaying = false
     @Published public private(set) var error: String?
     @Published public private(set) var metrics = PreviewMetrics()
+    @Published public private(set) var speechEnhancementSettings: SpeechEnhancementSettings?
+    public var speechEnhancementReports: [SpeechEnhancementReport] { audioTimeline?.speechReports ?? [] }
     let project: any RenderProjectSource
     private(set) var renderProject: any RenderProjectSource
     let compositor: FrameCompositor
@@ -39,7 +41,9 @@ public struct PreviewMetrics: Sendable {
     private var redrawRevision = 0
     weak var view: MTKView?
 
-    public init(project: any RenderProjectSource) throws {
+    public init(project: any RenderProjectSource,speechEnhancement: SpeechEnhancementSettings? = nil) throws {
+        try speechEnhancement?.validate()
+        speechEnhancementSettings=speechEnhancement
         self.project = project
         renderProject = try project.renderSnapshot()
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw RenderError.metal("Metal preview unavailable") }
@@ -87,6 +91,12 @@ public struct PreviewMetrics: Sendable {
         }
         view?.needsDisplay = true
     }
+    public func setSpeechEnhancement(_ settings: SpeechEnhancementSettings?) throws {
+        try settings?.validate()
+        guard settings != speechEnhancementSettings else { return }
+        speechEnhancementSettings=settings
+        invalidate()
+    }
     public func invalidate() {
         // Rebuild the same clip mapping after edits; keep the current timeline location.
         let playing = isPlaying
@@ -103,10 +113,11 @@ public struct PreviewMetrics: Sendable {
         let generation = audioGeneration
         player?.pause(); player = nil; audioTimeline = nil; audioLoading = true; audioPreparationFailed = false; seeking = false
         guard project.durationNs > 0 else { audioLoading = false; return }
-        let source = renderProject
+        let source = renderProject, settings=speechEnhancementSettings
         audioTask = Task { [weak self] in
             do {
-                let timeline = try await Task.detached(priority: .userInitiated) { try AudioTimeline(project: source, range: 0..<source.durationNs) }.value
+                let timeline=try await AudioTimeline.prepare(project: source,range: 0..<source.durationNs,speechEnhancement: settings)
+                defer { withExtendedLifetime(timeline) {} }
                 guard !Task.isCancelled, let self, self.audioGeneration == generation else { return }
                 self.audioTimeline = timeline; self.error = nil
                 if timeline.hasAudio {

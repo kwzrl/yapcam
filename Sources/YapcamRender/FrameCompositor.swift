@@ -109,8 +109,11 @@ public final class FrameCompositor: @unchecked Sendable {
         func color(_ c: (Float, Float, Float, Float)) -> SIMD4<Float> { SIMD4(c.0, c.1, c.2, c.3) }
         let crop = rect(frame.screen_crop)
         // Fixed shutter interval makes blur deterministic for seek, preview and export.
-        let previous = frame.motion_blur > 0 && frame.tl_ns > 0
-            ? rect(try project.frame(atNs: max(0, frame.tl_ns - 16_666_667)).screen_crop) : crop
+        let zoomBlur=options.zoomMotionBlur ?? frame.motion_blur
+        let panBlur=options.panMotionBlur ?? frame.motion_blur
+        let prior=(zoomBlur>0 || panBlur>0 || options.cursorMotionBlur>0) && frame.tl_ns>0
+            ? try project.frame(atNs: max(0,frame.tl_ns-16_666_667)) : frame
+        let previous=rect(prior.screen_crop)
         var uniforms: [SIMD4<Float>] = [
             SIMD4(Float(frame.canvas_w), Float(frame.canvas_h), Float(frame.background_kind), frame.motion_blur),
             color(frame.background_color), color(frame.background_color2),
@@ -118,19 +121,18 @@ public final class FrameCompositor: @unchecked Sendable {
             rect(frame.screen_dest), crop,
             SIMD4(frame.screen_corner_radius, frame.shadow_radius, frame.shadow_opacity, frame.shadow_offset_y),
             color(frame.inset_color), cursorRect,
-            SIMD4(frame.cursor_visible != 0 ? frame.cursor_opacity : 0, frame.click_progress, 0, 0),
+            SIMD4(frame.cursor_visible != 0 ? frame.cursor_opacity : 0, frame.click_progress,options.cursorRotationRadians,0),
             SIMD4(Float(frame.click_x), Float(frame.click_y), 0, 0), rect(frame.camera_dest),
             SIMD4(frame.camera_corner_radius, Float(frame.camera_shape), camera == nil ? 0 : frame.camera_opacity, Float(frame.camera_mirror)),
             previous, SIMD4(frame.inset_width, 0, 0, 0),
             SIMD4(options.backgroundNoise,options.windowChrome ? 1 : 0, options.cameraShadowRadius, matte == nil ? 0 : 1),
-            SIMD4(0,options.cursorMotionBlur,options.cursorSpotlightRadius,0),
+            SIMD4(zoomBlur,options.cursorMotionBlur,options.cursorSpotlightRadius,panBlur),
             SIMD4(Float(frame.cursor_x),Float(frame.cursor_y),Float(frame.cursor_x),Float(frame.cursor_y)), cameraCrop,
             screen?.geometry.rowX ?? SIMD4(1,0,0,0), screen?.geometry.rowY ?? SIMD4(0,1,0,0),
             camera?.geometry.rowX ?? SIMD4(1,0,0,0), camera?.geometry.rowY ?? SIMD4(0,1,0,0),
-            SIMD4(Float(screen?.geometry.displaySize.width ?? 1),Float(screen?.geometry.displaySize.height ?? 1),Float(camera?.geometry.displaySize.width ?? 1),Float(camera?.geometry.displaySize.height ?? 1))
+            SIMD4(Float(screen?.geometry.displaySize.width ?? 1),Float(screen?.geometry.displaySize.height ?? 1),Float(camera?.geometry.displaySize.width ?? 1),Float(camera?.geometry.displaySize.height ?? 1)), rect(prior.screen_dest)
         ]
         if options.cursorMotionBlur > 0 && frame.tl_ns > 0 {
-            let prior = try project.frame(atNs: max(0,frame.tl_ns - 16_666_667))
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
         }
         let pass = MTLRenderPassDescriptor()
@@ -181,31 +183,46 @@ public final class FrameCompositor: @unchecked Sendable {
         }
         float noise=fract(sin(dot(floor(p),float2(12.9898,78.233)))*43758.5453)-.5;
         result.rgb=clamp(result.rgb+noise*u[15].x,0.0,1.0);
-        float4 dest=u[4];
-        if (u[3].z > 0 && all(dest.zw > 0)) {
-            float radius=clamp(u[6].x,0.0,min(dest.z,dest.w)*.5);
-            float4 shadowRect=dest; shadowRect.y+=u[6].w;
-            float sd=rounded(p,shadowRect,radius);
-            float shadow=exp(-max(sd,0.0)*max(sd,0.0)/(2*max(u[6].y*u[6].y,1.0)))*u[6].z;
-            result=over(result,float4(0,0,0,shadow));
-            float d=rounded(p,dest,radius); float mask=1-smoothstep(-.5,.5,d);
-            float2 uv=(p-dest.xy)/dest.zw;
-            float4 tex=0;
-            for(int i=0;i<8;i++) { float4 crop=mix(u[5],u[13],u[0].w*float(i)/7); tex+=screen.sample(s,sourceUV(crop.xy+uv*crop.zw,u[19],u[20]))/8; }
-            float inset=clamp(u[14].x,0.0,min(dest.z,dest.w)*.5);
-            float4 inner=float4(dest.xy+inset,dest.zw-2*inset);
-            float border=inset>0 ? smoothstep(-.5,.5,rounded(p,inner,max(0.0,radius-inset))) : 0;
-            tex=over(tex,float4(linearRGB(u[7].rgb),u[7].a*border));
-            tex.a*=mask; result=over(result,tex);
-            if(u[15].y>0) {
-                // Decorative window chrome sits above content, preserving source/cursor mapping.
-                float4 titleRect=float4(dest.x,dest.y-26,dest.z,26);
-                float titleMask=1-smoothstep(-.5,.5,rounded(p,titleRect,min(radius,13.0)));
-                float4 title=float4(.08,.08,.09,titleMask);
-                for(int i=0;i<3;i++) { float dotMask=1-smoothstep(4,5,length(p-float2(dest.x+14+18*i,dest.y-13)));
-                    float3 dotColor=i==0 ? float3(.95,.2,.2) : i==1 ? float3(.95,.65,.1) : float3(.2,.75,.3); title=over(title,float4(dotColor,dotMask)); }
-                result=over(result,title);
+        float4 currentDest=u[4];
+        if (u[3].z > 0 && all(currentDest.zw > 0)) {
+            int taps=(u[16].x>0 || u[16].w>0) ? 8 : 1;
+            float4 accumulated=0;
+            for(int sample=0;sample<taps;sample++) {
+                float shutter=taps>1 ? float(sample)/float(taps-1) : 0;
+                // Zoom changes spans; pan changes centers. The two shutter strengths are independent.
+                float2 destSize=mix(currentDest.zw,u[24].zw,u[16].x*shutter);
+                float2 destCenter=mix(currentDest.xy+currentDest.zw*.5,u[24].xy+u[24].zw*.5,u[16].w*shutter);
+                float4 dest=float4(destCenter-destSize*.5,destSize);
+                float2 cropSize=mix(u[5].zw,u[13].zw,u[16].x*shutter);
+                float2 cropCenter=mix(u[5].xy+u[5].zw*.5,u[13].xy+u[13].zw*.5,u[16].w*shutter);
+                float4 sampleResult=result;
+                float radius=clamp(u[6].x,0.0,min(dest.z,dest.w)*.5);
+                float4 shadowRect=dest; shadowRect.y+=u[6].w;
+                float sd=rounded(p,shadowRect,radius);
+                float shadow=exp(-max(sd,0.0)*max(sd,0.0)/(2*max(u[6].y*u[6].y,1.0)))*u[6].z;
+                sampleResult=over(sampleResult,float4(0,0,0,shadow));
+                float mask=1-smoothstep(-.5,.5,rounded(p,dest,radius));
+                float2 uv=(p-dest.xy)/max(dest.zw,float2(.000001));
+                float4 tex=screen.sample(s,sourceUV(cropCenter-cropSize*.5+uv*cropSize,u[19],u[20]));
+                float inset=clamp(u[14].x,0.0,min(dest.z,dest.w)*.5);
+                float4 inner=float4(dest.xy+inset,dest.zw-2*inset);
+                float border=inset>0 ? smoothstep(-.5,.5,rounded(p,inner,max(0.0,radius-inset))) : 0;
+                tex=over(tex,float4(linearRGB(u[7].rgb),u[7].a*border));
+                tex.a*=mask; sampleResult=over(sampleResult,tex);
+                if(u[15].y>0) {
+                    float4 titleRect=float4(dest.x,dest.y-26,dest.z,26);
+                    float titleMask=1-smoothstep(-.5,.5,rounded(p,titleRect,min(radius,13.0)));
+                    float4 title=float4(.08,.08,.09,titleMask);
+                    for(int i=0;i<3;i++) {
+                        float dotMask=1-smoothstep(4,5,length(p-float2(dest.x+14+18*i,dest.y-13)));
+                        float3 dotColor=i==0 ? float3(.95,.2,.2) : i==1 ? float3(.95,.65,.1) : float3(.2,.75,.3);
+                        title=over(title,float4(dotColor,dotMask));
+                    }
+                    sampleResult=over(sampleResult,title);
+                }
+                accumulated+=sampleResult/float(taps);
             }
+            result=accumulated;
         }
         if (u[9].y >= 0 && u[9].y <= 1) {
             float radius=8+32*u[9].y; float ring=1-smoothstep(1,3,abs(length(p-u[10].xy)-radius));
@@ -218,7 +235,10 @@ public final class FrameCompositor: @unchecked Sendable {
             float4 sprite=0;
             for(int i=0;i<8;i++) {
                 float2 offset=(u[17].zw-u[17].xy)*u[16].y*float(i)/7;
-                float2 uv=(p-u[8].xy-offset)/u[8].zw;
+                float2 delta=p-offset-u[17].xy;
+                float cosine=cos(u[9].z), sine=sin(u[9].z);
+                float2 unrotated=float2(cosine*delta.x+sine*delta.y,-sine*delta.x+cosine*delta.y)+u[17].xy;
+                float2 uv=(unrotated-u[8].xy)/u[8].zw;
                 float4 tex=0;
                 if (all(uv>=0)&&all(uv<=1)) {
                     tex=cursor.sample(s,uv);

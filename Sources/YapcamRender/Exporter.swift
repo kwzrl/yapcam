@@ -13,6 +13,8 @@ public final class Exporter: @unchecked Sendable {
     private let lock = NSLock()
     private var running = false
     private var completedMetrics: ExportMetrics?
+    private var speechReports: [SpeechEnhancementReport] = []
+    public var speechEnhancementReports: [SpeechEnhancementReport] { lock.withLock { speechReports } }
     public var metrics: ExportMetrics? { lock.withLock { completedMetrics } }
     public init(project: any RenderProjectSource, settings: ExportSettings, destination: URL) throws {
         self.project = try project.renderSnapshot()
@@ -77,7 +79,7 @@ public final class Exporter: @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(2))
         }
     }
-    private func writeVideo(_ url: URL, range: Range<Int64>, count: Int, width: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @Sendable (Double) -> Void) async throws {
+    private func writeVideo(_ url: URL, range: Range<Int64>, count: Int, width: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @escaping @Sendable (Double) -> Void) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: settings.format == .mp4 ? .mp4 : .mov)
         defer { if writer.status != .completed { writer.cancelWriting() } }
         let compression: [String: Any] = [AVVideoAverageBitRateKey: settings.videoBitrate(width: width), AVVideoExpectedSourceFrameRateKey: settings.fps, AVVideoMaxKeyFrameIntervalKey: settings.fps * 2, AVVideoAllowFrameReorderingKey: false]
@@ -87,7 +89,14 @@ public final class Exporter: @unchecked Sendable {
         writer.add(video)
         let pool = try makePool(width: width)
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: video, sourcePixelBufferAttributes: nil)
-        let timeline = settings.includeAudio ? try AudioTimeline(project: project, range: range) : nil
+        let preparationWeight=settings.includeAudio && settings.speechEnhancement != nil ? 0.15 : 0
+        let timeline: AudioTimeline?
+        if settings.includeAudio {
+            timeline=try await AudioTimeline.prepare(project: project,range: range,speechEnhancement: settings.speechEnhancement) { value in progress(value*preparationWeight) }
+        } else { timeline=nil }
+        // Native audio readers can reopen URLs after creation; retain all temporary media until joined.
+        defer { withExtendedLifetime(timeline) {} }
+        lock.withLock { speechReports=timeline?.speechReports ?? [] }
         let audioReader = try timeline?.reader(rangeDuration: Int64(range.count))
         defer { audioReader?.0.cancelReading() }
         var audio: AVAssetWriterInput?
@@ -118,7 +127,7 @@ public final class Exporter: @unchecked Sendable {
                     let buffer = try autoreleasepool { try render(index: index, range: range, pool: pool, compositor: compositor, queue: queue, cache: cache) }
                     try Task.checkCancellation()
                     guard adaptor.append(buffer, withPresentationTime: time) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append video") }
-                    progress(Double(index + 1) / Double(count) * 0.95)
+                    progress(preparationWeight+Double(index+1)/Double(count)*(0.95-preparationWeight))
                 }
                 video.markAsFinished()
                 try await audioTask?.value

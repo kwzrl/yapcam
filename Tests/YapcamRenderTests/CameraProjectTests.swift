@@ -22,6 +22,23 @@ final class CameraProjectTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: json).write(to: url)
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: package) }
+    func testCameraZoomScaleGeometryFromCoreReachesFrozenRendererSource() throws {
+        let project=try Project.create(package: package)
+        try project.apply(.addZoom(.init(startNs: 0,endNs: 2_000_000_000,target: [0.5,0.5],scale: 2,easeInNs: 500_000_000,easeOutNs: 500_000_000)))
+        let normal=try project.frame(atNs: 1_000_000_000).camera_dest
+        try project.apply(.set(path: "camera.zoom_scale",value: .number(1.5)))
+        let source=try project.renderSnapshot()
+        let zoomed=try source.frame(atNs: 1_000_000_000)
+        XCTAssertEqual(zoomed.camera.present,1)
+        XCTAssertEqual(zoomed.camera_dest.w,normal.w*1.5,accuracy: 0.000_001)
+        XCTAssertEqual(zoomed.camera_dest.h,normal.h*1.5,accuracy: 0.000_001)
+        XCTAssertGreaterThanOrEqual(zoomed.camera_dest.x,0)
+        XCTAssertLessThanOrEqual(zoomed.camera_dest.x+zoomed.camera_dest.w,Double(zoomed.canvas_w))
+        XCTAssertEqual(try source.frame(atNs: 0).camera_dest.w,normal.w,accuracy: 0.000_001)
+        try project.apply(.set(path: "camera.zoom_scale",value: .number(1)))
+        XCTAssertEqual(try source.frame(atNs: 1_000_000_000).camera_dest.w,zoomed.camera_dest.w)
+        XCTAssertEqual(try project.frame(atNs: 1_000_000_000).camera_dest.w,normal.w,accuracy: 0.000_001)
+    }
     func testCameraMediaAndVisionOptionsAreEvaluatedFromRealProjectData() throws {
         let project=try Project.create(package: package)
         try project.apply(.batch([
