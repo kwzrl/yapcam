@@ -1,4 +1,4 @@
-READY b5d1268 + WORKTREE clean-finish lock cleanup / signed-app live variants; host checks pending
+READY a3a51ad clean-finish lock cleanup / signed-app live variants; host checks pending
 READY 7383d08 M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
 READY 4c5420b round-2 C1 no-speech window recovery/warnings; native say host gate pending
 READY a52fc4a AUD-06 groundwork / PCM file tests; native model host gate pending
@@ -9,20 +9,27 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 10:46 CEST: HEAD/main still b5d1268; lock cleanup and
-  signed-app test variants await Lead's checkpoint/host runs. No new review finding
-  or live result arrived. Existing validation applies; no repeat builds or temp
-  copies. Both old isolation directories still have all four listed active PIDs.
+- Backlog audit 2026-10-15 11:17 CEST: main still 248630a; no new capture review
+  finding or host result. QA .app-lock is now absent; no app launch performed.
+  Lead's outside-sandbox host runs remain pending. Only fleet-rule documentation
+  is pending; no independent implementation item opened, rebuild or temp copy needed.
+  Guarded host commands are ready below and must recheck lock/processes at launch.
+- Fleet app rule acknowledged 2026-10-15 10:54 CEST; QA .app-lock existed then.
+  NO Yapcam launch performed. Check it before every launch, and do non-live work
+  while it exists. Never quit another instance or kill by process name; only stop
+  PIDs started by capture. Host commands below now bypass LaunchServices and refuse
+  to launch if QA owns the app, another instance runs, or inspection fails.
+- Lead checkpointed lock cleanup/self-test variants as a3a51ad and integrated them
+  in main 248630a. Host results remain pending. Current changes only update the
+  README/status launch instructions for the fleet app rule; no build or launch.
 - Screen Recording grant CONFIRMED by Lead since 10:25 for mov.yapcam.Yapcam /
   Yapcam Dev Signing. Lead's --capture-selftest 6 completed: HEVC 1680x1050,
   352 frames / 6.09 s, AAC system audio offset 1 ms, 95 events. This supersedes
   historical TCC-denial notes; it is a display baseline, not window/area/pause or
   speech/model acceptance. Lead will run native/live checks outside the sandbox.
-- Local HEAD/main b5d1268. git rebase main reports already up to date, with sandbox
-  errors writing REBASE_HEAD/AUTO_MERGE; no source rebase is needed at this base.
-  Lead still checkpoints/pushes. Eight owned files pending: RecordingPackageLease,
-  CaptureSelfTest, RecoveryTests, SessionLifecycleTests, TranscriptionTests,
-  SelfTestOptionsTests (new), tests README and this status. No recordings committed.
+- Local HEAD a3a51ad; main 248630a contains the capture changes. Lead handles
+  Git checkpoint/rebase/push under the read-only metadata workflow. Only tests
+  README and this status are pending; no recordings committed.
 - Fixed clean-finish .capture.lock residue: every normal lease release unlinks its
   own inode while still holding flock. This includes recording stop, recovery and
   transcription; paused sessions retain the file/lock. Crashes can leave an empty
@@ -59,18 +66,32 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 ## Lead host commands — lock cleanup / window / area / pause
 After checkpoint/build of this worktree, run from a normal host terminal in the repo.
-Use one command at a time; -W waits for the self-test app to exit. Open a disposable
+Use one command at a time; the direct executable runs in the foreground. Open a disposable
 TextEdit document for window cases. A numeric window ID also works after window:.
 All output stays in ~/Movies/Yapcam/QA/capture; inspect probe.log for package paths.
 
 ```sh
 scripts/build-app.sh
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_FPS=30 build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 --env YAPCAM_CAPTURE_SELFTEST_FPS=30 --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit --env YAPCAM_CAPTURE_SELFTEST_FPS=30 --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
+capture_selftest() (
+    if [ -e "$HOME/Movies/Yapcam/QA/.app-lock" ]; then
+        printf 'QA owns Yapcam; skipping live test.\n' >&2; exit 1
+    fi
+    if pgrep -x Yapcam >/dev/null 2>&1; then
+        printf 'A Yapcam instance is running; skipping live test.\n' >&2; exit 1
+    else
+        capture_probe_status=$?
+        if [ "$capture_probe_status" -ne 1 ]; then
+            printf 'Cannot inspect running apps; skipping live test.\n' >&2; exit 1
+        fi
+    fi
+    exec env "$@" build/Yapcam.app/Contents/MacOS/Yapcam --capture-selftest 8
+)
+capture_selftest YAPCAM_CAPTURE_SELFTEST_FPS=30
+capture_selftest YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
+capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600
+capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 YAPCAM_CAPTURE_SELFTEST_FPS=30 YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
+capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit
+capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit YAPCAM_CAPTURE_SELFTEST_FPS=30 YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
 YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter 'actualHEVCWriterAndInterruptedRecovery|NativeFragmentTests'
 ```
 
@@ -399,10 +420,10 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. Checkpoint the eight lock-cleanup/self-test files listed above, review lock inode
-   lifetime/races, and push under the agreed read-only Git workflow. Prior M3/C1
-   packages are integrated. Suggested commit: fix(capture): remove completed lease
-   files and expose signed-app capture test variants.
+1. Checkpoint the README/status fleet-app-rule update under the agreed read-only Git
+   workflow. Lock cleanup/self-test variants are integrated as a3a51ad; review lock
+   inode lifetime/races and run the host commands only when QA releases .app-lock
+   and no other Yapcam instance runs. Prior M3/C1 packages are integrated.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
    the signed-app variants above plus static-tail/sync and kill/relaunch checks.
