@@ -1,4 +1,4 @@
-READY d302028 qa: audit vs 8600691
+READY HEAD qa: audit vs 25f2b97
 
 # qa status
 
@@ -40,6 +40,8 @@ READY d302028 qa: audit vs 8600691
 - Cleanup (Lead disk request): deleted my 2 tmp.*/e2e build copies, scratchpad e2e copy, 6 yapcam-e2e-* leftovers and ~/yapcam-ref-local/extract (893 MB); free space 25→27 GB. No qa script creates temp dirs now (run-e2e.sh simplified); TESTING.md has the trap rule.
 
 - Audit vs main 8600691: M3 hardening in capture (100 crash trials, hour sim), render (long export, analyzer), core (cursor catalog, key overlay perf) noted in rows; no status class changes.
+
+- Audit vs main 25f2b97: CUR-06 now integrated (editor cursor picker); KNOWN_LIMITATIONS updated.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).

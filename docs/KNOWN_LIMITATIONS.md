@@ -34,8 +34,8 @@ Honest list of what was **not** verified or **not** built. Details per row: `doc
 - Guide wording conflicts left open (cursor animation preset names).
 
 ## Not implemented / partial
-- Cursor set library: 3 styles (recorded/pointer/touch) with original vector cursors; no large
-  set collection (CUR-06).
+- Cursor sets: original vector cursors with a core catalog and editor palette/shape/size picker
+  (CUR-06); no large collection like the reference's ~24 sets.
 - Cloud features (links, comments, accounts, payments, telemetry, auto-update) are out of
   scope by design.
 - Intro/outro: fade (and modes added by editor); no scene-transform library.
