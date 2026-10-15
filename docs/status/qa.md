@@ -1,4 +1,4 @@
-READY HEAD qa: temp cleanup + disk hygiene rule
+READY e598664 qa: temp cleanup + disk hygiene rule
 
 # qa status
 
