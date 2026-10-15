@@ -1,30 +1,37 @@
-READY b2f5593 integrated on main 3dd0d3b and pushed to origin/team/core: all Core handoffs complete; Rust100/Core Swift71/Render13 portable +6 native skips, Clippy and signed build/codesign PASS. Backlog empty; Lead metadata rebase only.
+READY 38743f2 pushed to origin/team/core; complete Core implementation matches main c565a93. Rust100/Core Swift71/Render13 portable +6 native skips, Clippy and signed build/codesign PASS. Core backlog empty; Lead metadata rebase only.
 
 # Core status
 
-Updated 2026-10-15 18:01 UTC. Branch team/core; Lead checkpoint b2f5593
-contains all seven final follow-up files. Complete Core source/tests/contracts match
-main 3dd0d3b (git diff --quiet HEAD main on owned implementation paths PASS).
-Pushed b2f5593 to origin/team/core, fast-forward from b852c2c; independently verified
-remote SHA b2f55930b781da0208c836be95467b89630a5ac4. Never pushed main.
-Clean-tree git rebase main attempted; sandbox still rejects creation of
-.git/worktrees/core/rebase-merge (Operation not permitted). Lead metadata rebase
-is the only Git action remaining; no reset/stash/workaround attempted.
+Updated 2026-10-15 18:32 UTC. Branch team/core; Lead checkpoint 38743f2
+adds status only; implementation remains the verified b2f5593 source. Complete
+owned source/tests/contracts match main c565a93. Pushed38743f2 to origin/team/core
+(fast-forward from b2f5593); independently verified remote SHA
+38743f20d0adc1ba06923bcad98bacd34b07e903. Never pushed main.
+Clean-tree git rebase main attempted at this stopping point; sandbox still rejects
+creation of .git/worktrees/core/rebase-merge (Operation not permitted). Lead must
+rebase branch metadata. No reset/stash/workaround or unrelated file changes.
 
 ## Next
 
 No remaining assigned Core implementation item. Rechecked the brief, FEATURES'
-Core row and consumer handoffs at 18:01 UTC: no new request. CORE-1...10/shared
+Core row and consumer handoffs at 18:32 UTC: no new request. CORE-1...10/shared
 features, microphone selection, screen_quality, inset_origin and toolbar sidecar
 markers are integrated/published. Current Render adapter already handles the old
 lens/color/matte alias requests through zoom_lens/camera_style/camera_layout.
 Caption font/reveal metadata remains conditional on a new concrete Editor request.
 
-Continuation audit: main remains 3dd0d3b and all owned implementation files still
-match it. Only this status file is dirty. No new source changes, test reruns or app
-activity this cycle; the verified/published checkpoint remains b2f5593. Core's
-implementation queue is exhausted; remaining actions are external review, metadata
-rebase and consumer/native acceptance, rather than another Core work package.
+Continuation audit 18:32 UTC: main remains c565a93 and complete owned
+implementation still matches it. Re-read the brief, FEATURES Core backlog and
+consumer handoffs; no new Core request. The only dirty file is this status. Prior
+final gates still apply; no source changes, redundant tests or app activity this
+cycle. diff --check passes. Preserve the published38743f2 implementation; Lead's
+metadata rebase and external consumer/native acceptance remain as already noted.
+
+External integration note for Lead/Editor: Editor status now explicitly keeps its
+2s save debounce. Core's delivered CORE-10 policy and ProjectAutosaver use30s after
+the last edit with revision guarding, as requested. That consumer policy divergence
+needs Editor/Lead reconciliation; Core must not install a competing timer. No Editor
+file edited, and no Core runtime change is needed for the existing30s API.
 
 The previously pending final Swift DTO/default/preset/inset fixes are now in
 b2f5593; the earlier seven-file checkpoint warning is resolved. Source/tests are
