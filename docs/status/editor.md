@@ -3,6 +3,7 @@
 READY 108c6b8 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Typing suggestions now come from core (`typing_suggestions` query; apply/dismiss by source-stable id, `auto_speed_typing` for apply-all, `restore_typing_suggestions`); dismissals persist in the project; editor-side detection kept only for the fake backend. Not yet exercised against a real recording with a keystroke burst. 204 editor tests green.
 - Rebased on main eacbd4d: preset isolation merged — Lead's `PresetIsolation` task-locals / `EditorPresets.directory|globalDirectory|globalDefaults` API kept (ui depends on it), backed by `EditorStorage` and injectable `PresetStore`. Full suite (UISmokeTests skipped) 481 green.
 - Zoom "Start animation early" + default zoom level (`zoom_settings.start_early/default_scale`), voice preset (`audio.mic_preset`) in voice clean-up; round-trip test on real core. 204 editor tests green.
 - Per-clip settings: volume (mic/system, amplitude 0…1 on selected clip or clip under playhead), hide cursor, smoothing off via core `set_clip_settings`; splits inherit; real-core save/reopen test. Suite 203 editor tests green (full suite with UISmokeTests skipped green).

@@ -280,19 +280,20 @@ import YapcamCore
         #expect(m.typingSpeed == 3)
         m.typingSpeed = 5
         m.applyTypingSuggestion(m.typingSuggestions[0])
-        #expect(p.processSilenceCalls.count == 1 && p.processSilenceCalls[0].speed == 5 && p.processSilenceCalls[0].spans.count == 1)
+        #expect(p.typingCommands == ["apply k2000000000 5.0"])                                  // by core's suggestion id
         m.applyAllTypingSuggestions()
-        #expect(p.processSilenceCalls.last?.spans.count == 2)
+        #expect(p.typingRuns == 1)
         m.typingSpeed = 99; #expect(m.typingSpeed == 8); m.typingSpeed = 0.1; #expect(m.typingSpeed == 1.5)
     }
 
-    @Test func removedSuggestionsStayHiddenUntilTheTimelineChanges() {
+    @Test func removedSuggestionsStayHiddenUntilRestored() {
         let p = FakeProject(durationNs: 30_000_000_000)
         p.keyTimesNs = keys(from: 2000, count: 20, gapMs: 150)
         let m = EditorModel(project: p, player: FakePlayer())
         let sp = m.typingSuggestions[0]
         m.dismissTypingSuggestion(sp); #expect(m.typingSuggestions.isEmpty && !m.visibleLanes.contains(.typing))
-        m.set("canvas.padding", number: 3); #expect(m.typingSuggestions.count == 1)
+        m.set("canvas.padding", number: 3); #expect(m.typingSuggestions.isEmpty)                  // dismissal persists in the project
+        m.restoreTypingSuggestions(); #expect(m.typingSuggestions.count == 1)
     }
 
     @Test func realCoreSpeedsUpTheChosenStretchOnly() throws {

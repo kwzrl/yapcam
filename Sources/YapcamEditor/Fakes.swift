@@ -21,6 +21,11 @@ public final class FakeProject: EditingProject {
     public var silenceDelay: Duration = .zero
     public var clickTimesNs: [Int64] = []
     public var keyTimesNs: [Int64] = []
+    public private(set) var dismissedTypingIDs = Set<String>()
+    public private(set) var typingCommands: [String] = []
+    public var typingRecords: [TypingRecord] {
+        TypingBursts.detect(keyTimesNs).map { TypingRecord(id: "k\($0.startNs)", span: $0) }.filter { !dismissedTypingIDs.contains($0.id) }
+    }
     public var hasCamera = true
     public func frameGeometry(atNs: Int64) -> FrameGeometry? {
         FrameGeometry(canvasWidth: 1920, canvasHeight: 1080, dest: CGRect(x: 96, y: 54, width: 1728, height: 972))
@@ -111,6 +116,9 @@ public final class FakeProject: EditingProject {
         case .set(let path, let v): settings = Self.setting(settings, path.split(separator: ".").map(String.init)[...], v)
         case .autoZooms: autoZoomRuns += 1
         case .autoSpeedTyping: typingRuns += 1
+        case .applyTypingSuggestion(let id, let speed): typingCommands.append("apply \(id) \(speed)")
+        case .dismissTypingSuggestion(let id): typingCommands.append("dismiss \(id)"); dismissedTypingIDs.insert(id)
+        case .restoreTypingSuggestions: typingCommands.append("restore"); dismissedTypingIDs = []
         case .processSilence(let spans, let speed):
             processSilenceCalls.append((spans, speed))
             for sp in spans.sorted(by: { $0.startNs > $1.startNs }) {

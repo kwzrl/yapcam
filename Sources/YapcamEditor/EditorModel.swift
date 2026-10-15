@@ -49,8 +49,6 @@ public final class EditorModel: ObservableObject {
     var lastRegionStyle: HighlightRegion?
     /// Typing suggestion whose popover is open (start of its span), and the ones the user dismissed.
     @Published public var typingPopover: Int64?
-    var dismissedTyping = Set<Int64>()
-    var dismissedTypingRevision = 0
     @Published public var volumeMenuVisible = false
     public var volumeMenuSystem = false
     public var itemClipboard: ItemClipboard?

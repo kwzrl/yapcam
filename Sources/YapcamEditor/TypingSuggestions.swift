@@ -31,23 +31,24 @@ extension EditorModel {
         set { defaults.set(min(max(newValue, Self.typingSpeedRange.lowerBound), Self.typingSpeedRange.upperBound), forKey: Self.typingSpeedKey); objectWillChange.send() }
     }
 
-    /// Open suggestions on the current timeline (dismissed ones are hidden until the timeline changes).
-    public var typingSuggestions: [TimeSpan] {
-        guard revision == dismissedTypingRevision || dismissedTyping.isEmpty else { return TypingBursts.detect(project.keyTimesNs) }
-        return TypingBursts.detect(project.keyTimesNs).filter { !dismissedTyping.contains($0.startNs) }
-    }
+    /// Open suggestions on the current timeline (from core: source-stable ids, dismissals persist in the project).
+    public var typingSuggestions: [TimeSpan] { project.typingRecords.map(\.span) }
 
     public func applyTypingSuggestion(_ span: TimeSpan) {
-        perform(.processSilence(spans: [span], speed: typingSpeed))
+        if let r = project.typingRecords.first(where: { $0.span.startNs == span.startNs }) {
+            perform(.applyTypingSuggestion(id: r.id, speed: typingSpeed))
+        } else {
+            perform(.processSilence(spans: [span], speed: typingSpeed))               // a stretch core does not list as a burst
+        }
         typingPopover = nil
     }
     public func applyAllTypingSuggestions() {
-        let all = typingSuggestions
-        guard !all.isEmpty else { return }
-        perform(.processSilence(spans: all, speed: typingSpeed)); typingPopover = nil
+        guard !typingSuggestions.isEmpty else { return }
+        perform(.autoSpeedTyping(speed: typingSpeed)); typingPopover = nil
     }
     public func dismissTypingSuggestion(_ span: TimeSpan) {
-        if dismissedTyping.isEmpty { dismissedTypingRevision = revision }
-        dismissedTyping.insert(span.startNs); typingPopover = nil; objectWillChange.send()
+        if let r = project.typingRecords.first(where: { $0.span.startNs == span.startNs }) { perform(.dismissTypingSuggestion(id: r.id)) }
+        typingPopover = nil
     }
+    public func restoreTypingSuggestions() { perform(.restoreTypingSuggestions) }
 }

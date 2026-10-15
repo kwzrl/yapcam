@@ -73,12 +73,20 @@ public final class CoreEditingProject: EditingProject {
         if clicksStale {
             clickCache = ((try? project.query("{\"q\":\"clicks\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
             keyCache = ((try? project.query("{\"q\":\"key_events\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
+            typingCache = ((try? project.typingSuggestions()) ?? []).flatMap { s in
+                s.ranges.map { TypingRecord(id: s.id, span: TimeSpan(startNs: $0.tlStartNs, endNs: $0.tlEndNs)) }
+            }.sorted { $0.span.startNs < $1.span.startNs }
             clicksStale = false
         }
         return clickCache
     }
     private var keyCache: [Int64] = []
     public var keyTimesNs: [Int64] { _ = clickTimesNs; return keyCache }
+    private var typingCache: [TypingRecord] = []
+    public var typingRecords: [TypingRecord] {
+        _ = clickTimesNs
+        return typingCache
+    }
 
     public init(project: Project) {
         self.project = project
@@ -162,6 +170,9 @@ public final class CoreEditingProject: EditingProject {
         case .autoSpeedTyping(let speed): return .autoSpeedTyping(speed: speed)
         case .processSilence(let spans, let speed):
             return .processSilence(ranges: spans.map { SilenceRange(startNs: $0.startNs, endNs: $0.endNs) }, speed: speed)
+        case .applyTypingSuggestion(let id, let speed): return .applyTypingSuggestion(id: id, speed: speed)
+        case .dismissTypingSuggestion(let id): return .dismissTypingSuggestion(id: id)
+        case .restoreTypingSuggestions: return .restoreTypingSuggestions
         case .batch(let cs): return .batch(cs.map(map))
         }
     }

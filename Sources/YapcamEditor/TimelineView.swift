@@ -473,7 +473,10 @@ struct TypingPopover: View {
                 Button("Apply to all (\(model.typingSuggestions.count))") { model.typingSpeed = speed; model.applyAllTypingSuggestions() }
                     .keyboardShortcut(.return, modifiers: .command)
             }
-            Button("Remove suggestion", role: .destructive) { model.dismissTypingSuggestion(span) }.buttonStyle(.borderless)
+            HStack {
+                Button("Remove suggestion", role: .destructive) { model.dismissTypingSuggestion(span) }
+                Button("Restore removed") { model.restoreTypingSuggestions() }
+            }.buttonStyle(.borderless)
         }
         .padding(14).frame(width: 290)
         .onAppear { speed = model.typingSpeed }

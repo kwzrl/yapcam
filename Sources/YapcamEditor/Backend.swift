@@ -72,6 +72,9 @@ public enum EditorCommand: Equatable, Sendable {
     case autoZooms
     case autoSpeedTyping(speed: Double)
     case processSilence(spans: [TimeSpan], speed: Double?)   // speed nil = cut
+    case applyTypingSuggestion(id: String, speed: Double)
+    case dismissTypingSuggestion(id: String)
+    case restoreTypingSuggestions
     case batch([EditorCommand])
 }
 
@@ -130,6 +133,8 @@ public protocol EditingProject: AnyObject {
     var clickTimesNs: [Int64] { get }
     /// Timeline times of recorded key presses (edited timeline; empty when no keystrokes were recorded).
     var keyTimesNs: [Int64] { get }
+    /// Typing bursts on the edited timeline (one record per retained occurrence; occurrences of one burst share an id).
+    var typingRecords: [TypingRecord] { get }
     func frameGeometry(atNs: Int64) -> FrameGeometry?
     var hasCamera: Bool { get }
     /// The recording has cursor movement data (not an external device) / typed keys were recorded.
@@ -212,3 +217,6 @@ public protocol ExportEngine: Sendable {
     /// Cancel by cancelling the surrounding Task. Throws on failure; returns the verified file.
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL
 }
+
+/// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.
+public struct TypingRecord: Equatable, Sendable { public var id: String; public var span: TimeSpan }
