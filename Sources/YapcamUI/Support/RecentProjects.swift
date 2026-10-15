@@ -111,7 +111,7 @@ struct RecentProjectsView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "film.stack").font(.system(size: 32)).foregroundStyle(.tertiary)
                     Text("No recordings yet").font(.headline)
-                    Text("Recordings you make are saved in \(AppSettings.shared.storageDirectory.lastPathComponent).")
+                    Text("Recordings you make are saved in \((AppSettings.shared.storageDirectory.path as NSString).abbreviatingWithTildeInPath).")
                         .font(.callout).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

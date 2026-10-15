@@ -36,7 +36,7 @@ import SwiftUI
                 .environmentObject(RecordingController.shared)
                 .environmentObject(AppSettings.shared)
                 .environmentObject(PermissionsModel.shared)))
-        hosting.sizingOptions = []
+        hosting.sizingOptions = [.intrinsicContentSize]
         p.contentView = hosting
 
         RecordingController.shared.engine.registerExcluded(p)
@@ -56,6 +56,9 @@ import SwiftUI
     func show() {
         refit(initial: true)
         panel.orderFrontRegardless()
+        // SwiftUI reports its real size only after the first layout pass; fit again once it has run.
+        DispatchQueue.main.async { [weak self] in self?.refit() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refit() }
     }
 
     func hide() { panel.orderOut(nil) }
@@ -66,7 +69,7 @@ import SwiftUI
 
     /// Resizes to fit the SwiftUI content, keeping the top edge fixed.
     private func refit(initial: Bool = false) {
-        let size = hosting.fittingSize
+        let size = hosting.intrinsicContentSize
         guard size.width > 0, size.height > 0 else { return }
         isAdjusting = true
         defer { isAdjusting = false }

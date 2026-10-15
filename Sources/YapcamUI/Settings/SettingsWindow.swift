@@ -34,7 +34,7 @@ struct SettingsView: View {
     }
 }
 
-private struct GeneralSettings: View {
+struct GeneralSettings: View {
     @EnvironmentObject var s: AppSettings
     var body: some View {
         Form {
@@ -53,7 +53,7 @@ private struct GeneralSettings: View {
     }
 }
 
-private struct RecordingSettings: View {
+struct RecordingSettings: View {
     @EnvironmentObject var s: AppSettings
     var body: some View {
         Form {
@@ -69,7 +69,7 @@ private struct RecordingSettings: View {
     }
 }
 
-private struct ShortcutSettings: View {
+struct ShortcutSettings: View {
     @EnvironmentObject var s: AppSettings
     var body: some View {
         Form {
@@ -80,13 +80,13 @@ private struct ShortcutSettings: View {
     }
 }
 
-private struct StorageSettings: View {
+struct StorageSettings: View {
     @EnvironmentObject var s: AppSettings
     var body: some View {
         Form {
             LabeledContent("Recordings folder") {
                 VStack(alignment: .trailing) {
-                    Text(s.storageDirectory.path(percentEncoded: false)).lineLimit(1).truncationMode(.middle)
+                    Text((s.storageDirectory.path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.middle)
                     HStack {
                         Button("Choose…") { choose() }
                         Button("Show in Finder") { NSWorkspace.shared.open(s.storageDirectory) }
@@ -112,7 +112,7 @@ private struct StorageSettings: View {
     }
 }
 
-private struct AdvancedSettings: View {
+struct AdvancedSettings: View {
     @EnvironmentObject var s: AppSettings
     var body: some View {
         Form {

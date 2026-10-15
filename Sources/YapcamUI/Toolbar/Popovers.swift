@@ -88,6 +88,8 @@ struct SourcePopover: View {
             }
             if let e = windows.error, windows.windows.isEmpty {
                 Text(e).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 80)
+            } else if windows.windows.isEmpty {
+                ProgressView("Looking for windows…").controlSize(.small).frame(maxWidth: .infinity, minHeight: 120)
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -294,6 +296,13 @@ struct NotesPopover: View {
             TextEditor(text: $rec.notes)
                 .font(.system(size: 13))
                 .frame(height: 160)
+                .overlay(alignment: .topLeading) {
+                    if rec.notes.isEmpty {
+                        Text("Type what you want to say. It stays visible while you record.")
+                            .font(.system(size: 13)).foregroundStyle(.tertiary)
+                            .padding(.horizontal, 6).padding(.top, 8).allowsHitTesting(false)
+                    }
+                }
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.15)))
             HStack {
                 Button { TeleprompterController.shared.toggle() } label: { Label("Teleprompter", systemImage: "text.alignleft") }
