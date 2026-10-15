@@ -261,7 +261,13 @@ fn apply_inner(
                 .remove("op");
             let id = unique_id("zoom");
             spec["id"] = id.clone().into();
-            let z: Zoom = serde_json::from_value(spec)?;
+            if spec.get("scale").is_none() {
+                spec["scale"] = p.zoom_settings.default_scale.into();
+            }
+            let mut z: Zoom = serde_json::from_value(spec)?;
+            if z.mode == "auto" && !crate::auto::has_mouse_data(&context.events) {
+                z.mode = "manual".into();
+            }
             p.zooms.push(z);
             cs.created_ids.push(id);
             cs.changed.push("zooms".into());
@@ -285,6 +291,9 @@ fn apply_inner(
                 spec[k] = val.clone();
             }
             *z = serde_json::from_value(spec)?;
+            if z.mode == "auto" && !crate::auto::has_mouse_data(&context.events) {
+                z.mode = "manual".into();
+            }
             cs.changed.push("zooms".into());
         }
         "remove_zoom" => {
@@ -446,8 +455,25 @@ fn apply_inner(
         "auto_zooms" => {
             crate::auto::generate_zooms(p, context, v, cs)?;
         }
-        "auto_speed_typing" => {
+        "auto_speed_typing" | "apply_typing_suggestion" => {
             crate::auto::speed_typing(p, context, v, cs)?;
+        }
+        "dismiss_typing_suggestion" => {
+            let id = string(v, "id")?;
+            if !crate::auto::typing_bursts(context)
+                .iter()
+                .any(|b| b.id == id)
+            {
+                return Err(Error::new(1, "Unknown typing suggestion"));
+            }
+            if !p.typing.dismissed.iter().any(|s| s == id) {
+                p.typing.dismissed.push(id.into());
+            }
+            cs.changed.push("typing.dismissed".into());
+        }
+        "restore_typing_suggestions" => {
+            p.typing.dismissed.clear();
+            cs.changed.push("typing.dismissed".into());
         }
         "apply_preset" => {
             let settings = v
@@ -474,6 +500,7 @@ fn apply_inner(
                 || !matches!(
                     parts[0],
                     "canvas"
+                        | "typing"
                         | "cursor"
                         | "camera"
                         | "audio"
@@ -500,6 +527,77 @@ fn apply_inner(
             }
             *target = value.clone();
             *p = serde_json::from_value(data)?;
+            match path {
+                "audio.mic_preset" => {
+                    // Metadata defaults never reinterpret old DSP. Only an explicit
+                    // preset edit selects our own offline processing recipe.
+                    p.audio.speech_enhancement_settings = SpeechEnhancementSettings::default();
+                    match p.audio.mic_preset.as_str() {
+                        "voice" => p.audio.speech_enhancement = false,
+                        "noise_reduction" => {
+                            p.audio.speech_enhancement = true;
+                            let s = &mut p.audio.speech_enhancement_settings;
+                            s.high_pass_hz = 80.0;
+                            s.noise_threshold_db = -42.0;
+                            s.noise_reduction_db = 18.0;
+                            s.compressor_ratio = 1.0;
+                            s.normalize_loudness = false;
+                        }
+                        "podcast" => {
+                            p.audio.speech_enhancement = true;
+                            let s = &mut p.audio.speech_enhancement_settings;
+                            s.noise_reduction_db = 12.0;
+                            s.compressor_threshold_db = -20.0;
+                            s.compressor_ratio = 4.0;
+                        }
+                        _ => return Err(Error::new(1, "Unknown microphone preset")),
+                    }
+                    cs.changed.extend([
+                        "audio.speech_enhancement".into(),
+                        "audio.speech_enhancement_settings".into(),
+                    ]);
+                }
+                "canvas.padding" => {
+                    p.canvas.padding_ratio = None;
+                    cs.changed.push("canvas.padding_ratio".into());
+                }
+                "cursor.size" => {
+                    p.cursor.size_points = None;
+                    cs.changed.push("cursor.size_points".into());
+                }
+                "canvas.shadow.radius" | "canvas.shadow.offset_y" => {
+                    p.canvas.shadow.style = "classic".into();
+                }
+                "cursor.speed_preset" => {
+                    p.cursor.physics_version = 1;
+                    if p.cursor.speed_preset == "none" {
+                        p.cursor.smoothing = 0.0;
+                    } else if p.cursor.smoothing == 0.0 {
+                        p.cursor.smoothing = 1.0;
+                    }
+                }
+                "cursor.smoothing" => {
+                    if p.cursor.smoothing > 0.0 && p.cursor.speed_preset == "none" {
+                        p.cursor.speed_preset = "custom".into();
+                    }
+                }
+                "zoom_settings.speed_preset" | "zoom_settings.animation_style" => {
+                    p.zoom_settings.physics_version = 1;
+                }
+                _ if path.starts_with("cursor.spring") => {
+                    p.cursor.physics_version = 1;
+                    p.cursor.speed_preset = "custom".into();
+                    if p.cursor.smoothing == 0.0 {
+                        p.cursor.smoothing = 1.0;
+                    }
+                }
+                _ if path.starts_with("zoom_settings.spring") => {
+                    p.zoom_settings.physics_version = 1;
+                    p.zoom_settings.animation_style = "custom".into();
+                    p.zoom_settings.speed_preset = "custom".into();
+                }
+                _ => {}
+            }
             cs.changed.push(path.into());
         }
         other => return Err(Error::new(1, format!("Unsupported command: {other}"))),
@@ -865,19 +963,22 @@ mod tests {
         let (_fixture, mut p, l) = long_project();
         p.data.timeline.clips.truncate(1);
         p.data.timeline.clips[0].src_end_ns = 2 * l;
-        p.events[0] = (1..=3)
+        p.events[0] = (0..5)
             .map(|i| {
-                serde_json::from_value::<Event>(json!({"t":l+i*100_000_000,"type":"key","key":"a"}))
-                    .unwrap()
+                serde_json::from_value::<Event>(
+                    json!({"t":l+100_000_000+i*400_000_000,"type":"key","key":"a"}),
+                )
+                .unwrap()
             })
             .collect();
+        p.rebuild_key_overlay_index();
         put_effects(&mut p, l + 150_000_009, l + 650_000_011);
         let before = p.data.clone();
         let changes = p
             .apply(&json!({"op":"auto_speed_typing","speed":3}))
             .unwrap();
         assert!(changes.changed.iter().any(|p| p == "canvas.highlights"));
-        assert_effects(&p, l - 50_000_000 + 66_666_670, l + 316_666_678);
+        assert_effects(&p, l + 116_666_670, l + 283_333_337);
         let after = p.data.clone();
         let history = p.undo.len();
         assert!(p

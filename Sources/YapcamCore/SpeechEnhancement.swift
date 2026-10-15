@@ -1,6 +1,10 @@
 import Foundation
 @preconcurrency import AVFoundation
 
+public enum MicrophonePreset: String, Codable, Sendable, CaseIterable {
+    case voice, noiseReduction = "noise_reduction", podcast
+}
+
 public struct CoreSpeechEnhancementSettings: Codable, Sendable, Equatable {
     public var highPassHz: Double
     public var noiseThresholdDb: Double
@@ -20,6 +24,8 @@ public struct SpeechEnhancementPlan: Decodable, Sendable, Equatable {
         public var mediaIndex: UInt32
     }
     public var enabled: Bool
+    public var micPreset: MicrophonePreset?
+    public var stereoMic: Bool?
     public var settings: CoreSpeechEnhancementSettings
     public var media: [Media]
 }
@@ -72,6 +78,9 @@ private struct SpeechFileInfo {
 }
 
 extension Project {
+    @discardableResult public func setMicrophonePreset(_ preset: MicrophonePreset) throws -> ChangeSet {
+        try apply(.set(path: "audio.mic_preset", value: .string(preset.rawValue)))
+    }
     public func speechEnhancementPlan() throws -> SpeechEnhancementPlan {
         try query("{\"q\":\"speech_enhancement\"}", as: SpeechEnhancementPlan.self)
     }

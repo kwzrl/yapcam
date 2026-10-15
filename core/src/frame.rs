@@ -134,7 +134,10 @@ impl Project {
             w: width as f64,
             h: height as f64,
         };
-        let pad = c.padding.min((canvas.w.min(canvas.h) - 2.0).max(0.0) / 2.0);
+        let pad = c
+            .padding_ratio
+            .map_or(c.padding, |ratio| ratio * canvas.w.min(canvas.h))
+            .min((canvas.w.min(canvas.h) - 2.0).max(0.0) / 2.0);
         let area = Rect {
             x: pad,
             y: pad,
@@ -165,9 +168,9 @@ impl Project {
             },
             screen_dest: fit(area, source_aspect),
             screen_corner_radius: c.radius as f32,
-            shadow_radius: c.shadow.radius as f32,
+            shadow_radius: c.shadow.evaluated().2 as f32,
             shadow_opacity: c.shadow.opacity as f32,
-            shadow_offset_y: c.shadow.offset_y as f32,
+            shadow_offset_y: c.shadow.evaluated().1 as f32,
             inset_width: c.inset as f32,
             inset_color: c.inset_color,
             click_progress: -1.0,
@@ -199,30 +202,57 @@ impl Project {
             .filter(|z| {
                 z.enabled
                     && (z.mode != "auto" || p.zoom_settings.automatic)
-                    && tl_ns >= z.tl_start_ns
+                    && tl_ns
+                        >= if p.zoom_settings.start_early {
+                            z.tl_start_ns.saturating_sub(350_000_000).max(0)
+                        } else {
+                            z.tl_start_ns
+                        }
                     && tl_ns < z.tl_end_ns
             })
             .max_by_key(|z| z.tl_start_ns)
         {
-            let inside = if z.ease_in_ns == 0 {
-                1.0
-            } else {
-                (tl_ns - z.tl_start_ns) as f64 / z.ease_in_ns as f64
-            };
-            let outside = if z.ease_out_ns == 0 {
-                1.0
-            } else {
-                (z.tl_end_ns - tl_ns) as f64 / z.ease_out_ns as f64
-            };
             let settings = &p.zoom_settings;
-            let physics = crate::motion::zoom_spring(settings);
-            let ramp_ns = if inside < outside {
+            let start = if settings.start_early {
+                z.tl_start_ns.saturating_sub(350_000_000).max(0)
+            } else {
+                z.tl_start_ns
+            };
+            let span = z.tl_end_ns - start;
+            let incoming = if settings.start_early {
+                z.tl_start_ns - start
+            } else if settings.physics_version == 1 {
+                z.ease_in_ns.min(span / 2)
+            } else {
                 z.ease_in_ns
+            };
+            let outgoing = if settings.physics_version == 1 {
+                z.ease_out_ns.min(span / 2)
             } else {
                 z.ease_out_ns
             };
-            let weight =
-                crate::spring::transition(inside.min(outside), ramp_ns as f64 / 1e9, &physics);
+            let inside = if incoming == 0 {
+                1.0
+            } else {
+                (tl_ns - start) as f64 / incoming as f64
+            };
+            let outside = if outgoing == 0 {
+                1.0
+            } else {
+                (z.tl_end_ns - tl_ns) as f64 / outgoing as f64
+            };
+            let physics = crate::motion::zoom_spring(settings);
+            let ramp_ns = if inside < outside { incoming } else { outgoing };
+            let weight = if settings.physics_version == 1 {
+                crate::spring::aligned_transition(
+                    inside.min(outside),
+                    ramp_ns as f64 / 1e9,
+                    self.session.tracks.screen.max_fps as f64,
+                    &physics,
+                )
+            } else {
+                crate::spring::transition(inside.min(outside), ramp_ns as f64 / 1e9, &physics)
+            };
             zoom_camera_factor = 1.0 + (p.camera.zoom_scale - 1.0) * weight.clamp(0.0, 1.0);
             let size = 1.0 / (1.0 + (z.scale - 1.0) * weight);
             let w = c.crop[2] * size;
@@ -415,10 +445,15 @@ impl Project {
         let Some((actual_x, actual_y, last_move)) = coordinate(local) else {
             return;
         };
-        let physics = crate::spring::preset(&cursor.speed_preset, &cursor.spring);
+        let physics = crate::spring::cursor_preset(
+            &cursor.speed_preset,
+            &cursor.spring,
+            cursor.physics_version,
+        );
         let mut x = actual_x;
         let mut y = actual_y;
-        if cursor.smoothing > 0.0 {
+        if cursor.smoothing > 0.0 && (cursor.physics_version == 0 || cursor.speed_preset != "none")
+        {
             let window = (20.0 * physics.mass / physics.friction)
                 .max(20.0 * physics.friction / physics.tension)
                 .max(2.0);
@@ -470,8 +505,12 @@ impl Project {
         let (cx, cy) = transform(x, y);
         f.cursor_x = cx;
         f.cursor_y = cy;
-        f.cursor_scale =
-            (cursor.size * f.screen_dest.w / pixels_width(self) / f.screen_crop.w) as f32;
+        f.cursor_scale = (cursor
+            .size_points
+            .map_or(cursor.size, |points| points / 16.0)
+            * f.screen_dest.w
+            / pixels_width(self)
+            / f.screen_crop.w) as f32;
         f.cursor_id = if cursor.always_default {
             0
         } else {
@@ -584,6 +623,9 @@ mod tests {
     fn golden_fixture_and_no_allocations() {
         let fixture = Fixture::new();
         let mut p = Project::create(&fixture.0).unwrap();
+        // Explicit legacy geometry keeps this evaluator golden independent of new-project defaults.
+        p.data.canvas = crate::model::Canvas::default();
+        p.data.cursor = crate::model::Cursor::default();
         p.data.cursor.smoothing = 0.0;
         let f = p.frame(0).unwrap();
         assert_eq!((f.canvas_w, f.canvas_h), (1920, 1080));
@@ -662,6 +704,9 @@ mod m2_tests {
     fn crop_cursor_ranges_idle_loop_and_audio_envelope() {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();
+        // Explicit legacy geometry keeps this evaluator golden independent of new-project defaults.
+        p.data.canvas = crate::model::Canvas::default();
+        p.data.cursor = crate::model::Cursor::default();
         p.data.cursor.smoothing = 0.0;
         p.apply(&json!({"op":"set","path":"cursor.ranges","value":[{"tl_start_ns":0,"tl_end_ns":500_000_000,"visible":false}]})).unwrap();
         assert_eq!(p.frame(0).unwrap().cursor_visible, 0);

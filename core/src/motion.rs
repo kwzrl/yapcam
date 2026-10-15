@@ -16,6 +16,19 @@ pub struct FrameMotion {
     pub pan_motion_blur: f32,
 }
 pub(crate) fn zoom_spring(settings: &ZoomSettings) -> Spring {
+    if settings.physics_version == 1 {
+        let (tension, friction, mass) = match settings.animation_style.as_str() {
+            "focused" => (250.0, 40.0, 2.25),
+            "smooth" => (170.0, 50.0, 3.0),
+            _ => return crate::spring::preset(&settings.speed_preset, &settings.spring),
+        };
+        return Spring {
+            tension,
+            friction,
+            mass,
+            allow_overshoot: false,
+        };
+    }
     match settings.animation_style.as_str() {
         "focused" => Spring {
             tension: 500.0,
@@ -169,6 +182,84 @@ mod tests {
         ];
         p.input[0] = InputCache::new(&p.events[0]);
         (f, p)
+    }
+    #[test]
+    fn aligned_screen_physics_early_lead_short_ramps_and_legacy_migration() {
+        let (f, mut p) = make();
+        let mut legacy = ZoomSettings {
+            animation_style: "focused".into(),
+            ..ZoomSettings::default()
+        };
+        assert_eq!(zoom_spring(&legacy).tension, 500.0);
+        legacy.physics_version = 1;
+        assert_eq!(
+            (
+                zoom_spring(&legacy).tension,
+                zoom_spring(&legacy).friction,
+                zoom_spring(&legacy).mass
+            ),
+            (250.0, 40.0, 2.25)
+        );
+        legacy.animation_style = "smooth".into();
+        assert_eq!(
+            (
+                zoom_spring(&legacy).tension,
+                zoom_spring(&legacy).friction,
+                zoom_spring(&legacy).mass
+            ),
+            (170.0, 50.0, 3.0)
+        );
+        p.apply(&json!({"op":"add_zoom","zoom":{"tl_start_ns":1_000_000_000,"tl_end_ns":3_000_000_000_i64,"target":[0.5,0.5],"scale":2,"mode":"manual","ease_in_ns":300_000_000,"ease_out_ns":300_000_000}})).unwrap();
+        assert_eq!(p.frame(800_000_000).unwrap().screen_crop.w, 1.0);
+        p.apply(&json!({"op":"set","path":"zoom_settings.start_early","value":true}))
+            .unwrap();
+        assert_eq!(p.frame(650_000_000).unwrap().screen_crop.w, 1.0);
+        assert!(p.frame(800_000_000).unwrap().screen_crop.w < 1.0);
+        assert_eq!(p.frame(1_000_000_000).unwrap().screen_crop.w, 0.5);
+        assert_eq!(p.frame(3_000_000_000).unwrap().screen_crop.w, 1.0);
+        p.undo().unwrap();
+        assert_eq!(p.frame(800_000_000).unwrap().screen_crop.w, 1.0);
+        p.redo().unwrap();
+        p.save(&f.0).unwrap();
+        let reopened = Project::open(&f.0).unwrap();
+        for t in [800_000_000, 1_000_000_000, 2_900_000_000] {
+            assert_eq!(
+                reopened.frame(t).unwrap().screen_crop,
+                p.frame(t).unwrap().screen_crop
+            );
+        }
+        p.apply(&json!({"op":"set","path":"cursor.speed_preset","value":"rapid"}))
+            .unwrap();
+        assert_eq!(p.data.cursor.smoothing, 1.0);
+        p.apply(&json!({"op":"set","path":"cursor.speed_preset","value":"none"}))
+            .unwrap();
+        assert_eq!(p.data.cursor.smoothing, 0.0);
+        for (path, value) in [
+            ("zoom_settings.spring.mass", json!(15)),
+            ("zoom_settings.spring.tension", json!(5)),
+            ("zoom_settings.spring.friction", json!(200)),
+        ] {
+            p.apply(&json!({"op":"set","path":path,"value":value}))
+                .unwrap();
+        }
+        let before = p.data.clone();
+        for (path, value) in [
+            ("zoom_settings.spring.mass", json!(15.1)),
+            ("cursor.spring.tension", json!(601)),
+            ("cursor.spring.friction", json!(4)),
+        ] {
+            assert!(p
+                .apply(&json!({"op":"set","path":path,"value":value}))
+                .is_err());
+            assert_eq!(p.data, before);
+        }
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                p.frame(800_000_000).unwrap();
+                p.frame_motion(800_000_000).unwrap();
+            }),
+            0
+        );
     }
     #[test]
     fn default_pointer_shake_filter_and_type_debounce_preserve_recorded_events() {

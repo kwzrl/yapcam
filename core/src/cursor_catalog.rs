@@ -44,7 +44,8 @@ mod tests {
     fn authored_cursor_paths_catalog_defaults_roundtrip_and_legacy_abi_are_stable() {
         let fixture = Fixture::new();
         let mut p = Project::create(&fixture.0).unwrap();
-        assert!(p.data.cursor.set_id.is_none() && p.data.cursor.shape.is_none());
+        assert_eq!(p.data.cursor.set_id.as_deref(), Some("classic"));
+        assert!(p.data.cursor.shape.is_none());
         assert_eq!(p.data.cursor.logical_size, "regular");
         assert_eq!(p.query(&json!({"q":"cursor_library"})).unwrap(), query());
         let original = p.frame(0).unwrap();

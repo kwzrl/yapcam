@@ -216,6 +216,26 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         }
     }
     let c = &p.canvas;
+    if c.padding_ratio.is_some_and(|v| !(0.0..=0.25).contains(&v))
+        || !matches!(c.shadow.style.as_str(), "classic" | "directional")
+        || !(0.0..=100.0).contains(&c.shadow.distance)
+        || !(0.0..=180.0).contains(&c.shadow.angle_deg)
+        || !(0.0..=30.0).contains(&c.shadow.blur)
+        || p.cursor
+            .size_points
+            .is_some_and(|v| !(16.0..=128.0).contains(&v))
+        || p.cursor.physics_version > 1
+        || p.zoom_settings.physics_version > 1
+        || !(1.0..=4.0).contains(&p.zoom_settings.default_scale)
+        || !(0.0..=1.0).contains(&p.audio.music_volume)
+        || !matches!(
+            p.audio.mic_preset.as_str(),
+            "voice" | "noise_reduction" | "podcast"
+        )
+    {
+        return invalid("Invalid ratio, shadow, cursor or new-project setting");
+    }
+
     if c.output_size.contains(&0)
         || c.output_size.iter().any(|v| *v > 16384)
         || !(0.0..=16384.0).contains(&c.padding)
@@ -344,16 +364,41 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     {
         return invalid("Invalid offline speech enhancement settings");
     }
-    let preset_ok = |p: &str| matches!(p, "custom" | "slow" | "mellow" | "quick" | "rapid");
-    let spring_ok = |s: &Spring| {
+    if !(1.5..=8.0).contains(&p.typing.speed)
+        || p.typing.dismissed.len() > 100_000
+        || p.typing
+            .dismissed
+            .iter()
+            .any(|id| id.is_empty() || id.len() > 128)
+        || p.typing
+            .dismissed
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != p.typing.dismissed.len()
+    {
+        return invalid("Invalid typing suggestion settings");
+    }
+    let preset_ok = |p: &str| {
+        matches!(
+            p,
+            "custom" | "slow" | "mellow" | "quick" | "rapid" | "smooth" | "medium" | "none"
+        )
+    };
+    let spring_ok = |s: &Spring, version: u32| {
+        if version == 1 {
+            return (5.0..=600.0).contains(&s.tension)
+                && (5.0..=200.0).contains(&s.friction)
+                && (0.1..=15.0).contains(&s.mass);
+        }
         (1.0..=2000.0).contains(&s.tension)
             && (1.0..=200.0).contains(&s.friction)
             && (0.1..=10.0).contains(&s.mass)
     };
     if !preset_ok(&cur.speed_preset)
         || !preset_ok(&p.zoom_settings.speed_preset)
-        || !spring_ok(&cur.spring)
-        || !spring_ok(&p.zoom_settings.spring)
+        || !spring_ok(&cur.spring, cur.physics_version)
+        || !spring_ok(&p.zoom_settings.spring, p.zoom_settings.physics_version)
         || !(0.0..=0.45).contains(&p.zoom_settings.dead_zone)
         || cur.loop_duration_ns <= 0
     {
@@ -539,7 +584,7 @@ impl Project {
         p.check_media()?;
         Ok(p)
     }
-    fn load(package: &Path, data: ProjectData, session: Session) -> Result<Self> {
+    fn load(package: &Path, mut data: ProjectData, session: Session) -> Result<Self> {
         let end = session
             .segments
             .last()
@@ -575,6 +620,13 @@ impl Project {
                 }
             }
             events.push(list);
+        }
+        if !crate::auto::has_mouse_data(&events) {
+            for zoom in &mut data.zooms {
+                if zoom.mode == "auto" {
+                    zoom.mode = "manual".into();
+                }
+            }
         }
         let input = events
             .iter()
@@ -716,6 +768,61 @@ pub(crate) mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn aligned_new_defaults_and_legacy_decode_preserve_distinct_appearance() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        assert_eq!(p.data.defaults_revision, 1);
+        assert_eq!(p.data.canvas.padding_ratio, Some(0.1));
+        let frame = p.frame(0).unwrap();
+        assert_eq!((frame.canvas_w, frame.canvas_h), (1728, 1080));
+        assert_eq!(frame.screen_corner_radius, 16.0);
+        assert_eq!(frame.shadow_radius, 160.0);
+        assert!((frame.shadow_offset_y as f64 - 25.0 / 2.0_f64.sqrt()).abs() < 1e-5);
+        let options = p.query(&serde_json::json!({"q":"render_options"})).unwrap();
+        assert!(
+            (options["screen_shadow"]["offset_x"].as_f64().unwrap() - 25.0 / 2.0_f64.sqrt()).abs()
+                < 1e-9
+        );
+        assert_eq!(options["cursor_size_points"], 48.0);
+        assert!((frame.cursor_scale as f64 * 320.0 / frame.screen_dest.w - 3.0).abs() < 1e-5);
+        assert_eq!(p.data.canvas.background.color, [0.12, 0.14, 0.18, 1.0]);
+        assert!((10.0_f64.powf(p.data.audio.click_sound.gain_db / 20.0) - 0.25).abs() < 1e-12);
+        p.apply(&serde_json::json!({"op":"set","path":"canvas.padding","value":12}))
+            .unwrap();
+        assert_eq!(p.data.canvas.padding_ratio, None);
+        assert_eq!(p.frame(0).unwrap().screen_dest.y, 12.0);
+        p.undo().unwrap();
+        assert_eq!(p.data.canvas.padding_ratio, Some(0.1));
+        p.save(&f.0).unwrap();
+        assert_eq!(
+            format!("{:?}", p.frame(0).unwrap()),
+            format!("{:?}", Project::open(&f.0).unwrap().frame(0).unwrap())
+        );
+        for name in ["v0-prerelease", "v1-minimal"] {
+            let bytes = fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join(format!("../Tests/Fixtures/schema/{name}.json")),
+            )
+            .unwrap();
+            p.data = decode_project(&bytes).unwrap();
+            assert_eq!(p.data.defaults_revision, 0);
+            assert_eq!(p.data.canvas.padding_ratio, None);
+            assert_eq!(p.data.cursor.size_points, None);
+            assert_eq!(p.data.zoom_settings.physics_version, 0);
+            assert_eq!(p.data.canvas.shadow.style, "classic");
+            let legacy = p.frame(0).unwrap();
+            assert_eq!((legacy.canvas_w, legacy.canvas_h), (1920, 1080));
+            assert_eq!(legacy.screen_corner_radius, 18.0);
+            assert_eq!(legacy.shadow_radius, 24.0);
+            assert_eq!(legacy.shadow_offset_y, 8.0);
+            p.save(&f.0).unwrap();
+            assert_eq!(
+                format!("{legacy:?}"),
+                format!("{:?}", Project::open(&f.0).unwrap().frame(0).unwrap())
+            );
         }
     }
     #[test]
