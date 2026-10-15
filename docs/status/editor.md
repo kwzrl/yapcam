@@ -12,7 +12,7 @@ READY 45cc55e editor on real core/render: EditorDocument, EditorWindows.open (re
 - **Inspector tabs**: Look (background solid/gradient/blur, aspect, padding, radius, shadow, inset, motion blur), Cursor (visible, size, smoothing, speed preset, hide idle, click effect, loop, hidden sections lane), Camera (visible, shape, size, radius, opacity, mirror, corners, layout lane; "no camera track" state), Audio (mute/volume per track, speed up typing, silence → cut/speed).
 - **Lanes**: camera layouts, cursor hidden ranges (drag/resize/delete). Crop controls (canvas.crop) and volume-over-time ranges accepted by real core (RealCoreRangesTests).
 - ⌘K command palette (also cheat sheet), copy current frame (⇧⌘C → PNG clipboard), export sheet (720/1080, 30/60, progress/cancel/error/Show in Finder).
-- Tests: `swift test` green, editor 90 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
+- Tests: `swift test` green, editor 93 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
 
 - ZOM-04 per-zoom Auto/Manual switch (reaches core). EDT-05 verified: 100 mixed edits on real core undo to the exact initial state and redo to the exact final state. Short (<2 s) project: zoom clipped to project end; 3 h project: timeline fits, ruler steps ≥ 60 s.
 - Export sheet has an "Include audio" toggle (default on). Workaround for the render hang; the real-export test uses audio off.
@@ -25,6 +25,9 @@ Look tab → Wallpapers: category grid of the 12 original render wallpapers/grad
 
 ## FEATURES section K (done)
 Controls for every path core documented in "Guide audit": CUR-12 always default arrow, CUR-13 tilt while moving, CUR-14 stop cursor before end (toggle + length), CUR-15 remove tiny shakes, CUR-16 reduce cursor-type flicker, ANI-02 screen animation Custom/Focused/Smooth, CAM-07 camera size while zoomed, ANI-03 per-kind blur (zoom, screen move; "same as motion blur" = null inherits). Verified: real core accepts all, rejects out-of-range `camera.zoom_scale` with state unchanged, `motion_at` evaluates; inherit/explicit semantics tested. Not verified: how tilt/hold/blur look in a real preview (Metal host run).
+
+## AUD-06 voice clean-up (done, main 78a8a0e)
+Audio tab → Microphone: "Clean up voice" toggle with noise reduction, noise gate, low cut, compression, loudness target (core `audio.speech_enhancement*`). The preview player receives the settings through render's `setSpeechEnhancement` (pushed on every project change, deduplicated; render re-prepares audio only when they change); exports carry them in `ExportSettings.speechEnhancement` when audio is included. Off when the recording has no microphone. Preview failures show an error. Verified: model/fake flow incl. undo/redo and export request, real core accepts paths and rejects a 5 Hz low cut with state unchanged, real PreviewPlayer accepts set/clear. Not verified: audible result on a real mic recording (no mic hardware; synthetic fixture has none).
 
 ## Backlog check on main 88f1995
 FEATURES.md's editor backlog row (AUD-07, EDT-09, EDT-13, CUR-12..15, ANI-02/03, CAM-07, CUR-10, AUD-08, AUD-10, LOK-02) is stale: every item is implemented with tests (sections above). Full suite green after clean build + rebuilt app (226 tests; UISmokeTests needs `scripts/build-app.sh` first). AUD-06 (speech enhancement toggle) is blocked on core: no persisted setting in model.rs/FORMATS.md yet; the editor will add the toggle (Audio tab, mic) when the path exists and render's `SpeechFileProcessor` hook is specified.

@@ -61,6 +61,7 @@ public final class EditorModel: ObservableObject {
         self.player = player
         self.player.onChange = { [weak self] in self?.syncFromPlayer() }
         syncFromPlayer()
+        applySpeechToPlayer()
     }
 
     // MARK: derived
@@ -172,6 +173,29 @@ public final class EditorModel: ObservableObject {
     var wallpaperTask: Task<Void, Never>?
     public func waitForWallpaper() async { await wallpaperTask?.value }
 
+    /// Microphone clean-up from project settings (nil when off or the recording has no microphone).
+    public var speechEnhancement: SpeechEnhancement? {
+        guard hasMic, bool("audio.speech_enhancement") else { return nil }
+        var s = SpeechEnhancement(), d = "audio.speech_enhancement_settings."
+        s.highPassHz = number(d + "high_pass_hz", default: s.highPassHz)
+        s.noiseThresholdDB = number(d + "noise_threshold_db", default: s.noiseThresholdDB)
+        s.noiseReductionDB = number(d + "noise_reduction_db", default: s.noiseReductionDB)
+        s.compressorThresholdDB = number(d + "compressor_threshold_db", default: s.compressorThresholdDB)
+        s.compressorRatio = number(d + "compressor_ratio", default: s.compressorRatio)
+        s.targetLUFS = number(d + "target_lufs", default: s.targetLUFS)
+        s.peakCeilingDBFS = number(d + "peak_ceiling_dbfs", default: s.peakCeilingDBFS)
+        s.normalizeLoudness = bool(d + "normalize_loudness", default: s.normalizeLoudness)
+        return s
+    }
+    private var lastSpeech: SpeechEnhancement??
+    /// Pushes the (possibly changed) clean-up settings to the preview; render re-prepares audio only on change.
+    func applySpeechToPlayer() {
+        let current = speechEnhancement
+        if let last = lastSpeech, last == current { return }
+        do { try player.setSpeechEnhancement(current); lastSpeech = .some(current) }
+        catch { lastError = "Voice clean-up unavailable: \(error.localizedDescription)" }
+    }
+
     public func regenerateAutoZooms() { perform(.autoZooms) }
 
     public var selectedZoom: TimelineZoom? {
@@ -227,6 +251,7 @@ public final class EditorModel: ObservableObject {
 
     private func didEdit() {
         revision += 1
+        applySpeechToPlayer()
         if case .found = silenceState { silenceState = .idle }   // stale after any edit
         player.invalidate()
         if playheadNs > durationNs { seek(toNs: durationNs) }
