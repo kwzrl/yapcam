@@ -1,6 +1,6 @@
 # editor status
 
-READY 7dd0abc editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY d693808 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Look section: "Improve screen quality" (improvement 0…1, upscaling off/fast/quality via `canvas.screen_quality`, off by default) and inset border position (`canvas.inset_origin`, two sliders); real-core round-trip incl. out-of-range rejection. 211 editor tests green. Pixels not verified in a real preview/export.
