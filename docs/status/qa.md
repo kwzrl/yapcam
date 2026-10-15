@@ -1,4 +1,4 @@
-READY c0dca95 qa: audit vs 88f1995; no todo rows left
+READY HEAD qa: audit vs 78a8a0e
 
 # qa status
 
@@ -30,6 +30,8 @@ READY c0dca95 qa: audit vs 88f1995; no todo rows left
 - Audit vs main f640b35 + core/render status: no row is `todo` any more except via 'implemented' with editor wiring missing; backlog table rewritten (editor owns most). Core models for text/reactions/music/captions/keys/motion are on core worktree, merge pending.
 
 - Audit vs main 88f1995: editor UI for section K, text/reactions/captions/music/keys/click sound/animation modes and wallpaper picker landed → those rows integrated. Only AUD-06 wiring, CUR-06 set library, host/Metal checks, Speech host check and live QA remain.
+
+- Audit vs main 78a8a0e: AUD-06 core setting + render path landed (editor toggle wiring left). Everything else unchanged.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).

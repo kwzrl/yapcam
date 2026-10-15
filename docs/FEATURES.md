@@ -62,7 +62,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | AUD-03 | Audio | Mic device lost mid-recording | assumption | Recording continues, warning, mic track truncated | capture | limited (no HW; simulated) | Unit/simulated device loss |
 | AUD-04 | Audio | Per-track volume (mic, system) | docs | audio.mic_gain_db / system_gain_db; mute | editor+core | integrated (editor Audio tab -> core audio gains; RealCoreRangesTests; audible effect in export unverified) | Set −∞ → exported track silent |
 | AUD-05 | Audio | Volume over time (volume keyframes/segments) | docs (scrubber/volume) | Per-clip/segment gain | core+editor | implemented (editor volume ranges list -> core; not a timeline lane; export effect unverified) | Gain ramp audible in export |
-| AUD-06 | Audio | Noise reduction / speech enhancement | technical (Core ML MossFormer2 speech-enhancement model, 48 kHz, ships in app) | Apple VoiceProcessing or small model; marked M2-late | render | implemented (render SpeechEnhancer offline DSP: high-pass, noise reduction, compressor, -16 LUFS; SpeechEnhancementTests; no editor toggle/core setting yet -> core+editor; real noisy-speech quality unverified) | Noisy sample → lower noise floor |
+| AUD-06 | Audio | Noise reduction / speech enhancement | technical (Core ML MossFormer2 speech-enhancement model, 48 kHz, ships in app) | Apple VoiceProcessing or small model; marked M2-late | render | integrated (core toggle/settings + render preview/export mic enhancement path, SpeechTimelineTests; core/render status 'native checks pending'; editor toggle/processor wiring still required -> editor; speech quality unverified) | Noisy sample → lower noise floor |
 | AUD-07 | Audio | Background music library + volume | technical (bundled music in 5 genres) | Own royalty-free tracks only (not reference files); loop, fade | editor+render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host) | Add music, export has 3rd source |
 | AUD-08 | Audio | Mouse click sounds | docs / technical (click sound sets) | Own click sounds (2 variants), volume | render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host) | Click event → audio impulse at time |
 | AUD-09 | Audio | Recording start/stop sounds | technical | Optional | ui | implemented (ui: start/stop sounds, played outside capture; build only) | Setting toggles |
@@ -202,7 +202,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
 
 ## Audit log
-Last audit: against main 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
+Last audit: against main 78a8a0e; earlier 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
 named test or measurement passed; **limited (why)** = cannot be verified here. Live-capture
@@ -214,7 +214,7 @@ No row is `todo`. Open work, by owner:
 
 | Team | Rows | Missing |
 |---|---|---|
-| core + editor | AUD-06 | persist an enhancement toggle in the project and run render's SpeechEnhancer on mic media (pipeline exists, unreachable from the app) |
+| editor | AUD-06 | toggle UI + processor/URL wiring (core setting and render path exist) |
 | render | CUR-06 | larger cursor-set library (3 styles only) |
 | render + Lead | all new layers | host/Metal verification (`YAPCAM_REQUIRE_RENDER_HARDWARE=1`) of text, reactions, captions, highlights, camera effects |
 | capture + Lead | AUD-10 | real Speech-framework host check |
