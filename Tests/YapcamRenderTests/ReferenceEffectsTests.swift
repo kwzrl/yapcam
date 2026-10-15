@@ -33,17 +33,18 @@ final class ReferenceEffectsTests: XCTestCase {
         XCTAssertNoThrow(try validateFrame(f,configuration: config,layers: [mask]))
     }
     func testCubeOrderingTrilinearSamplingDomainAndInvalidInputs() throws {
+        // Both imported modules expose CubeLUT; this suite exercises Render's parser.
         let identity = try YapcamRender.CubeLUT(data: cube())
         XCTAssertEqual(identity.dimension,2)
         for r in 0...10 { for g in 0...10 { for b in 0...10 {
-            let color = SIMD3(Float(r)/10,Float(g)/10,Float(b)/10)
+            let color = SIMD3<Float>(Float(r)/10,Float(g)/10,Float(b)/10)
             let output = try identity.sample(color)
             for i in 0..<3 { XCTAssertEqual(output[i],color[i],accuracy: 0.000001) }
         } } }
         let swapped = try YapcamRender.CubeLUT(data: cube(swap: true,domain: true))
-        let c = try swapped.sample(SIMD3(-0.5,0,0.5))
+        let c = try swapped.sample(SIMD3<Float>(-0.5,0,0.5))
         XCTAssertEqual(c.x,0.75,accuracy: 0.000001); XCTAssertEqual(c.y,0.5,accuracy: 0.000001); XCTAssertEqual(c.z,0.25,accuracy: 0.000001)
-        XCTAssertThrowsError(try identity.sample(SIMD3(.nan,0,0)))
+        XCTAssertThrowsError(try identity.sample(SIMD3<Float>(Float.nan,0,0)))
         let invalid = [Data(),Data([0xff]),Data("LUT_1D_SIZE 2".utf8),Data("LUT_3D_SIZE 66".utf8),Data("LUT_3D_SIZE 2\nNaN 0 0".utf8),Data("LUT_3D_SIZE 2\nLUT_3D_SIZE 2".utf8),cube()+Data("0 0 0\n".utf8),Data(repeating: 32,count: 32*1024*1024+1)]
         for data in invalid { XCTAssertThrowsError(try YapcamRender.CubeLUT(data: data)) }
         let badDomain = String(decoding: cube(),as: UTF8.self).replacingOccurrences(of: "LUT_3D_SIZE 2",with: "DOMAIN_MIN 1 1 1\nDOMAIN_MAX 0 0 0\nLUT_3D_SIZE 2")

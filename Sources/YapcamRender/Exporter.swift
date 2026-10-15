@@ -76,7 +76,8 @@ public final class Exporter: @unchecked Sendable {
         let partial = destination.deletingLastPathComponent().appendingPathComponent(".yapcam-export-\(UUID().uuidString).\(settings.format.rawValue)")
         defer { if FileManager.default.fileExists(atPath: partial.path) { try? FileManager.default.removeItem(at: partial) } }
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw RenderError.metal("Metal unavailable") }
-        let compositor = try FrameCompositor(device: device, project: project, framesPerSecond: settings.fps)
+        let compositor = try FrameCompositor(device: device, project: project, framesPerSecond: settings.fps,
+                                             screenQuality: settings.screenQuality)
         var cache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, [kCVMetalTextureUsage as String: MTLTextureUsage([.shaderRead,.renderTarget]).rawValue] as CFDictionary, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Export texture cache unavailable") }
         progress(0)

@@ -31,6 +31,9 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     public var rangeStartNs: Int64?
     public var rangeEndNs: Int64?
     public var speechEnhancement: SpeechEnhancementSettings?
+    /// Optional local screen-processing preference. Nil inherits the project's
+    /// evaluated setting; zero improvement with upscaling off explicitly bypasses it.
+    public var screenQuality: ScreenQualitySettings?
     public var gifHighQuality: Bool
     public var gifDisableLoop: Bool
     /// Experimental MP4/MOV mode: omit exact duplicate rendered frames, retaining
@@ -41,7 +44,8 @@ public struct ExportSettings: Sendable, Codable, Equatable {
                 quality: Double? = nil, includeAudio: Bool = true, bitrate: Int? = nil,
                 rangeStartNs: Int64? = nil, rangeEndNs: Int64? = nil,
                 speechEnhancement: SpeechEnhancementSettings? = nil, compression: Compression? = nil,
-                gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false) {
+                gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false,
+                screenQuality: ScreenQualitySettings? = nil) {
         self.format = format; self.codec = codec
         self.outputHeight = outputHeight ?? (format == .gif ? 480 : 720)
         self.fps = fps ?? (format == .gif ? 15 : 60)
@@ -50,6 +54,7 @@ public struct ExportSettings: Sendable, Codable, Equatable {
         self.includeAudio = format == .gif ? false : includeAudio
         self.bitrate = bitrate; self.rangeStartNs = rangeStartNs; self.rangeEndNs = rangeEndNs
         self.speechEnhancement = speechEnhancement
+        self.screenQuality = screenQuality
         self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop
         self.variableFrameRate = format == .gif ? false : variableFrameRate
     }
@@ -101,6 +106,7 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     }
     func validatedRange(duration: Int64) throws -> Range<Int64> {
         try speechEnhancement?.validate()
+        try screenQuality?.validate()
         guard supports(height: outputHeight), Self.frameRates(for: format).contains(fps),
               quality.isFinite, (0...1).contains(quality),
               bitrate.map({ (100_000...200_000_000).contains($0) }) ?? true,
@@ -128,7 +134,7 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     }
     private enum CodingKeys: String, CodingKey {
         case format, codec, outputHeight, fps, quality, compression, includeAudio, bitrate
-        case rangeStartNs, rangeEndNs, speechEnhancement, gifHighQuality, gifDisableLoop, variableFrameRate
+        case rangeStartNs, rangeEndNs, speechEnhancement, gifHighQuality, gifDisableLoop, variableFrameRate, screenQuality
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -145,7 +151,8 @@ public struct ExportSettings: Sendable, Codable, Equatable {
                   compression: try c.decodeIfPresent(Compression.self, forKey: .compression),
                   gifHighQuality: try c.decodeIfPresent(Bool.self, forKey: .gifHighQuality) ?? true,
                   gifDisableLoop: try c.decodeIfPresent(Bool.self, forKey: .gifDisableLoop) ?? false,
-                  variableFrameRate: try c.decodeIfPresent(Bool.self,forKey: .variableFrameRate) ?? false)
+                  variableFrameRate: try c.decodeIfPresent(Bool.self,forKey: .variableFrameRate) ?? false,
+                  screenQuality: try c.decodeIfPresent(ScreenQualitySettings.self,forKey: .screenQuality))
     }
 }
 public struct ExportMetrics: Sendable {

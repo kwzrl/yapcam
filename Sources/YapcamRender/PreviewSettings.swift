@@ -11,11 +11,17 @@ public struct PreviewSettings: Equatable, Sendable {
     public var maximumHeight: Int?
     public var resolution: Resolution
     public var playbackRate: Double
+    /// Matches ExportSettings.screenQuality when a local processing preference
+    /// should apply to both paths. Nil inherits evaluated project settings.
+    public var screenQuality: ScreenQualitySettings?
 
-    public init(maximumHeight: Int? = nil, resolution: Resolution = .full, playbackRate: Double = 1) {
+    public init(maximumHeight: Int? = nil, resolution: Resolution = .full, playbackRate: Double = 1,
+                screenQuality: ScreenQualitySettings? = nil) {
         self.maximumHeight=maximumHeight; self.resolution=resolution; self.playbackRate=playbackRate
+        self.screenQuality=screenQuality
     }
     public func validate() throws {
+        try screenQuality?.validate()
         guard maximumHeight.map(Self.maximumHeights.contains) ?? true,
               Self.playbackRates.contains(playbackRate) else {
             throw RenderError.invalidSettings("Unsupported preview height or playback rate")
