@@ -75,6 +75,13 @@ enum ToolbarGeometry {
 /// origin (SCStream `sourceRect` convention); AppKit windows use global bottom-left coordinates.
 enum AreaGeometry {
     static let minSide: CGFloat = 16
+    /// Smallest area that can be recorded (the reference's minimum).
+    static let recordMin: CGFloat = 150
+
+    static func canRecord(_ r: CGRect?) -> Bool {
+        guard let r else { return false }
+        return r.width >= recordMin && r.height >= recordMin
+    }
 
     /// Saved area → AppKit global rect on the display with frame `screenFrame`.
     static func globalRect(fromLocal r: CGRect, screenFrame f: CGRect) -> CGRect {

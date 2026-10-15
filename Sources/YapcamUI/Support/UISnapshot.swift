@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor enum UISnapshot {
     static let expectedNames: [String] = {
         var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
-                 "popover-notes", "teleprompter", "overlay-display", "overlay-window", "get-ready", "quick-export-widget", "popover-after-recording",
+                 "popover-notes", "teleprompter", "overlay-display", "overlay-window", "get-ready", "quick-export-widget", "popover-after-recording", "popover-recents",
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
                  "settings-storage", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
@@ -93,6 +93,7 @@ import SwiftUI
             RecordingController.shared.debugSetPhase(.idle)
             return host(QuickExportWidgetView(model: QuickExportWidgetModel(), close: {}).environmentObject(QuickExport.shared), width: 340)
         }))
+        out.append(("popover-recents", { host(RecentsPopover(dismiss: {}), width: 300) }))
         out.append(("popover-after-recording", { host(AfterRecordingPopover(), width: 290) }))
         out.append(("popover-audio", { host(SystemAudioPopover(), width: 260) }))
         out.append(("popover-mic", { host(MicrophonePopover(), width: 280) }))

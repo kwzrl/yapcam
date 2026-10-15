@@ -26,6 +26,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             RecordingSettings().tabItem { Label("Recording", systemImage: "record.circle") }
+            EditingSettings().tabItem { Label("Editing", systemImage: "slider.horizontal.3") }
+            QuickExportSettings().tabItem { Label("Quick export", systemImage: "square.and.arrow.up") }
             ShortcutSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }
             StorageSettings().tabItem { Label("Storage", systemImage: "internaldrive") }
             AdvancedSettings().tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
@@ -47,7 +49,7 @@ struct GeneralSettings: View {
                 Toggle("Show menu bar item", isOn: $s.showMenuBarItem)
             }
             Section("Permissions") {
-                Button("Review permissions…") { OnboardingWindow.shared.show(reason: nil) }
+                Button("Review permissions…") { OnboardingWindow.shared.show(reason: nil, all: true) }
             }
         }.formStyle(.grouped)
     }
@@ -62,12 +64,35 @@ struct RecordingSettings: View {
             Text("Restarts Finder briefly. Icons are restored when recording ends, and on the next launch if Yapcam quit unexpectedly.")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Play start and stop sounds", isOn: $s.playSounds)
-            Toggle("Create zooms automatically", isOn: $s.createAutoZooms)
-            Picker("After recording", selection: $s.afterRecording) { ForEach(AfterRecording.allCases) { Text($0.title).tag($0) } }
-            Toggle("Show quick export widget after recording", isOn: $s.showQuickExportWidget)
-            Text("The widget offers Copy, Save and Edit instead of opening the editor right away.").font(.caption).foregroundStyle(.secondary)
+            Toggle("Highlight the recorded area", isOn: $s.highlightRecordedArea)
+            Text("While recording an area, the rest of the display is dimmed. The dimming is never part of the recording.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Record keystrokes", isOn: $s.recordKeystrokes)
             Text("Keystrokes are stored with the recording to show key overlays in the editor. Needs Input Monitoring permission. Never uploaded anywhere.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.formStyle(.grouped)
+    }
+}
+
+struct EditingSettings: View {
+    @EnvironmentObject var s: AppSettings
+    var body: some View {
+        Form {
+            Toggle("Create zooms automatically", isOn: $s.createAutoZooms)
+            Text("New recordings get zooms placed from your clicks. You can change or remove them in the editor.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Edits are saved automatically while you work.").font(.caption).foregroundStyle(.secondary)
+        }.formStyle(.grouped)
+    }
+}
+
+struct QuickExportSettings: View {
+    @EnvironmentObject var s: AppSettings
+    var body: some View {
+        Form {
+            Picker("After recording", selection: $s.afterRecording) { ForEach(AfterRecording.allCases) { Text($0.title).tag($0) } }
+            Toggle("Show quick export widget after recording", isOn: $s.showQuickExportWidget)
+            Text("The widget offers Copy, Save and Edit instead of opening the editor right away. Quick export makes a 1080p MP4 with audio.")
                 .font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped)
     }

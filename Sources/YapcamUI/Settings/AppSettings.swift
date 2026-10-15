@@ -106,6 +106,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var storageDirectory: URL { didSet { d.set(storageDirectory.path, forKey: "storageDirectory") } }
     /// Only the shortcuts the user changed; everything else uses `HotkeyAction.defaultCombo`.
     @Published var shortcuts: [String: KeyCombo] { didSet { d.set(try? JSONEncoder().encode(shortcuts), forKey: "shortcuts.v2") } }
+    @Published var highlightRecordedArea: Bool { didSet { d.set(highlightRecordedArea, forKey: "highlightRecordedArea") } }
+    @Published var removedRecents: Set<String> { didSet { d.set(Array(removedRecents), forKey: "removedRecents") } }
     @Published var showRecordingWidget: Bool { didSet { d.set(showRecordingWidget, forKey: "showRecordingWidget") } }
     @Published var createAutoZooms: Bool { didSet { d.set(createAutoZooms, forKey: "createAutoZooms") } }
     @Published var afterRecording: AfterRecording { didSet { d.set(afterRecording.rawValue, forKey: "afterRecording") } }
@@ -151,6 +153,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
         storageDirectory = d.string(forKey: "storageDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) } ?? Self.defaultStorage
         shortcuts = (store.data(forKey: "shortcuts.v2").flatMap { try? JSONDecoder().decode([String: KeyCombo].self, from: $0) }) ?? [:]
+        highlightRecordedArea = store.object(forKey: "highlightRecordedArea") as? Bool ?? true
+        removedRecents = Set(store.stringArray(forKey: "removedRecents") ?? [])
         showRecordingWidget = store.object(forKey: "showRecordingWidget") as? Bool ?? true
         createAutoZooms = store.object(forKey: "createAutoZooms") as? Bool ?? true
         afterRecording = AfterRecording(rawValue: store.string(forKey: "afterRecording") ?? "") ?? .createProject

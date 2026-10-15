@@ -221,7 +221,7 @@ import YapcamEditor
     @objc func quickExportSave() { QuickExport.shared.runOnLast(.save) }
     @objc func showNotes() { NotesWindow.shared.show() }
     @objc func showSettings() { SettingsWindow.shared.show() }
-    @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil) }
+    @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil, all: true) }
     @objc func openProject() {
         let p = NSOpenPanel()
         p.canChooseFiles = true; p.canChooseDirectories = true; p.treatsFilePackagesAsDirectories = false

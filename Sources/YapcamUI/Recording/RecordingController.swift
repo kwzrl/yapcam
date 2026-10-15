@@ -107,6 +107,8 @@ enum RecordingPhase: Equatable {
             OnboardingWindow.shared.show(reason: "Screen recording permission is required to record.")
             return
         }
+        // Clicks need Input Monitoring: ask the first time instead of up front.
+        if perms.state(.inputMonitoring) != .granted, !perms.hasRequested(.inputMonitoring) { perms.request(.inputMonitoring) }
         let options: UIRecordingOptions
         do { options = try makeOptions() } catch {
             alert = AppAlert(title: "Can't start recording", error: error)
@@ -141,6 +143,7 @@ enum RecordingPhase: Equatable {
             guard let saved = settings.areaRect, let display = Displays.info(for: settings.areaDisplayID) else {
                 throw EngineError.failed("Select an area to record first, or pick Display instead.")
             }
+            guard AreaGeometry.canRecord(saved) else { throw EngineError.failed("The area must be at least \(Int(AreaGeometry.recordMin)) × \(Int(AreaGeometry.recordMin)) points. Choose it again.") }
             // The display may have changed resolution or arrangement since the area was chosen.
             guard let rect = AreaGeometry.fit(saved, in: display.frame.size) else {
                 throw EngineError.failed("The saved area no longer fits on “\(display.name)”. Choose the area again.")

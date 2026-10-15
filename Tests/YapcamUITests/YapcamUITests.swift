@@ -824,3 +824,50 @@ import YapcamEditor
         rec.debugSetPhase(.idle)
     }
 }
+
+@MainActor @Suite struct ReferenceExtrasTests {
+    @Test func areaMinimumIs150() {
+        #expect(!AreaGeometry.canRecord(nil))
+        #expect(!AreaGeometry.canRecord(CGRect(x: 0, y: 0, width: 149, height: 400)))
+        #expect(!AreaGeometry.canRecord(CGRect(x: 0, y: 0, width: 400, height: 149)))
+        #expect(AreaGeometry.canRecord(CGRect(x: 0, y: 0, width: 150, height: 150)))
+    }
+
+    @Test func areaTooSmallToRecordExplainsItself() {
+        let s = AppSettings.shared
+        let saved = (s.sourceMode, s.areaRect, s.areaDisplayID); defer { (s.sourceMode, s.areaRect, s.areaDisplayID) = saved }
+        guard let d = Displays.resolve(0) else { return }
+        s.sourceMode = .area; s.areaDisplayID = d.id; s.areaRect = CGRect(x: 10, y: 10, width: 100, height: 100)
+        do { _ = try RecordingController.shared.makeOptions(); Issue.record("100×100 must not record") }
+        catch { #expect(UserMessage.describe(error).contains("150")) }
+    }
+
+    @Test func removedRecentsPersistAndHideEntries() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
+        let s = AppSettings(store: suite)
+        #expect(s.removedRecents.isEmpty && s.highlightRecordedArea)
+        s.removedRecents.insert("/x/A.yapcam")
+        #expect(AppSettings(store: suite).removedRecents == ["/x/A.yapcam"])
+    }
+}
+
+@MainActor @Suite struct WindowExtrasTests {
+    @Test func resizePresetsKeepTheRatioAndFitTheDisplay() {
+        let display = CGSize(width: 1680, height: 1050)
+        for p in WindowAX.Preset.allCases {
+            let s = WindowAX.fit(CGSize(width: 800, height: 600), preset: p, limit: display)
+            #expect(abs(s.width / s.height - p.ratio) < 0.01, "\(p)")
+            #expect(s.width <= display.width && s.height <= display.height)
+        }
+        // A tall preset on a small display shrinks instead of overflowing.
+        let t = WindowAX.fit(CGSize(width: 1600, height: 900), preset: .tall, limit: CGSize(width: 1280, height: 800))
+        #expect(t.height <= 800 && abs(t.width / t.height - 9.0 / 16) < 0.01)
+        // Never below 150.
+        #expect(WindowAX.fit(CGSize(width: 100, height: 100), preset: .wide, limit: display).height >= 150)
+    }
+
+    @Test func displayFrameInCGCoordinates() {
+        let f = CGRect(x: 0, y: 1050, width: 1512, height: 982)        // display above the primary
+        #expect(OverlayGeometry.cgFrame(of: f, primaryMaxY: 1050) == CGRect(x: 0, y: -982, width: 1512, height: 982))
+    }
+}

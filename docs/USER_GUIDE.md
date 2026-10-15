@@ -64,9 +64,9 @@ Speaker notes (Settings menu or Recording → Speaker Notes…) open a small win
 button shows the notes large in a floating window that never appears in the recording, with text size
 and auto-scroll speed. Notes are saved into the project when you stop.
 
-Press Start recording: a 3-second countdown runs (0, 3 or 5 s in Settings → General), then the toolbar
-turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Restart** (discard this take
-and start over) and **Cancel** (discard). Stop (button, hotkey or menu bar) saves the recording and opens the editor at once, in front, on the new recording.
+Press Start recording: if a countdown is set (None by default; 3, 5 or 10 s in Settings → General or the card's chevron), a "Get ready" card with a filling ring appears (Continue or Return starts at once, Esc cancels). Then the toolbar
+turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Marker** (a flag at this moment, saved with the recording), **Restart** (discard this take and start over) and
+**Cancel** (delete the recording); both ask first. While recording, the menu bar icon is a red stop button and the Dock icon shows ●. Stop (button, hotkey or menu bar) saves the recording and opens the editor at once, in front, on the new recording.
 
 Verified live on this Mac (display, window and area capture, pause/resume, system audio): Record → countdown → recording → Stop → the editor
 opens on the new recording, and the toolbar, countdown and timer are **not** in the recorded video.
@@ -75,16 +75,34 @@ picker and capture your screen directly; choose **Allow** (macOS asks again from
 
 ## Shortcuts
 
+Global (work from any app) unless noted; all can be rebound or cleared in **Settings → Shortcuts**, which
+says "Not able to register" or "Already used" when a combination can't be used.
+
 | Action | Default |
 |---|---|
-| Start / stop recording | ⌥⌘R |
+| Start / finish recording | ⌃⌘↩ |
+| Record display / window / area | ⌥⌘3 / ⌥⌘4 / ⌥⌘5 |
 | Pause / resume | ⌥⌘P |
+| Restart recording (asks first) | ⌥⌘⌫ |
+| Add marker | ⌃⌥⌘F |
+| Show / hide toolbar | ⌥⌘' |
+| Teleprompter play / pause | ⌥⌘. |
+| Show / hide speaker notes (in Yapcam) | ⌥⌘/ |
+| Open last recording, quick export copy / save (in Yapcam) | ⌥⌘Z, ⌥⌘C, ⌥⌘S |
+| Cancel recording | not set |
 
-Rebind both in **Settings → Shortcuts** (click the field, press the new combination; it needs ⌘, ⌥
-or ⌃). Verified live: ⌥⌘R starts, ⌥⌘P pauses and resumes, ⌥⌘R stops.
+Keys are physical positions: the character printed on screen follows your keyboard layout.
 
 Other menu shortcuts: ⌘, Settings · ⇧⌘R Recordings window · ⌘O Open Recording · ⌘I Import Video ·
 ⌘Z / ⇧⌘Z undo/redo · ⌘B split at playhead · ⌘K command palette in the editor.
+
+## After recording
+
+The chevron on the Record button chooses what happens at Stop: **Create project** (default, the editor opens at
+once), **Export and copy to clipboard**, or **Export and save to file** (1080p MP4 with audio, no editor). The
+button then reads "Start recording", "Record & Copy" or "Record & Save". Optionally a small quick-export widget
+(Copy, Save…, Edit) appears instead of the editor (Settings → Quick export). New recordings also get automatic
+zooms from your clicks (Settings → Editing). These new after-recording paths are unit-tested but **untested live**.
 
 ## Settings
 

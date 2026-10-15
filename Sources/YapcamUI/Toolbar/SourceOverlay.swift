@@ -10,6 +10,9 @@ enum OverlayGeometry {
         CGRect(x: r.minX - f.minX, y: r.minY - (primaryMaxY - f.maxY), width: r.width, height: r.height)
     }
 
+    /// A display's frame in global CG coordinates (top-left origin).
+    static func cgFrame(of f: CGRect, primaryMaxY: CGFloat) -> CGRect { CGRect(x: f.minX, y: primaryMaxY - f.maxY, width: f.width, height: f.height) }
+
     /// AppKit mouse location (bottom-left origin) → global CG point (top-left origin).
     static func cgPoint(fromAppKit p: CGPoint, primaryMaxY: CGFloat) -> CGPoint { CGPoint(x: p.x, y: primaryMaxY - p.y) }
 }
@@ -42,6 +45,55 @@ enum WindowHit {
     }
 }
 
+// MARK: - Window actions through Accessibility (resize presets, bring to front)
+
+enum WindowAX {
+    enum Preset: String, CaseIterable, Identifiable {
+        case wide = "16:9", standard = "4:3", tall = "9:16", wide1610 = "16:10", square = "1:1"
+        var id: String { rawValue }
+        var ratio: CGFloat {
+            switch self { case .wide: 16.0 / 9; case .standard: 4.0 / 3; case .tall: 9.0 / 16; case .wide1610: 16.0 / 10; case .square: 1 }
+        }
+    }
+
+    /// New size for a window of `size` that has the preset's aspect ratio, keeping its width where it fits
+    /// in `limit` (the display) and shrinking otherwise. Never below 150 pt.
+    static func fit(_ size: CGSize, preset: Preset, limit: CGSize) -> CGSize {
+        var w = size.width, h = w / preset.ratio
+        if h > limit.height { h = limit.height; w = h * preset.ratio }
+        if w > limit.width { w = limit.width; h = w / preset.ratio }
+        return CGSize(width: max(150, w.rounded()), height: max(150, h.rounded()))
+    }
+
+    private static func axWindow(pid: Int32, matching bounds: CGRect) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success, let wins = value as? [AXUIElement] else { return nil }
+        for w in wins {
+            var p: CFTypeRef?, sz: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(w, kAXPositionAttribute as CFString, &p) == .success,
+                  AXUIElementCopyAttributeValue(w, kAXSizeAttribute as CFString, &sz) == .success else { continue }
+            var pos = CGPoint.zero, size = CGSize.zero
+            AXValueGetValue(p as! AXValue, .cgPoint, &pos); AXValueGetValue(sz as! AXValue, .cgSize, &size)
+            if abs(pos.x - bounds.minX) < 3, abs(pos.y - bounds.minY) < 3, abs(size.width - bounds.width) < 3, abs(size.height - bounds.height) < 3 { return w }
+        }
+        return nil
+    }
+
+    /// Resizes the window; false when Accessibility isn't granted or the window can't be found/resized.
+    static func resize(pid: Int32, bounds: CGRect, to size: CGSize) -> Bool {
+        guard AXIsProcessTrusted(), let w = axWindow(pid: pid, matching: bounds) else { return false }
+        var s = size
+        guard let v = AXValueCreate(.cgSize, &s) else { return false }
+        return AXUIElementSetAttributeValue(w, kAXSizeAttribute as CFString, v) == .success
+    }
+
+    static func raise(pid: Int32, bounds: CGRect) {
+        NSRunningApplication(processIdentifier: pid)?.activate()
+        if AXIsProcessTrusted(), let w = axWindow(pid: pid, matching: bounds) { AXUIElementPerformAction(w, kAXRaiseAction as CFString) }
+    }
+}
+
 // MARK: - The card: what will be recorded + Start recording
 
 struct SourceCard: View {
@@ -49,6 +101,7 @@ struct SourceCard: View {
     let title: String
     let subtitle: String
     let start: () -> Void
+    var extras: (() -> AnyView)? = nil
     @EnvironmentObject var settings: AppSettings
     @Environment(\.contrastOpacity) private var contrast
 
@@ -60,6 +113,7 @@ struct SourceCard: View {
                     Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
                     Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
                 }
+                if let extras { extras() }
             }
             HStack(spacing: 1) {
                 Button(action: start) {
@@ -96,7 +150,31 @@ struct SourceCard: View {
     let kind: Kind
     @Published var activeDisplayID: UInt32 = 0
     @Published var hover: WindowRow?
+    @Published var notice: String?
+    var onAdjustAsArea: ((CGRect, UInt32) -> Void)?
+    var onRecordDisplay: ((UInt32) -> Void)?
     init(kind: Kind) { self.kind = kind }
+
+    func resize(_ w: WindowRow, to preset: WindowAX.Preset, in limit: CGSize) {
+        let size = WindowAX.fit(w.bounds.size, preset: preset, limit: limit)
+        if !WindowAX.resize(pid: w.pid, bounds: w.bounds, to: size) {
+            notice = AXIsProcessTrusted() ? "This window can't be resized." : "Allow Accessibility for Yapcam to resize windows."
+        }
+    }
+
+    /// The window's rectangle becomes the area to record (then the area overlay opens to fine-tune it).
+    func adjustAsArea(_ w: WindowRow, screenFrame: CGRect, primaryMaxY: CGFloat) {
+        let local = OverlayGeometry.localRect(cg: w.bounds, screenFrame: screenFrame, primaryMaxY: primaryMaxY)
+        if let id = NSScreen.screens.first(where: { $0.frame == screenFrame })?.displayID { onAdjustAsArea?(local, id) }
+    }
+
+    func recordDisplay(containing w: WindowRow) {
+        let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? 0
+        let center = CGPoint(x: w.bounds.midX, y: w.bounds.midY)
+        let id = NSScreen.screens.first { OverlayGeometry.cgFrame(of: $0.frame, primaryMaxY: primaryMaxY).contains(center) }?.displayID
+            ?? Displays.resolve(0)?.id
+        if let id { onRecordDisplay?(id) }
+    }
 }
 
 /// Dimmed display with the card centered on the display under the cursor.
@@ -120,6 +198,26 @@ struct DisplayOverlayRoot: View {
     }
 }
 
+extension WindowOverlayRoot {
+    /// The reference's window context actions, in our own words.
+    @ViewBuilder func windowMenu(_ w: WindowRow) -> some View {
+        Menu {
+            Menu("Resize window") {
+                ForEach(WindowAX.Preset.allCases) { p in
+                    Button(p.rawValue) { model.resize(w, to: p, in: screenFrame.size) }
+                }
+            }
+            Button("Bring to front") { WindowAX.raise(pid: w.pid, bounds: w.bounds) }
+            Button("Adjust as area") { model.adjustAsArea(w, screenFrame: screenFrame, primaryMaxY: primaryMaxY) }
+            Button("Record entire display") { model.recordDisplay(containing: w) }
+        } label: {
+            Image(systemName: "ellipsis.circle").font(.system(size: 16)).foregroundStyle(.secondary)
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .help("Window options").accessibilityLabel("Window options")
+    }
+}
+
 /// Highlights the window under the cursor (tinted fill + outline) with the card inside it.
 struct WindowOverlayRoot: View {
     let screenFrame: CGRect
@@ -140,13 +238,20 @@ struct WindowOverlayRoot: View {
                         .allowsHitTesting(false)
                     SourceCard(symbol: "macwindow", title: w.title.isEmpty ? w.app : w.title,
                                subtitle: "\(w.app) · \(Int(w.bounds.width))×\(Int(w.bounds.height))",
-                               start: { start(w.id) })
+                               start: { start(w.id) },
+                               extras: { AnyView(windowMenu(w)) })
                         .position(x: r.midX, y: r.midY)
                 }
             } else {
                 Text("Move the pointer over a window").font(.system(size: 14, weight: .medium))
                     .padding(.horizontal, 14).padding(.vertical, 8).panelSurface(cornerRadius: 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .overlay(alignment: .top) {
+            if let n = model.notice {
+                Text(n).font(.system(size: 12, weight: .medium)).padding(.horizontal, 12).padding(.vertical, 6)
+                    .panelSurface(cornerRadius: 10).padding(.top, 40)
             }
         }
         .contentShape(Rectangle())
@@ -187,6 +292,11 @@ private final class OverlayWindow: NSWindow {
         hide()
         AreaSelector.shared.cancelForTesting()
         let m = SourceOverlayModel(kind: kind)
+        m.onAdjustAsArea = { [weak self] rect, displayID in
+            AppSettings.shared.areaDisplayID = displayID; AppSettings.shared.areaRect = rect
+            self?.hide(); AreaPicker.begin()
+        }
+        m.onRecordDisplay = { [weak self] id in self?.startDisplay(id) }
         model = m
         let settings = AppSettings.shared
         for screen in NSScreen.screens {

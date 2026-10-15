@@ -1,4 +1,4 @@
-READY ui: recording-flow brief implemented (source overlays with Start recording, editor opens at once after stop, Device removed); unit-tested and rendered light/dark; NOT yet run live (user instance running)
+READY ui: reference alignment UI-1..UI-13 done (see status; a few sub-items listed as not done); unit-tested + rendered; NOT run live (user instance running)
 
 READY ui: QA self-test launch flags (--capture-selftest options, --ui-record-selftest, --drive-input-selftest) built, tested, run live; NOTE for QA: this app does NOT have Accessibility/Input Monitoring (logged accessibility=false)
 
@@ -149,6 +149,18 @@ Ran with `open -n -W`, no lock, no other instance, script aborts on any skip; I 
 - Global hotkeys via `--live-e2e <dir> hotkey` (Accessibility now granted): ⌥⌘R started recording, ⌥⌘P → paused, ⌥⌘P → recording, ⌥⌘R → idle with a package. Verified.
 - User guide updated (hotkeys verified, known audio-export issue removed, recovery wording).
 Still unverified: real mic/camera (no devices), VoiceOver, multi-display, Retina.
+
+## Reference alignment, M/L items (gap-list UI-5…UI-13)
+- UI-5 window extras: the window card has an options menu: resize to 16:9 / 4:3 / 9:16 / 16:10 / 1:1 (Accessibility, fitted to the display, min 150), bring to front, adjust as area (hands the window's rectangle to the area overlay), record entire display. Not done: editable W×H fields and user-saved sizes, "ignore window". Needs Accessibility (shows a notice otherwise).
+- UI-6 area extras: minimum 150×150 to record (Start disabled with a hint; recording refuses smaller saved areas), numeric X/Y/W/H fields, aspect lock Any/16:9/4:3/1:1/3:4/9:16 (no custom), arrow nudge existed, last area saved.
+- UI-7 multi-display: one card per display (the overlay shows it on the display under the pointer, others dimmed), name + pixel size + fps. Single display works the same. (Shows our fps setting, not the display's refresh rate.)
+- UI-8 highlight recorded area: setting (default on); while recording an area the rest of the display is dimmed by an excluded click-through window.
+- UI-9 gear menu: While recording (Hide Desktop Icons, Highlight Recorded Area, Speaker Notes), After recording (Open Quick Export Widget), Countdown submenu, Settings/Recordings/Permissions. Not done: "Hide Dock Icon" while recording (we show the ● badge instead) and "Recording engine".
+- UI-10 settings tabs: General, Recording, Editing, Quick export, Shortcuts, Storage, Advanced (no Experimental). Create zooms automatically (on), show recording widget (on). Not done: "use last project settings as default", max camera resolution, autosave toggle (the editor always autosaves), separate preset save folder.
+- UI-11 the toolbar's Recent button opens a popover (search, last 8, remove from recents, All Recordings…, Show Folder); the Recordings window has search and Remove from Recents (hides, doesn't delete).
+- UI-12 prompter: speed 0–25, notepad opacity 0.4–1, size, play/pause shortcut (⌥⌘.), excluded from capture.
+- UI-13 onboarding: first run asks for Screen Recording and Accessibility only; Input Monitoring is asked at the first recording; mic/camera at first use (their popovers); Settings/menu "Permissions…" shows all five.
+- Tests: 390 pass. Snapshots viewed (area overlay with numeric fields, recents popover, get-ready, quick export widget, shortcuts). Not run live.
 
 ## Reference alignment, H items (gap-list UI-1…UI-4) — done, unit-tested + rendered; NOT run live
 Behaviour only, own words/design. Rebased on main with the app icon (not touched).
