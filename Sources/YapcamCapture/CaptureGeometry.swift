@@ -15,8 +15,12 @@ struct CaptureGeometry: Sendable {
             throw CaptureError.sourceUnavailable
         }
         self.rect = rect; self.scale = scale
-        pixelWidth = max(2, Int((rect.width * scale).rounded()))
-        pixelHeight = max(2, Int((rect.height * scale).rounded()))
+        // NV12/HEVC capture uses even dimensions. Choose that surface before
+        // configuring SCStream and persisting pixel_size, so the manifest cannot
+        // retain an odd request that ScreenCaptureKit silently rounds down.
+        // Logical points stay unchanged for selection and cursor coordinates.
+        pixelWidth = max(2, Int(rect.width * scale) / 2 * 2)
+        pixelHeight = max(2, Int(rect.height * scale) / 2 * 2)
     }
     func local(_ global: CGPoint) -> CGPoint { CGPoint(x: global.x - rect.minX, y: global.y - rect.minY) }
 

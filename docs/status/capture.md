@@ -1,3 +1,4 @@
+READY 92b19e9 + WORKTREE QA F8 even-size pixel metadata; signed build/unit verified, host readback pending
 READY a3a51ad clean-finish lock cleanup / signed-app live variants; host checks pending
 READY 7383d08 M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
 READY 4c5420b round-2 C1 no-speech window recovery/warnings; native say host gate pending
@@ -9,16 +10,27 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 11:37 CEST: main remains 529db15; capture source and
-  tests unchanged. QA .app-lock is absent; no app launch, rebuild or temp copy.
-  QA/UI live evidence is recorded below; no newer host result or review finding.
-  No capture-owned defect was assigned;
-  native hour/Speech and capture-specific host variants still need acceptance.
-  Guarded host commands must recheck lock/processes at launch.
+- Lead update 2026-10-15 12:12: ALL app permissions granted (screen/system audio,
+  Accessibility, Input Monitoring, mic, camera). LaunchServices --drive-input-selftest 6
+  reports accessibility=true/inputMonitoring=true; scripted moves and both clicks
+  appear at the exact expected point in events.jsonl. This supersedes earlier false
+  permission readings from direct executable launches. No mic/camera hardware here.
+- Launch rule corrected: use open -n -W <build>/Yapcam.app --args ... after checking
+  QA .app-lock AND confirming no other Yapcam instance runs. Direct executable
+  launch attributes TCC to the shell. Helpers below/README now use guarded open
+  with explicit --env values. QA lock absent at 12:13 audit; no app launched.
+- Backlog audit 2026-10-15 12:08 CEST: main fc29d18 contains QA F8 (odd window
+  manifest/file pixel mismatch). Fixed in this worktree; five owned files pending:
+  CaptureGeometry, GeometryMatrixTests, SessionLifecycleTests, tests README/status.
+  Capture source/tests otherwise match main. Signed build and unit checks pass below;
+  Lead must checkpoint/rebase/push and rerun native odd-window readback.
+  QA .app-lock was absent at audit; no app launch or repo/harness copy performed.
+  Main's only new commit records host verification; F8 source validation remains
+  applicable. No newer capture finding or native F8/hour/Speech result arrived.
 - Fleet app rule acknowledged 2026-10-15 10:54 CEST; QA .app-lock existed then.
   NO Yapcam launch performed. Check it before every launch, and do non-live work
   while it exists. Never quit another instance or kill by process name; only stop
-  PIDs started by capture. Host commands below now bypass LaunchServices and refuse
+  PIDs started by capture. Host commands below now use LaunchServices and refuse
   to launch if QA owns the app, another instance runs, or inspection fails.
 - Lead checkpointed lock cleanup/self-test variants as a3a51ad and integrated them
   in main 248630a. Fleet-rule docs are checkpointed in e66eae5/integrated in 529db15.
@@ -28,9 +40,9 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   352 frames / 6.09 s, AAC system audio offset 1 ms, 95 events. This supersedes
   historical TCC-denial notes; it is a display baseline, not window/area/pause or
   speech/model acceptance. Lead will run native/live checks outside the sandbox.
-- Local HEAD e66eae5; main 529db15 contains the capture changes. Clean-tree rebase
-  attempted at 11:27 CEST: creating rebase-merge still denied. Lead handles Git
-  checkpoint/rebase/push. Only this status is pending; no recordings committed.
+- Local HEAD 92b19e9; main fc29d18 contains prior capture changes. Clean-tree rebase
+  attempted before F8 edits at 11:48 CEST: creating rebase-merge still denied.
+  Lead handles Git checkpoint/rebase/push; no recordings committed.
 - Fixed clean-finish .capture.lock residue: every normal lease release unlinks its
   own inode while still holding flock. This includes recording stop, recovery and
   transcription; paused sessions retain the file/lock. Crashes can leave an empty
@@ -65,13 +77,40 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   not established by simulation or the separate renderer Metal hardware results;
   the confirmed short display capture above is additional host evidence.
 
-## New host evidence — main 529db15 / QA and UI reports
+## QA F8 — even-size metadata / implementation verified
+- Previously a 1627x1015-point scale-1 window requested/stored 1627x1015 pixels but
+  produced 1626x1014 NV12/HEVC. CaptureGeometry now rounds positive pixel dimensions
+  DOWN to even values (minimum 2) before BOTH SCStream configuration and manifest
+  creation. The example is now 1626x1014 in both; at scale 2 it is 3254x2030.
+- Logical rect/scale and pointer coordinates stay unchanged; only encoded dimensions
+  are quantized. Assumption: use the observed NV12 even-size policy for all capture
+  targets, including fractional area rectangles; even dimensions remain unchanged.
+  No schema change or existing recording rewrite. Window resume retains the initial
+  encoded surface even after resize or moving to a display with another scale.
+- Regressions at scales 1/2: odd window, fractional area on a negative-origin display,
+  minimum dimensions, unchanged logical geometry/cursor midpoint, and real coordinator
+  initial/resumed stream pixel arguments matching persisted tracks.screen.pixel_size.
+- Validation on 92b19e9 + owned edits: capture suite 106 tests / 6 media skips /
+  zero failures (17.9 s, including hour/100-crash simulation); Rust 68 pass / 1 ignored.
+  scripts/build-app.sh and strict codesign pass (Yapcam Dev Signing / mov.yapcam.Yapcam).
+  Tiny temporary flag-wrapper directory was listed/removed by EXIT trap; no repo copy,
+  no app launched and no recording generated. Logs /tmp/yapcam-capture-f8-{tests,rust,app}.log.
+  Source/test/status gitleaks scans and git diff --check pass.
+- Lead: after checkpoint, run the guarded capture_selftest function below against an
+  odd-sized window, e.g. capture_selftest window:com.apple.Terminal 60.
+  Verify session.json tracks.screen.pixel_size equals ffprobe width/height in EVERY
+  screen segment, including pause/resume after resize. Native F8 readback is pending.
+  Suggested commit: fix(capture): align manifest pixels with even NV12 capture dimensions.
+
+## New host evidence — main 529f208 / QA and UI reports
 - QA TEST_REPORT (runs on b5d1268): 4 min capture complete, 240.14 s / 13838 frames,
   RSS flat 72 MB. Ten minutes: 600.08 s / 34476 frames, 300/300 flash/beep pairs,
   first/mid/last A/V offsets 2.5/-14.2/9.8 ms, drift 7.3 ms, RSS max 73 MB,
   package 97 MB. These are actual display/system-audio results, not the M3 ledger.
-- QA's interrupted runs left analyzable fragmented media (223/223 markers, 1.3 ms
-  drift); recover() and clean relaunch were NOT run, so recovery remains pending.
+- QA recovery now passes: SIGKILL during a 25 s recording left status recording;
+  interruptedPackages found it, recover() finalized one 24.01 s segment (about 1 s
+  tail loss), core opened it and ffmpeg decoded the screen track. UI relaunch prompt
+  remains untested. Earlier interrupted runs also had readable media (223/223 markers).
 - UI's live controller runs: area at (200,150), 800x500 points produced 800x500 video
   and correct content; Terminal window 1627x1015 points produced 1626x1014 video
   (encoder even-size rounding); pause/resume produced 2.16 + 1.93 = 4.09 s of source,
@@ -83,15 +122,20 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   before the screen segment (QA: 600.067 vs 600.083 s). Assigned to core audio_ranges
   / render AudioTimeline; capture must preserve the true per-track starts/durations.
   No capture workaround pads or truncates the screen to hide the export defect.
+  UPDATE: main fc29d18 records Lead's verification of the render fix on 529f208:
+  LiveRecordingTests 4/4 pass including full edit/export with audio (156 s).
+  F6 host acceptance is now confirmed by Lead; older QA failure rows are historical.
 - Lead/QA: the signed-app window/area/pause environment hooks requested by QA now
-  exist on main; use the guarded commands below. QA's additional title selection,
-  no-audio/output flags and in-app scripted-input request are not implemented by
-  these hooks. UI notes synthetic hotkey posting failed without Accessibility;
-  Screen Recording grant alone does not prove input-injection permission.
+  exist on main; use the guarded commands below. Main also adds UI's --target
+  window:<id>/area:x,y,w,h and --pause-after flags, --ui-record-selftest and
+  --drive-input-selftest (built-in move/click pattern). Title/no-audio/output/custom
+  JSON input flags are not supplied by these hooks. Earlier accessibility=false
+  reports are superseded by Lead's 12:12 LaunchServices grant/input verification.
 
 ## Lead host commands — lock cleanup / window / area / pause
 After checkpoint/build of this worktree, run from a normal host terminal in the repo.
-Use one command at a time; the direct executable runs in the foreground. Open a disposable
+Use one command at a time; guarded open -n -W preserves app TCC attribution and waits
+for exit. Helper arguments: target, fps, optional pause-after seconds. Open a disposable
 TextEdit document for window cases. A numeric window ID also works after window:.
 All output stays in ~/Movies/Yapcam/QA/capture; inspect probe.log for package paths.
 
@@ -109,14 +153,21 @@ capture_selftest() (
             printf 'Cannot inspect running apps; skipping live test.\n' >&2; exit 1
         fi
     fi
-    exec env "$@" build/Yapcam.app/Contents/MacOS/Yapcam --capture-selftest 8
+    capture_target="${1:-display}"
+    capture_fps="${2:-60}"
+    capture_pause="${3:-}"
+    set -- -n -W --env "YAPCAM_CAPTURE_SELFTEST_TARGET=$capture_target" --env "YAPCAM_CAPTURE_SELFTEST_FPS=$capture_fps"
+    if [ -n "$capture_pause" ]; then
+        set -- "$@" --env "YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=$capture_pause"
+    fi
+    exec /usr/bin/open "$@" build/Yapcam.app --args --capture-selftest 8
 )
-capture_selftest YAPCAM_CAPTURE_SELFTEST_FPS=30
-capture_selftest YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
-capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600
-capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 YAPCAM_CAPTURE_SELFTEST_FPS=30 YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
-capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit
-capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit YAPCAM_CAPTURE_SELFTEST_FPS=30 YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
+capture_selftest display 30
+capture_selftest display 60 3
+capture_selftest area:100,100,800,600 60
+capture_selftest area:100,100,800,600 30 3
+capture_selftest window:com.apple.TextEdit 60
+capture_selftest window:com.apple.TextEdit 30 3
 YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter 'actualHEVCWriterAndInterruptedRecovery|NativeFragmentTests'
 ```
 
@@ -205,6 +256,9 @@ YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter 'actualHEVCWriterAndInterr
   or audio-codec choice (export settings are a separate subsystem). Camera uses the
   active device format, requests 30/60 fps and falls back to 30 when 60 is unsupported.
 - Screen requests 8-bit NV12, native points×display scale, cursor excluded from video.
+  Encoded dimensions round down to even pixels (minimum 2); logical rects retain
+  full point coordinates. This prevents implicit encoder rounding from disagreeing
+  with the declared pixel_size (QA F8).
   Geometry rejects nonfinite/nonpositive scale, rectangles below 2 logical points,
   and >32768 pixels per dimension. That validation ceiling is NOT an encoder/GPU
   capability guarantee. HDR capture is not configured/verified. Window resize keeps
@@ -445,20 +499,22 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. Checkpoint the latest host-evidence status under the agreed read-only Git
-   workflow. Fleet-rule docs and lock cleanup/self-test variants are integrated; review lock
-   inode lifetime/races and run the host commands only when QA releases .app-lock
-   and no other Yapcam instance runs. Prior M3/C1 packages are integrated.
+1. Checkpoint F8's five owned files listed above, rebase/push under the agreed
+   read-only Git workflow, and validate odd-window manifest/file pixel equality on
+   the host. Fleet-rule/lock cleanup/self-test changes are integrated. Run host
+   commands only when QA releases .app-lock and no other Yapcam instance runs.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
-   the signed-app variants above plus static-tail/sync and kill/relaunch checks.
+   the signed-app variants above plus static-tail/sync. Library kill/recover now
+   passes in QA; app-level recovery prompt still needs acceptance.
    Re-review C1 warnings and M3 policy/test boundaries; full host suite is still needed.
 3. Present C1 warnings and rerun the opt-in say tests on an authorized host with
    local models. Main already includes UI's Speech usage key, production transcriber
    hook, permission request and JSON encoding; real Speech remains unverified.
    Append host results here; capture will address findings.
 4. Add transcript JSON including optional C1 warnings and existing timing sidecars/lock
-   to FORMATS.md; expose the warnings in the app's caption flow.
+   to FORMATS.md; document the even-pixel encoded-size policy (logical rect unchanged)
+   and expose the warnings in the app's caption flow.
    Core already documents source-time import; complete consumer integration is outside
    capture ownership. QA should reconcile AUD-10 and fault/geometry rows
    from this evidence without marking real recognition or capture as verified.
