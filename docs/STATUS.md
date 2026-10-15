@@ -43,6 +43,14 @@ architecture, A/V sync debugging, platform problems and independent reviews.
 - Reviews round 1: Codex gpt-6-astra on ui/editor (15 findings), Claude Opus on
   core/capture (6 findings); all handed to owners (fleet-local review files).
 
+- Integration 9 (03:13): main a02a89e — 256 Swift + 97 XCTest + 61 Rust green; no
+  FEATURES row left `todo`. Render on Metal (M4, `YAPCAM_REQUIRE_RENDER_HARDWARE=1`): 86/86
+  incl. text, reactions, captions, highlights, camera effects. Benchmarks (synthetic decoded
+  source, 60 frames, no audio): export 1080p 4.7×, 4K 1.9× realtime; preview 1080p 57.6 fps
+  (3 dropped / 2 s), 4K 58.9 fps (2 dropped / 2 s).
+- Reviews round 2: 14/15 ui/editor round-1 findings fixed, 6/6 core/capture fixed; new
+  findings (7 ui/editor, 2 render/capture) handed to owners. M3 hardening started 03:15.
+
 ## Open
 Everything in `docs/FEATURES.md` (being written by qa). First integration target: M1
 (see `docs/briefs/common.md`).
