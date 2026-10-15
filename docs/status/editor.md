@@ -3,6 +3,7 @@
 READY c143346 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Backlog check: every row Lead listed for editor is now implemented except ED-10 caption font/reveal/growth/entrance/language (core has no such fields yet → Request to core below) and manual checks. F4 privacy: no absolute home path in this file (verified by grep).
 - CAP-3 markers: recording markers (core `markers` query, mapped through cuts/speed) show as orange flags on the ruler, act as snap targets and Option+Arrow edit points. Not seen against a real recording with markers. 213 editor tests green.
 - ED-5 glass loupe: zoom inspector Style Classic / Glass loupe with lens size (0.25–0.75), bevel, colour fringing; zoom rows read `style`/`lens` from core; real-core round-trip (clamping, undo). 212 editor tests green. Lens pixels in preview/export not looked at (render owns sampling). FEATURES.md GAP-ED-5/RND-5 rows can drop the "editor lens control pending" note.
 - Look section: "Improve screen quality" (improvement 0…1, upscaling off/fast/quality via `canvas.screen_quality`, off by default) and inset border position (`canvas.inset_origin`, two sliders); real-core round-trip incl. out-of-range rejection. 211 editor tests green. Pixels not verified in a real preview/export.
@@ -203,3 +204,5 @@ Every editor-owned FEATURES row that core/render can support is implemented. Cor
 - App integration: `Sources/Yapcam/Recording/Engine.swift` `openEditor(package:)` should call `EditorWindows.open(package:)`; call `EditorWindows.saveAll()` in `applicationWillTerminate`; add `EditorCommands()` to the app's `.commands`.
 - render: fix audio export hang (above).
 - core: add a `{"q":"clicks"}`-style query is present and used; `canvas.output_size` for non-16:9 presets is set by the editor (1440×1080, 1080×1080, 1080×1920, 2520×1080) — confirm these sizes.
+
+- Request (core): caption style fields (font, reveal, growth, entrance, language) — editor will add the controls once `canvas.captions` records carry them.
