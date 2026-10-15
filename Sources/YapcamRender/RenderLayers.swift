@@ -37,6 +37,7 @@ public struct RenderConfiguration: Sendable, Equatable {
     public var cursorSpotlightRadius: Float = 0
     public var backgroundNoise: Float = 0
     public var windowChrome = false
+    public var glassLoupe: GlassLoupeSettings? = nil
     public var cameraBackgroundRemoval = false
     public var cameraFaceFraming = false
     public var cameraShadowRadius: Float = 0

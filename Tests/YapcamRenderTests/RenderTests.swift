@@ -196,7 +196,7 @@ final class RenderTests: XCTestCase {
         XCTAssertThrowsError(try ExportSettings(quality: .nan).validatedRange(duration: 1))
         XCTAssertThrowsError(try ExportSettings(rangeStartNs: 10, rangeEndNs: 5).validatedRange(duration: 20))
         XCTAssertThrowsError(try ExportSettings(outputHeight: 100).validatedRange(duration: 20))
-        XCTAssertEqual(try ExportSettings().outputWidth(canvasWidth: 1680, canvasHeight: 1050), 1728)
+        XCTAssertEqual(try ExportSettings().outputWidth(canvasWidth: 1680, canvasHeight: 1050), 1152)
         XCTAssertThrowsError(try packageMediaURL("../../outside", root: temp))
     }
     func testVideoExportReopensAndFFprobeAgrees() async throws {

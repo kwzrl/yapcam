@@ -152,6 +152,16 @@ public final class FrameCompositor: @unchecked Sendable {
             camera?.geometry.rowX ?? SIMD4(1,0,0,0), camera?.geometry.rowY ?? SIMD4(0,1,0,0),
             SIMD4(Float(screen?.geometry.displaySize.width ?? 1),Float(screen?.geometry.displaySize.height ?? 1),Float(camera?.geometry.displaySize.width ?? 1),Float(camera?.geometry.displaySize.height ?? 1)), rect(prior.screen_dest)
         ]
+        if let loupe = options.glassLoupe {
+            let g = loupe.geometry(frame)
+            uniforms.append(SIMD4(1,g.radius,loupe.bevel,loupe.chromaticAberration))
+            uniforms.append(SIMD4(g.focus.x,g.focus.y,g.scale,g.opacity))
+            uniforms.append(crop)
+            uniforms[5] = SIMD4(0,0,1,1); uniforms[13] = SIMD4(0,0,1,1)
+            uniforms[16].x = 0 // The underlying screen stays unzoomed.
+        } else {
+            uniforms.append(.zero); uniforms.append(SIMD4(0.5,0.5,1,0)); uniforms.append(crop)
+        }
         if options.cursorMotionBlur > 0 && frame.tl_ns > 0 {
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
         }
@@ -244,18 +254,42 @@ public final class FrameCompositor: @unchecked Sendable {
             }
             result=accumulated;
         }
+        float2 cursorPoint=p;
+        if (u[25].x>0 && u[3].z>0 && all(u[4].zw>0) && u[25].y>0) {
+            float2 center=u[4].xy+u[26].xy*u[4].zw;
+            float2 delta=p-center;
+            float distance=length(delta), radius=u[25].y;
+            float radial=clamp(distance/radius,0.0,1.0);
+            float refraction=1-u[25].z*.15*pow(radial,4.0);
+            float2 uv=u[26].xy+delta/u[4].zw/u[26].z*refraction;
+            float2 fringe=delta/u[4].zw*u[25].w*.006*pow(radial,4.0);
+            float4 lens=screen.sample(s,sourceUV(uv,u[19],u[20]));
+            lens.r=screen.sample(s,sourceUV(uv+fringe,u[19],u[20])).r;
+            lens.b=screen.sample(s,sourceUV(uv-fringe,u[19],u[20])).b;
+            float rim=u[25].z*.25*pow(radial,12.0);
+            lens.rgb=mix(lens.rgb,float3(1),rim);
+            float mask=(1-smoothstep(-.5,.5,distance-radius))*u[26].w;
+            float shadow=exp(-pow(max(distance-radius,0.0),2.0)/max(1.0,radius*.2))*.22*u[26].w;
+            result=over(result,float4(0,0,0,shadow));
+            lens.a*=mask; result=over(result,lens);
+            // Reproject the evaluated classic cursor into the unzoomed base or
+            // lens. It uses the same source position, scale and rotation there.
+            float2 baseUV=(p-u[4].xy)/u[4].zw;
+            cursorPoint=u[4].xy+(baseUV-u[27].xy)/u[27].zw*u[4].zw;
+            if(distance<radius) cursorPoint=u[4].xy+u[4].zw*.5+delta*refraction;
+        }
         if (u[9].y >= 0 && u[9].y <= 1) {
-            float radius=8+32*u[9].y; float ring=1-smoothstep(1,3,abs(length(p-u[10].xy)-radius));
+            float radius=8+32*u[9].y; float ring=1-smoothstep(1,3,abs(length(cursorPoint-u[10].xy)-radius));
             result=over(result,float4(.25,.55,1,ring*(1-u[9].y)*.65));
         }
         if (u[16].z>0 && u[9].x>0) {
-            float glow=1-smoothstep(0,u[16].z,length(p-u[17].xy)); result=over(result,float4(1,1,1,glow*.3));
+            float glow=1-smoothstep(0,u[16].z,length(cursorPoint-u[17].xy)); result=over(result,float4(1,1,1,glow*.3));
         }
         if (all(u[8].zw>0) && u[9].x>0) {
             float4 sprite=0;
             for(int i=0;i<8;i++) {
                 float2 offset=(u[17].zw-u[17].xy)*u[16].y*float(i)/7;
-                float2 delta=p-offset-u[17].xy;
+                float2 delta=cursorPoint-offset-u[17].xy;
                 float cosine=cos(u[9].z), sine=sin(u[9].z);
                 float2 unrotated=float2(cosine*delta.x+sine*delta.y,-sine*delta.x+cosine*delta.y)+u[17].xy;
                 float2 uv=(unrotated-u[8].xy)/u[8].zw;

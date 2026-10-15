@@ -13,9 +13,12 @@ public final class Exporter: @unchecked Sendable {
     private let lock = NSLock()
     private var running = false
     private var completedMetrics: ExportMetrics?
+    private var completedOutputs: [URL] = []
     private var speechReports: [SpeechEnhancementReport] = []
     public var speechEnhancementReports: [SpeechEnhancementReport] { lock.withLock { speechReports } }
     public var metrics: ExportMetrics? { lock.withLock { completedMetrics } }
+    /// Both-codec jobs return the H.264 URL from run and list both completed files here.
+    public var outputURLs: [URL] { lock.withLock { completedOutputs } }
     public init(project: any RenderProjectSource, settings: ExportSettings, destination: URL) throws {
         self.project = try project.renderSnapshot()
         self.settings = settings; self.destination = destination
@@ -27,9 +30,11 @@ public final class Exporter: @unchecked Sendable {
         defer { lock.withLock { running = false } }
         try Task.checkCancellation()
         let startTime = ProcessInfo.processInfo.systemUptime
+        if settings.codec == .both { return try await runBoth(startTime: startTime, progress: progress) }
         let range = try settings.validatedRange(duration: project.durationNs)
         let first = try project.frame(atNs: range.lowerBound)
-        let width = try settings.outputWidth(canvasWidth: first.canvas_w, canvasHeight: first.canvas_h)
+        let size = try settings.outputSize(canvasWidth: first.canvas_w, canvasHeight: first.canvas_h)
+        let width = size.width, height = size.height
         let count = ExportTiming.frameCount(durationNs: Int64(range.count),fps: settings.fps)
         guard !FileManager.default.fileExists(atPath: destination.path) else { throw RenderError.write("Destination already exists; choose a new filename") }
         let partial = destination.deletingLastPathComponent().appendingPathComponent(".yapcam-export-\(UUID().uuidString).\(settings.format.rawValue)")
@@ -40,20 +45,43 @@ public final class Exporter: @unchecked Sendable {
         guard CVMetalTextureCacheCreate(nil, nil, device, [kCVMetalTextureUsage as String: MTLTextureUsage([.shaderRead,.renderTarget]).rawValue] as CFDictionary, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Export texture cache unavailable") }
         progress(0)
         if settings.format == .gif {
-            try await writeGIF(partial, range: range, count: count, width: width, compositor: compositor, queue: queue, cache: cache, progress: progress)
+            try await writeGIF(partial, range: range, count: count, width: width, height: height, compositor: compositor, queue: queue, cache: cache, progress: progress)
         } else {
-            try await writeVideo(partial, range: range, count: count, width: width, compositor: compositor, queue: queue, cache: cache, progress: progress)
+            try await writeVideo(partial, range: range, count: count, width: width, height: height, compositor: compositor, queue: queue, cache: cache, progress: progress)
         }
         try Task.checkCancellation()
         // Same-directory move is atomic and never exposes a partial export as the final file.
         try FileManager.default.moveItem(at: partial, to: destination)
         lock.withLock { completedMetrics = ExportMetrics(frames: count, elapsedSeconds: ProcessInfo.processInfo.systemUptime - startTime, mediaSeconds: Double(range.count)/1e9) }
+        lock.withLock { completedOutputs = [destination] }
         progress(1)
         return destination
     }
-    private func makePool(width: Int) throws -> CVPixelBufferPool {
+    private func runBoth(startTime: Double, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        let companion = settings.destinations(for: destination)[1]
+        guard !FileManager.default.fileExists(atPath: destination.path), !FileManager.default.fileExists(atPath: companion.path) else { throw RenderError.write("An export destination already exists") }
+        let directory = destination.deletingLastPathComponent().appendingPathComponent(".yapcam-pair-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var children: [Exporter] = []
+        for (i,codec) in [ExportSettings.Codec.h264,.hevc].enumerated() {
+            var options = settings; options.codec = codec
+            let child = try Exporter(project: project,settings: options,destination: directory.appendingPathComponent("\(i).\(settings.format.rawValue)"))
+            _ = try await child.run { value in progress((Double(i)+value)/2) }
+            children.append(child)
+        }
+        try Task.checkCancellation()
+        let duration = try settings.validatedRange(duration: project.durationNs)
+        try ExportPublication.publish([(children[0].destination,destination),(children[1].destination,companion)])
+        lock.withLock {
+            completedOutputs = [destination,companion]
+            completedMetrics = ExportMetrics(frames: children.reduce(0) { $0+($1.metrics?.frames ?? 0) },elapsedSeconds: ProcessInfo.processInfo.systemUptime-startTime,mediaSeconds: Double(duration.count)/1e9)
+        }
+        progress(1); return destination
+    }
+    private func makePool(width: Int, height: Int) throws -> CVPixelBufferPool {
         var pool: CVPixelBufferPool?
-        let attributes: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: settings.outputHeight, kCVPixelBufferIOSurfacePropertiesKey as String: [:], kCVPixelBufferMetalCompatibilityKey as String: true]
+        let attributes: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height, kCVPixelBufferIOSurfacePropertiesKey as String: [:], kCVPixelBufferMetalCompatibilityKey as String: true]
         guard CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool) == kCVReturnSuccess, let pool else { throw RenderError.metal("Cannot allocate export pixel pool") }
         return pool
     }
@@ -79,15 +107,15 @@ public final class Exporter: @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(2))
         }
     }
-    private func writeVideo(_ url: URL, range: Range<Int64>, count: Int, width: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @escaping @Sendable (Double) -> Void) async throws {
+    private func writeVideo(_ url: URL, range: Range<Int64>, count: Int, width: Int, height: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @escaping @Sendable (Double) -> Void) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: settings.format == .mp4 ? .mp4 : .mov)
         defer { if writer.status != .completed { writer.cancelWriting() } }
-        let compression: [String: Any] = [AVVideoAverageBitRateKey: settings.videoBitrate(width: width), AVVideoExpectedSourceFrameRateKey: settings.fps, AVVideoMaxKeyFrameIntervalKey: settings.fps * 2, AVVideoAllowFrameReorderingKey: false]
-        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: settings.codec == .h264 ? AVVideoCodecType.h264 : .hevc, AVVideoWidthKey: width, AVVideoHeightKey: settings.outputHeight, AVVideoEncoderSpecificationKey: [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String: true], AVVideoCompressionPropertiesKey: compression, AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2, AVVideoTransferFunctionKey: kCVImageBufferTransferFunction_sRGB as String, AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2]])
+        let compression: [String: Any] = [AVVideoAverageBitRateKey: settings.videoBitrate(width: width, height: height), AVVideoExpectedSourceFrameRateKey: settings.fps, AVVideoMaxKeyFrameIntervalKey: settings.fps * 2, AVVideoAllowFrameReorderingKey: false]
+        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: settings.codec == .h264 ? AVVideoCodecType.h264 : .hevc, AVVideoWidthKey: width, AVVideoHeightKey: height, AVVideoEncoderSpecificationKey: [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String: true], AVVideoCompressionPropertiesKey: compression, AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2, AVVideoTransferFunctionKey: kCVImageBufferTransferFunction_sRGB as String, AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2]])
         video.expectsMediaDataInRealTime = false
         guard writer.canAdd(video) else { throw RenderError.write("Requested video codec is unavailable") }
         writer.add(video)
-        let pool = try makePool(width: width)
+        let pool = try makePool(width: width, height: height)
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: video, sourcePixelBufferAttributes: nil)
         let preparationWeight=settings.includeAudio && settings.speechEnhancement != nil ? 0.15 : 0
         let timeline: AudioTimeline?
@@ -150,7 +178,7 @@ public final class Exporter: @unchecked Sendable {
         let videos = try await asset.loadTracks(withMediaType: .video), audios = try await asset.loadTracks(withMediaType: .audio)
         guard videos.count == 1, audios.count == (audio == nil ? 0 : 1), abs(duration.seconds - Double(range.count)/1e9) <= 1 / Double(settings.fps) + 0.000_001 else { throw RenderError.verification("Export duration or track count differs from the requested timeline") }
         let size = try await videos[0].load(.naturalSize)
-        guard Int(size.width) == width, Int(size.height) == settings.outputHeight else { throw RenderError.verification("Export dimensions differ from settings") }
+        guard Int(size.width) == width, Int(size.height) == height else { throw RenderError.verification("Export dimensions differ from settings") }
     }
     private func pumpAudio(_ context: AudioPumpContext) async throws {
         let pump=MediaInputPump<CMSampleBuffer>(
@@ -170,26 +198,40 @@ public final class Exporter: @unchecked Sendable {
             cancelSource: { context.reader.cancelReading() })
         try await pump.run()
     }
-    private func writeGIF(_ url: URL, range: Range<Int64>, count: Int, width: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @Sendable (Double) -> Void) async throws {
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, count, nil) else { throw RenderError.write("Cannot create GIF") }
-        CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+    private func writeGIF(_ url: URL, range: Range<Int64>, count: Int, width: Int, height: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @Sendable (Double) -> Void) async throws {
+        let destination = try GIFFrameDestination(url: url, count: count, disableLoop: settings.gifDisableLoop)
         let context = CIContext(mtlDevice: compositor.device)
         let colors = CGColorSpace(name: CGColorSpace.sRGB)!
-        let pool = try makePool(width: width)
+        let pool = try makePool(width: width, height: height)
+        func frame(_ index: Int) throws -> CGImage {
+            let buffer = try render(index: index, range: range, pool: pool, compositor: compositor, queue: queue, cache: cache)
+            let image = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: colors])
+            guard let cg = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: colors) else { throw RenderError.write("Cannot convert GIF frame") }
+            return cg
+        }
+        let palette: GIFPalette
+        if settings.gifHighQuality {
+            var histogram = GIFPaletteHistogram()
+            for index in 0..<count {
+                try Task.checkCancellation()
+                try autoreleasepool { try histogram.add(frame(index)) }
+                progress(Double(index+1)/Double(count)*0.35)
+            }
+            palette = try histogram.palette()
+        } else { palette = GIFPalette.fast() }
         // GIF delays are integral centiseconds. Distribute rounding error across frames
         // so total timing remains correct instead of losing time on every frame.
         for index in 0..<count {
             try Task.checkCancellation()
             let delay = ExportTiming.gifDelay(index: index,count: count,durationNs: Int64(range.count))
             try autoreleasepool {
-                let buffer = try render(index: index, range: range, pool: pool, compositor: compositor, queue: queue, cache: cache)
-                let image = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: colors])
-                guard let cg = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: colors) else { throw RenderError.write("Cannot convert GIF frame") }
-                CGImageDestinationAddImage(destination, cg, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay, kCGImagePropertyGIFUnclampedDelayTime: delay]] as CFDictionary)
+                let cg = try palette.indexed(frame(index))
+                destination.add(cg, delay: delay)
             }
-            progress(Double(index+1)/Double(count)*0.95)
+            let initial = settings.gifHighQuality ? 0.35 : 0.0
+            progress(initial+Double(index+1)/Double(count)*(0.95-initial))
         }
-        guard CGImageDestinationFinalize(destination), let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) == count else { throw RenderError.verification("GIF finalization or frame count verification failed") }
+        let source = try destination.finish()
         var duration = 0.0
         for index in 0..<count {
             guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any], let gif = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any], let delay = (gif[kCGImagePropertyGIFUnclampedDelayTime] ?? gif[kCGImagePropertyGIFDelayTime]) as? Double else { throw RenderError.verification("GIF frame delay missing") }
