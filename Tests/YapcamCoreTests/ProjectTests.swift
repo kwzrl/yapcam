@@ -376,7 +376,7 @@ private func expectClosed(_ operation: () throws -> Void) {
         #expect(p.session.segments.count == 2)
         #expect(p.session.source.displayID == 1)
         let f = try p.frame(atNs: 3_200_000_000)
-        #expect(f.canvas_w == 1920 && f.canvas_h == 1080)
+        #expect(f.canvas_w == 1728 && f.canvas_h == 1080)
         #expect(f.screen.segment == 1 && f.screen.file_ns == 200_000_000)
         #expect(f.screen_crop.w == 1)
         #expect(f.click_progress == -1)
@@ -472,7 +472,7 @@ private func expectClosed(_ operation: () throws -> Void) {
         #expect((imported["canvas"] as? [String: Any])?["padding"] as? Double == 75)
         try p.apply(.autoZooms)
         let zooms = try p.query("{\"q\":\"zooms\"}", as: [JSONValue].self)
-        #expect(zooms.count == 2)
+        #expect(zooms.count == 1)
         try p.save()
         #expect(!FileManager.default.fileExists(atPath: package.appendingPathComponent("autosave/project.json").path))
     }
@@ -564,7 +564,7 @@ private func expectClosed(_ operation: () throws -> Void) {
             #expect(try Project.open(package: second).frame(atNs: 0).background_kind == 2)
             try other.undo()
             #expect(try other.frame(atNs: 0).background_kind == 0)
-            let noOp = try other.apply(.set(path: "canvas.padding", value: .number(48)))
+            let noOp = try other.apply(.set(path: "canvas.padding_ratio", value: .number(0.1)))
             #expect(noOp.changed.isEmpty)
         }
     }
@@ -951,7 +951,7 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         #expect(catalog.shapes == CoreRenderOptions.CursorShape.allCases)
         #expect(catalog.logicalSizes.map(\.scale) == [0.75, 1, 1.5, 2])
         let original = try p.frame(atNs: 0)
-        #expect(try p.renderOptions().cursorSetId == nil && p.renderOptions().cursorShape == nil)
+        #expect(try p.renderOptions().cursorSetId == "classic" && p.renderOptions().cursorShape == nil)
         #expect(try p.renderOptions().cursorLogicalSize == .regular)
         for shape in catalog.shapes {
             try p.apply(.set(path: "cursor.shape", value: .string(shape.rawValue)))
@@ -984,5 +984,90 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         try p.undo()
         #expect(try p.renderOptions().cursorShape == .pointingHand)
         #expect(yc_abi_version() == 3 && MemoryLayout<YcFrameExtras>.size == 2600)
+    }
+}
+
+@Test func alignedNewProjectDefaultsPreserveFrozenOlderAppearance() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let options = try p.renderOptions()
+        #expect(options.paddingRatio == 0.1 && options.cursorSizePoints == 48)
+        #expect(options.cursorSetId == "classic")
+        #expect(options.screenShadow?.style == "directional")
+        #expect(abs((options.screenShadow?.offsetX ?? 0) - 25 / sqrt(2)) < 0.000001)
+        let frame = try p.frame(atNs: 0)
+        #expect(frame.screen_corner_radius == 16 && frame.shadow_radius == 160)
+        #expect(frame.canvas_w == 1728 && frame.canvas_h == 1080)
+        try p.apply(.set(path: "canvas.padding", value: .number(12)))
+        #expect(try p.renderOptions().paddingRatio == nil)
+        try p.undo(); try p.save()
+        #expect(try Project.open(package: package).renderOptions() == options)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        for name in ["v0-prerelease", "v1-minimal"] {
+            let fixture = root.appendingPathComponent("Fixtures/schema/\(name).json")
+            try Data(contentsOf: fixture).write(to: package.appendingPathComponent("project.json"))
+            let old = try Project.open(package: package)
+            #expect(try old.renderOptions().paddingRatio == nil)
+            #expect(try old.renderOptions().cursorSizePoints == nil)
+            #expect(try old.renderOptions().screenShadow?.style == "classic")
+            let legacy = try old.frame(atNs: 0)
+            #expect(legacy.canvas_w == 1920 && legacy.screen_corner_radius == 18)
+            #expect(legacy.shadow_radius == 24 && legacy.shadow_offset_y == 8)
+            try old.save()
+            #expect(try Project.open(package: package).renderOptions() == old.renderOptions())
+        }
+    }
+}
+
+@Test func typingSuggestionCommandsUseSourceIDsAndRememberSpeed() throws {
+    try withFixture { package in
+        let lines = (0...5).map { "{\"t\":\(100_000_000 + $0 * 300_000_000),\"type\":\"key\",\"key\":\"a\"}" }
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: package.appendingPathComponent("recording/seg-000/events.jsonl"))
+        let p = try Project.create(package: package)
+        let rows = try p.typingSuggestions()
+        #expect(rows.count == 1 && rows[0].keyCount == 6 && rows[0].speed == 3)
+        let id = try #require(rows.first?.id)
+        let original = p.durationNs
+        try p.apply(.dismissTypingSuggestion(id: id))
+        #expect(try p.typingSuggestions().isEmpty)
+        try p.save()
+        #expect(try Project.open(package: package).typingSuggestions().isEmpty)
+        try p.undo(); #expect(try p.typingSuggestions() == rows)
+        try p.redo(); try p.apply(.restoreTypingSuggestions)
+        let snapshot = try p.snapshot()
+        try p.apply(.applyTypingSuggestion(id: id, speed: 2))
+        #expect(p.durationNs == original - 750_000_000)
+        #expect(try p.typingSuggestions()[0].speed == 2)
+        #expect(try p.typingSuggestions()[0].ranges[0].tlEndNs == 850_000_000)
+        #expect(try snapshot.typingSuggestions() == rows)
+        #expect(try p.apply(.autoSpeedTyping()).changed.isEmpty)
+        try p.undo(); #expect(p.durationNs == original)
+        try p.redo(); try p.save()
+        #expect(try Project.open(package: package).typingSuggestions() == p.typingSuggestions())
+        #expect(throws: CoreError.self) { try p.apply(.applyTypingSuggestion(id: id, speed: 9)) }
+        #expect(throws: CoreError.self) { try p.apply(.dismissTypingSuggestion(id: "unknown")) }
+    }
+}
+
+@Test func microphonePresetsExposeOfflinePlanAndStereoPreference() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        #expect(try p.speechEnhancementPlan().micPreset == .voice)
+        #expect(try p.speechEnhancementPlan().stereoMic == false)
+        #expect(try !p.speechEnhancementPlan().enabled)
+        try p.setMicrophonePreset(.noiseReduction)
+        #expect(try p.speechEnhancementPlan().enabled)
+        #expect(try p.speechEnhancementPlan().settings.compressorRatio == 1)
+        try p.setMicrophonePreset(.podcast)
+        try p.apply(.set(path: "audio.stereo_mic", value: .bool(true)))
+        let plan = try p.speechEnhancementPlan()
+        #expect(plan.micPreset == .podcast && plan.stereoMic == true)
+        #expect(plan.settings.compressorRatio == 4 && plan.settings.normalizeLoudness)
+        try p.save()
+        #expect(try Project.open(package: package).speechEnhancementPlan() == plan)
+        try p.undo(); #expect(try p.speechEnhancementPlan().stereoMic == false)
+        try p.redo(); try p.setMicrophonePreset(.voice)
+        #expect(try !p.speechEnhancementPlan().enabled)
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "audio.mic_preset", value: .string("unavailable"))) }
     }
 }

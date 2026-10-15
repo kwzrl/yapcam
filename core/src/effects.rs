@@ -131,6 +131,14 @@ pub fn collection_command(p: &mut ProjectData, v: &Value, cs: &mut ChangeSet) ->
                 .filter(|v| v.is_object())
                 .cloned()
                 .ok_or_else(|| bad("Missing record object"))?;
+            if kind == "music" && record.get("gain_db").is_none() {
+                record["gain_db"] = (if p.audio.music_volume == 0.0 {
+                    -96.0
+                } else {
+                    20.0 * p.audio.music_volume.log10()
+                })
+                .into();
+            }
             if record.get("id").is_none() || record["id"].as_str() == Some("") {
                 record["id"] = unique_id(kind).into();
             }
@@ -500,7 +508,7 @@ impl Project {
             },
         };
         Ok(
-            json!({"cursor_set_id":p.cursor.set_id,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
+            json!({"screen_shadow":{"style":p.canvas.shadow.style,"offset_x":p.canvas.shadow.evaluated().0,"offset_y":p.canvas.shadow.evaluated().1,"radius":p.canvas.shadow.evaluated().2,"opacity":p.canvas.shadow.opacity},"padding_ratio":p.canvas.padding_ratio,"cursor_size_points":p.cursor.size_points,"cursor_set_id":p.cursor.set_id,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
         )
     }
 }
@@ -634,6 +642,7 @@ mod tests {
     #[test]
     fn layers_text_reactions_keys_background_order_and_half_open_ranges() {
         let (_f, mut p) = make();
+        p.data.canvas.aspect = "16:9".into();
         for (kind, text) in [
             ("annotation", "label"),
             ("reaction", "🎉"),
@@ -906,6 +915,7 @@ mod envelope_regressions {
     fn source_text_geometry_matches_crop_zoom_and_scene_animation() {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();
+        p.data.canvas.aspect = "16:9".into();
         p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"canvas.crop","value":[0.1,0.1,0.7,0.7]},{"op":"set","path":"canvas.animation.entrance","value":"slide_left"},{"op":"add_annotation","record":{"text":"source","space":"source","rect":[0.1,0.1,0.7,0.7]}},{"op":"add_reaction","record":{"text":"fixed","rect":[0.1,0.1,0.7,0.7]}}]})).unwrap();
         let f = p.frame(0).unwrap();
         let rows = p.layers_at(0).unwrap();

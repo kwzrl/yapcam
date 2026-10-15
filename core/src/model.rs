@@ -94,6 +94,8 @@ pub struct Event {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ProjectData {
     pub schema_version: u32,
+    #[serde(default)]
+    pub defaults_revision: u32,
     pub id: String,
     pub created_at: String,
     pub modified_at: String,
@@ -105,6 +107,8 @@ pub struct ProjectData {
     pub zooms: Vec<Zoom>,
     #[serde(default)]
     pub zoom_settings: ZoomSettings,
+    #[serde(default)]
+    pub typing: TypingSettings,
     #[serde(default)]
     pub notes: String,
     #[serde(default = "enabled")]
@@ -161,8 +165,9 @@ macro_rules! settings {
         impl Default for $name { fn default() -> Self { Self { $($field: $value),* } } }
     }
 }
+settings!(TypingSettings { speed: f64 = 3.0, dismissed: Vec<String> = vec![] });
 settings!(Cursor {
-    visible: bool = true, size: f64 = 1.0, smoothing: f64 = 0.15,
+    visible: bool = true, size: f64 = 1.0, size_points: Option<f64> = None, physics_version: u32 = 0, smoothing: f64 = 0.15,
     hide_when_idle: bool = false, idle_timeout_ns: i64 = 2_000_000_000,
     click_effect: String = "ring".into(), click_duration_ns: i64 = 400_000_000,
     speed_preset: String = "custom".into(), spring: Spring = Spring::default(),
@@ -182,6 +187,9 @@ settings!(Spring {
     allow_overshoot: bool = false
 });
 settings!(ZoomSettings {
+    physics_version: u32 = 0,
+    default_scale: f64 = 2.0,
+    start_early: bool = false,
     animation_style: String = "custom".into(),
     automatic: bool = true,
     follow_cursor: bool = true,
@@ -223,7 +231,7 @@ settings!(Canvas {
     aspect: String = "16:9".into(),
     output_size: [u32; 2] = [1920, 1080],
     background: Background = Background::default(),
-    padding: f64 = 48.0,
+    padding: f64 = 48.0, padding_ratio: Option<f64> = None,
     radius: f64 = 18.0,
     shadow: Shadow = Shadow::default(),
     inset: f64 = 0.0,
@@ -266,11 +274,29 @@ settings!(Background {
     noise: f64 = 0.0,
 });
 settings!(Shadow {
+    style: String = "classic".into(),
+    distance: f64 = 25.0,
+    angle_deg: f64 = 45.0,
+    blur: f64 = 20.0,
     radius: f64 = 24.0,
     opacity: f64 = 0.3,
     offset_y: f64 = 8.0
 });
-settings!(Audio { mic_gain_db: f64 = 0.0, system_gain_db: f64 = 0.0,
+impl Shadow {
+    pub fn evaluated(&self) -> (f64, f64, f64) {
+        if self.style == "directional" {
+            let radians = self.angle_deg.to_radians();
+            (
+                self.distance * radians.cos(),
+                self.distance * radians.sin(),
+                self.blur * 8.0,
+            )
+        } else {
+            (0.0, self.offset_y, self.radius)
+        }
+    }
+}
+settings!(Audio { mic_preset: String = "voice".into(), stereo_mic: bool = false, music_volume: f64 = 0.05, mic_gain_db: f64 = 0.0, system_gain_db: f64 = 0.0,
     mic_muted: bool = false, system_muted: bool = false, ranges: Vec<AudioRange> = vec![],
     music: Vec<MusicTrack> = vec![], click_sound: ClickSound = ClickSound::default(),
     speech_enhancement: bool = false,
@@ -356,7 +382,8 @@ impl ProjectData {
             .segments
             .last()
             .map_or(0, |s| s.src_start_ns + s.duration_ns);
-        Self {
+        let mut data = Self {
+            defaults_revision: 1,
             schema_version: SCHEMA_VERSION,
             id,
             created_at: session.created_at.clone(),
@@ -382,9 +409,32 @@ impl ProjectData {
             audio: Audio::default(),
             export_settings: Export::default(),
             zoom_settings: ZoomSettings::default(),
+            typing: TypingSettings::default(),
             notes: String::new(),
             autosave: true,
-        }
+        };
+        data.canvas.aspect = "source".into();
+        data.canvas.padding_ratio = Some(0.10);
+        data.canvas.radius = 16.0;
+        data.canvas.shadow.style = "directional".into();
+        data.canvas.background.blur = 0.0;
+        data.canvas.motion_blur = 1.0;
+        data.cursor.size_points = Some(48.0);
+        data.cursor.set_id = Some("classic".into());
+        data.cursor.click_effect = "none".into();
+        data.cursor.smoothing = 0.0;
+        data.cursor.speed_preset = "none".into();
+        data.cursor.physics_version = 1;
+        data.cursor.motion_blur = 1.0;
+        data.zoom_settings.physics_version = 1;
+        data.zoom_settings.spring = Spring {
+            tension: 125.0,
+            friction: 12.0,
+            mass: 1.5,
+            allow_overshoot: false,
+        };
+        data.audio.click_sound.gain_db = 20.0 * 0.25_f64.log10();
+        data
     }
 }
 

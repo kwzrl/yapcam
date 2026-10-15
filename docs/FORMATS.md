@@ -609,3 +609,74 @@ New query `{"q":"cursor_library"}` returns
 These descriptors mirror Render's 12 authored palettes, 10 shapes and 4 sizes; no
 reference/system bitmap or palette data is copied. Renderer/Editor must connect
 these fields and picker before claiming selections change preview/export pixels.
+
+
+## Core behavior alignment (new-project revision 1)
+
+CORE-1 is implemented. Additive CORE-2/3/5/6 contracts below are being implemented;
+consult docs/status/core.md READY entries before depending on a new field/query.
+
+Existing schema-1 projects keep their serialized geometry and physics. New fields
+missing in an older file select the legacy mode; opening does not regenerate zooms
+or discard settings. The C ABI remains unchanged. All additions below participate
+in transactional set/batch, undo/redo, journals, snapshots and save/reopen.
+
+Auto zoom regeneration uses retained mouse-down events on the edited timeline.
+Each click contributes a window from 300ms before to 2500ms after it, with a 1ms
+minimum start and an end no later than 800ms before the project ends. Clicks at or
+after the final second are excluded. Windows separated by at most 2500ms merge,
+regardless of cursor distance. Manual zooms retain priority. Missing pointer data
+selects manual mode; key events alone do not generate zooms. Existing saved zooms
+are retained until explicitly regenerated. Default level is 2.0 and cursor follow
+is enabled for new projects.
+
+| Additional set path | Type / meaning | New project / legacy decode |
+|---|---|---|
+| canvas.padding_ratio | null or 0...0.25 of the shorter canvas edge | 0.10 / null (use existing pixel padding) |
+| canvas.shadow.style | classic or directional | directional / classic |
+| canvas.shadow.distance | 0...100 output pixels | 25 / inactive for classic |
+| canvas.shadow.angle_deg | 0...180 degrees | 45 / inactive for classic |
+| canvas.shadow.blur | 0...30; directional blur maps to radius x8 | 20 / inactive for classic |
+| cursor.size_points | null or 16...128 logical points (base cursor 16pt) | 48 / null (existing size multiplier) |
+| cursor.physics_version | 0 legacy or 1 aligned spring rules | 1 / 0 |
+| zoom_settings.physics_version | 0 legacy or 1 aligned spring rules | 1 / 0 |
+| zoom_settings.default_scale | 1...4; used for omitted new zoom levels | 2 / 2 |
+| zoom_settings.start_early | begin incoming transition 350ms before zoom range | false / false |
+| typing.speed | 1.5...8; remembered speed for applying suggestions | 3 / 3 |
+| typing.dismissed | array of stable captured-burst IDs | [] / [] |
+| audio.music_volume | 0...1 linear gain for newly inserted music without an explicit gain | 0.05 / 0.05 (does not modify existing tracks) |
+| audio.mic_preset | voice, noise_reduction or podcast; selecting applies owned DSP settings | voice / voice (existing stored DSP settings retained on load) |
+| audio.stereo_mic | boolean microphone channel preference for consumers | false / false |
+
+Setting legacy canvas.padding clears padding_ratio; setting cursor.size clears
+size_points. Legacy shadow.radius/offset_y selects classic. Selecting a spring
+preset or editing its custom parameters selects physics_version 1. Older stored
+preset names use version 0 until that setting is edited. Aligned screen presets:
+focused 250/40/2.25, smooth 170/50/3. Aligned cursor presets: smooth 470/70/3,
+medium 340/60/3, rapid 530/40/1, none (raw). Legacy slow/mellow/quick remain accepted.
+The three numbers are stiffness, damping and mass; custom ranges are 5...600,
+5...200 and 0.1...15. When a transition is too short for settling, stiffness scales
+quadratically and damping linearly with the compression ratio; less than two
+capture-frame periods snaps. Existing version-0 transitions retain their curve.
+
+New-project overrides also use radius 16, motion blur 1, a 125/12/1.5 screen
+spring, a 48pt authored cursor from our classic palette, click sound gain 0.25,
+and our own calm dark background. Cursor smoothing starts off because the
+reference's new-recording spring selection is ambiguous; explicit presets enable
+it. No wallpaper or cursor asset from the reference is imported.
+
+Cold render_options / render_options_at append screen_shadow (style, offset_x,
+offset_y, radius, opacity), padding_ratio and cursor_size_points. Frame scalar
+padding, shadow radius/opacity/y offset and cursor_scale are already evaluated;
+consumers use the extra x offset for directional shadows and must not rescale
+cursor_scale a second time. speech_enhancement appends mic_preset and stereo_mic.
+
+New query {q:"typing_suggestions"} returns records {id,src_start_ns,src_end_ns,
+key_count,speed,ranges:[{tl_start_ns,tl_end_ns}]}. Bursts use adjacent key gaps
+strictly below 500ms, span at least 1500ms and density at least two keys/second.
+IDs derive from captured source boundaries and survive cuts/speeds; repeated
+source occurrences share one ID and return all retained timeline intersections.
+Dismissed IDs are omitted. Commands dismiss_typing_suggestion {id},
+restore_typing_suggestions {}, and apply_typing_suggestion {id,speed?} modify one
+history step; auto_speed_typing {speed?} applies all non-dismissed suggestions.
+Selecting speed remembers typing.speed. Unsupported IDs/values fail atomically.

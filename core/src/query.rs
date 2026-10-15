@@ -121,7 +121,7 @@ impl Project {
             .map(|(path, index)| json!({"path":path,"media_index":index}))
             .collect();
         Ok(
-            json!({"enabled":self.data.audio.speech_enhancement,"settings":self.data.audio.speech_enhancement_settings,"media":media}),
+            json!({"enabled":self.data.audio.speech_enhancement,"settings":self.data.audio.speech_enhancement_settings,"media":media,"mic_preset":self.data.audio.mic_preset,"stereo_mic":self.data.audio.stereo_mic}),
         )
     }
     pub fn query(&self, query: &Value) -> Result<Value> {
@@ -159,6 +159,7 @@ impl Project {
                     json!({"canvas":canvas,"cursor":cursor,"camera":camera,"audio":audio,"zoom_settings":self.data.zoom_settings,"export":self.data.export_settings}),
                 )
             }
+            "typing_suggestions" => Ok(crate::auto::typing_suggestions(self)),
             "speech_enhancement" => self.speech_enhancement_plan(),
             "audio_automation" => Ok(serde_json::to_value(&self.data.audio.ranges)?),
             "map_audio_ranges" => self.map_audio_ranges(query),
@@ -502,6 +503,80 @@ mod speech_enhancement_tests {
         model::*,
         project::{fingerprint, tests::Fixture},
     };
+    #[test]
+    fn microphone_presets_are_explicit_owned_recipes_and_keep_legacy_dsp() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        let q = json!({"q":"speech_enhancement"});
+        assert_eq!(p.query(&q).unwrap()["mic_preset"], "voice");
+        assert_eq!(p.query(&q).unwrap()["stereo_mic"], false);
+        let before = p.data.clone();
+        p.apply(&json!({"op":"set","path":"audio.mic_preset","value":"noise_reduction"}))
+            .unwrap();
+        assert!(p.data.audio.speech_enhancement);
+        assert_eq!(
+            p.data.audio.speech_enhancement_settings.compressor_ratio,
+            1.0
+        );
+        assert!(!p.data.audio.speech_enhancement_settings.normalize_loudness);
+        p.undo().unwrap();
+        assert_eq!(p.data, before);
+        p.redo().unwrap();
+        p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"audio.mic_preset","value":"podcast"},{"op":"set","path":"audio.stereo_mic","value":true}]})).unwrap();
+        assert_eq!(p.query(&q).unwrap()["stereo_mic"], true);
+        assert_eq!(
+            p.data.audio.speech_enhancement_settings.compressor_ratio,
+            4.0
+        );
+        assert_eq!(
+            p.data.audio.speech_enhancement_settings.noise_reduction_db,
+            12.0
+        );
+        assert!(p.data.audio.speech_enhancement_settings.normalize_loudness);
+        let snapshot = p.clone();
+        p.save(&f.0).unwrap();
+        assert_eq!(
+            p.query(&q).unwrap(),
+            Project::open(&f.0).unwrap().query(&q).unwrap()
+        );
+        p.apply(&json!({"op":"set","path":"audio.mic_preset","value":"voice"}))
+            .unwrap();
+        assert!(!p.data.audio.speech_enhancement);
+        assert!(snapshot.data.audio.speech_enhancement);
+        let before = p.data.clone();
+        let history = p.undo.len();
+        for command in [
+            json!({"op":"set","path":"audio.mic_preset","value":"unknown"}),
+            json!({"op":"set","path":"audio.stereo_mic","value":1}),
+        ] {
+            assert!(p.apply(&command).is_err());
+            assert_eq!(p.data, before);
+            assert_eq!(p.undo.len(), history);
+        }
+        let mut old = serde_json::to_value(&snapshot.data).unwrap();
+        old["audio"].as_object_mut().unwrap().remove("mic_preset");
+        old["audio"].as_object_mut().unwrap().remove("stereo_mic");
+        old["audio"]["speech_enhancement_settings"]["high_pass_hz"] = 123.0.into();
+        std::fs::write(f.0.join("project.json"), serde_json::to_vec(&old).unwrap()).unwrap();
+        // Remove the current edit journal, as this fixture models a standalone old save.
+        std::fs::remove_file(f.0.join("autosave/project.json")).unwrap();
+        let reopened = Project::open(&f.0).unwrap();
+        assert_eq!(reopened.data.audio.mic_preset, "voice");
+        assert!(!reopened.data.audio.stereo_mic);
+        assert!(reopened.data.audio.speech_enhancement);
+        assert_eq!(
+            reopened.data.audio.speech_enhancement_settings.high_pass_hz,
+            123.0
+        );
+        assert_eq!(
+            reopened
+                .data
+                .audio
+                .speech_enhancement_settings
+                .compressor_ratio,
+            4.0
+        );
+    }
     #[test]
     fn speech_settings_paths_defaults_validation_history_preset_and_reopen() {
         let f = Fixture::new();

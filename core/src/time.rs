@@ -199,6 +199,54 @@ impl SpeedTimeMap {
         }
     }
 }
+/// One pass for an arbitrary set of speed edits on an unchanged source partition.
+/// Every effect is mapped once, preserving sub-ns source/timeline prefixes.
+pub(crate) struct BulkSpeedTimeMap {
+    rows: Vec<(Fraction, Fraction, Fraction, Fraction, Fraction)>,
+    delta: Fraction,
+}
+impl BulkSpeedTimeMap {
+    pub(crate) fn new(old: &[Clip], new: &[Clip]) -> Self {
+        let mut a = Fraction::integer(0);
+        let mut b = Fraction::integer(0);
+        let mut rows = Vec::with_capacity(old.len());
+        for (old, new) in old.iter().zip(new) {
+            let end = a.add(exact_duration(old));
+            let rate = Fraction::rate(new.speed);
+            rows.push((
+                a,
+                end,
+                b,
+                Fraction::rate(old.speed),
+                Fraction::new(rate.d, rate.n),
+            ));
+            a = end;
+            b = b.add(exact_duration(new));
+        }
+        Self {
+            rows,
+            delta: b.subtract(a),
+        }
+    }
+    pub(crate) fn map(&self, t: i64) -> i64 {
+        let i = self
+            .rows
+            .partition_point(|(_, end, _, _, _)| end.round() <= t);
+        let Some(&(start, _, next, rate, inverse)) = self.rows.get(i) else {
+            return Fraction::integer(t).add(self.delta).round();
+        };
+        if t == start.round() {
+            return next.round();
+        }
+        next.add(
+            Fraction::integer(t)
+                .subtract(start)
+                .multiply(rate)
+                .multiply(inverse),
+        )
+        .round()
+    }
+}
 /// Actual quantized source intervals removed by a cut, expressed on the old
 /// rational timeline. Effects shift by media actually removed, not a Double sum.
 /// Cold prefix table reuses the same rational sums as the allocation-free map.
@@ -220,6 +268,26 @@ impl ClipTimeIndex {
     pub(crate) fn source_to_timeline(&self, clips: &[Clip], i: usize, src: i64) -> Option<i64> {
         let c = clips.get(i)?;
         if src < c.src_start_ns || src >= c.src_end_ns {
+            return None;
+        }
+        let rate = Fraction::rate(c.speed);
+        Some(
+            self.starts[i]
+                .add(Fraction::new(
+                    (src - c.src_start_ns) as i128 * rate.d,
+                    rate.n,
+                ))
+                .round(),
+        )
+    }
+    pub(crate) fn source_boundary_to_timeline(
+        &self,
+        clips: &[Clip],
+        i: usize,
+        src: i64,
+    ) -> Option<i64> {
+        let c = clips.get(i)?;
+        if src < c.src_start_ns || src > c.src_end_ns {
             return None;
         }
         let rate = Fraction::rate(c.speed);

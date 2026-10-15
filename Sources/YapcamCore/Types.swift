@@ -72,7 +72,10 @@ public enum EditCommand: Encodable, Sendable {
     case set(path: String, value: JSONValue)
     case batch([EditCommand])
     case autoZooms
-    case autoSpeedTyping(speed: Double)
+    case autoSpeedTyping(speed: Double? = nil)
+    case applyTypingSuggestion(id: String, speed: Double? = nil)
+    case dismissTypingSuggestion(id: String)
+    case restoreTypingSuggestions
     case applyPreset([String: JSONValue])
     case processSilence(ranges: [SilenceRange], speed: Double?)
     case relinkProject(project: JSONValue, paths: [String])
@@ -112,7 +115,12 @@ public enum EditCommand: Encodable, Sendable {
             try c.encode("set", forKey: .op); try c.encode(path, forKey: .path); try c.encode(value, forKey: .value)
         case .batch(let commands): try c.encode("batch", forKey: .op); try c.encode(commands, forKey: .commands)
         case .autoZooms: try c.encode("auto_zooms", forKey: .op)
-        case .autoSpeedTyping(let speed): try c.encode("auto_speed_typing", forKey: .op); try c.encode(speed, forKey: .speed)
+        case .autoSpeedTyping(let speed): try c.encode("auto_speed_typing", forKey: .op); try c.encodeIfPresent(speed, forKey: .speed)
+        case .applyTypingSuggestion(let id, let speed):
+            try c.encode("apply_typing_suggestion", forKey: .op); try c.encode(id, forKey: .id); try c.encodeIfPresent(speed, forKey: .speed)
+        case .dismissTypingSuggestion(let id):
+            try c.encode("dismiss_typing_suggestion", forKey: .op); try c.encode(id, forKey: .id)
+        case .restoreTypingSuggestions: try c.encode("restore_typing_suggestions", forKey: .op)
         case .addMedia(let path, let asBackground):
             try c.encode("add_media", forKey: .op); try c.encode(path, forKey: .path); try c.encode(asBackground ? "background" : "asset", forKey: .role)
         case .relinkProject(let project, let paths):

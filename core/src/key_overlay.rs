@@ -133,6 +133,13 @@ impl KeyOverlayIndex {
         }
         Some(&self.source[row.segment].keys[row.key].text)
     }
+    /// Captured source clocks, unaffected by cuts, speed, or repeated clips.
+    pub(crate) fn captured_times(&self) -> impl Iterator<Item = (usize, i64)> + '_ {
+        self.source
+            .iter()
+            .enumerate()
+            .flat_map(|(i, s)| s.keys.iter().map(move |k| (i, s.src_start_ns + k.t)))
+    }
     pub(crate) fn events(&self) -> impl Iterator<Item = (usize, usize, i64, i64)> + '_ {
         self.all.iter().map(|row| {
             let segment = &self.source[row.segment];

@@ -13,6 +13,16 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public enum CursorLogicalSize: String, Codable, Sendable, CaseIterable, Hashable {
         case small, regular, large, extraLarge = "extra_large"
     }
+    public struct ScreenShadow: Decodable, Sendable, Equatable {
+        public var style: String
+        public var offsetX: Double
+        public var offsetY: Double
+        public var radius: Double
+        public var opacity: Double
+    }
+    public var screenShadow: ScreenShadow?
+    public var paddingRatio: Double?
+    public var cursorSizePoints: Double?
     public var cursorSetId: String?
     public var cursorShape: CursorShape?
     public var cursorLogicalSize: CursorLogicalSize
