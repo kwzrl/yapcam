@@ -380,7 +380,13 @@ marker action to this API. It synchronizes an event before returning:
 markers include `id`, `segmentIndex`, `segmentNs`, `srcNs`. Recovery's existing
 journal repair preserves complete marker lines inside recovered media and removes
 truncated/out-of-range lines. Marker position follows the same pause/cut mapping
-as other input events. Core/editor must expose markers on the edited timeline.
+as other input events. Core now consumes these events directly through `Project.markers()` returning
+`TimelineMarker` records (`markerID`, `segmentNs`, `srcNs`, `tlNs`, `clipID` and a
+unique occurrence `id`). UI forwards its marker action to capture's `addMarker()`;
+editor uses `tlNs` for edited display/snapping. Core maps cuts/speed/repeated source;
+consumers should not calculate edited positions from the recorder's elapsed meter.
+The capture module/test target remains independent of Core. Core's marker tests
+on integrated main f611874 use the same marker_id event bytes, including resume.
 
 `CapturePreflight.check(options:sources:)` returns typed issues for silent camera,
 missing auxiliary inputs, denied/undetermined selected-input permissions, closed

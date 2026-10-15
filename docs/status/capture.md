@@ -16,38 +16,43 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Backlog recheck: 2026-10-15 16:20 UTC; Lead checkpointed the previous status as
-  85f4628. Main remains 5328b45 and is already in HEAD. Capture source/tests
-  match main. Assignment/FEATURES/QA/UI documents have no changes from the last
-  review; local Next remains empty. Existing validation remains current. Only
-  this status refresh is modified; no app launch or unchanged tests repeated.
-- Ownership of follow-up work is explicit in Next versus External handoffs below:
-  capture implementation is integrated, while app wiring/native acceptance stays
-  open. Cross-team todo rows do not mean the capture module is unimplemented.
-- Main FEATURES still lists GAP-CAP-1/3/6 as cross-team todo, CAP-2 hardware limited,
-  CAP-4 an implemented extra, CAP-5 device limited and CAP-7 UI owned. Capture APIs
-  and regression tests for CAP-1/2/3/6 are implemented/integrated; their app/editor
-  acceptance awaits the consumer steps below. No new capture implementation item,
-  QA defect or host result appeared. Existing 136-test/Rust/signed-build evidence
-  remains current; no unchanged full-suite or app launch repeated.
-- Concrete UI integration handoff from main 5328b45:
-  * Engine.swift UIRecordingOptions and LiveEngine.Session still forward only the
-    audio Bool and camera ID. Add/forward systemAudioSelection and
-    cameraMaxResolution; AppSettings currently defaults systemAudio to true, so
-    new picker preferences still need the off default (preserve saved choices).
-  * RecordingController.addMarker currently appends elapsed*1e9 to a UI array;
-    EngineSession exposes no marker method. Forward a throwing marker action to
-    inner RecordingSession.addMarker and use its srcNs. Durable marker events
-    exist only when that capture API is called. PostRecording currently writes
-    a separate recording/markers.json {"markers_ns":[...]}, only at clean stop;
-    it cannot replace crash-safe events.jsonl markers. Lead/core/editor should
-    agree on the derived sidecar versus event query, using event source time as
-    authority and avoiding duplicate marks. No format was changed in this audit.
-  * Wire CapturePreflight.check and windowResizeIssue into the picker/resize flow.
-    CAP-7 still uses a 450 ms delay with no gain in RecordingController; UI owns
-    the documented completion/540 ms bound and gain 0.33 adjustment.
-  These are outside capture ownership. QA: update GAP-CAP statuses to distinguish
-  module-ready from consumer/native acceptance; no end-to-end completion claim.
+- Latest continuation check: 2026-10-15 17:01 UTC; main f611874, local HEAD 73221c6.
+  No source/test/brief delta or new capture finding since the thaw audit. Local
+  capture Next is empty; remaining rows are consumer/native acceptance. Lead's
+  rebase and the two-file status/README checkpoint remain pending; no Git retry,
+  app launch or unchanged test rerun performed.
+- Freeze lifted / integration audit: 2026-10-15 16:40 UTC. Lead reports main f611874
+  integrated and green: 465 Swift + 189 XCTest + 91 Rust. This is Lead's host
+  evidence, not a capture rerun; it supersedes the earlier full-suite integration
+  gate for that baseline, but does not prove optional speech/device/media checks.
+  Local clean HEAD is still 73221c6; Lead handles the Codex rebase. Capture sources
+  and tests have no delta versus f611874, so independent module work remains ready.
+- Main FEATURES now acknowledges CAP-1/2/3/6 capture APIs/tests, keeps CAP-2/5
+  hardware-limited, records CAP-4's keep-30/60 decision and assigns CAP-7 to UI.
+  No new capture-owned implementation gap or QA failure was added. UI/editor first
+  fix preset/test isolation per Lead; the integration requests below follow that.
+- CAP-3 dependency CLOSED in core on main: Project.markers() / TimelineMarker read
+  our events.jsonl marker_id directly and map exact source/segment/timeline ns
+  through cuts, speed changes and repeated source. Rust core/src/markers.rs and
+  Swift ProjectTests' multi-segment marker fixture use the exact capture wire
+  format; Lead's 91-Rust/full-Swift green evidence includes these changes. Core's
+  marker query is delivered; editor presentation and UI forwarding remain open.
+  README now tells consumers to use marker.tlNs for edited timeline positions.
+- Remaining consumer handoff (still present on f611874):
+  * UIRecordingOptions/LiveEngine.Session need systemAudioSelection and
+    cameraMaxResolution. New picker settings still default the audio Bool to true;
+    use off for new settings while preserving explicit saved choices.
+  * EngineSession needs a throwing marker action forwarding to
+    RecordingSession.addMarker(). Use returned srcNs, not elapsed*1e9; current
+    UI-only markers.json is written at clean stop and is a distinct path. Core
+    consumes durable event markers directly; a derived sidecar must not duplicate
+    or replace them. Lead/UI/editor settle the optional sidecar consumer contract.
+  * Present CapturePreflight.check/windowResizeIssue. CAP-7 cue timing/gain is UI
+    owned. No new capture default or contract change is needed for these handoffs.
+- Live-test gate rechecked: QA .app-lock absent, but pgrep could not get the process
+  list (sysmond unavailable). QA's current handoff also says another instance is
+  running. No app launched; Lead/QA must run native acceptance outside the sandbox
+  after confirming the app is free. Existing guarded commands below/README apply.
 - CAP-2/M3 hardening follow-up: extracted the existing AV sample validation into
   AuxiliarySamples (same callback/writer queue) and tested the real SegmentWriter
   with genuine injected BGRA video/48 kHz PCM. Camera format changes larger OR
@@ -790,21 +795,22 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next
-No remaining local capture implementation item. Address new capture defects from
-native acceptance when Lead posts results. Current APIs, regression tests and
-host commands are ready; validation limits remain explicit above.
+No remaining capture module implementation item in the integrated gap list.
+Address findings from native acceptance or API integration after UI/editor's
+preset/test isolation fix. Core marker mapping is delivered on f611874; UI wiring,
+editor marker presentation and hardware acceptance remain with their owners.
+Dispatch note for Lead: capture needs a new concrete assignment or native failure
+report to continue implementation; the unchanged consumer rows are already handed off.
 
 ## External handoffs / Lead requests
-1. Capture module changes are in main via 9b0cadc; status checkpoint 85f4628 is
-   based on main 5328b45. Only this audit refresh needs checkpointing.
-   UI: consume audio-selection/camera-cap/preflight APIs and forward EngineSession
-   marker actions to capture; main's current UI-only marker sidecar is a distinct
-   clean-stop path (exact handoff above). Core/editor: map durable event markers
-   through edits; Lead: settle/document the optional UI sidecar and public additions
-   in SWIFT_API/FORMATS. QA: reconcile GAP-CAP-1/2/3/6 module status with the
-   implementation/tests, keep consumer/native acceptance open. CAP-4's fps choice
-   and encoder difference remain documented; CAP-7 is UI-owned. Hardware and host
-   acceptance below remain; honor QA lock/other-instance rules for every launch.
+1. Lead: rebase clean capture HEAD 73221c6 onto integrated main f611874 after
+   checkpointing this status/README handoff (Git remains read-only here). UI/editor
+   first fix preset/test isolation. Then consume the capture audio/camera/preflight
+   APIs and forward marker actions to RecordingSession.addMarker. Core's exact
+   event marker query/TimelineMarker is complete; editor uses tlNs for display and
+   snapping. Lead: document public capture additions/optional derived UI sidecar in
+   SWIFT_API/FORMATS. QA's GAP-CAP module statuses are now reconciled; consumer and
+   native acceptance remain open. CAP-4 is a documented extra; CAP-7 belongs to UI.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
    the signed-app variants above plus static-tail/sync. Library kill/recover now
