@@ -1,8 +1,10 @@
 # editor status
 
-READY 46e9f8a editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 88d3ba4 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Rebased on main 97b9d82. Autosave aligned with core's policy as core asked (no competing timer): save 30 s after the last edit, only if the revision is unchanged; closing the window still saves at once and core's recovery journal covers crashes. Kept the editor's own save path (not `ProjectAutosaver`) because the clean/dirty indicator tracks it. Full suite (UISmokeTests skipped) 499 green.
+- Waiting: caption font families (render API landed, core has no persisted font field yet → request to core stands).
 - Rebased on main c565a93. Visual-only preview refresh: known appearance edits (canvas background/padding/radius/shadow/inset/window frame/screen quality, cursor size/set, camera style) call `PreviewPlayer.invalidateVisuals()` (audio and decoders kept); everything else, undo/redo and mixed bursts rebuild fully. Full suite (UISmokeTests skipped) 494 green. Playback smoothness while dragging these sliders not measured on hardware.
 - Backlog check: every row Lead listed for editor is now implemented except ED-10 caption font/reveal/growth/entrance/language (core has no such fields yet → Request to core below) and manual checks. F4 privacy: no absolute home path in this file (verified by grep).
 - CAP-3 markers: recording markers (core `markers` query, mapped through cuts/speed) show as orange flags on the ruler, act as snap targets and Option+Arrow edit points. Not seen against a real recording with markers. 213 editor tests green.
@@ -14,7 +16,7 @@ READY 46e9f8a editor on real core/render: camera style panel, camera layout sett
 - Per-segment camera layout settings: selected layout section can use its own settings (cutout size/softness/inset, split ratio/flip/padded); segment `settings` are now preserved verbatim by every layout rewrite (previously any layout edit would have dropped them). Real-core round-trip test (fixture has no camera, so the segment is written via settings). 207 editor tests green.
 - Rebased on main c1bf553 (full suite 482 green, UISmokeTests skipped). "Add zoom" now uses core's `insert_zoom`, so new zooms inherit the last edited zoom style (real-core test: scale 3.5 carried over). Masks/layout segments still use the old paths (no insert UI to switch). 206 editor tests green.
 - Structural edits (split, delete, zoom add/update, silence/typing processing) now use core's checked `timeline_edit` envelope; real-core test: a 50 ms zoom is rejected with state unchanged. 205 editor tests green.
-- Decision: gestures already commit once on release (one undo step), so `coalesced_edit` adds nothing; kept the 2 s save debounce instead of core's 30 s `ProjectAutosaver` because the editor's clean/dirty indicator depends on its own saves.
+- Decision: gestures already commit once on release (one undo step), so `coalesced_edit` adds nothing; (superseded) autosave now follows core's CORE-10 policy.
 - Typing suggestions now come from core (`typing_suggestions` query; apply/dismiss by source-stable id, `auto_speed_typing` for apply-all, `restore_typing_suggestions`); dismissals persist in the project; editor-side detection kept only for the fake backend. Not yet exercised against a real recording with a keystroke burst. 204 editor tests green.
 - Rebased on main eacbd4d: preset isolation merged — Lead's `PresetIsolation` task-locals / `EditorPresets.directory|globalDirectory|globalDefaults` API kept (ui depends on it), backed by `EditorStorage` and injectable `PresetStore`. Full suite (UISmokeTests skipped) 481 green.
 - Zoom "Start animation early" + default zoom level (`zoom_settings.start_early/default_scale`), voice preset (`audio.mic_preset`) in voice clean-up; round-trip test on real core. 204 editor tests green.

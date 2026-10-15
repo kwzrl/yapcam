@@ -96,7 +96,9 @@ public final class EditorModel: ObservableObject {
         player.pause()
         project.close()      // core refuses any mutation from now on, even from work that was already past its last cancellation check
     }
-    public var autosaveDelay: Duration = .seconds(2)
+    /// Same policy as core's `ProjectAutosaver`: save 30 s after the last edit, and only if nothing changed meanwhile.
+    /// (Unsaved edits are covered by core's recovery journal; closing the window saves at once.)
+    public var autosaveDelay: Duration = .seconds(30)
 
     public init(project: EditingProject, player: PlaybackEngine) {
         self.project = project
@@ -531,11 +533,12 @@ public final class EditorModel: ObservableObject {
 
     private func scheduleAutosave() {
         autosaveTask?.cancel()
-        let delay = autosaveDelay
+        let delay = autosaveDelay, expected = revision
         autosaveTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
             if Task.isCancelled { return }
-            self?.saveNow()
+            guard let self, self.revision == expected else { return }     // a newer edit scheduled its own save
+            self.saveNow()
         }
     }
 
