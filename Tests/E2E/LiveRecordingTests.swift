@@ -91,4 +91,19 @@ final class LiveRecordingTests: XCTestCase {
         print("LIVE preview-vs-export mean abs luma diff = \(mad) / 255 at t=\(Double(t)/1e9)s")
         XCTAssertLessThan(mad, 6.0)
     }
+
+    /// Isolates a decode failure at the end of real recordings: export only the last 15 s in 3 variants.
+    func testTailExportDiagnostics() async throws {
+        let p = try Project.create(package: pkg)
+        let d = p.durationNs, start = d - 15_000_000_000
+        var report: [String] = []
+        for (name, end, audio) in [("full-tail+audio", d, true), ("tail-100ms+audio", d - 100_000_000, true), ("full-tail,no-audio", d, false)] {
+            let out = work.appendingPathComponent("tail-\(name.count)-\(audio).mp4")
+            do {
+                _ = try await Exporter(project: CoreSource(p), settings: .init(outputHeight: 720, fps: 30, includeAudio: audio, rangeStartNs: start, rangeEndNs: end), destination: out).run { _ in }
+                report.append("\(name): OK")
+            } catch { report.append("\(name): FAIL \(error)") }
+        }
+        print("LIVE tail diagnostics: " + report.joined(separator: " | "))
+    }
 }

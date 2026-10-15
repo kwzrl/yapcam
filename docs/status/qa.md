@@ -1,4 +1,4 @@
-READY HEAD qa: live QA in progress (see Live QA log)
+READY HEAD qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 # qa status
 
@@ -61,6 +61,11 @@ READY HEAD qa: live QA in progress (see Live QA log)
 ## Blockers
 - Screen Studio observation STILL blocked after Lead relayed user authorization: classifier denied `rea open_binary`/`analyze_javascript_application` (integrity mismatch needs record-and-continue) and shell screencapture lacks permission ("could not create image from display"). Needs the user to add Bash/mcp__rea__* allow rules or run the observation themselves. Earlier note: denied by the permission classifier (bundle string search and `rea analyze_javascript_application`). So no [observed] rows and no exact option values/defaults. Needs user decision: allow REA/observation of /Applications/Screen Studio.app. Workaround used: guide pages, asset inventory, own assumptions (marked).
 - Bundle strings are obfuscated anyway; REA/observation is the only practical route.
+
+## Findings (live, main b5d1268)
+- F6 [render (AudioTimeline/Exporter) + core (audio_ranges), HIGH] Export of a REAL recording fails with `decode("The operation could not be completed")` when the export range includes the last ~100 ms and audio is on. Repro: record `build/Yapcam.app --capture-selftest 600`, then `YAPCAM_LIVE_PACKAGE=<pkg> swift test --disable-sandbox --filter LiveRecordingTests/testTailExportDiagnostics` -> `full-tail+audio: FAIL | tail-100ms+audio: OK | full-tail,no-audio: OK`. Cause hypothesis: system.m4a (decodes cleanly in ffmpeg) is 16 ms shorter than the segment (600.067 s vs 600.083 s); the audio range is built from segment duration, not the audio file's real end, so AVAssetReader reads past EOF. Fix: clamp audio ranges to the file duration (or treat EOF as silence). Same as Lead's live-e2e "HYPOTHESIS CONFIRMED". Blocks M1 export for every real recording with system audio (the editor's default export).
+- F7 [Lead/process, MEDIUM] Two of my long runs (1 s and 7.5 min) were killed by other processes without a crash report (4-min and 10-min runs under the lock file were fine). Lock-file rule works.
+- A/V sync, 10 min: PASS (drift 7.3 ms). Export-vs-preview: PASS (0.50/255).
 
 ## Live QA log (2026-10-15 morning, main b5d1268)
 - Shared machine: Lead's `live-e2e` harness and my live runs collide (one display, one mouse). My first 10-min run was killed ~1 s after start (package stuck at status "recording", no crash report) while live-e2e ran at the same time. Please tell qa when the machine is free, or serialize runs; I log start/end times here.
