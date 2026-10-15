@@ -16,6 +16,8 @@ import YapcamRender
 
         let settings = AppSettings.shared
         let rec = RecordingController.shared
+        let saved = (settings.countdown, settings.sourceMode, settings.openEditorAfterRecording)
+        defer { (settings.countdown, settings.sourceMode, settings.openEditorAfterRecording) = saved }
         settings.countdown = 3
         settings.sourceMode = .display
         settings.openEditorAfterRecording = true
@@ -112,6 +114,8 @@ import YapcamRender
         var report: [String] = []
         func log(_ s: String) { report.append(s); Probe.log("live-e2e \(kind) \(s)") }
         let settings = AppSettings.shared, rec = RecordingController.shared
+        let saved = (settings.countdown, settings.sourceMode, settings.openEditorAfterRecording, settings.areaRect, settings.areaDisplayID, settings.windowID)
+        defer { (settings.countdown, settings.sourceMode, settings.openEditorAfterRecording, settings.areaRect, settings.areaDisplayID, settings.windowID) = saved }
         settings.countdown = 0
         settings.openEditorAfterRecording = false
         ToolbarPanelController.shared.show()
