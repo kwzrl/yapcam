@@ -74,7 +74,7 @@ final class LiveRecordingTests: XCTestCase {
         desc.usage = [.renderTarget, .shaderRead]
         let tex = try XCTUnwrap(device.makeTexture(descriptor: desc))
         let cb = try XCTUnwrap(device.makeCommandQueue()?.makeCommandBuffer())
-        try comp.encode(f, to: tex, in: cb); cb.commit(); cb.waitUntilCompleted()
+        try comp.encode(f, to: tex, in: cb); cb.commit(); await cb.completed()
         var px = [UInt8](repeating: 0, count: w * h * 4)
         tex.getBytes(&px, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
         // exported frame at t as raw gray
