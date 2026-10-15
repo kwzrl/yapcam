@@ -46,3 +46,21 @@ import YapcamCore
         #expect(z.scale == 3.5)                                                     // remembered from the edit of the first zoom
     }
 }
+
+@MainActor @Suite struct SegmentLayoutSettingsTests {
+    @Test func segmentSettingsAreStoredAndSurviveOtherLayoutEdits() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        // The fixture has no camera track, so the segment is written through the project settings like a loaded file would be.
+        let id = "layout-t1"
+        m.set("camera.layouts", .array([.object(["id": .string(id), "tl_start_ns": .number(500_000_000), "tl_end_ns": .number(2_500_000_000), "mode": .string("cutout")])]))
+        guard m.lastError == nil else { Issue.record("core refused the layout: \(m.lastError ?? "")"); return }
+        m.setLayoutOwnSettings(id: id, true); m.setLayoutSetting(id: id, key: "cutout_size", .number(0.7))
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        m.setLayoutMode(id: id, "cutout")
+        #expect(m.layouts.first { $0.id == id }?.settings?["cutout_size"] == .number(0.7))
+        m.setLayoutOwnSettings(id: id, false); #expect(m.layouts.first { $0.id == id }?.settings == nil)
+    }
+}

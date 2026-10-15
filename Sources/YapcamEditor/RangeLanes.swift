@@ -7,6 +7,8 @@ public struct LayoutSegment: Equatable, Identifiable, Sendable {
     public var mode: String            // screen | camera | overlay | side_by_side
     public var cameraPosition: [Double]?
     public var cameraSize: Double?
+    /// Own layout settings for this interval (replaces the root settings; kept verbatim so edits never drop it).
+    public var settings: [String: JSONValue]?
 }
 
 public let layoutModes: [(label: String, value: String)] = [
@@ -24,7 +26,9 @@ extension EditorModel {
             if case .array(let p)? = o["camera_position"] { pos = p.compactMap { if case .number(let v) = $0 { v } else { nil } } }
             var size: Double?
             if case .number(let v)? = o["camera_size"] { size = v }
-            return LayoutSegment(id: id, startNs: Int64(a), endNs: Int64(b), mode: mode, cameraPosition: pos, cameraSize: size)
+            var settings: [String: JSONValue]?
+            if case .object(let s)? = o["settings"] { settings = s }
+            return LayoutSegment(id: id, startNs: Int64(a), endNs: Int64(b), mode: mode, cameraPosition: pos, cameraSize: size, settings: settings)
         }
     }
 
@@ -43,6 +47,7 @@ extension EditorModel {
                                       "tl_end_ns": .number(Double(l.endNs)), "mode": .string(l.mode)]
         if let p = l.cameraPosition { o["camera_position"] = .array(p.map { .number($0) }) }
         if let s = l.cameraSize { o["camera_size"] = .number(s) }
+        if let s = l.settings { o["settings"] = .object(s) }
         return .object(o)
     }
     private func writeLayouts(_ ls: [LayoutSegment]) { set("camera.layouts", .array(ls.sorted { $0.startNs < $1.startNs }.map(layoutJSON))) }
@@ -59,6 +64,15 @@ extension EditorModel {
     }
     public func setLayoutMode(id: String, _ mode: String) {
         writeLayouts(layouts.map { var l = $0; if l.id == id { l.mode = mode }; return l })
+    }
+    /// Gives a segment its own settings (a copy of the current camera layout settings), or returns it to the root ones.
+    public func setLayoutOwnSettings(id: String, _ on: Bool) {
+        var root: [String: JSONValue] = [:]
+        if case .object(let o)? = value("camera.layout_settings") { root = o }
+        writeLayouts(layouts.map { var l = $0; if l.id == id { l.settings = on ? root : nil }; return l })
+    }
+    public func setLayoutSetting(id: String, key: String, _ v: JSONValue) {
+        writeLayouts(layouts.map { var l = $0; if l.id == id, l.settings != nil { l.settings?[key] = v }; return l })
     }
     public func removeLayout(id: String) { writeLayouts(layouts.filter { $0.id != id }) }
 

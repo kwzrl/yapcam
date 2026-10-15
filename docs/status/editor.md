@@ -3,6 +3,7 @@
 READY 1795a43 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Per-segment camera layout settings: selected layout section can use its own settings (cutout size/softness/inset, split ratio/flip/padded); segment `settings` are now preserved verbatim by every layout rewrite (previously any layout edit would have dropped them). Real-core round-trip test (fixture has no camera, so the segment is written via settings). 207 editor tests green.
 - Rebased on main c1bf553 (full suite 482 green, UISmokeTests skipped). "Add zoom" now uses core's `insert_zoom`, so new zooms inherit the last edited zoom style (real-core test: scale 3.5 carried over). Masks/layout segments still use the old paths (no insert UI to switch). 206 editor tests green.
 - Structural edits (split, delete, zoom add/update, silence/typing processing) now use core's checked `timeline_edit` envelope; real-core test: a 50 ms zoom is rejected with state unchanged. 205 editor tests green.
 - Decision: gestures already commit once on release (one undo step), so `coalesced_edit` adds nothing; kept the 2 s save debounce instead of core's 30 s `ProjectAutosaver` because the editor's clean/dirty indicator depends on its own saves.
