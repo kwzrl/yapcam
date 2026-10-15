@@ -1,4 +1,4 @@
-READY HEAD qa: regression on aa70d91
+READY 18f5ab4 qa: regression on aa70d91
 
 # qa status
 
