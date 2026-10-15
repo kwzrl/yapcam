@@ -1,4 +1,4 @@
-READY fe4e75a qa: audit vs eacbd4d (UI-5 complete)
+READY HEAD qa: live DoD re-run on c1bf553 PASS (F10 low); hotkeys/after-recording buttons not run live
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -72,6 +72,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - Main eacbd4d: UI-5 window options complete (set size, saved sizes, ignore window); preset/default isolation under tests landed. Live recheck still blocked by the running instance (pid 74073).
 
+- Live DoD re-run on main c1bf553 done (see TEST_REPORT section 4): PASS except F10 (low). Not run live: hotkeys (second Yapcam instance running) and after-recording buttons (no hook). Request: ui hook for the after-recording choices; Lead: close other Yapcam instances for the hotkey run.
+
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
 
@@ -94,6 +96,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - REC-18 recovery: PASS (see TEST_REPORT section 4). Waiting for ui hooks (--capture-selftest target/pause, --ui-record-selftest, --drive-input-selftest) on main; F6 retest pending render fix (package kept in ~/Movies/Yapcam/QA/capture).
 
 - Handover pass (main 3b68bde): editor UI rows PASS (selftest, crash-after-autosave, crash-now journal, export 1080p with audio), hotkeys PASS, F8 fixed + lock cleanup verified, suites re-run (Rust 68, XCTest 129, Swift Testing 340). OPEN: F9 window recordings (capture+core), F4 home path in docs/status/editor.md.
+
+- F10 [ui, LOW] After Stop the editor opens but `editorInFront=false` in the self-test (main c1bf553). Repro: `open -n -W build/Yapcam.app --args --drive-input-selftest 12 --source display`, read probe.log. May be a self-test activation artifact; ui please confirm with a manual run.
 
 ## Live QA log (2026-10-15 morning, main b5d1268)
 - Shared machine: Lead's `live-e2e` harness and my live runs collide (one display, one mouse). My first 10-min run was killed ~1 s after start (package stuck at status "recording", no crash report) while live-e2e ran at the same time. Please tell qa when the machine is free, or serialize runs; I log start/end times here.
