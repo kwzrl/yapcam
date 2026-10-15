@@ -1,4 +1,4 @@
-READY c64ce71 qa: THIRD_PARTY_NOTICES.md generated
+READY HEAD qa: temp cleanup + disk hygiene rule
 
 # qa status
 
@@ -36,6 +36,8 @@ READY c64ce71 qa: THIRD_PARTY_NOTICES.md generated
 - M3 package (Lead 03:15): FEATURES render rows tagged verified on Metal (86/86); new docs/KNOWN_LIMITATIONS.md, docs/THIRD_PARTY.md (Rust crates + Apple frameworks + tooling audited; all permissive; acknowledgements file still open), docs/TEST_REPORT.md structure.
 
 - docs/THIRD_PARTY_NOTICES.md generated (MIT texts of 6 shipped crates + Apache-2.0); THIRD_PARTY.md open item 1 closed. Main unchanged at 121d9de; privacy scan still flags docs/status/editor.md (F4).
+
+- Cleanup (Lead disk request): deleted my 2 tmp.*/e2e build copies, scratchpad e2e copy, 6 yapcam-e2e-* leftovers and ~/yapcam-ref-local/extract (893 MB); free space 25→27 GB. No qa script creates temp dirs now (run-e2e.sh simplified); TESTING.md has the trap rule.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
