@@ -98,3 +98,21 @@ import YapcamCore
         doc.model.close()
     }
 }
+
+@MainActor @Suite struct ExportPlanningWiringTests {
+    @Test func gifDefaultsPresetsAndEstimateComeFromRender() throws {
+        #expect(ExportFormat.gif.options.defaultFPS == 15 && ExportFormat.gif.options.defaultHeight == 480)
+        #expect(ExportFormat.mp4h264.options.fps == [60, 50, 30, 25, 24, 20, 10])
+        let r = ExportRequest(height: 720, fps: 60, destination: URL(fileURLWithPath: "/tmp/x.mp4"), compression: .webLow)
+        #expect(RenderExportEngine.settings(for: r).compression == .webLow)
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("ep-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d); defer { doc.model.close() }
+        let e = try #require(doc.export.estimate)
+        #expect(e.height == 720 && e.width % 2 == 0 && e.bytes > 0 && e.renderSeconds > 0)
+        doc.export.format = .gif
+        let g = try #require(doc.export.estimate)
+        #expect(g.height == 720 && g.bytes > 0)      // 720p exists for GIF, so the choice is kept
+    }
+}

@@ -279,12 +279,27 @@ final class PreviewPlayerAdapter: PlaybackEngine {
 
 struct RenderExportEngine: ExportEngine {
     let source: ProjectRenderSource
-    func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+
+    static func settings(for request: ExportRequest) -> ExportSettings {
         let (container, codec): (ExportSettings.Format, ExportSettings.Codec) = switch request.format {
         case .mp4h264: (.mp4, .h264); case .mp4hevc: (.mp4, .hevc); case .movh264: (.mov, .h264); case .gif: (.gif, .h264) }
-        let settings = ExportSettings(format: container, codec: codec, outputHeight: request.height, fps: request.fps, quality: request.quality,
-                                      includeAudio: request.includeAudio && request.format.supportsAudio,
-                                      speechEnhancement: request.speech.map(\.render))
+        let compression: ExportSettings.Compression? = request.compression.map {
+            switch $0 { case .studio: .studio; case .social: .social; case .web: .web; case .webLow: .webLow } }
+        return ExportSettings(format: container, codec: codec, outputHeight: request.height, fps: request.fps,
+                              quality: compression == nil ? request.quality : nil,
+                              includeAudio: request.includeAudio && request.format.supportsAudio,
+                              speechEnhancement: request.speech.map(\.render), compression: compression,
+                              gifHighQuality: request.gifHighQuality, gifDisableLoop: request.gifDisableLoop)
+    }
+
+    func estimate(for request: ExportRequest) -> ExportEstimateInfo? {
+        guard let frame = try? source.frame(atNs: 0),
+              let e = try? Self.settings(for: request).estimate(canvasWidth: frame.canvas_w, canvasHeight: frame.canvas_h,
+                                                                 durationNs: source.durationNs, hasAudio: request.includeAudio) else { return nil }
+        return ExportEstimateInfo(width: e.width, height: e.height, bytes: e.totalBytes, renderSeconds: e.renderSeconds)
+    }
+    func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+        let settings = Self.settings(for: request)
         return try await AtomicExport.run(to: request.destination) { temp in
             let exporter = try Exporter(project: source, settings: settings, destination: temp)
             return try await exporter.run(progress: progress)

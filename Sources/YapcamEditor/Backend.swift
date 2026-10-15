@@ -210,17 +210,36 @@ public struct ExportRequest: Equatable, Sendable {
     public var speech: SpeechEnhancement?
     public var format: ExportFormat
     public var quality: Double
+    /// Reference-style compression preset; when set it wins over `quality` (MP4/MOV only).
+    public var compression: CompressionPreset?
+    public var gifHighQuality: Bool
+    public var gifDisableLoop: Bool
     public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true, speech: SpeechEnhancement? = nil,
-                format: ExportFormat = .mp4h264, quality: Double = 0.8) {
+                format: ExportFormat = .mp4h264, quality: Double = 0.8, compression: CompressionPreset? = nil,
+                gifHighQuality: Bool = true, gifDisableLoop: Bool = false) {
         self.height = height; self.fps = fps; self.destination = destination; self.includeAudio = includeAudio; self.speech = speech
-        self.format = format; self.quality = quality
+        self.format = format; self.quality = quality; self.compression = compression
+        self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop
+    }
+}
+
+/// Planned output of an export: even pixel size, estimated file size(s) and render time.
+public struct ExportEstimateInfo: Equatable, Sendable {
+    public var width: Int, height: Int
+    public var bytes: Int64
+    public var renderSeconds: Double
+    public init(width: Int, height: Int, bytes: Int64, renderSeconds: Double) {
+        self.width = width; self.height = height; self.bytes = bytes; self.renderSeconds = renderSeconds
     }
 }
 
 public protocol ExportEngine: Sendable {
     /// Cancel by cancelling the surrounding Task. Throws on failure; returns the verified file.
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL
+    /// Planning numbers for the sheet's readout; nil when the engine cannot estimate.
+    func estimate(for request: ExportRequest) -> ExportEstimateInfo?
 }
+public extension ExportEngine { func estimate(for request: ExportRequest) -> ExportEstimateInfo? { nil } }
 
 /// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.
 public struct TypingRecord: Equatable, Sendable { public var id: String; public var span: TimeSpan }
