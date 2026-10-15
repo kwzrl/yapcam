@@ -14,7 +14,13 @@ public struct RenderLayer: Sendable, Equatable {
     public var rect: CGRect
     public var cornerRadius: Float
     public var opacity: Float
-    public init(content: Content, rect: CGRect, cornerRadius: Float = 0, opacity: Float = 1) { self.content = content; self.rect = rect; self.cornerRadius = cornerRadius; self.opacity = opacity }
+    /// Applies to text only. Sans preserves the original Helvetica rendering.
+    public var textFontFamily: RenderTextFontFamily
+    public init(content: Content, rect: CGRect, cornerRadius: Float = 0, opacity: Float = 1,
+                textFontFamily: RenderTextFontFamily = .sans) {
+        self.content = content; self.rect = rect; self.cornerRadius = cornerRadius; self.opacity = opacity
+        self.textFontFamily = textFontFamily
+    }
 }
 
 /// Supplemental render features supplied through Core extras/motion or custom source hooks.
@@ -85,14 +91,14 @@ final class LayerRenderer {
         var pixel: UInt32 = .max; solid.replace(region: MTLRegionMake2D(0,0,1,1), mipmapLevel: 0, withBytes: &pixel, bytesPerRow: 4); self.solid = solid
     }
     func invalidate() { texts.removeAll(); images.removeAll() }
-    private func text(_ value: String, fontSize: Double, color: SIMD4<Float>, size: CGSize) throws -> MTLTexture {
+    private func text(_ value: String, fontSize: Double, family: RenderTextFontFamily, color: SIMD4<Float>, size: CGSize) throws -> MTLTexture {
         guard [color.x,color.y,color.z,color.w].allSatisfy({ $0.isFinite && (0...1).contains($0) }), size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0, size.width <= 8192, size.height <= 8192, fontSize.isFinite, fontSize > 0 else { throw RenderError.invalidSettings("Invalid text overlay size") }
-        let key = "\(value)|\(fontSize)|\(color)|\(size)"
+        let key = "\(value)|\(fontSize)|\(family.rawValue)|\(color)|\(size)"
         if let texture = texts[key] { return texture }
         let width = Int(ceil(size.width)), height = Int(ceil(size.height))
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width*4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue|CGBitmapInfo.byteOrder32Big.rawValue) else { throw RenderError.write("Cannot rasterize text overlay") }
-        let font = CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
+        let font = family.font(size: fontSize)
         let attributes: [NSAttributedString.Key: Any] = [NSAttributedString.Key(kCTFontAttributeName as String): font, NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(colorSpace: space, components: [CGFloat(color.x),CGFloat(color.y),CGFloat(color.z),CGFloat(color.w)])!]
         let text = NSAttributedString(string: value, attributes: attributes)
         let framesetter = CTFramesetterCreateWithAttributedString(text)
@@ -117,7 +123,7 @@ final class LayerRenderer {
             switch layer.content {
             case .text(let value, let size, let color):
                 let scale=max(1,max(Double(target.width)/Double(canvas.x),Double(target.height)/Double(canvas.y)))
-                texture = try text(value,fontSize: size*scale,color: color,size: CGSize(width: r.width*scale,height: r.height*scale)); uniforms[2].z = 1
+                texture = try text(value,fontSize: size*scale,family: layer.textFontFamily,color: color,size: CGSize(width: r.width*scale,height: r.height*scale)); uniforms[2].z = 1
             case .image(let path):
                 if images[path] == nil {
                     if images.count >= 8 { images.removeAll() }
