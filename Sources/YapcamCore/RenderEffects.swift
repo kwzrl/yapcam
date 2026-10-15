@@ -41,6 +41,8 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public var cameraLayout: CoreCameraLayout?
     public var zoomLens: CoreZoomLens?
     public var globalMotionBlur: Double?
+    public var screenQuality: CoreScreenQuality?
+    public var insetOrigin: [Double]?
 }
 
 /// A rounded highlight, mask, or full-canvas fade, evaluated in canvas pixels by

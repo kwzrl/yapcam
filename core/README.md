@@ -534,3 +534,28 @@ The optional `audio.mic_replacements` array is never included/applied in presets
 Speech DSP mastering is independent; its plan uses the effective selected file.
 Native Apple isolation quality/latency, Editor toggle/progress and user-facing
 stale/error presentation remain Capture/Editor/Render acceptance work.
+
+### Project screen quality (RND-9)
+
+`canvas.screen_quality` is null by default for both legacy and fresh projects.
+Select an object to use the existing renderer's spatial filtering/resampling:
+`try project.setScreenQuality(.init(improveQuality: 0.5, upscaling: .quality))`.
+Pass nil to restore unchanged screen samples. Options are off/fast/quality and a
+finite quality amount0...1. The optional whole-object set path also accepts `{}`
+(default0.5/quality); nested improve_quality/upscaling paths work once selected.
+CoreRenderOptions.screenQuality appears on untimed/timed/effects queries and
+matches Render's existing screen_quality wire field. Presets, history, snapshots
+and persistence retain it. No geometry/timing/ABI default changes. Editor wires
+its controls; native pixel quality remains Render/Lead acceptance work.
+
+### Toolbar marker compatibility
+
+Core's existing markers()/TimelineMarker query also reads the UI's optional
+recording/markers.json ({markers_ns:[globalSourceNs]}) once at create/open.
+Flags are merged in memory with capture events, sorted, bounded by recording
+segments and deduplicated at the same exact source clock (capture flags win).
+Synthetic marker IDs retain the source array index as ui-marker:<index>.
+No recording/manifest/sidecar is rewritten, no query/frame does file IO, and
+snapshots retain the flags they loaded. Malformed sidecars fail explicitly.
+UI should forward new flags to Capture's durable marker API when wired; this
+compatibility reader supports packages already saved by the toolbar.

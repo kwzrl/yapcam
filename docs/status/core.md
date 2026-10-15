@@ -1,4 +1,4 @@
-READY b852c2c pushed to origin/team/core: AUD-06 microphone selection + relink invalidation; Rust95, Core Swift68, Clippy and signed build/codesign PASS. Core files match integrated main eacbd4d; backlog empty.
+READY working tree on 2372753: RND-9 screen quality + CAP-3 toolbar marker sidecars; Rust99, Core Swift70, Clippy and signed build/codesign PASS. Final RND-7 inset-origin handoff in progress.
 
 # Core status
 
@@ -12,20 +12,19 @@ Clean-tree `git rebase main` still cannot create .git/worktrees/core/rebase-merg
 
 ## Next
 
-No open Core implementation item remains. Re-audited the brief, all Core-owned
-and shared FEATURES rows, Core gap-list items and other-team handoffs at 17:12 UTC.
-CORE-1...10, shared CAP-3/ED-2/7/8/9/13/RND-5/8 and Capture's AUD-06 media-selection
-handoff are complete in the integrated/published package. The old Render request
-for glass_loupe/camera_color is superseded: current ProjectAdapter.swift directly
-consumes Core's zoom_lens/camera_style/camera_layout. No duplicate aliases needed.
-FEATURES still has stale Core todo/partial descriptions; QA owns reconciliation.
+Screen quality + toolbar marker compatibility are green and commit-ready:
+Rust99/Core Swift70/Clippy/signed canonical app/codesign PASS. Logs
+/private/tmp/yapcam-core-{screen-quality,marker-sidecar}-ready.log.
 
-Lead: rebase metadata onto main; arrange the required other-family review of
-microphone.rs and the Swift import lifecycle if not already completed. Editor/UI
-and native consumer acceptance remain their owners' work. Core source/tests are
-unchanged from the green b852c2c verification; no redundant tests rerun this cycle.
-Latest Rust95/Core Swift68/Clippy/signed-build results remain applicable to that
-checkpoint. diff --check passes. Only this status refresh awaits checkpoint.
+One more explicit Render handoff found in the full request audit: canvas.inset_origin
+is decoded by Render but not persisted/emitted by Core. Implement that metadata
+with centered [0,0] legacy/factory default; preserve total inset and frame geometry.
+Contract documented first in FORMATS.md. Camera matte/lens/color older alias requests
+are already handled by Render's current camera_layout/zoom_lens/camera_style adapter.
+
+Lead already rebased HEAD2372753 onto main eacbd4d. Git metadata remains Lead-owned.
+Checkpoint these verified packages at the green stopping points; source/API review
+and UI/native acceptance remain separate. No other team's source/tests touched.
 
 UI failure evidence on pre-integration Core test baseline for Lead/UI: the broad UI command (direct-binary app test
 excluded per launch rule) aborts with signal6. Diagnostic report
@@ -170,6 +169,26 @@ Verification: Rust76 and Core Swift58 PASS, strict codesign PASS; log
 and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
+
+### READY RND-9 persisted screen quality (2026-10-15 17:27 UTC)
+
+- Optional canvas.screen_quality object/null, finite improve_quality0...1 and
+  upscaling off/fast/quality; selected empty object defaults0.5/quality. Legacy
+  missing/null and factory null retain old samples. Object shape is strict,
+  including rejecting empty arrays; no existing model deserializer changed.
+- Existing render_options/render_options_at/effects_at append screen_quality;
+  Render already consumes it in ProjectRenderOptions -> shared compositor. Swift
+  CoreScreenQuality/setScreenQuality/CoreRenderOptions.screenQuality expose it.
+  No geometry, timing, ABI or default changes. Editor owns the controls.
+- Presets include the portable setting and filter unknown object descendants
+  before merge; batch/history/snapshot/save/reopen preserve it. Two Rust/one Swift
+  new regressions cover validation rollback, defaults, all modes, optional preset
+  merge, frozen-style legacy absence, history/persistence and unchanged frames.
+- Rust97 PASS/1 intentional scale ignore; Core Swift69 PASS; four-seed10000-command
+  FFI fuzz now also mutates quality; Clippy -D warnings/fmt/diff, CLEAN canonical
+  signed app and strict codesign PASS. Log /private/tmp/yapcam-core-screen-quality-ready.log.
+  Native pixel acceptance remains with Render/Lead. Trapped temp root listed/removed.
+
 
 ### READY b852c2c AUD-06 persisted enhanced microphone selection (2026-10-15 16:51 UTC; integrated/pushed 17:12 UTC)
 

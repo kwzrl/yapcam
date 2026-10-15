@@ -482,7 +482,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 7 => json!({"op":"add_zoom","zoom":random}),
                 8 => json!({"op":"update_zoom","id":"unknown","patch":random}),
                 9 => {
-                    json!({"op":"set","path":(["camera.position","cursor.stop_before_end_ns","audio.speech_enhancement_settings","canvas.animation","cursor.spring","audio.music","canvas.captions"][n as usize%7]),"value":random})
+                    json!({"op":"set","path":(["camera.position","cursor.stop_before_end_ns","audio.speech_enhancement_settings","canvas.animation","cursor.spring","audio.music","canvas.captions","canvas.screen_quality","canvas.inset_origin"][n as usize%9]),"value":random})
                 }
                 10 => json!({"op":"add_media","role":"asset","path":"../../escape"}),
                 11 => json!({"op":"add_caption","caption":random}),

@@ -1123,3 +1123,62 @@ metadata (Swift CoreRenderOptions.globalMotionBlur?). Renderer applies actual
 preview/export fps divided by60 to the evaluated blur amounts, because Core's
 recording max_fps is not necessarily the render rate. Preview may disable blur.
 Editor should bind its single blur slider to canvas.global_motion_blur.
+
+### RND-9 project screen-quality preference
+
+Optional schema-1 `canvas.screen_quality` defaults to null for both existing and
+new projects. Null/missing keeps the existing screen samples unchanged. Selecting
+`{}` opts in with `improve_quality:0.5,upscaling:"quality"`. This is Render's
+existing spatial filtering/resampling control, not a learned enhancement model.
+
+| Set path | Value / limits |
+|---|---|
+| `canvas.screen_quality` | null or `{improve_quality:0...1,upscaling:"off"|"fast"|"quality"}`; object fields default as above |
+| `canvas.screen_quality.improve_quality` | finite number 0...1; select an object first |
+| `canvas.screen_quality.upscaling` | off, fast or quality; select an object first |
+
+The existing `render_options`, `render_options_at` and `effects_at.render_options`
+queries append `screen_quality` with the selected object or null. It is a portable
+style setting, preserved by presets, batch edits, undo/redo, snapshots, journals
+and save/reopen. Invalid values fail without changing project/history. Opening
+older projects does not opt in. Frame geometry/timing and the C ABI remain
+unchanged; filtering affects screen pixels only in Render's existing shared
+preview/export compositor. Queries do not process pixels or perform file IO.
+Swift exposes `CoreScreenQuality`, `Project.setScreenQuality(_:)` (nil to clear)
+and `CoreRenderOptions.screenQuality`. Editor wires controls to these paths;
+Render already decodes this query field. Native pixel acceptance remains with
+Render/Lead.
+
+### CAP-3 compatibility with UI marker sidecars
+
+The optional `recording/markers.json` sidecar written by the toolbar contains
+`{"markers_ns":[0,1234567890,...]}` in global source nanoseconds (pauses removed).
+Core reads it once on create/open and merges flags into its immutable in-memory
+capture events. It never rewrites the sidecar, session or event files. The existing
+`markers` query/TimelineMarker API then applies the same split/cut/speed/repeat
+mapping as event-log markers. Sidecar-only IDs are `ui-marker:<array-index>`;
+the array index is retained even if earlier entries are discarded. Existing
+captured markers win at the same exact source time; repeated sidecar times are
+collapsed, retaining the first index. Unsorted sidecars are accepted and sorted
+in memory; markers outside retained recording segments (including the final
+recording end or a truncated recovery tail) are discarded.
+
+Absent sidecars preserve old behavior. Invalid JSON, missing/non-array markers_ns
+or non-integer timestamps return the usual invalid-JSON error; additional
+sidecar metadata keys are ignored. Query/snapshot/frame paths never read the file;
+changes to it are visible on the next create/open. No new set paths, commands,
+queries, project fields or C ABI changes. New recording UI should eventually
+forward flags directly to Capture's durable RecordingSession.addMarker API;
+this reader preserves packages already written with the UI sidecar format.
+
+### RND-7 inset origin
+
+Schema-1 `canvas.inset_origin` is a two-number set path `[x,y]`, each finite and
+in -1...1, default `[0,0]` for existing and new projects. Zero retains the centered
+inner border. Positive values weight the existing inset toward right/bottom;
+negative values toward left/top. Render keeps the total inset constant per axis.
+The existing render_options/render_options_at/effects_at.render_options queries
+append `inset_origin:[x,y]`, which Render already consumes. CoreRenderOptions
+exposes `insetOrigin`. This portable style setting supports normal presets,
+batch validation, undo/redo and persistence. No frame geometry, timing, ABI or
+factory pixel changes; Core only supplies metadata for the existing renderer.

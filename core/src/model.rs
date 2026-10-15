@@ -291,7 +291,49 @@ pub struct Layout {
     #[serde(default)]
     pub camera_shadow_radius: Option<f64>,
 }
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ScreenQuality {
+    pub improve_quality: f64,
+    pub upscaling: String,
+}
+impl Default for ScreenQuality {
+    fn default() -> Self {
+        Self {
+            improve_quality: 0.5,
+            upscaling: "quality".into(),
+        }
+    }
+}
+impl<'de> Deserialize<'de> for ScreenQuality {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let object = raw
+            .as_object()
+            .ok_or_else(|| D::Error::custom("Screen quality must be an object"))?;
+        if object
+            .keys()
+            .any(|key| !matches!(key.as_str(), "improve_quality" | "upscaling"))
+        {
+            return Err(D::Error::custom("Unknown screen quality field"));
+        }
+        let mut result = Self::default();
+        if let Some(value) = object.get("improve_quality") {
+            result.improve_quality = value
+                .as_f64()
+                .ok_or_else(|| D::Error::custom("Screen quality amount must be a number"))?;
+        }
+        if let Some(value) = object.get("upscaling") {
+            result.upscaling = value
+                .as_str()
+                .ok_or_else(|| D::Error::custom("Screen upscaling must be a string"))?
+                .into();
+        }
+        Ok(result)
+    }
+}
 settings!(Canvas {
+    screen_quality: Option<ScreenQuality> = None,
     device_frame: Option<String> = None,
     aspect: String = "16:9".into(),
     output_size: [u32; 2] = [1920, 1080],
@@ -300,6 +342,7 @@ settings!(Canvas {
     radius: f64 = 18.0,
     shadow: Shadow = Shadow::default(),
     inset: f64 = 0.0,
+    inset_origin: [f64; 2] = [0.0, 0.0],
     inset_color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
     motion_blur: f64 = 0.0,
     global_motion_blur: Option<f64> = None,

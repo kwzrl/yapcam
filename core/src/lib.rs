@@ -81,3 +81,6 @@ mod zoom_lens;
 mod source_insert;
 
 mod microphone;
+
+#[cfg(test)]
+mod screen_quality_tests;

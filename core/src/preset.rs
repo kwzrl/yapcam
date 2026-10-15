@@ -8,6 +8,9 @@ fn schema() -> Value {
         "camera": Camera::default(), "audio": Audio::default(),
         "zoom_settings": ZoomSettings::default(), "export": Export::default()
     });
+    // An optional object needs its selected shape even though its default is
+    // null, so preset filtering/recursive merge never accepts unknown keys.
+    schema["canvas"]["screen_quality"] = serde_json::to_value(ScreenQuality::default()).unwrap();
     for (group, fields) in [
         (
             "canvas",
