@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum TimelineLane: CaseIterable { case camera, cursor, highlight, text, caption, music }
+enum TimelineLane: CaseIterable { case typing, camera, cursor, highlight, text, caption, music }
 
 /// Vertical layout of the timeline. Only lanes that have content are present (no empty rows);
 /// the clip and zoom tracks are always there.
@@ -22,6 +22,7 @@ struct TimelineLayout {
         guard let i = lanes.firstIndex(of: lane) else { return nil }
         return lanesTop + CGFloat(i) * (Self.laneHeight + Self.gap)
     }
+    var typingTop: CGFloat { top(of: .typing) ?? lanesTop }
     var cameraTop: CGFloat { top(of: .camera) ?? lanesTop }
     var cursorTop: CGFloat { top(of: .cursor) ?? lanesTop }
     var highlightTop: CGFloat { top(of: .highlight) ?? lanesTop }
@@ -35,6 +36,7 @@ extension EditorModel {
     /// Overlay lanes that currently have content.
     var visibleLanes: [TimelineLane] {
         var out: [TimelineLane] = []
+        if !typingSuggestions.isEmpty { out.append(.typing) }
         if !layouts.isEmpty { out.append(.camera) }
         if !cursorHides.isEmpty { out.append(.cursor) }
         if !highlights.isEmpty { out.append(.highlight) }
@@ -71,6 +73,7 @@ struct TimelineView: View {
                     .frame(width: contentW, height: TimelineLayout.rulerHeight)
                 clipTrack(g)
                 zoomTrack(g)
+                if layout.lanes.contains(.typing) { typingLane(g) }
                 if layout.lanes.contains(.camera) { cameraLane(g) }
                 if layout.lanes.contains(.cursor) { cursorLane(g) }
                 if layout.lanes.contains(.highlight) { highlightLane(g) }
@@ -174,6 +177,27 @@ struct TimelineView: View {
             .accessibilityLabel("\(title), \(formatTimecode(r.0)) to \(formatTimecode(r.1))")
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             .modifier(ItemActions(model: model, selection: sel))
+    }
+
+    /// Keystroke bursts that could be sped up; click one for the suggestion popover.
+    private func typingLane(_ g: TimelineGeometry) -> some View {
+        ZStack(alignment: .topLeading) {
+            laneBackground(g, top: layout.typingTop, label: "")
+            ForEach(model.typingSuggestions, id: \.startNs) { sp in
+                RoundedRectangle(cornerRadius: 5).fill(Color.orange.opacity(0.35))
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.orange.opacity(0.7)))
+                    .overlay(alignment: .leading) { Label("Typing", systemImage: "keyboard").font(.caption2.weight(.medium)).padding(.leading, 6).lineLimit(1) }
+                    .frame(width: max(g.contentWidth(durationNs: sp.durationNs), 6), height: TimelineLayout.laneHeight - 4)
+                    .offset(x: g.x(forNs: sp.startNs), y: layout.typingTop + 2)
+                    .popover(isPresented: Binding(get: { model.typingPopover == sp.startNs }, set: { if !$0 { model.typingPopover = nil } }), arrowEdge: .top) {
+                        TypingPopover(model: model, span: sp)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Typing suggestion, \(formatTimecode(sp.startNs)) to \(formatTimecode(sp.endNs))")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction(named: "Open suggestion") { model.typingPopover = sp.startNs }
+            }
+        }
     }
 
     private func cameraLane(_ g: TimelineGeometry) -> some View {
@@ -309,6 +333,10 @@ struct TimelineView: View {
             model.selection = .none
             return .scrub
         }
+        if layout.lanes.contains(.typing), p.y >= layout.typingTop, p.y < layout.typingTop + TimelineLayout.laneHeight,
+           let sp = model.typingSuggestions.first(where: { p.x >= g.x(forNs: $0.startNs) - 2 && p.x <= g.x(forNs: $0.endNs) + 2 }) {
+            model.typingPopover = sp.startNs; return .inert
+        }
         if p.y >= layout.lanesTop, let kind = hitRange(at: p, g) { return kind }
         if p.y >= layout.zoomTop, p.y < layout.lanesTop, let (z, kind) = hitZoom(at: p.x, g) {
             if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
@@ -423,5 +451,31 @@ struct ItemActions: ViewModifier {
             .accessibilityAction(named: "Delete") { model.selection = selection; model.deleteSelection() }
             .accessibilityAction(named: "Move earlier by 0.1 seconds") { model.selection = selection; model.nudgeSelection(byNs: -100_000_000) }
             .accessibilityAction(named: "Move later by 0.1 seconds") { model.selection = selection; model.nudgeSelection(byNs: 100_000_000) }
+    }
+}
+
+/// Popover on a typing burst: speed 1.5–8x (remembered), apply, apply to all, remove the suggestion.
+struct TypingPopover: View {
+    @ObservedObject var model: EditorModel
+    let span: TimeSpan
+    @State private var speed = 3.0
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Speed up typing", systemImage: "keyboard").font(.headline)
+            Text("\(formatTimecode(span.startNs)) – \(formatTimecode(span.endNs))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            HStack {
+                Slider(value: $speed, in: EditorModel.typingSpeedRange, step: 0.5) { e in if !e { model.typingSpeed = speed } }
+                    .accessibilityLabel("Typing speed").accessibilityValue(String(format: "%.1f times", speed))
+                Text(String(format: "%.1fx", speed)).monospacedDigit().frame(width: 40, alignment: .trailing)
+            }
+            HStack {
+                Button("Apply") { model.typingSpeed = speed; model.applyTypingSuggestion(span) }.keyboardShortcut(.defaultAction)
+                Button("Apply to all (\(model.typingSuggestions.count))") { model.typingSpeed = speed; model.applyAllTypingSuggestions() }
+                    .keyboardShortcut(.return, modifiers: .command)
+            }
+            Button("Remove suggestion", role: .destructive) { model.dismissTypingSuggestion(span) }.buttonStyle(.borderless)
+        }
+        .padding(14).frame(width: 290)
+        .onAppear { speed = model.typingSpeed }
     }
 }

@@ -16,14 +16,18 @@ public final class FakeProject: EditingProject {
     ])
     public private(set) var autoZoomRuns = 0
     public private(set) var typingRuns = 0
+    public private(set) var processSilenceCalls: [(spans: [TimeSpan], speed: Double?)] = []
     public var silences: [TimeSpan] = []
     public var silenceDelay: Duration = .zero
     public var clickTimesNs: [Int64] = []
+    public var keyTimesNs: [Int64] = []
     public var hasCamera = true
     public func frameGeometry(atNs: Int64) -> FrameGeometry? {
         FrameGeometry(canvasWidth: 1920, canvasHeight: 1080, dest: CGRect(x: 96, y: 54, width: 1728, height: 972))
     }
     public var hasMic = true
+    public var hasMouseData = true
+    public var hasKeystrokes = true
     public private(set) var saveCount = 0
     public var failSave = false
     private var nextID = 1
@@ -64,21 +68,23 @@ public final class FakeProject: EditingProject {
             }
             throw NSError(domain: "Fake", code: 1, userInfo: [NSLocalizedDescriptionKey: "split out of range"])
         case .deleteRange(let s, let e):
+            // Like core: clips are trimmed by source time (speed-aware), later content ripples left.
             var t: Int64 = 0
             var out: [TimelineClip] = []
             for clip in clips {
                 let d = clip.timelineDurationNs
                 defer { t += d }
-                if t >= s && t + d <= e { continue }            // fully removed
-                out.append(clip)
+                guard e > t && s < t + d else { out.append(clip); continue }
+                if s > t { var left = clip; left.srcEndNs = clip.srcStartNs + Int64(Double(s - t) * clip.speed); out.append(left) }
+                if e < t + d { var right = clip; right.srcStartNs = clip.srcStartNs + Int64(Double(e - t) * clip.speed); if s > t { right.id = newID("c") }; out.append(right) }
             }
             clips = out
             let removed = e - s
             zooms = zooms.compactMap { z in
                 var z = z
-                if z.startNs >= e { z.startNs -= removed; z.endNs -= removed }
-                else if z.endNs > s { return nil }
-                return z
+                func map(_ x: Int64) -> Int64 { x < s ? x : x >= e ? x - removed : s }
+                z.startNs = map(z.startNs); z.endNs = map(z.endNs)
+                return z.endNs > z.startNs ? z : nil
             }
         case .setSpeed(let id, let speed):
             guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
@@ -95,6 +101,7 @@ public final class FakeProject: EditingProject {
         case .autoZooms: autoZoomRuns += 1
         case .autoSpeedTyping: typingRuns += 1
         case .processSilence(let spans, let speed):
+            processSilenceCalls.append((spans, speed))
             for sp in spans.sorted(by: { $0.startNs > $1.startNs }) {
                 if speed == nil { try run(.deleteRange(startNs: sp.startNs, endNs: sp.endNs)) }
             }

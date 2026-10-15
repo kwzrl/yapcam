@@ -49,10 +49,11 @@ struct BackgroundPanel: View {
                 NumberRow(model: model, title: "Background blur", path: "canvas.background.blur", range: 0...80, format: "%.0f", defaultValue: 24)
             }
             NumberRow(model: model, title: "Padding", path: "canvas.padding", range: 0...200, unit: "pt", format: "%.0f", defaultValue: 48)
-            NumberRow(model: model, title: "Rounded corners", path: "canvas.radius", range: 0...64, unit: "pt", format: "%.0f", defaultValue: 18)
+            NumberRow(model: model, title: "Rounded corners", path: "canvas.radius", range: 0...128, unit: "pt", format: "%.0f", defaultValue: 18)
             InsetRows(model: model)
             NumberRow(model: model, title: "Shadow size", path: "canvas.shadow.radius", range: 0...80, unit: "pt", format: "%.0f", defaultValue: 24)
-            NumberRow(model: model, title: "Shadow opacity", path: "canvas.shadow.opacity", range: 0...1, defaultValue: 0.3)
+            NumberRow(model: model, title: "Shadow intensity", path: "canvas.shadow.opacity", range: 0...0.6, defaultValue: 0.3)
+            NumberRow(model: model, title: "Shadow distance", path: "canvas.shadow.offset_y", range: 0...48, unit: "pt", format: "%.0f", defaultValue: 8)
             NumberRow(model: model, title: "Texture", path: "canvas.background.noise", range: 0...1, defaultValue: 0)
             ToggleRow(model: model, title: "Window frame", path: "canvas.window_chrome")
         }
@@ -82,7 +83,7 @@ struct InsetRows: View {
         Toggle("Inset border", isOn: Binding(get: { model.number("canvas.inset") > 0 }, set: { model.set("canvas.inset", number: $0 ? 4 : 0) }))
         if model.number("canvas.inset") > 0 {
             NumberRow(model: model, title: "Inset width", path: "canvas.inset", range: 1...24, unit: "pt", format: "%.0f", defaultValue: 4)
-            ColorRow(model: model, title: "Inset color", path: "canvas.inset_color")
+            ColorRow(model: model, title: "Inset color", path: "canvas.inset_color", opacity: true)
         }
     }
 }

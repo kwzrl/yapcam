@@ -24,13 +24,13 @@ public struct HighlightRegion: Equatable, Identifiable, Sendable {
     }
     public static func preset(_ kind: Kind, id: String, start: Int64, end: Int64) -> HighlightRegion {
         var h = HighlightRegion(id: id, startNs: start, endNs: end, rect: [0.25, 0.25, 0.5, 0.5], space: "source", radius: 12,
-                                opacity: 1, dimOpacity: 0.4, fill: [1, 0.85, 0.2, 0], stroke: [1, 0.85, 0.2, 1], strokeWidth: 3)
+                                opacity: 1, dimOpacity: 0.5, fill: [1, 0.85, 0.2, 0], stroke: [1, 0.85, 0.2, 1], strokeWidth: 3)
         h.apply(kind)
         return h
     }
     public mutating func apply(_ kind: Kind) {
         switch kind {
-        case .highlight: fill = [fill[0], fill[1], fill[2], 0]; dimOpacity = 0.4; strokeWidth = max(strokeWidth, 3); stroke = [stroke[0], stroke[1], stroke[2], 1]
+        case .highlight: fill = [fill[0], fill[1], fill[2], 0]; dimOpacity = 0.5; strokeWidth = max(strokeWidth, 3); stroke = [stroke[0], stroke[1], stroke[2], 1]
         case .mask: fill = [0.1, 0.1, 0.1, 1]; dimOpacity = 0; strokeWidth = 0; stroke = [0, 0, 0, 0]
         case .spotlight: fill = [fill[0], fill[1], fill[2], 0]; dimOpacity = 0.65; strokeWidth = 0; stroke = [stroke[0], stroke[1], stroke[2], 0]
         }
@@ -66,17 +66,27 @@ extension EditorModel {
                         "dim_opacity": .number(h.dimOpacity), "fill": arr(h.fill), "stroke": arr(h.stroke), "stroke_width": .number(h.strokeWidth)])
     }
     private func writeHighlights(_ hs: [HighlightRegion]) { set("canvas.highlights", .array(hs.map(json))) }
+    func writeHighlightList(_ hs: [HighlightRegion]) { writeHighlights(hs) }
 
     public func addHighlightAtPlayhead(kind: HighlightRegion.Kind = .highlight) {
         let start = playheadNs, end = min(start + 3_000_000_000, durationNs)
         guard end - start >= minItemNs else { lastError = "Not enough room for a region here."; return }
-        let h = HighlightRegion.preset(kind, id: "region-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end)
+        var h = HighlightRegion.preset(kind, id: "region-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end)
+        // New regions inherit the style of the last edited one (when it is of the same kind).
+        if let last = lastRegionStyle, last.kind == kind { h.fill = last.fill; h.stroke = last.stroke; h.strokeWidth = last.strokeWidth; h.radius = last.radius; h.dimOpacity = last.dimOpacity; h.opacity = last.opacity }
         writeHighlights(highlights + [h])
         if lastError == nil { selection = .highlight(h.id) }
     }
 
     public func updateHighlight(id: String, _ change: (inout HighlightRegion) -> Void) {
-        writeHighlights(highlights.map { var h = $0; if h.id == id { change(&h) }; return h })
+        writeHighlights(highlights.map { var h = $0; if h.id == id { change(&h); lastRegionStyle = h }; return h })
+    }
+    /// "Apply to all": copies the style (not the time or box) of one region to every other region of the same kind.
+    public func applyHighlightStyleToAll(from id: String) {
+        guard let src = highlights.first(where: { $0.id == id }) else { return }
+        writeHighlights(highlights.map { var h = $0
+            if h.id != id, h.kind == src.kind { h.fill = src.fill; h.stroke = src.stroke; h.strokeWidth = src.strokeWidth; h.radius = src.radius; h.dimOpacity = src.dimOpacity; h.opacity = src.opacity }
+            return h })
     }
     public func setHighlightKind(id: String, _ kind: HighlightRegion.Kind) { updateHighlight(id: id) { $0.apply(kind) } }
     public func removeHighlight(id: String) { writeHighlights(highlights.filter { $0.id != id }) }

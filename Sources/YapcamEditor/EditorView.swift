@@ -99,9 +99,15 @@ public struct EditorContent<Preview: View>: View {
     }
 
     private func handleKey(_ p: KeyPress) -> KeyPress.Result {
+        var mods = ShortcutModifiers()
+        if p.modifiers.contains(.command) { mods.insert(.command) }
+        if p.modifiers.contains(.shift) { mods.insert(.shift) }
+        if p.modifiers.contains(.option) { mods.insert(.option) }
+        if p.modifiers.contains(.control) { mods.insert(.control) }
         if p.modifiers.contains(.command) {
-            if p.characters.lowercased() == "k" { model.paletteVisible = true; return .handled }
-            if p.characters.lowercased() == "c", p.modifiers.contains(.shift) { model.copyFrameHandler?(); return .handled }
+            if p.key == .leftArrow { model.seek(toNs: 0); return .handled }
+            if p.key == .rightArrow { model.seek(toNs: model.durationNs); return .handled }
+            if let c = p.characters.first, model.handleShortcut(c, mods) { return .handled }
             return .ignored
         }
         switch p.key {
@@ -118,18 +124,8 @@ public struct EditorContent<Preview: View>: View {
         case .return: if let i = model.selectableItems.first(where: { $0.selection == model.selection }) { model.seek(toNs: i.startNs); return .handled }; return .ignored
         default: break
         }
-        switch p.characters.lowercased() {
-        case "j", "k", "l": model.shuttle(Character(p.characters.lowercased())); return .handled
-        case "s": model.splitAtPlayhead(); return .handled
-        case "z":
-            if p.modifiers.contains(.shift) { model.fitTimeline(width: 900) } else { model.addZoomAtPlayhead() }
-            return .handled
-        case "[": model.trim(keepAfter: true); return .handled
-        case "]": model.trim(keepAfter: false); return .handled
-        case "=", "+": model.zoomTimeline(by: 1.25, anchorX: model.geometry.x(forNs: model.playheadNs)); return .handled
-        case "-": model.zoomTimeline(by: 0.8, anchorX: model.geometry.x(forNs: model.playheadNs)); return .handled
-        default: return .ignored
-        }
+        if let c = p.characters.first, !p.modifiers.contains(.option), model.handleShortcut(c, mods) { return .handled }
+        return .ignored
     }
 }
 

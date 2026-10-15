@@ -119,8 +119,13 @@ public protocol EditingProject: AnyObject {
     var settings: JSONValue { get }
     /// Source-time positions of mouse clicks mapped to timeline time (snap targets).
     var clickTimesNs: [Int64] { get }
+    /// Timeline times of recorded key presses (edited timeline; empty when no keystrokes were recorded).
+    var keyTimesNs: [Int64] { get }
     func frameGeometry(atNs: Int64) -> FrameGeometry?
     var hasCamera: Bool { get }
+    /// The recording has cursor movement data (not an external device) / typed keys were recorded.
+    var hasMouseData: Bool { get }
+    var hasKeystrokes: Bool { get }
     var hasMic: Bool { get }
     func apply(_ command: EditorCommand) throws
     func undo() throws
