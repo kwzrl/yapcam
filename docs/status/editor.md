@@ -1,6 +1,6 @@
 # editor status
 
-READY d56c9b4 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 7dd0abc editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Export sheet on render's RND-1/3/4: option table now matches render (MP4/MOV fps 60/50/30/25/24/20/10, GIF fps 50…10 default 15 fps/480p, heights per format), requests carry the compression preset (render maps to quantiser 14/24/30/42) instead of the assumed quality number, GIF "High quality" and "Play once" toggles, and an estimate line (size, dimensions, time) from `ExportSettings.estimate`. Full suite (UISmokeTests skipped) 490 green. Not done: "Both" codec (two files), clipboard target, queue status UI, remembered per-context settings.
