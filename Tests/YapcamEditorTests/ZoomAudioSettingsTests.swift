@@ -162,3 +162,18 @@ import YapcamCore
         #expect(m.jumpToEditPoint(forward: true) && m.playheadNs == 9_000_000_000)
     }
 }
+
+@MainActor @Suite struct VisualRefreshTests {
+    @Test func appearanceEditsKeepAudioOthersRebuildFully() async {
+        let p = FakeProject(), pl = FakePlayer()
+        let m = EditorModel(project: p, player: pl); m.invalidateInterval = .milliseconds(1)
+        m.set("canvas.padding", number: 20)
+        #expect(pl.visualInvalidations == 1)
+        try? await Task.sleep(for: .milliseconds(20))
+        m.set("audio.mic_muted", bool: true); await m.waitForPlayerRefresh()
+        #expect(pl.visualInvalidations == 1 && pl.invalidations == 2)                 // audio edit: full rebuild
+        #expect(EditorCommand.set(path: "camera.style.warmth", value: .number(1)).isVisualOnly)
+        #expect(!EditorCommand.split(atNs: 5).isVisualOnly && !EditorCommand.set(path: "canvas.captions", value: .null).isVisualOnly)
+        #expect(EditorCommand.set(path: "cursor.size_points", value: .number(2)).isVisualOnly)
+    }
+}

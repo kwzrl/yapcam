@@ -281,6 +281,7 @@ final class PreviewPlayerAdapter: PlaybackEngine {
     func pause() { player.pause() }
     func seek(toNs: Int64, precise: Bool) { player.seek(toNs: toNs, precise: precise) }
     func invalidate() { player.invalidate() }
+    func invalidateVisuals() { do { try player.invalidateVisuals() } catch { player.invalidate() } }
     func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws { try player.setSpeechEnhancement(settings.map(\.render)) }
     func setPreviewOptions(_ o: PreviewOptions) throws {
         var s = player.previewSettings

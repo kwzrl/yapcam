@@ -192,6 +192,8 @@ public protocol PlaybackEngine: AnyObject {
     func pause()
     func seek(toNs: Int64, precise: Bool)
     func invalidate()
+    /// Refresh after an appearance-only edit (keeps audio and decoder caches). Engines without it rebuild fully.
+    func invalidateVisuals()
     /// nil = off. Preview re-prepares its audio when the settings change.
     func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws
     /// Local preview controls (size cap, resolution, speed, motion blur); engines without them ignore the call.
@@ -260,3 +262,13 @@ public extension EditingProject { var markerTimesNs: [Int64] { [] } }
 
 /// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.
 public struct TypingRecord: Equatable, Sendable { public var id: String; public var span: TimeSpan }
+
+extension EditorCommand {
+    /// Settings paths whose edits only change how frames look (never clip mapping, audio or timing).
+    static let visualPrefixes = ["canvas.background", "canvas.padding", "canvas.radius", "canvas.shadow", "canvas.inset",
+                                 "canvas.window_chrome", "canvas.screen_quality", "cursor.size", "cursor.set", "camera.style"]
+    var isVisualOnly: Bool {
+        guard case .set(let path, _) = self else { return false }
+        return Self.visualPrefixes.contains { path == $0 || path.hasPrefix($0 + ".") || path.hasPrefix($0 + "_") }
+    }
+}

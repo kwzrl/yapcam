@@ -1,8 +1,9 @@
 # editor status
 
-READY c143346 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 46e9f8a editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Rebased on main c565a93. Visual-only preview refresh: known appearance edits (canvas background/padding/radius/shadow/inset/window frame/screen quality, cursor size/set, camera style) call `PreviewPlayer.invalidateVisuals()` (audio and decoders kept); everything else, undo/redo and mixed bursts rebuild fully. Full suite (UISmokeTests skipped) 494 green. Playback smoothness while dragging these sliders not measured on hardware.
 - Backlog check: every row Lead listed for editor is now implemented except ED-10 caption font/reveal/growth/entrance/language (core has no such fields yet → Request to core below) and manual checks. F4 privacy: no absolute home path in this file (verified by grep).
 - CAP-3 markers: recording markers (core `markers` query, mapped through cuts/speed) show as orange flags on the ruler, act as snap targets and Option+Arrow edit points. Not seen against a real recording with markers. 213 editor tests green.
 - ED-5 glass loupe: zoom inspector Style Classic / Glass loupe with lens size (0.25–0.75), bevel, colour fringing; zoom rows read `style`/`lens` from core; real-core round-trip (clamping, undo). 212 editor tests green. Lens pixels in preview/export not looked at (render owns sampling). FEATURES.md GAP-ED-5/RND-5 rows can drop the "editor lens control pending" note.

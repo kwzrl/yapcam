@@ -237,6 +237,8 @@ public final class FakePlayer: PlaybackEngine {
     public func pause() { isPlaying = false; onChange?() }
     public func seek(toNs ns: Int64, precise: Bool) { currentNs = ns; seeks.append((ns, precise)); onChange?() }
     public func invalidate() { invalidations += 1 }
+    public private(set) var visualInvalidations = 0
+    public func invalidateVisuals() { visualInvalidations += 1; invalidations += 1 }
     public private(set) var speechCalls: [SpeechEnhancement?] = []
     public var speechFailure: Error?
     public func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws {
