@@ -30,6 +30,8 @@ final class FrameSource {
     private var frames: [TextureFrame] = []
     private var exhausted = false
     private let capacity = 4
+    // Internal diagnostic for sparse-tail/scrubbing regression tests.
+    private(set) var readerStartCount = 0
     init(url: URL, cache: CVMetalTextureCache) throws {
         asset = AVURLAsset(url: url)
         guard let track = asset.tracks(withMediaType: .video).first else { throw RenderError.decode("No video track in \(url.lastPathComponent)") }
@@ -52,11 +54,16 @@ final class FrameSource {
         r.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 1_000_000_000), duration: .positiveInfinity)
         guard r.startReading() else { throw RenderError.decode(r.error?.localizedDescription ?? "Video reader failed") }
         reader = r; output = o; frames.removeAll(); exhausted = false
+        readerStartCount += 1
     }
     func frame(atNs ns: Int64) throws -> TextureFrame {
         guard ns >= 0 else { throw RenderError.decode("Negative source frame timestamp") }
         let time = CMTime(value: ns, timescale: 1_000_000_000)
-        if reader == nil || (frames.first.map { time < $0.time } ?? false) || (frames.last.map { time.seconds - $0.time.seconds > 1 } ?? false) {
+        // Once EOF is known, the final decoded frame is valid throughout a static
+        // tail. Its PTS can be seconds behind the request; reopening the same
+        // reader on each preview/export frame only decodes that same tail again.
+        // Backward seeks before the retained window still need a fresh reader.
+        if reader == nil || (frames.first.map { time < $0.time } ?? false) || (!exhausted && (frames.last.map { time.seconds - $0.time.seconds > 1 } ?? false)) {
             try restart(at: time)
         }
         while !exhausted && (frames.last.map { $0.time < time } ?? true) {

@@ -22,6 +22,8 @@ public struct RenderLayer: Sendable, Equatable {
 public struct RenderConfiguration: Sendable, Equatable {
     public enum CursorStyle: Sendable { case recorded, arrow, pointer, touch }
     public var cursorStyle: CursorStyle = .recorded
+    /// Selecting an original set replaces recorded PNG artwork; nil keeps recorded/default behavior.
+    public var cursorSetID: String? = nil
     public var cursorRotationRadians: Float = 0
     /// nil preserves custom-source legacy frame.motion_blur; Core supplies evaluated values.
     public var zoomMotionBlur: Float? = nil

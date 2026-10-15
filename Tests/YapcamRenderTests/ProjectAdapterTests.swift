@@ -36,6 +36,46 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertEqual(frame.screen.segment,0)
         XCTAssertThrowsError(try source.renderBackgroundAsset(index: .max))
     }
+    func testEveryDocumentedCoreCursorStyleRendersAndSurvivesSnapshot() throws {
+        let project=try Project.create(package: package)
+        // ABI values from yapcam_core.h / SWIFT_API.md. Core's pointer and
+        // always_default retain their historical system-arrow meaning.
+        let styles: [(String, UInt32, RenderConfiguration.CursorStyle)] = [
+            ("recorded",0,.recorded), ("pointer",1,.arrow),
+            ("touch",2,.touch), ("arrow",3,.arrow)
+        ]
+        let size=CGSize(width: 1920,height: 1080)
+        for (style,code,expected) in styles {
+            try project.apply(.set(path: "cursor.style",value: .string(style)))
+            XCTAssertEqual(try project.frameExtras(atNs: 0).cursor_style,code,style)
+            let snapshot=try project.renderSnapshot()
+            for ns: Int64 in [0,500_000_000,4_999_999_999] {
+                XCTAssertEqual(try project.renderEffects(atNs: ns,canvasSize: size).configuration.cursorStyle,expected,style)
+                XCTAssertEqual(try snapshot.renderEffects(atNs: ns,canvasSize: size).configuration.cursorStyle,expected,style)
+            }
+            try project.apply(.set(path: "cursor.always_default",value: .bool(true)))
+            XCTAssertEqual(try project.frameExtras(atNs: 0).cursor_style,1,style)
+            XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: size).configuration.cursorStyle,.arrow,style)
+            XCTAssertEqual(try snapshot.renderEffects(atNs: 0,canvasSize: size).configuration.cursorStyle,expected,style)
+            try project.apply(.set(path: "cursor.always_default",value: .bool(false)))
+        }
+    }
+    func testDocumentedArrowAndPointerUseTheSameOriginalArtworkInRealProjectFrames() throws {
+        _ = try requireRenderDevice()
+        let project=try Project.create(package: package)
+        try project.apply(.set(path: "cursor.size",value: .number(4)))
+        let renderer=RenderTests()
+        var images: [String: Data]=[:]
+        for style in ["recorded","pointer","touch","arrow"] {
+            try project.apply(.set(path: "cursor.style",value: .string(style)))
+            let snapshot=try project.snapshot()
+            let frame=try snapshot.frame(atNs: 500_000_000)
+            XCTAssertNotEqual(frame.cursor_visible,0)
+            images[style]=Data(try renderer.pixels(frame,source: snapshot,width: 320,height: 180))
+        }
+        XCTAssertEqual(images["arrow"],images["pointer"])
+        XCTAssertNotEqual(images["arrow"],images["touch"])
+    }
     func testCoreFrameExtrasMapConfigurationHighlightsAndFinalFadeOnce() throws {
         let project=try Project.create(package: package)
         try project.apply(.batch([

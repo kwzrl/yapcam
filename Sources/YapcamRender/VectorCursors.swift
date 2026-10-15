@@ -11,6 +11,9 @@ public struct VectorCursorArtwork: @unchecked Sendable {
 /// Original geometric artwork; no system/reference cursor image is copied into this library.
 public enum VectorCursorLibrary {
     public static func artwork(_ style: VectorCursorStyle,scale: CGFloat = 2) throws -> VectorCursorArtwork {
+        try artwork(style,preset: presets[0],scale: scale)
+    }
+    static func artwork(_ style: VectorCursorStyle,preset: VectorCursorSet,scale: CGFloat) throws -> VectorCursorArtwork {
         guard scale.isFinite, (1...8).contains(scale) else { throw RenderError.invalidSettings("Cursor raster scale must be 1…8") }
         let size: CGSize, hotspot: CGPoint
         switch style {
@@ -22,11 +25,34 @@ public enum VectorCursorLibrary {
         guard let space=CGColorSpace(name: CGColorSpace.sRGB),let context=CGContext(data: nil,width: width,height: height,bitsPerComponent: 8,bytesPerRow: width*4,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue|CGBitmapInfo.byteOrder32Big.rawValue) else { throw RenderError.write("Cannot rasterize cursor artwork") }
         context.translateBy(x: 0,y: CGFloat(height)); context.scaleBy(x: scale,y: -scale)
         context.setShouldAntialias(true); context.setLineJoin(.round); context.setLineCap(.round)
+        func color(_ value: SIMD4<Float>) -> CGColor {
+            CGColor(colorSpace: space,components: [CGFloat(value.x),CGFloat(value.y),CGFloat(value.z),CGFloat(value.w)])!
+        }
+        let classic=preset.id=="classic", weight=CGFloat(preset.weight)
         let path=CGMutablePath()
         switch style {
         case .arrow:
-            path.move(to: CGPoint(x: 3,y: 3)); for point in [CGPoint(x: 3,y: 24),CGPoint(x: 8,y: 19),CGPoint(x: 12,y: 29),CGPoint(x: 16,y: 27),CGPoint(x: 12,y: 17),CGPoint(x: 21,y: 17)] { path.addLine(to: point) }; path.closeSubpath()
-            context.addPath(path); context.setFillColor(CGColor(gray: 0.08,alpha: 1)); context.setStrokeColor(CGColor(gray: 1,alpha: 1)); context.setLineWidth(2); context.drawPath(using: .fillStroke)
+            path.move(to: CGPoint(x: 3,y: 3))
+            switch preset.arrow {
+            case .standard:
+                for point in [CGPoint(x: 3,y: 24),CGPoint(x: 8,y: 19),CGPoint(x: 12,y: 29),CGPoint(x: 16,y: 27),CGPoint(x: 12,y: 17),CGPoint(x: 21,y: 17)] { path.addLine(to: point) }
+            case .rounded:
+                path.addLine(to: CGPoint(x: 3,y: 22.5))
+                path.addQuadCurve(to: CGPoint(x: 4.7,y: 23.2),control: CGPoint(x: 3,y: 25))
+                path.addLine(to: CGPoint(x: 8.3,y: 19.8)); path.addLine(to: CGPoint(x: 12.4,y: 28.5))
+                path.addQuadCurve(to: CGPoint(x: 14,y: 29.1),control: CGPoint(x: 13,y: 30))
+                path.addLine(to: CGPoint(x: 16,y: 28.1))
+                path.addQuadCurve(to: CGPoint(x: 16.5,y: 26.5),control: CGPoint(x: 17,y: 28))
+                path.addLine(to: CGPoint(x: 12.4,y: 17.6)); path.addLine(to: CGPoint(x: 20.2,y: 17.6))
+                path.addQuadCurve(to: CGPoint(x: 20.5,y: 16),control: CGPoint(x: 22,y: 17))
+            case .narrow:
+                for point in [CGPoint(x: 3,y: 25),CGPoint(x: 7.5,y: 18.5),CGPoint(x: 11,y: 26),CGPoint(x: 14,y: 24.5),CGPoint(x: 10.7,y: 16),CGPoint(x: 20,y: 16)] { path.addLine(to: point) }
+            }
+            path.closeSubpath()
+            context.addPath(path)
+            context.setFillColor(classic ? CGColor(gray: 0.08,alpha: 1) : color(preset.arrowFill))
+            context.setStrokeColor(classic ? CGColor(gray: 1,alpha: 1) : color(preset.outline))
+            context.setLineWidth(weight); context.drawPath(using: .fillStroke)
         case .pointer:
             path.move(to: CGPoint(x: 12,y: 2))
             path.addCurve(to: CGPoint(x: 10,y: 6),control1: CGPoint(x: 10,y: 2),control2: CGPoint(x: 10,y: 4))
@@ -41,11 +67,34 @@ public enum VectorCursorLibrary {
             path.addCurve(to: CGPoint(x: 14,y: 10),control1: CGPoint(x: 17,y: 8),control2: CGPoint(x: 14,y: 8))
             path.addLine(to: CGPoint(x: 14,y: 5))
             path.addCurve(to: CGPoint(x: 12,y: 2),control1: CGPoint(x: 14,y: 3),control2: CGPoint(x: 14,y: 2)); path.closeSubpath()
-            context.addPath(path); context.setFillColor(CGColor(gray: 1,alpha: 1)); context.setStrokeColor(CGColor(gray: 0.08,alpha: 1)); context.setLineWidth(1.4); context.drawPath(using: .fillStroke)
-            context.move(to: CGPoint(x: 17,y: 13)); context.addLine(to: CGPoint(x: 17,y: 18)); context.move(to: CGPoint(x: 21,y: 16)); context.addLine(to: CGPoint(x: 21,y: 20)); context.setLineWidth(0.8); context.strokePath()
+            context.addPath(path)
+            context.setFillColor(classic ? CGColor(gray: 1,alpha: 1) : color(preset.handFill))
+            context.setStrokeColor(classic ? CGColor(gray: 0.08,alpha: 1) : color(preset.handOutline))
+            context.setLineWidth(weight*0.7); context.drawPath(using: .fillStroke)
+            context.move(to: CGPoint(x: 17,y: 13)); context.addLine(to: CGPoint(x: 17,y: 18)); context.move(to: CGPoint(x: 21,y: 16)); context.addLine(to: CGPoint(x: 21,y: 20)); context.setLineWidth(weight*0.4); context.strokePath()
         case .touch:
-            context.setFillColor(CGColor(gray: 1,alpha: 0.55)); context.fillEllipse(in: CGRect(x: 5,y: 5,width: 22,height: 22))
-            context.setStrokeColor(CGColor(gray: 0.15,alpha: 0.7)); context.setLineWidth(1.5); context.strokeEllipse(in: CGRect(x: 4,y: 4,width: 24,height: 24))
+            context.setFillColor(classic ? CGColor(gray: 1,alpha: 0.55) : color(preset.touchFill))
+            context.setStrokeColor(classic ? CGColor(gray: 0.15,alpha: 0.7) : color(preset.touchOutline))
+            context.setLineWidth(weight*0.75)
+            if preset.touch == .disc { context.fillEllipse(in: CGRect(x: 5,y: 5,width: 22,height: 22)) }
+            let ring=CGRect(x: 4,y: 4,width: 24,height: 24)
+            if !classic {
+                // An opposite-luminance halo keeps original touch marks legible on both canvases.
+                let lightOutline=preset.touchOutline.x+preset.touchOutline.y+preset.touchOutline.z>1.5
+                context.setStrokeColor(CGColor(gray: lightOutline ? 0.05 : 0.95,alpha: 0.65))
+                context.setLineWidth(weight*0.75+1.5); context.strokeEllipse(in: ring)
+                context.setStrokeColor(color(preset.touchOutline)); context.setLineWidth(weight*0.75)
+            }
+            context.strokeEllipse(in: ring)
+            if preset.touch == .ring {
+                context.setFillColor(color(preset.arrowFill)); context.fillEllipse(in: CGRect(x: 14,y: 14,width: 4,height: 4))
+            } else if preset.touch == .target {
+                let target=CGMutablePath()
+                target.move(to: CGPoint(x: 8,y: 16)); target.addLine(to: CGPoint(x: 24,y: 16))
+                target.move(to: CGPoint(x: 16,y: 8)); target.addLine(to: CGPoint(x: 16,y: 24))
+                context.addPath(target); context.setStrokeColor(color(preset.outline)); context.setLineWidth(max(1,weight*0.6)+1.5); context.strokePath()
+                context.addPath(target); context.setStrokeColor(color(preset.arrowFill)); context.setLineWidth(max(1,weight*0.6)); context.strokePath()
+            }
         }
         guard let image=context.makeImage() else { throw RenderError.write("Cannot create vector cursor image") }
         return VectorCursorArtwork(image: image,sizePoints: size,hotspot: hotspot)
@@ -56,8 +105,8 @@ struct VectorCursorTexture {
     let texture: MTLTexture
     let size: CGSize
     let hotspot: CGPoint
-    init(style: VectorCursorStyle,device: MTLDevice) throws {
-        let artwork=try VectorCursorLibrary.artwork(style)
+    init(style: VectorCursorStyle,preset: VectorCursorSet,scale: CGFloat,device: MTLDevice) throws {
+        let artwork=try VectorCursorLibrary.artwork(style,preset: preset,scale: scale)
         texture=try generatedSRGBTexture(artwork.image,device: device)
         size=artwork.sizePoints; hotspot=artwork.hotspot
     }
