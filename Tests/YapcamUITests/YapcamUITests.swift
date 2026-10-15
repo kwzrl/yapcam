@@ -957,3 +957,29 @@ import YapcamEditor
         #expect(SelfTestOptions() == SelfTestOptions(hotkeyScript: nil, afterRecording: nil, saveTo: nil))
     }
 }
+
+@MainActor @Suite struct ExportGuardTests {
+    @Test func timeoutMessagesAreActionableAndMentionTheRecordingIsSafe() {
+        for e in [QuickExport.QuickExportError.stalled(60), .tooLong(300)] {
+            #expect(e.message.contains("recording is safe") && e.message.contains("editor"))
+            #expect(!e.message.contains("Error Domain"))
+        }
+        #expect(QuickExport.QuickExportError.tooLong(300).message.contains("5 minutes"))
+        #expect(QuickExport.stallLimit == 60 && QuickExport.hardLimit == 300)
+    }
+
+    @Test func autoConfirmAnswersConfirmationsWithoutABlockingDialog() {
+        let rec = RecordingController.shared
+        RecordingController.autoConfirm = true; defer { RecordingController.autoConfirm = false }
+        // Not recording: nothing to confirm, nothing blocks.
+        rec.confirmRestart(); rec.confirmFinish()
+        #expect(rec.phase == .idle)
+    }
+
+    @Test func selfTestOptionsKnowAutoConfirmAndWatchdog() {
+        var o = SelfTestOptions()
+        #expect(!o.autoConfirm && o.watchdog == nil)
+        o.autoConfirm = true; o.watchdog = 90
+        #expect(o.autoConfirm && o.watchdog == 90)
+    }
+}

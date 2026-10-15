@@ -13,6 +13,10 @@ struct SelfTestOptions: Equatable {
     var hotkeyScript: [HotkeyStep]?
     var afterRecording: String?
     var saveTo: String?
+    /// Answer "Restart recording?" / "Cancel recording?" / "Finish recording?" with yes (the dialogs would block a headless run).
+    var autoConfirm = false
+    /// Seconds before the watchdog samples and kills a stuck run (default: recording length + 300).
+    var watchdog: Double?
 
     static let afterRecordingChoices = ["create", "widget", "copy", "save"]
 }
@@ -85,7 +89,7 @@ enum HotkeyStep: Equatable {
                 let before = rec.phase
                 press(combo)
                 try? await Task.sleep(for: .milliseconds(900))
-                Probe.log("\(tag) hotkey \(a.rawValue) \(combo.display) (global=\(a.isGlobal)): phase \(before) → \(rec.phase) markers=\(rec.markers.count)")
+                Probe.log("\(tag) hotkey \(a.rawValue) \(combo.display) (global=\(a.isGlobal)): phase \(before) → \(rec.phase) markers=\(rec.markers.count) sourceOverlayWindows=\(SourceOverlay.shared.windowCountForTesting) areaOverlayActive=\(AreaSelector.shared.isActive)")
             }
         }
     }

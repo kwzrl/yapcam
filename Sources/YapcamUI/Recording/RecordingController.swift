@@ -46,6 +46,9 @@ enum RecordingPhase: Equatable {
     @Published var notes = ""
     @Published var alert: AppAlert?
 
+    /// Self-tests only (`--auto-confirm`): answer confirmation dialogs with the destructive choice instead of blocking.
+    nonisolated(unsafe) static var autoConfirm = false
+
     var engine: RecordingEngine = LiveEngine()
     private let settings = AppSettings.shared
     private var session: EngineSession?
@@ -297,6 +300,7 @@ enum RecordingPhase: Equatable {
 
     /// Confirmation dialogs are Yapcam windows: keep them out of the recording.
     private func confirm(_ title: String, _ message: String, ok: String) -> Bool {
+        if Self.autoConfirm { Probe.log("auto-confirmed: \(title)"); return true }
         let a = NSAlert()
         a.messageText = title; a.informativeText = message
         a.addButton(withTitle: ok); a.addButton(withTitle: "Keep Recording")
@@ -319,6 +323,7 @@ enum RecordingPhase: Equatable {
     /// Dock click or Finish from the menu while recording.
     func confirmFinish() {
         guard isRecording else { return }
+        if Self.autoConfirm { Probe.log("auto-confirmed: Finish recording?"); stop(); return }
         let a = NSAlert()
         a.messageText = "Finish recording?"; a.informativeText = "The recording is saved and opens in the editor."
         a.addButton(withTitle: "Finish"); a.addButton(withTitle: "Keep Recording")

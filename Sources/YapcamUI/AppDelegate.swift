@@ -46,6 +46,8 @@ import YapcamEditor
                 var options = SelfTestOptions()
                 options.afterRecording = EditorSelfTests.argument(after: "--after-recording", in: args)
                 options.saveTo = EditorSelfTests.argument(after: "--save-to", in: args)
+                options.autoConfirm = args.contains("--auto-confirm")
+                options.watchdog = EditorSelfTests.argument(after: "--watchdog", in: args).flatMap(Double.init)
                 if let text = EditorSelfTests.argument(after: "--hotkey-script", in: args) {
                     var error: String?
                     guard let steps = HotkeyStep.parse(text, error: &error) else {
