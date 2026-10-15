@@ -162,14 +162,27 @@ public struct SpeechEnhancement: Equatable, Sendable {
     public init() {}
 }
 
+/// Output container/codec choices the export sheet offers (all supported by render's exporter).
+public enum ExportFormat: String, CaseIterable, Sendable, Identifiable {
+    case mp4h264, mp4hevc, movh264, gif
+    public var id: String { rawValue }
+    public var label: String { switch self { case .mp4h264: "MP4 (H.264)"; case .mp4hevc: "MP4 (HEVC, smaller)"; case .movh264: "MOV (H.264)"; case .gif: "GIF (no audio)" } }
+    public var fileExtension: String { switch self { case .mp4h264, .mp4hevc: "mp4"; case .movh264: "mov"; case .gif: "gif" } }
+    public var supportsAudio: Bool { self != .gif }
+}
+
 public struct ExportRequest: Equatable, Sendable {
     public var height: Int
     public var fps: Int
     public var destination: URL
     public var includeAudio: Bool
     public var speech: SpeechEnhancement?
-    public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true, speech: SpeechEnhancement? = nil) {
+    public var format: ExportFormat
+    public var quality: Double
+    public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true, speech: SpeechEnhancement? = nil,
+                format: ExportFormat = .mp4h264, quality: Double = 0.8) {
         self.height = height; self.fps = fps; self.destination = destination; self.includeAudio = includeAudio; self.speech = speech
+        self.format = format; self.quality = quality
     }
 }
 

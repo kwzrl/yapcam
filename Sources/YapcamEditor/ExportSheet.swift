@@ -35,10 +35,18 @@ struct ExportSheet: View {
     private var settings: some View {
         VStack(alignment: .leading, spacing: 14) {
             if case .cancelled = export.state { Text("Export cancelled.").foregroundStyle(.secondary) }
-            Picker("Resolution", selection: $export.height) { ForEach(ExportModel.heights, id: \.self) { Text("\($0)p").tag($0) } }
+            Picker("Format", selection: $export.format) { ForEach(ExportFormat.allCases) { Text($0.label).tag($0) } }.pickerStyle(.menu)
+            Picker("Resolution", selection: $export.height) { ForEach(ExportModel.heights, id: \.self) { Text($0 == 2160 ? "4K" : "\($0)p").tag($0) } }
             Picker("Frame rate", selection: $export.fps) { ForEach(ExportModel.fpsOptions, id: \.self) { Text("\($0) fps").tag($0) } }
-            Toggle("Include audio", isOn: $export.includeAudio)
-            LabeledContent("Format") { Text("MP4 (H.264)") }
+            if export.format.supportsAudio { Toggle("Include audio", isOn: $export.includeAudio) }
+            if export.format != .gif {
+                LabeledContent("Quality") {
+                    HStack {
+                        Slider(value: $export.quality, in: 0.3...1).accessibilityLabel("Quality").accessibilityValue("\(Int(export.quality * 100)) percent")
+                        Text("\(Int(export.quality * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
+                    }
+                }
+            }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -49,8 +57,8 @@ struct ExportSheet: View {
 
     private func choose() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.mpeg4Movie]
-        panel.nameFieldStringValue = suggestedName + ".mp4"
+        panel.allowedContentTypes = [export.format == .gif ? .gif : export.format == .movh264 ? .quickTimeMovie : .mpeg4Movie]
+        panel.nameFieldStringValue = suggestedName + "." + export.format.fileExtension
         panel.canCreateDirectories = true
         if panel.runModal() == .OK, let url = panel.url { export.start(to: url) }
     }
