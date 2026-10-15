@@ -66,6 +66,16 @@ and ABI-v2 contract are now documented in `docs/FORMATS.md`.
 latest autosave edit state, and rolls back files/metadata if reconstruction fails.
 Files must be compatible with the recorded dimensions and segment timing.
 
+`audio_ranges` describes logical recording intervals from the session manifest,
+track starts, clip edits and gain boundaries. Its file end is a requested endpoint;
+Core does not inspect or decode the audio container to establish available samples.
+Recording audio can end before the segment does. The media consumer must intersect
+each requested file interval with the audio track's actual available time range,
+map both trimmed endpoints back to the edited timeline, and leave unavailable
+intervals silent. Preserve the project duration and track offsets. Container-level
+duration, edited AVFoundation track duration and decodable sample extent can differ;
+retain decoder errors instead of assuming that an arbitrary tail trim repairs them.
+
 ## Setting paths
 
 Use `set` on the following objects or their documented leaves. Arrays are replaced
