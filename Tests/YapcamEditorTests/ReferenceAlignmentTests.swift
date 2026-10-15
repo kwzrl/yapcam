@@ -256,9 +256,9 @@ import YapcamCore
     @Test func suggestionsAppearOnTheTimelineAndApplyThroughCore() {
         let p = FakeProject(durationNs: 30_000_000_000)
         p.keyTimesNs = keys(from: 2000, count: 20, gapMs: 150) + keys(from: 12000, count: 20, gapMs: 150)
-        let m = EditorModel(project: p, player: FakePlayer())
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = EditorModel(project: p, player: FakePlayer()); m.defaults = iso.defaults; m.presetStore = iso.store
         #expect(m.typingSuggestions.count == 2 && m.visibleLanes.contains(.typing))
-        UserDefaults.standard.removeObject(forKey: EditorModel.typingSpeedKey)
         #expect(m.typingSpeed == 3)
         m.typingSpeed = 5
         m.applyTypingSuggestion(m.typingSuggestions[0])
@@ -266,7 +266,6 @@ import YapcamCore
         m.applyAllTypingSuggestions()
         #expect(p.processSilenceCalls.last?.spans.count == 2)
         m.typingSpeed = 99; #expect(m.typingSpeed == 8); m.typingSpeed = 0.1; #expect(m.typingSpeed == 1.5)
-        UserDefaults.standard.removeObject(forKey: EditorModel.typingSpeedKey)
     }
 
     @Test func removedSuggestionsStayHiddenUntilTheTimelineChanges() {
@@ -306,8 +305,8 @@ import YapcamCore
     }
 
     @Test func captionLookAppliesToAllCaptionsAndNewOnes() {
-        UserDefaults.standard.removeObject(forKey: EditorModel.captionLookKey); defer { UserDefaults.standard.removeObject(forKey: EditorModel.captionLookKey) }
-        let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer())
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer()); m.defaults = iso.defaults
         m.set("canvas.output_size", .array([.number(1920), .number(1000)]))
         m.addText(.caption, text: "a"); m.seek(toNs: 5_000_000_000); m.addText(.caption, text: "b")
         var look = CaptionLook(); look.size = 0.1; look.light = true; look.center = true
@@ -340,45 +339,43 @@ import YapcamCore
     }
 
     @Test func presetManagementRenameUpdateMatchAndDefault() throws {
-        try withIsolatedPresets {
-        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let store = iso.store
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer()); m.presetStore = store; m.defaults = iso.defaults
         let base = "ut-\(UUID().uuidString.prefix(6))"
-        defer { for n in [base, base + "-b"] { try? FileManager.default.removeItem(at: EditorPresets.url(n)) }; EditorPresets.defaultName = nil }
-        m.savePreset(named: base); #expect(EditorPresets.names().contains(base))
+        m.savePreset(named: base); #expect(store.names().contains(base))
         m.renamePreset(from: base, to: base + "-b")
-        #expect(EditorPresets.names().contains(base + "-b") && !EditorPresets.names().contains(base))
-        EditorPresets.defaultName = base + "-b"
-        m.renamePreset(from: base + "-b", to: base); #expect(EditorPresets.defaultName == base)           // default follows a rename
+        #expect(store.names().contains(base + "-b") && !store.names().contains(base))
+        store.defaultName = base + "-b"
+        m.renamePreset(from: base + "-b", to: base); #expect(store.defaultName == base)           // default follows a rename
         m.savePreset(named: base + "-b")
         m.renamePreset(from: base, to: base + "-b"); #expect(m.lastError != nil)                           // no overwrite on rename
         m.lastError = nil
-        let before = try Data(contentsOf: EditorPresets.url(base))
+        let before = try Data(contentsOf: store.url(base))
         m.updatePreset(named: base)
-        let after = try Data(contentsOf: EditorPresets.url(base))
-        #expect(m.lastError == nil, "\(m.lastError ?? "")"); #expect(after == before)                                                      // fake exports "{}" both times
-    }
+        let after = try Data(contentsOf: store.url(base))
+        #expect(m.lastError == nil, "\(m.lastError ?? "")"); #expect(after == before)                    // fake exports "{}" both times
     }
 
     @Test func defaultPresetStartsNewProjects() throws {
-        try withIsolatedPresets {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let store = iso.store
         let src = try fixture(); defer { try? FileManager.default.removeItem(at: src) }
         let name = "ut-def-\(UUID().uuidString.prefix(6))"
-        defer { try? FileManager.default.removeItem(at: EditorPresets.url(name)); EditorPresets.defaultName = nil }
-        let a = try EditorDocument(package: src); a.model.set("canvas.padding", number: 91); a.model.set("canvas.radius", number: 40)
+        let a = try EditorDocument(package: src, presets: store); a.model.set("canvas.padding", number: 91); a.model.set("canvas.radius", number: 40)
         a.model.savePreset(named: name)
         #expect(a.model.presetMatchesProject(named: name))                                              // "Matches project"
         a.model.set("canvas.padding", number: 50); #expect(!a.model.presetMatchesProject(named: name))
         a.model.updatePreset(named: name); #expect(a.model.presetMatchesProject(named: name))           // update to match
         a.model.close()
-        EditorPresets.defaultName = name
+        store.defaultName = name
         let fresh = try fixture(); defer { try? FileManager.default.removeItem(at: fresh) }
-        let b = try EditorDocument(package: fresh)
+        let b = try EditorDocument(package: fresh, presets: store)
         #expect(b.model.number("canvas.padding") == 50 && b.model.number("canvas.radius") == 40)        // new project starts from the default
-        EditorPresets.defaultName = nil
+        store.defaultName = nil
         let plain = try fixture(); defer { try? FileManager.default.removeItem(at: plain) }
-        let plainPadding = try EditorDocument(package: plain).model.number("canvas.padding")
+        let plainPadding = try EditorDocument(package: plain, presets: store).model.number("canvas.padding")
         #expect(plainPadding == 48)
-    }
     }
 }
 
@@ -433,5 +430,43 @@ import YapcamCore
         m.set("canvas.shadow.style", string: "directional"); m.set("cursor.size_points", number: 48)
         #expect(m.usesPaddingRatio && m.hasShadowStyle && m.usesCursorPoints && m.defaultsRevision == 1)
         #expect(m.factoryDefault(radius: true) == 16 && m.factoryDefault(backgroundBlur: true) == 0 && m.factoryMotionBlur == 1)
+    }
+}
+
+
+/// Tests and self-tests must never see or change the user's real presets, default-preset choice or remembered settings.
+@MainActor @Suite struct StorageIsolationTests {
+    @Test func testProcessesNeverUseTheRealLocations() {
+        #expect(EditorStorage.isIsolatedProcess)
+        #expect(PresetStore.shared.directory.standardizedFileURL != EditorStorage.realPresetsDirectory.standardizedFileURL)
+        #expect(PresetStore.shared.directory.path.contains(NSTemporaryDirectory().trimmingCharacters(in: CharacterSet(charactersIn: "/")).prefix(8)) || PresetStore.shared.directory.path.contains("yapcam-editor-isolated"))
+        let sentinel = "isolation-\(UUID().uuidString)"
+        PresetStore.shared.defaults.set(sentinel, forKey: "yapcam.isolation.probe")
+        #expect(UserDefaults.standard.string(forKey: "yapcam.isolation.probe") == nil)                   // not the user's domain
+        PresetStore.shared.defaults.removeObject(forKey: "yapcam.isolation.probe")
+    }
+
+    @Test func environmentVariableSelectsTheFolder() {
+        setenv("YAPCAM_PRESETS_DIR", "/tmp/yapcam-env-presets-probe", 1); defer { unsetenv("YAPCAM_PRESETS_DIR") }
+        #expect(EditorStorage.resolvedPresetsDirectory().path == "/tmp/yapcam-env-presets-probe")
+    }
+
+    @Test func eachStoreIsPrivate() throws {
+        let a = EditorStorage.makeIsolated(), b = EditorStorage.makeIsolated(); defer { a.cleanup(); b.cleanup() }
+        try FileManager.default.createDirectory(at: a.store.directory, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: a.store.url("only-in-a"))
+        a.store.defaultName = "only-in-a"
+        #expect(a.store.names() == ["only-in-a"] && b.store.names().isEmpty)
+        #expect(b.store.defaultName == nil && PresetStore.shared.defaultName != "only-in-a")
+        a.cleanup()
+        #expect(a.store.names().isEmpty)
+    }
+
+    @Test func isolatedModelsDoNotShareRememberedSettings() {
+        let a = EditorStorage.makeIsolated(), b = EditorStorage.makeIsolated(); defer { a.cleanup(); b.cleanup() }
+        let ma = EditorModel(project: FakeProject(), player: FakePlayer()), mb = EditorModel(project: FakeProject(), player: FakePlayer())
+        ma.defaults = a.defaults; mb.defaults = b.defaults
+        ma.typingSpeed = 6; var look = CaptionLook(); look.light = true; ma.captionLook = look
+        #expect(mb.typingSpeed == 3 && !mb.captionLook.light && ma.typingSpeed == 6 && ma.captionLook.light)
     }
 }

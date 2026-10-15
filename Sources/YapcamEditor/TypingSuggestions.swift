@@ -27,8 +27,8 @@ extension EditorModel {
 
     /// Remembered speed for typing suggestions (default 3x).
     public var typingSpeed: Double {
-        get { let v = UserDefaults.standard.double(forKey: Self.typingSpeedKey); return v == 0 ? 3 : min(max(v, Self.typingSpeedRange.lowerBound), Self.typingSpeedRange.upperBound) }
-        set { UserDefaults.standard.set(min(max(newValue, Self.typingSpeedRange.lowerBound), Self.typingSpeedRange.upperBound), forKey: Self.typingSpeedKey); objectWillChange.send() }
+        get { let v = defaults.double(forKey: Self.typingSpeedKey); return v == 0 ? 3 : min(max(v, Self.typingSpeedRange.lowerBound), Self.typingSpeedRange.upperBound) }
+        set { defaults.set(min(max(newValue, Self.typingSpeedRange.lowerBound), Self.typingSpeedRange.upperBound), forKey: Self.typingSpeedKey); objectWillChange.send() }
     }
 
     /// Open suggestions on the current timeline (dismissed ones are hidden until the timeline changes).

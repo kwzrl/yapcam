@@ -26,11 +26,11 @@ extension EditorModel {
     static let captionLookKey = "yapcam.captionLook"
     public var captionLook: CaptionLook {
         get {
-            guard let a = UserDefaults.standard.array(forKey: Self.captionLookKey) as? [Double], a.count == 3 else { return CaptionLook() }
+            guard let a = defaults.array(forKey: Self.captionLookKey) as? [Double], a.count == 3 else { return CaptionLook() }
             var l = CaptionLook(); l.size = a[0]; l.light = a[1] > 0.5; l.center = a[2] > 0.5; return l
         }
         set {
-            UserDefaults.standard.set([newValue.size, newValue.light ? 1 : 0, newValue.center ? 1 : 0], forKey: Self.captionLookKey)
+            defaults.set([newValue.size, newValue.light ? 1 : 0, newValue.center ? 1 : 0], forKey: Self.captionLookKey)
             objectWillChange.send()
         }
     }

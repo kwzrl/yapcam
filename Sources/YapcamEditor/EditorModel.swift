@@ -39,6 +39,9 @@ public final class EditorModel: ObservableObject {
     public let playhead = PlayheadState()
     public private(set) var playheadNs: Int64 { get { playhead.ns } set { if playhead.ns != newValue { playhead.ns = newValue } } }
     public private(set) var isPlaying: Bool { get { playhead.isPlaying } set { if playhead.isPlaying != newValue { playhead.isPlaying = newValue } } }
+    /// Where this document's presets and remembered settings live (injectable; isolated outside the real app).
+    public var presetStore: PresetStore = .shared
+    public var defaults: UserDefaults = PresetStore.shared.defaults
     @Published public var paletteVisible = false
     @Published public var speedMenuVisible = false
     var lastRegionStyle: HighlightRegion?

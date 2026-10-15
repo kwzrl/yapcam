@@ -84,15 +84,14 @@ import Foundation
     }
 
     @Test func presetsRoundTripThroughTheProject() throws {
-        try withIsolatedPresets {
-        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer()); m.presetStore = iso.store; m.defaults = iso.defaults
         let name = "test-\(UUID().uuidString.prefix(6))"
         m.savePreset(named: "  \(name)/x ")
         #expect(p.exportedPresets.count == 1 && p.exportedPresets[0].lastPathComponent == "\(name)-x.yapcampreset")
-        defer { try? FileManager.default.removeItem(at: p.exportedPresets[0]) }
-        #expect(EditorPresets.names().contains("\(name)-x"))
+        #expect(p.exportedPresets[0].deletingLastPathComponent().standardizedFileURL == iso.store.directory.standardizedFileURL)
+        #expect(iso.store.names().contains("\(name)-x"))
         m.applyPreset(at: p.exportedPresets[0]); #expect(m.number("canvas.padding") == 99 && m.canUndo)
         m.savePreset(named: "   "); #expect(m.lastError != nil)
-    }
     }
 }
