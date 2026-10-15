@@ -16,9 +16,11 @@ public final class FakeProject: EditingProject {
     ])
     public private(set) var autoZoomRuns = 0
     public private(set) var typingRuns = 0
+    public private(set) var processSilenceCalls: [(spans: [TimeSpan], speed: Double?)] = []
     public var silences: [TimeSpan] = []
     public var silenceDelay: Duration = .zero
     public var clickTimesNs: [Int64] = []
+    public var keyTimesNs: [Int64] = []
     public var hasCamera = true
     public func frameGeometry(atNs: Int64) -> FrameGeometry? {
         FrameGeometry(canvasWidth: 1920, canvasHeight: 1080, dest: CGRect(x: 96, y: 54, width: 1728, height: 972))
@@ -99,6 +101,7 @@ public final class FakeProject: EditingProject {
         case .autoZooms: autoZoomRuns += 1
         case .autoSpeedTyping: typingRuns += 1
         case .processSilence(let spans, let speed):
+            processSilenceCalls.append((spans, speed))
             for sp in spans.sorted(by: { $0.startNs > $1.startNs }) {
                 if speed == nil { try run(.deleteRange(startNs: sp.startNs, endNs: sp.endNs)) }
             }

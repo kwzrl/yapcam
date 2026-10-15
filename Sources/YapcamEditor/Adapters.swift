@@ -72,10 +72,13 @@ public final class CoreEditingProject: EditingProject {
     public var clickTimesNs: [Int64] {
         if clicksStale {
             clickCache = ((try? project.query("{\"q\":\"clicks\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
+            keyCache = ((try? project.query("{\"q\":\"key_events\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
             clicksStale = false
         }
         return clickCache
     }
+    private var keyCache: [Int64] = []
+    public var keyTimesNs: [Int64] { _ = clickTimesNs; return keyCache }
 
     public init(project: Project) {
         self.project = project

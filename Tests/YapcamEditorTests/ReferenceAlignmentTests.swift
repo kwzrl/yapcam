@@ -234,3 +234,59 @@ import YapcamCore
         m.deleteWords(ids: [id]); #expect(m.lastError != nil && m.durationNs == 2_000_000_000)
     }
 }
+
+@MainActor @Suite struct TypingSuggestionTests {
+    private func keys(from startMs: Int, count: Int, gapMs: Int) -> [Int64] { (0..<count).map { Int64(startMs + $0 * gapMs) * 1_000_000 } }
+
+    @Test func detectionFollowsTheReferenceRules() {
+        // 20 keys, 150 ms apart: 2.85 s long, 7 keys/s → a burst.
+        #expect(TypingBursts.detect(keys(from: 1000, count: 20, gapMs: 150)) == [TimeSpan(startNs: 1_000_000_000, endNs: 3_850_000_000)])
+        // a gap of 500 ms or more splits bursts
+        let two = keys(from: 0, count: 14, gapMs: 150) + keys(from: 5000, count: 14, gapMs: 150)
+        #expect(TypingBursts.detect(two).count == 2)
+        // too short (< 1.5 s) is ignored; a 1.8 s run of 5 keys (gaps just under 500 ms) is a burst
+        #expect(TypingBursts.detect(keys(from: 0, count: 8, gapMs: 150)).isEmpty)
+        #expect(TypingBursts.detect(keys(from: 0, count: 4, gapMs: 490)).isEmpty)
+        #expect(TypingBursts.detect(keys(from: 0, count: 5, gapMs: 450)).count == 1)
+        // gaps of exactly 500 ms or more break the run, so single keys never form a suggestion
+        #expect(TypingBursts.detect(keys(from: 0, count: 6, gapMs: 500)).isEmpty)
+        #expect(TypingBursts.detect([]).isEmpty && TypingBursts.detect([1_000_000_000]).isEmpty)
+    }
+
+    @Test func suggestionsAppearOnTheTimelineAndApplyThroughCore() {
+        let p = FakeProject(durationNs: 30_000_000_000)
+        p.keyTimesNs = keys(from: 2000, count: 20, gapMs: 150) + keys(from: 12000, count: 20, gapMs: 150)
+        let m = EditorModel(project: p, player: FakePlayer())
+        #expect(m.typingSuggestions.count == 2 && m.visibleLanes.contains(.typing))
+        UserDefaults.standard.removeObject(forKey: EditorModel.typingSpeedKey)
+        #expect(m.typingSpeed == 3)
+        m.typingSpeed = 5
+        m.applyTypingSuggestion(m.typingSuggestions[0])
+        #expect(p.processSilenceCalls.count == 1 && p.processSilenceCalls[0].speed == 5 && p.processSilenceCalls[0].spans.count == 1)
+        m.applyAllTypingSuggestions()
+        #expect(p.processSilenceCalls.last?.spans.count == 2)
+        m.typingSpeed = 99; #expect(m.typingSpeed == 8); m.typingSpeed = 0.1; #expect(m.typingSpeed == 1.5)
+        UserDefaults.standard.removeObject(forKey: EditorModel.typingSpeedKey)
+    }
+
+    @Test func removedSuggestionsStayHiddenUntilTheTimelineChanges() {
+        let p = FakeProject(durationNs: 30_000_000_000)
+        p.keyTimesNs = keys(from: 2000, count: 20, gapMs: 150)
+        let m = EditorModel(project: p, player: FakePlayer())
+        let sp = m.typingSuggestions[0]
+        m.dismissTypingSuggestion(sp); #expect(m.typingSuggestions.isEmpty && !m.visibleLanes.contains(.typing))
+        m.set("canvas.padding", number: 3); #expect(m.typingSuggestions.count == 1)
+    }
+
+    @Test func realCoreSpeedsUpTheChosenStretchOnly() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("typ-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        let before = m.durationNs
+        m.applyTypingSuggestion(TimeSpan(startNs: 1_000_000_000, endNs: 3_000_000_000))      // default 3x → 2 s become 0.667 s
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.clips.count == 3 && m.clips[1].speed == 3 && abs(Double(before - m.durationNs) - 1.333e9) < 5e6)
+        m.undo(); #expect(m.durationNs == before)                                             // one undo step
+    }
+}

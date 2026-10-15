@@ -411,7 +411,6 @@ struct InspectorView: View {
 
     @ViewBuilder private var audio: some View {
         Section("Automatic edits") {
-            Button("Speed up typing") { model.speedUpTyping() }
             switch model.silenceState {
             case .idle: Button("Find silent parts…") { model.findSilences() }
             case .analyzing: HStack { ProgressView().controlSize(.small); Text("Analyzing audio…") }
