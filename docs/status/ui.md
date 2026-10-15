@@ -1,4 +1,4 @@
-READY ui: backlog 1-4 done (menu commands on main, presets menu, notes, UI smoke test); tests green; live recording waits for TCC grant
+READY ui: all ui-owned rows implemented incl. teleprompter; 200 tests green; live recording waits for TCC grant
 
 # ui status
 
@@ -46,6 +46,9 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - SWIFT_API.md: confirm `CaptureTarget.area` rect is top-left-origin display-local points.
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
+
+## After main f640b35
+Rebased. REC-21/PRJ-02/smoke test were already done (see below); added the teleprompter part of REC-21: floating, capture-excluded `TeleprompterController` panel (large notes text, font size, auto-scroll speed, back to top) opened from the Notes popover, hidden when a recording ends; included in `UISmokeTests` (light + dark). 200 tests pass. All ui-owned FEATURES.md rows are implemented; open: live verification (TCC grant), EXP-10 quick share belongs to the editor's export sheet.
 
 ## Backlog from Lead (main 6d91a7f)
 1. Review #10 (editor commands in AppKit menu): already on main since the previous merge: Edit menu (Undo/Redo/Split/Add Zoom/Palette) → key editor via `EditorBridge`. `git log main..team/ui` was empty at rebase, so the editor's "still open" note is stale.
