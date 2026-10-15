@@ -1,4 +1,4 @@
-READY 3ee7a97 qa: F6 verified fixed; window/area targets verified live
+READY HEAD qa: live backlog done except Accessibility-gated rows
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
@@ -52,6 +52,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - THIRD_PARTY.md approved (title no longer draft, decisions recorded); TEST_REPORT.md links SETUP.md and has an update log; KNOWN_LIMITATIONS.md refreshed for b90ee0d.
 
 - Audit vs main 7d545a1: EXP-02/04 integrated via editor export sheet; TEST_REPORT update log extended.
+
+- Main fc29d18 includes my live results. Deleted my 10-min test package (F6 verified). Remaining NOT RUN: scripted input (needs Accessibility/Input Monitoring grant), UI-driven undo/redo/autosave (no hook), hotkey-driven recording (Accessibility).
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
