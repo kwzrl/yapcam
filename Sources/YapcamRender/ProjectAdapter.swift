@@ -18,13 +18,18 @@ extension Project: RenderProjectSource {
     }
     public func renderEffects(atNs: Int64,canvasSize: CGSize) throws -> RenderFrameEffects {
         let extras=try frameExtras(atNs: atNs)
-        guard extras.cursor_style<=2, extras.highlight_count<=YC_MAX_FRAME_HIGHLIGHTS else {
+        guard extras.highlight_count<=YC_MAX_FRAME_HIGHLIGHTS else {
             throw RenderError.invalidSettings("Core returned unsupported frame effects")
         }
         var configuration=RenderConfiguration()
         // Core "pointer", including always_default, denotes the system arrow.
         // The separately authored pointing hand remains available through custom source configuration.
-        configuration.cursorStyle=extras.cursor_style==1 ? .arrow : extras.cursor_style==2 ? .touch : .recorded
+        switch extras.cursor_style {
+        case 0: configuration.cursorStyle = .recorded
+        case 1,3: configuration.cursorStyle = .arrow
+        case 2: configuration.cursorStyle = .touch
+        default: throw RenderError.invalidSettings("Core returned unsupported cursor style: \(extras.cursor_style)")
+        }
         let motion=try frameMotion(atNs: atNs)
         configuration.cursorRotationRadians=motion.cursor_rotation_rad
         configuration.zoomMotionBlur=motion.zoom_motion_blur

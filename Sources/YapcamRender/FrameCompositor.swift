@@ -19,7 +19,8 @@ public final class FrameCompositor: @unchecked Sendable {
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
-    private var vectorCursors: [VectorCursorStyle: VectorCursorTexture] = [:]
+    private struct CursorTextureKey: Hashable { let style: VectorCursorStyle; let set: String; let scale: Int }
+    private var vectorCursors: [CursorTextureKey: VectorCursorTexture] = [:]
     private let empty: MTLTexture
 
     public init(device: MTLDevice, project: any RenderProjectSource) throws {
@@ -81,7 +82,7 @@ public final class FrameCompositor: @unchecked Sendable {
         if let camera { (matte,cameraCrop) = try cameraEffects.evaluate(camera,removeBackground: options.cameraBackgroundRemoval,faceFraming: options.cameraFaceFraming) }
         var cursorTexture = empty
         var cursorRect = SIMD4<Float>.zero
-        if options.cursorStyle == .recorded, frame.cursor_visible != 0, frame.cursor_opacity > 0, let segment = manifest.segment(at: frame.screen.segment), let path = segment.files["cursors"] {
+        if options.cursorSetID == nil, options.cursorStyle == .recorded, frame.cursor_visible != 0, frame.cursor_opacity > 0, let segment = manifest.segment(at: frame.screen.segment), let path = segment.files["cursors"] {
             let root = project.packageURL.appendingPathComponent("recording")
             let metadataURL = try packageMediaURL(path, root: root)
             if cursorMetadata[segment.index] == nil {
@@ -95,10 +96,17 @@ public final class FrameCompositor: @unchecked Sendable {
                 cursorRect = SIMD4(Float(frame.cursor_x - cursor.hotspot[0] * scale), Float(frame.cursor_y - cursor.hotspot[1] * scale), Float(cursor.sizePoints[0] * scale), Float(cursor.sizePoints[1] * scale))
             }
         }
-        if frame.cursor_visible != 0 && (options.cursorStyle != .recorded || cursorTexture === empty) {
+        if frame.cursor_visible != 0 && (options.cursorSetID != nil || options.cursorStyle != .recorded || cursorTexture === empty) {
             let style: VectorCursorStyle=options.cursorStyle == .pointer ? .pointer : options.cursorStyle == .touch ? .touch : .arrow
-            if vectorCursors[style]==nil { vectorCursors[style]=try VectorCursorTexture(style: style,device: device) }
-            let cursor=vectorCursors[style]!, scale=Double(frame.cursor_scale)
+            let preset=VectorCursorLibrary.preset(id: options.cursorSetID ?? "classic")!
+            let pixelsPerPoint=max(Double(target.width)/Double(frame.canvas_w),Double(target.height)/Double(frame.canvas_h))*Double(frame.cursor_scale)
+            let rasterScale=Int(ceil(min(8,max(2,pixelsPerPoint))))
+            let key=CursorTextureKey(style: style,set: preset.id,scale: rasterScale)
+            if vectorCursors[key]==nil {
+                if vectorCursors.count>=48 { vectorCursors.removeAll() }
+                vectorCursors[key]=try VectorCursorTexture(style: style,preset: preset,scale: CGFloat(rasterScale),device: device)
+            }
+            let cursor=vectorCursors[key]!, scale=Double(frame.cursor_scale)
             cursorTexture=cursor.texture
             cursorRect=SIMD4(Float(frame.cursor_x-Double(cursor.hotspot.x)*scale),Float(frame.cursor_y-Double(cursor.hotspot.y)*scale),Float(Double(cursor.size.width)*scale),Float(Double(cursor.size.height)*scale))
         }
