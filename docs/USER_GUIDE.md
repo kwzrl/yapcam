@@ -60,7 +60,7 @@ Press Record: a 3-second countdown runs (0, 3 or 5 s in Settings → General), t
 turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Restart** (discard this take
 and start over) and **Cancel** (discard). Stop saves the recording and opens the editor.
 
-Verified live on this Mac (display + system audio): Record → countdown → recording → Stop → the editor
+Verified live on this Mac (display, window and area capture, pause/resume, system audio): Record → countdown → recording → Stop → the editor
 opens on the new recording, and the toolbar, countdown and timer are **not** in the recorded video.
 The first time you record, macOS may show a prompt that Yapcam wants to bypass the system window
 picker and capture your screen directly; choose **Allow** (macOS asks again from time to time).

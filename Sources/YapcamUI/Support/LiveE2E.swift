@@ -105,6 +105,45 @@ import YapcamRender
         finish(dir, report)
     }
 
+    /// `--live-e2e <dir> area|window|pause`: one recording per scenario, no editor/export.
+    /// Writes `result.txt` with the package path and the facts to check with ffprobe.
+    static func scenario(_ kind: String, into dir: URL) async {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var report: [String] = []
+        func log(_ s: String) { report.append(s); Probe.log("live-e2e \(kind) \(s)") }
+        let settings = AppSettings.shared, rec = RecordingController.shared
+        settings.countdown = 0
+        settings.openEditorAfterRecording = false
+        ToolbarPanelController.shared.show()
+        guard let display = Displays.resolve(settings.displayID) else { log("FAIL no display"); return finish(dir, report) }
+        switch kind {
+        case "area":
+            settings.sourceMode = .area; settings.areaDisplayID = display.id
+            settings.areaRect = CGRect(x: 200, y: 150, width: 800, height: 500)
+            log("expect video 800x500 (display scale \(display.scale))")
+        case "window":
+            settings.sourceMode = .window
+            let list = WindowList(); await list.reload()
+            guard let w = list.windows.first(where: { $0.appName == "Terminal" }) ?? list.windows.first else { log("FAIL no window"); return finish(dir, report) }
+            settings.windowID = w.id
+            log("window \(w.appName) “\(w.title)” frame \(w.frame) → expect video \(Int(w.frame.width * display.scale))x\(Int(w.frame.height * display.scale))")
+        default:
+            settings.sourceMode = .display
+        }
+        rec.begin()
+        guard await waitFor({ rec.phase == .recording }, seconds: 15) else { log("FAIL never recording: \(rec.alert?.message ?? "-")"); return finish(dir, report) }
+        try? await Task.sleep(for: .seconds(2))
+        if kind == "pause" {
+            rec.togglePause(); try? await Task.sleep(for: .seconds(2)); log("paused phase \(rec.phase)")
+            rec.togglePause(); try? await Task.sleep(for: .seconds(2)); log("resumed phase \(rec.phase)")
+        } else { try? await Task.sleep(for: .seconds(2)) }
+        rec.stop()
+        guard await waitFor({ rec.phase == .idle }, seconds: 30) else { log("FAIL stop"); return finish(dir, report) }
+        if let a = rec.alert { log("ALERT \(a.title): \(a.message)") }
+        log("package \(newestPackage(in: settings.storageDirectory)?.path ?? "none")")
+        finish(dir, report)
+    }
+
     private static func finish(_ dir: URL, _ report: [String]) {
         try? report.joined(separator: "\n").write(to: dir.appending(path: "result.txt"), atomically: true, encoding: .utf8)
         NSApp.terminate(nil)

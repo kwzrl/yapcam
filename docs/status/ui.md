@@ -54,6 +54,11 @@ Results:
 - Toolbar, HUD and countdown overlay are ABSENT from the recorded screen.mov: extracted frames at 0.3 s, 2.0 s and 4.0 s with ffmpeg (the full-screen screenshot at the same moment shows them, the recorded frames don't). Cursor also absent from video (as designed).
 - macOS shows a one-time "Yapcam wants to bypass the system window picker" prompt on first capture (visible in the screenshots); documented in the user guide.
 - BUG (not in my files): export with audio fails: `RenderError.decode("The operation could not be completed")`; model and direct `Exporter` both. Export without audio succeeds. Root cause confirmed by experiment: `audio_ranges` for system_audio says `file_end_ns` 5 027 856 333 but the real `system.m4a` is 4.98 s long (raw AVAssetReader on both files is fine); trimming 100 ms off the project tail makes export-with-audio succeed. The audio file is ~50 ms shorter than the segment (normal for SCStream audio). Fix belongs in core (clamp audio range to the real file duration when building ranges) and/or render (`AudioTimeline`: clamp `insertTimeRange` to the asset's actual duration, never fail the whole export). Repro package kept: `~/Movies/Yapcam/Recording-2026-10-15T082900-2CD84F.yapcam` (delete when fixed); run `Yapcam --live-e2e /tmp/x` or open it and Export with audio.
+- More live runs through the toolbar controller (`--live-e2e <dir> area|window|pause`, countdown 0, 2 s + 2 s each):
+  - Area 800×500 at (200,150): video is exactly 800×500, content is the selected region (frame viewed). Confirms the top-left display-local convention end to end.
+  - Window (Terminal): video 1626×1014 for a 1627×1015 pt window (capture rounds down to even sizes; harmless), content is the window.
+  - Pause/resume: toggled via `togglePause` (phase paused → recording): 2 segments, 2.16 s + 1.93 s = 4.09 s, the 2 s pause is excluded.
+  - Test recordings deleted afterwards.
 - Requests: core + render: the audio range clamp above (high: blocks exporting any real recording with audio).
 - Deleted my other four test recordings.
 
