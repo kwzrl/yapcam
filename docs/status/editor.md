@@ -58,6 +58,9 @@ Audio tab → Microphone: "Clean up voice" toggle with noise reduction, noise ga
 ## Backlog check on main 88f1995
 FEATURES.md's editor backlog row (AUD-07, EDT-09, EDT-13, CUR-12..15, ANI-02/03, CAM-07, CUR-10, AUD-08, AUD-10, LOK-02) is stale: every item is implemented with tests (sections above). Full suite green after clean build + rebuilt app (226 tests; UISmokeTests needs `scripts/build-app.sh` first). AUD-06 (speech enhancement toggle) is blocked on core: no persisted setting in model.rs/FORMATS.md yet; the editor will add the toggle (Audio tab, mic) when the path exists and render's `SpeechFileProcessor` hook is specified.
 
+## Temp-space hygiene (Lead request, main 0df4bbb)
+Checked `$TMPDIR` for editor-created directories (prefixes editor-test-/rf-/r2-/ov-/tm-/perf-/short-/undo-/relink-/ranges-/live-/frame-/editor-export-/ae-): none left — every test creates its package copy and export files with `defer { removeItem }`, so only a crashed test run could leave one. Removed my 4 snapshot PNGs from the session scratchpad. The editor team has no shell scripts and creates no repo copies/harnesses; the only large item is its own worktree `.build` (862 MB, needed). Other teams' dirs/lock files in `$TMPDIR` were not touched. Any future script will use `trap 'rm -rf "$WORK"' EXIT`.
+
 ## Build note
 After rebasing onto a core that changed `EditCommand`, an incremental `swift test` crashed with SIGSEGV in unrelated tests (`objc_retain` in an `EditCommand` copy, ui's PresetTests) — stale object layouts. `swift package clean` + rebuild fixed it: 3 consecutive full runs green (212 tests, 30 suites). If a rebase gives random crashes, clean first.
 
