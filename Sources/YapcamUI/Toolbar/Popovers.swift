@@ -29,43 +29,19 @@ private struct SelectableRow<Content: View>: View {
     }
 }
 
-// MARK: - Source
+// MARK: - Source pickers (opened from the toolbar's Display / Window / Device buttons)
 
-struct SourcePopover: View {
+struct DisplayPopover: View {
     let dismiss: () -> Void
     @EnvironmentObject var settings: AppSettings
     @State private var displays = Displays.all()
-    @StateObject private var windows = WindowList()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker("Source", selection: $settings.sourceMode) {
-                ForEach(SourceMode.allCases) { m in Label(m.title, systemImage: m.symbol).tag(m) }
-            }
-            .pickerStyle(.segmented).labelsHidden()
-            .accessibilityLabel("Recording source")
-
-            switch settings.sourceMode {
-            case .display: displayList
-            case .window: windowGrid
-            case .area: areaPane
-            case .device: devicePane
-            }
-        }
-        .padding(14)
-        .frame(width: settings.sourceMode == .window ? 400 : 280)
-        .onAppear { displays = Displays.all() }
-        .task(id: settings.sourceMode) { if settings.sourceMode == .window { await windows.reload() } }
-    }
-
-    // Display
-
-    private var displayList: some View {
         VStack(alignment: .leading, spacing: 2) {
             PopoverHeader(title: "Display")
             ForEach(displays) { d in
                 SelectableRow(selected: Displays.resolve(settings.displayID)?.id == d.id) {
-                    settings.displayID = d.id
+                    settings.displayID = d.id; settings.sourceMode = .display; dismiss()
                 } content: {
                     Image(systemName: "display").frame(width: 20)
                     VStack(alignment: .leading, spacing: 0) {
@@ -75,17 +51,23 @@ struct SourcePopover: View {
                 }
             }
         }
+        .padding(14).frame(width: 260)
+        .onAppear { displays = Displays.all() }
     }
+}
 
-    // Window
+struct WindowPopover: View {
+    let dismiss: () -> Void
+    @EnvironmentObject var settings: AppSettings
+    @StateObject private var windows = WindowList()
 
-    private var windowGrid: some View {
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 PopoverHeader(title: "Window")
                 Spacer()
                 Button { Task { await windows.reload() } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless).help("Refresh window list")
+                    .buttonStyle(.borderless).help("Refresh window list").accessibilityLabel("Refresh window list")
             }
             if let e = windows.error, windows.windows.isEmpty {
                 Text(e).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 80)
@@ -96,7 +78,7 @@ struct SourcePopover: View {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         ForEach(windows.windows) { w in
                             WindowCell(info: w, selected: settings.windowID == w.id, thumbnail: windows.thumbnails[w.id]) {
-                                settings.windowID = w.id; dismiss()
+                                settings.windowID = w.id; settings.sourceMode = .window; dismiss()
                             }
                             .onAppear { windows.loadThumbnail(for: w.id) }
                         }
@@ -105,75 +87,58 @@ struct SourcePopover: View {
                 .frame(height: 340)
             }
         }
+        .padding(14).frame(width: 400)
+        .task { await windows.reload() }
     }
+}
 
-    // Device
+struct DevicePopover: View {
+    let dismiss: () -> Void
+    @EnvironmentObject var settings: AppSettings
+    @ObservedObject var model = DeviceScreensModel.shared
 
-    private var devicePane: some View {
-        let devices = IOSDevices.connected()
-        return VStack(alignment: .leading, spacing: 8) {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
             PopoverHeader(title: "Device")
-            if devices.isEmpty {
+            if model.devices.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "iphone.gen3.radiowaves.left.and.right").font(.system(size: 30)).foregroundStyle(.tertiary)
                         .accessibilityHidden(true)
                     Text("Connect an iPhone or iPad via USB").font(.system(size: 13, weight: .medium))
-                    Text(IOSDevices.isSupported
-                         ? "Unlock the device and tap Trust if it asks. It appears here when it is ready."
-                         : "Recording a device isn't available in this build yet.")
+                    Text(model.error ?? (model.loaded ? "Unlock it and tap Trust if it asks. It appears here when it is ready."
+                                                      : "Looking for devices…"))
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, minHeight: 130)
             } else {
-                ForEach(devices) { d in
-                    SelectableRow(selected: false) { } content: {
+                ForEach(model.devices) { d in
+                    SelectableRow(selected: settings.deviceID == d.id || model.devices.count == 1) {
+                        settings.deviceID = d.id; settings.sourceMode = .device; dismiss()
+                    } content: {
                         Image(systemName: "iphone").frame(width: 20)
-                        Text(d.name)
+                        Text(d.name).lineLimit(1)
                     }
                 }
+                Text("Touches on the device are not recorded as cursor events.").font(.caption).foregroundStyle(.secondary)
+                    .padding(.top, 4)
             }
         }
+        .padding(14).frame(width: 280)
+        .onAppear { model.startPolling() }
+        .onDisappear { if settings.sourceMode != .device { model.stopPolling() } }
     }
+}
 
-    // Area
-
-    private var areaPane: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            PopoverHeader(title: "Area")
-            if let r = settings.areaRect {
-                Text("\(Int(r.width)) × \(Int(r.height)) on \(Displays.info(for: settings.areaDisplayID)?.name ?? "display")")
-                    .font(.callout)
-            } else {
-                Text("No area selected yet.").font(.callout).foregroundStyle(.secondary)
-            }
-            if displays.count > 1 {
-                Picker("Display", selection: Binding(get: { Displays.resolve(settings.areaDisplayID)?.id ?? 0 },
-                                                      set: { settings.areaDisplayID = $0 })) {
-                    ForEach(displays) { Text($0.name).tag($0.id) }
-                }
-            }
-            HStack {
-                Button(settings.areaRect == nil ? "Select Area…" : "Adjust Area…") { selectArea() }
-                    .keyboardShortcut(.defaultAction)
-                if settings.areaRect != nil { Button("Clear") { settings.areaRect = nil } }
-            }
-            Text("Drag a rectangle, pick an aspect ratio, press Return to confirm.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .onAppear { if Displays.info(for: settings.areaDisplayID) == nil { settings.areaDisplayID = Displays.resolve(0)?.id ?? 0 } }
-    }
-
-    private func selectArea() {
+/// Starts the area overlay right away (Area button); the chosen rectangle is saved in settings.
+@MainActor enum AreaPicker {
+    static func begin() {
+        let settings = AppSettings.shared
+        if Displays.info(for: settings.areaDisplayID) == nil { settings.areaDisplayID = Displays.resolve(0)?.id ?? 0 }
         guard let screen = Displays.screen(for: settings.areaDisplayID) ?? NSScreen.main else { return }
-        dismiss()
         let keep = settings.areaDisplayID == screen.displayID ? settings.areaRect : nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            AreaSelector.shared.begin(on: screen, initial: keep) { rect in
-                if let rect, let id = screen.displayID {
-                    settings.areaDisplayID = id; settings.areaRect = rect
-                }
-            }
+        AreaSelector.shared.begin(on: screen, initial: keep) { rect in
+            if let rect, let id = screen.displayID { settings.areaDisplayID = id; settings.areaRect = rect }
         }
     }
 }
@@ -236,8 +201,10 @@ struct MicrophonePopover: View {
             if perms.state(.microphone) != .granted {
                 PermissionPrompt(permission: .microphone)
             } else if devices.microphones.isEmpty {
-                Text("No microphone found. Connect one and it will appear here.").font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("No microphone").font(.system(size: 13, weight: .medium))
+                    Text("Connect one and it appears here.").font(.caption).foregroundStyle(.secondary)
+                }
             } else {
                 SelectableRow(selected: settings.microphoneID == nil) { settings.microphoneID = nil } content: {
                     Text("Off")
@@ -276,8 +243,10 @@ struct CameraPopover: View {
             if perms.state(.camera) != .granted {
                 PermissionPrompt(permission: .camera)
             } else if devices.cameras.isEmpty {
-                Text("No camera found. Connect one and it will appear here.").font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("No camera").font(.system(size: 13, weight: .medium))
+                    Text("Connect one and it appears here.").font(.caption).foregroundStyle(.secondary)
+                }
             } else {
                 SelectableRow(selected: settings.cameraID == nil) { settings.cameraID = nil } content: { Text("Off") }
                 ForEach(devices.cameras) { c in

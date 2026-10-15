@@ -59,6 +59,7 @@ import AppKit
             item("Start Recording", #selector(AppDelegate.toggleRecording)),
             item("Pause Recording", #selector(AppDelegate.togglePause)),
             .separator(),
+            item("Speaker Notes…", #selector(AppDelegate.showNotes)),
             item("Show Toolbar", #selector(AppDelegate.toggleToolbar)),
         ])
         add("Window", [

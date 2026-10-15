@@ -72,7 +72,7 @@ enum RecordingPhase: Equatable {
         guard phase == .idle else { return }
         let perms = PermissionsModel.shared
         perms.refresh()
-        if perms.state(.screen) != .granted {
+        if settings.sourceMode != .device, perms.state(.screen) != .granted {
             OnboardingWindow.shared.show(reason: "Screen recording permission is required to record.")
             return
         }
@@ -99,7 +99,13 @@ enum RecordingPhase: Equatable {
             guard alive else { throw EngineError.failed("The selected window is no longer available. Choose another window.") }
             target = .window(settings.windowID)
         case .device:
-            throw EngineError.failed(IOSDevices.isSupported ? "Connect an iPhone or iPad via USB, then choose it in the Device source." : IOSDevices.unsupportedMessage)
+            // A fresh look: the phone may have been unplugged since the popover last polled.
+            let list = (try? DeviceScreensModel.currentDevices()) ?? []
+            guard !list.isEmpty else { throw EngineError.failed(DeviceScreensModel.notFoundMessage) }
+            guard let device = list.first(where: { $0.id == settings.deviceID }) ?? (list.count == 1 ? list[0] : nil) else {
+                throw EngineError.failed("More than one iPhone or iPad is connected. Choose which one to record in the Device source.")
+            }
+            target = .device(device.id)
         case .area:
             guard let saved = settings.areaRect, let display = Displays.info(for: settings.areaDisplayID) else {
                 throw EngineError.failed("Select an area to record first, or pick Display instead.")
@@ -128,7 +134,7 @@ enum RecordingPhase: Equatable {
     private func screenForCountdown(_ o: UIRecordingOptions) -> NSScreen? {
         switch o.target {
         case .display(let id), .area(let id, _): return Displays.screen(for: id)
-        case .window: return NSScreen.main
+        case .window, .device: return NSScreen.main
         }
     }
 

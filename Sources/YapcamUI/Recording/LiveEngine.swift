@@ -12,6 +12,7 @@ import YapcamEditor
             case .display(let d): target = .display(d)
             case .window(let w): target = .window(w)
             case .area(let d, let r): target = .area(display: d, rect: r)
+            case .device(let id): target = .device(id)
             }
             inner = RecordingSession(options: RecordingOptions(
                 target: target, systemAudio: options.systemAudio, microphoneID: options.microphoneID,

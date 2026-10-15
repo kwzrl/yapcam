@@ -605,19 +605,27 @@ import YapcamEditor
 }
 
 @MainActor @Suite struct DeviceModeTests {
-    @Test func deviceModeExistsAndIsNeverFaked() {
-        #expect(SourceMode.allCases.contains(.device))
+    @Test func deviceModeExists() {
+        #expect(SourceMode.allCases == [.display, .window, .area, .device])
         #expect(SourceMode.device.title == "Device" && SourceMode.device.symbol == "iphone")
-        #expect(IOSDevices.connected().isEmpty)          // no capture backend yet: never a made-up device
-        #expect(!IOSDevices.isSupported)
     }
 
-    @Test func recordingADeviceExplainsInsteadOfFailingSilently() {
+    /// Without a USB device capture reports none, and recording explains what to do. Never a fake device.
+    @Test func recordingWithoutADeviceExplainsWhatToDo() throws {
+        guard ((try? DeviceScreensModel.currentDevices()) ?? []).isEmpty else { return }   // a real phone is attached: nothing to assert
         let s = AppSettings.shared
         let saved = s.sourceMode; defer { s.sourceMode = saved }
         s.sourceMode = .device
-        do { _ = try RecordingController.shared.makeOptions(); Issue.record("device mode must not produce recording options") }
-        catch { #expect(UserMessage.describe(error).contains("iPhone or iPad")) }
+        do { _ = try RecordingController.shared.makeOptions(); Issue.record("must not produce options without a device") }
+        catch {
+            let m = UserMessage.describe(error)
+            #expect(m.contains("iPhone or iPad") && m.contains("USB") && m.contains("Trust"))
+        }
+    }
+
+    @Test func deviceTargetIsPartOfTheUITargetContract() throws {
+        let t = UITarget.device("abc")
+        #expect(try JSONDecoder().decode(UITarget.self, from: JSONEncoder().encode(t)) == t)
     }
 }
 

@@ -194,6 +194,7 @@ import YapcamEditor
     @objc func toggleRecording() { RecordingController.shared.toggleStartStop() }
     @objc func togglePause() { RecordingController.shared.togglePause() }
     @objc func toggleToolbar() { ToolbarPanelController.shared.toggle() }
+    @objc func showNotes() { NotesWindow.shared.show() }
     @objc func showSettings() { SettingsWindow.shared.show() }
     @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil) }
     @objc func openProject() {

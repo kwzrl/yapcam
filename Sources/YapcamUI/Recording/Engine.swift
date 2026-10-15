@@ -6,6 +6,7 @@ enum UITarget: Equatable, Codable {
     case display(CGDirectDisplayID)
     case window(CGWindowID)
     case area(display: CGDirectDisplayID, rect: CGRect)
+    case device(String)                     // USB iPhone/iPad screen, by capture's device id
 }
 
 struct UIRecordingOptions {

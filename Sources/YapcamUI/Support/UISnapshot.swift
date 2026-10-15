@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor enum UISnapshot {
     static let expectedNames: [String] = {
         var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
-                 "popover-notes", "teleprompter", "popover-source-display", "popover-source-window", "popover-source-area", "popover-source-device",
+                 "popover-notes", "teleprompter", "popover-display", "popover-window", "popover-device",
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
                  "settings-storage", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
@@ -62,13 +62,10 @@ import SwiftUI
     private static func extraViews() -> [(String, () -> NSView)] {
         let s = AppSettings.shared
         var out: [(String, () -> NSView)] = []
-        for m in SourceMode.allCases {
-            out.append(("popover-source-\(m.rawValue)", {
-                s.sourceMode = m
-                return host(SourcePopover(dismiss: {}), width: m == .window ? 400 : 280)
-            }))
-        }
-        out.append(("popover-audio", { s.sourceMode = .display; return host(SystemAudioPopover(), width: 260) }))
+        out.append(("popover-display", { host(DisplayPopover(dismiss: {}), width: 260) }))
+        out.append(("popover-window", { host(WindowPopover(dismiss: {}), width: 400) }))
+        out.append(("popover-device", { host(DevicePopover(dismiss: {}), width: 280) }))
+        out.append(("popover-audio", { host(SystemAudioPopover(), width: 260) }))
         out.append(("popover-mic", { host(MicrophonePopover(), width: 280) }))
         out.append(("popover-camera", { host(CameraPopover(), width: 280) }))
         out.append(("teleprompter", { host(TeleprompterView(close: {}).environmentObject(RecordingController.shared).frame(height: 240), width: 520) }))

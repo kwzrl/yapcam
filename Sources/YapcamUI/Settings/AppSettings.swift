@@ -78,6 +78,9 @@ struct KeyCombo: Codable, Equatable {
     @Published var windowID: UInt32 { didSet { d.set(Int(windowID), forKey: "windowID") } }
     @Published var areaDisplayID: UInt32 { didSet { d.set(Int(areaDisplayID), forKey: "areaDisplayID") } }
     @Published var areaRect: CGRect? { didSet { d.set(areaRect.map { NSStringFromRect($0) }, forKey: "areaRect") } }
+    @Published var deviceID: String? { didSet { d.set(deviceID, forKey: "deviceID") } }
+    @Published var lastCameraID: String? { didSet { d.set(lastCameraID, forKey: "lastCameraID") } }
+    @Published var lastMicrophoneID: String? { didSet { d.set(lastMicrophoneID, forKey: "lastMicrophoneID") } }
     @Published var systemAudio: Bool { didSet { d.set(systemAudio, forKey: "systemAudio") } }
     @Published var microphoneID: String? { didSet { d.set(microphoneID, forKey: "microphoneID") } }
     @Published var cameraID: String? { didSet { d.set(cameraID, forKey: "cameraID") } }
@@ -112,6 +115,9 @@ struct KeyCombo: Codable, Equatable {
         windowID = UInt32(d.integer(forKey: "windowID"))
         areaDisplayID = UInt32(d.integer(forKey: "areaDisplayID"))
         areaRect = d.string(forKey: "areaRect").map { NSRectFromString($0) }
+        deviceID = d.string(forKey: "deviceID")
+        lastCameraID = d.string(forKey: "lastCameraID")
+        lastMicrophoneID = d.string(forKey: "lastMicrophoneID")
         systemAudio = d.object(forKey: "systemAudio") as? Bool ?? true
         microphoneID = d.string(forKey: "microphoneID")
         cameraID = d.string(forKey: "cameraID")

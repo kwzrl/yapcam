@@ -39,22 +39,27 @@ Yapcam off and on again in System Settings and restart the app.
 ## Recording with the toolbar
 
 A narrow floating toolbar sits at the right edge of your screen. Drag it by the dotted grabber
-at the top; it remembers its position per display and stays on screen when displays change.
-Yapcam's own windows are excluded from the recording.
+at the top; it remembers its position per display and stays on screen when displays change. The **×**
+at the top hides it (bring it back from the menu bar item or by clicking the Dock icon). Yapcam's own
+windows are excluded from the recording.
 
 Top to bottom:
 
-- **Source**: Display (pick which one), Window (a grid of windows with thumbnails), or Area.
-  For Area, press **Select Area…**, drag a rectangle, pick an aspect ratio (Free, 16:9, 4:3, 1:1,
-  9:16), then Return. Arrow keys move the rectangle, Shift+arrows resize it, Option moves by 10.
-- **System**: record system audio (separate track).
-- **Mic** and **Camera**: pick a device. The mic popover has a level meter, the camera one a
-  preview. With no device connected they say so and recording continues without. Not tested with
-  real devices **(untested live)**.
-- **Notes**: speaker notes. Type them before or while recording; **Teleprompter** shows them large
-  in a floating window that never appears in the recording, with text size and auto-scroll speed.
-  Notes are saved into the project when you stop.
-- **Record** (red button), **Settings**.
+- **Display / Window / Area / Device**: pick what to record; the selected one is highlighted. Display
+  opens a list when you have several displays. Window opens a grid of windows with thumbnails at once.
+  Area starts the selection overlay at once: drag a rectangle, pick an aspect ratio (Free, 16:9, 4:3,
+  1:1, 9:16), then Return (arrow keys move it, Shift+arrows resize, Option moves by 10). Device records an
+  iPhone or iPad connected by USB: unlock it and tap Trust; it appears in the list when ready.
+- **Camera**, **Mic**, **System**: toggles (blue = on). The small chevron opens the device menu in a
+  side popover; with no device it says "No camera" / "No microphone" and recording continues without.
+  Not tested with real mic/camera devices **(untested live)**.
+- **Folder** opens the recordings folder; **Settings** opens a menu: Settings, Recordings, Speaker Notes,
+  Permissions, Hide Toolbar, Quit.
+- The big **Record** button.
+
+Speaker notes (Settings menu or Recording → Speaker Notes…) open a small window; its **Teleprompter**
+button shows the notes large in a floating window that never appears in the recording, with text size
+and auto-scroll speed. Notes are saved into the project when you stop.
 
 Press Record: a 3-second countdown runs (0, 3 or 5 s in Settings → General), then the toolbar
 turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Restart** (discard this take

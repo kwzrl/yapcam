@@ -1,19 +1,55 @@
 import Foundation
+import YapcamCapture
 
-/// An iPhone or iPad that can be recorded over USB.
+/// An iPhone or iPad that can be recorded over USB (capture's `CaptureSources.loadDeviceScreens`).
 struct IOSDevice: Identifiable, Equatable {
     let id: String
     let name: String
 }
 
-/// Seam for the iOS device source. Capture implements the real discovery and recording; until that
-/// lands on this branch this reports "not available" and never lists a made-up device.
-enum IOSDevices {
-    /// Devices ready to record right now.
-    static func connected() -> [IOSDevice] { [] }
+/// USB device screens, refreshed while the Device source is in use. Discovery runs off the main
+/// thread; nothing is listed unless capture reports it.
+@MainActor final class DeviceScreensModel: ObservableObject {
+    static let shared = DeviceScreensModel()
+    @Published private(set) var devices: [IOSDevice] = []
+    @Published private(set) var error: String?
+    @Published private(set) var loaded = false
+    private var timer: Timer?
+    private var loading = false
 
-    /// Whether this build can record an iOS device at all.
-    static let isSupported = false
+    func reload() {
+        guard !loading else { return }
+        loading = true
+        Task {
+            let result = await Task.detached(priority: .utility) { Result { try CaptureSources.loadDeviceScreens() } }.value
+            switch result {
+            case .success(let list):
+                devices = list.map { IOSDevice(id: $0.id, name: $0.name) }
+                error = nil
+            case .failure(let e):
+                devices = []
+                error = UserMessage.describe(e)
+            }
+            loaded = true
+            loading = false
+        }
+    }
 
-    static let unsupportedMessage = "Recording an iPhone or iPad isn't available in this build yet. Pick Display, Window or Area instead."
+    /// Poll while the Device source is selected or its popover is open (phones appear a moment after plugging in).
+    func startPolling() {
+        reload()
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reload() }
+        }
+    }
+
+    func stopPolling() { timer?.invalidate(); timer = nil }
+
+    /// Synchronous fresh look, used right before a recording starts.
+    nonisolated static func currentDevices() throws -> [IOSDevice] {
+        try CaptureSources.loadDeviceScreens().map { IOSDevice(id: $0.id, name: $0.name) }
+    }
+
+    nonisolated static let notFoundMessage = "No iPhone or iPad found. Connect it with a USB cable, unlock it and tap Trust if it asks, then try again."
 }
