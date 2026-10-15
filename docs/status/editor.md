@@ -1,6 +1,6 @@
 # editor status
 
-READY 7cdc3db editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 108c6b8 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Rebased on main eacbd4d: preset isolation merged — Lead's `PresetIsolation` task-locals / `EditorPresets.directory|globalDirectory|globalDefaults` API kept (ui depends on it), backed by `EditorStorage` and injectable `PresetStore`. Full suite (UISmokeTests skipped) 481 green.
