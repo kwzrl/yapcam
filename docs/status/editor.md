@@ -1,6 +1,6 @@
 # editor status
 
-READY 88d3ba4 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 65a8ebb editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Rebased on main 01f05df (core caption typography landed). ED-10: Captions inspector has Font (sans/serif/mono), Reveal (line/word), Growth (full/expanding/centered), Entrance (appear/fade/slide) and Language tag; applies to all captions in one undo step, remembered for new ones. Caption rewrites now keep core's extra style members and word timing (previously a whole-array rewrite would have dropped them): words follow a moved/resized caption, and are dropped when the text is corrected. Real-core test incl. invalid language tag rejected. Full suite (UISmokeTests skipped) green. Preview/export pixels for word reveal not looked at.
