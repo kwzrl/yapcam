@@ -140,8 +140,16 @@ public final class CoreEditingProject: EditingProject {
             return TimelineZoom(id: id, startNs: a, endNs: b, mode: (z["mode"] as? String) == "auto" ? .auto : .manual,
                                 scale: (z["scale"] as? NSNumber)?.doubleValue ?? 2, focusX: target.first ?? 0.5, focusY: target.last ?? 0.5,
                                 easeInNs: (z["ease_in_ns"] as? NSNumber)?.int64Value ?? 0, easeOutNs: (z["ease_out_ns"] as? NSNumber)?.int64Value ?? 0,
-                                enabled: (z["enabled"] as? Bool) ?? true)
+                                enabled: (z["enabled"] as? Bool) ?? true,
+                                lens: Self.lens(z))
         }
+    }
+
+    private static func lens(_ z: [String: Any]) -> ZoomLensParams? {
+        guard (z["style"] as? String) == "lens" else { return nil }
+        let l = z["lens"] as? [String: Any] ?? [:]
+        func n(_ k: String, _ d: Double) -> Double { (l[k] as? NSNumber)?.doubleValue ?? d }
+        return ZoomLensParams(radius: n("radius", 0.35), bevel: n("bevel", 0.2), chromaticAberration: n("chromatic_aberration", 0.5))
     }
 
     private func map(_ c: EditorCommand) -> EditCommand {
@@ -167,6 +175,10 @@ public final class CoreEditingProject: EditingProject {
             if let mode { patch["mode"] = .string(mode.rawValue) }
             return .updateZoom(id: id, patch: patch)
         case .insertZoom(let s, let e): return .insertTimelineItem(.zoom, startNs: s, durationNs: e - s)
+        case .setZoomLens(let id, let lens):
+            var patch: [String: JSONValue] = ["style": .string(lens == nil ? "classic" : "lens")]
+            if let l = lens { patch["lens"] = .object(["radius": .number(l.radius), "bevel": .number(l.bevel), "chromatic_aberration": .number(l.chromaticAberration)]) }
+            return .updateZoom(id: id, patch: patch)
         case .removeZoom(let id): return .removeZoom(id: id)
         case .set(let path, let v): return .set(path: path, value: v)
         case .autoZooms: return .autoZooms
@@ -183,7 +195,7 @@ public final class CoreEditingProject: EditingProject {
     /// Structural timeline edits go through core's checked envelope (minimum clip/zoom lengths, atomic, history-safe).
     private func isStructural(_ c: EditorCommand) -> Bool {
         switch c {
-        case .split, .deleteRange, .addZoom, .insertZoom, .updateZoom, .processSilence: true
+        case .split, .deleteRange, .addZoom, .insertZoom, .updateZoom, .setZoomLens, .processSilence: true
         case .batch(let cs): cs.contains(where: isStructural)
         default: false
         }

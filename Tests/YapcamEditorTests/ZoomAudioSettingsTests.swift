@@ -135,3 +135,20 @@ import YapcamCore
         #expect(m.lastError != nil && m.numbers("canvas.inset_origin") == [0.5, -0.25])
     }
 }
+
+@MainActor @Suite struct ZoomLensTests {
+    @Test func glassLoupeStyleRoundTripsThroughCore() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("zl-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        m.seek(toNs: 500_000_000); m.addZoomAtPlayhead()
+        guard case .zoom(let id) = m.selection else { Issue.record("no zoom"); return }
+        #expect(m.zooms.first { $0.id == id }?.lens == nil)
+        m.setZoomLens(id: id, ZoomLensParams(radius: 0.9, bevel: 0.4, chromaticAberration: 0.1))        // radius clamps to 0.75
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.zooms.first { $0.id == id }?.lens == ZoomLensParams(radius: 0.75, bevel: 0.4, chromaticAberration: 0.1))
+        m.setZoomLens(id: id, nil); #expect(m.zooms.first { $0.id == id }?.lens == nil)
+        m.undo(); #expect(m.zooms.first { $0.id == id }?.lens != nil)
+    }
+}

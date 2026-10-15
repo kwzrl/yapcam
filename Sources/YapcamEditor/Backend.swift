@@ -21,6 +21,14 @@ public struct TimelineClip: Equatable, Identifiable, Sendable {
     public var timelineDurationNs: Int64 { Int64(Double(srcEndNs - srcStartNs) / speed) }
 }
 
+public struct ZoomLensParams: Equatable, Sendable {
+    public static let radiusRange = 0.25...0.75
+    public var radius = 0.35, bevel = 0.2, chromaticAberration = 0.5
+    public init(radius: Double = 0.35, bevel: Double = 0.2, chromaticAberration: Double = 0.5) {
+        self.radius = radius; self.bevel = bevel; self.chromaticAberration = chromaticAberration
+    }
+}
+
 public struct TimelineZoom: Equatable, Identifiable, Sendable {
     public enum Mode: String, Sendable { case auto, manual }
     public var id: String
@@ -34,9 +42,12 @@ public struct TimelineZoom: Equatable, Identifiable, Sendable {
     public var easeInNs: Int64
     public var easeOutNs: Int64
     public var enabled: Bool
+    /// nil = classic (the whole screen scales); set = glass loupe (a magnifying lens over the screen).
+    public var lens: ZoomLensParams?
     public init(id: String, startNs: Int64, endNs: Int64, mode: Mode = .manual,
                 scale: Double = 2, focusX: Double = 0.5, focusY: Double = 0.5,
-                easeInNs: Int64 = 300_000_000, easeOutNs: Int64 = 300_000_000, enabled: Bool = true) {
+                easeInNs: Int64 = 300_000_000, easeOutNs: Int64 = 300_000_000, enabled: Bool = true, lens: ZoomLensParams? = nil) {
+        self.lens = lens
         self.id = id; self.startNs = startNs; self.endNs = endNs; self.mode = mode
         self.scale = scale; self.focusX = focusX; self.focusY = focusY
         self.easeInNs = easeInNs; self.easeOutNs = easeOutNs; self.enabled = enabled
@@ -69,6 +80,8 @@ public enum EditorCommand: Equatable, Sendable {
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
     /// New zoom with the project's remembered (last edited) style; focus is centred.
     case insertZoom(startNs: Int64, endNs: Int64)
+    /// nil = classic style; otherwise the glass loupe with these parameters.
+    case setZoomLens(id: String, lens: ZoomLensParams?)
     case removeZoom(id: String)
     case set(path: String, value: JSONValue)
     case autoZooms

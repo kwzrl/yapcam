@@ -318,6 +318,10 @@ struct InspectorView: View {
             Picker("Type", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) })) {
                 Text("Auto").tag(TimelineZoom.Mode.auto); Text("Manual").tag(TimelineZoom.Mode.manual)
             }.pickerStyle(.segmented)
+            Picker("Style", selection: Binding(get: { z.lens != nil }, set: { model.setZoomLens(id: z.id, $0 ? ZoomLensParams() : nil) })) {
+                Text("Classic").tag(false); Text("Glass loupe").tag(true)
+            }.pickerStyle(.segmented)
+            if let l = z.lens { ZoomLensRows(model: model, zoomID: z.id, lens: l) }
             ZoomScaleRow(model: model, zoom: z)
             LabeledContent("Focus") { Text(String(format: "%.0f%%, %.0f%%", z.focusX * 100, z.focusY * 100)).monospacedDigit() }
             Text("Click in the preview to set the focus point.").font(.caption).foregroundStyle(.secondary)
@@ -869,5 +873,22 @@ struct ClipVolumeRow: View {
         .onChange(of: clip.systemGain) { _, v in if !editing && system { value = v * 100 } }
         .onChange(of: clip.micGain) { _, v in if !editing && !system { value = v * 100 } }
         .onChange(of: clip.id) { _, _ in value = (system ? clip.systemGain : clip.micGain) * 100 }
+    }
+}
+
+/// Glass loupe parameters: size of the lens, edge bevel and colour fringing.
+struct ZoomLensRows: View {
+    @ObservedObject var model: EditorModel
+    let zoomID: String
+    let lens: ZoomLensParams
+    private func row(_ title: String, _ range: ClosedRange<Double>, _ get: Double, _ set: @escaping (inout ZoomLensParams, Double) -> Void) -> some View {
+        LabeledContent(title) {
+            Slider(value: Binding(get: { get }, set: { v in var l = lens; set(&l, v); model.setZoomLens(id: zoomID, l) }), in: range).accessibilityLabel(title)
+        }
+    }
+    var body: some View {
+        row("Lens size", ZoomLensParams.radiusRange, lens.radius) { $0.radius = $1 }
+        row("Bevel", 0...1, lens.bevel) { $0.bevel = $1 }
+        row("Color fringing", 0...1, lens.chromaticAberration) { $0.chromaticAberration = $1 }
     }
 }

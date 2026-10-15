@@ -441,6 +441,16 @@ public final class EditorModel: ObservableObject {
         perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: nil, focusX: nil, focusY: nil, easeInNs: max(0, inNs), easeOutNs: max(0, outNs)))
     }
 
+    /// Classic ↔ glass loupe; `lens` carries the (clamped) loupe parameters.
+    public func setZoomLens(id: String, _ lens: ZoomLensParams?) {
+        var l = lens
+        if l != nil {
+            l!.radius = min(max(l!.radius, ZoomLensParams.radiusRange.lowerBound), ZoomLensParams.radiusRange.upperBound)
+            l!.bevel = min(max(l!.bevel, 0), 1); l!.chromaticAberration = min(max(l!.chromaticAberration, 0), 1)
+        }
+        perform(.setZoomLens(id: id, lens: l))
+    }
+
     public func setZoomScale(id: String, _ scale: Double) {
         perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: min(max(scale, 1), 6), focusX: nil, focusY: nil))
     }
