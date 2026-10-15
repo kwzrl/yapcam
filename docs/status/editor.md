@@ -1,6 +1,6 @@
 # editor status
 
-READY c143346 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 46e9f8a editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Rebased on main c565a93. Visual-only preview refresh: known appearance edits (canvas background/padding/radius/shadow/inset/window frame/screen quality, cursor size/set, camera style) call `PreviewPlayer.invalidateVisuals()` (audio and decoders kept); everything else, undo/redo and mixed bursts rebuild fully. Full suite (UISmokeTests skipped) 494 green. Playback smoothness while dragging these sliders not measured on hardware.
