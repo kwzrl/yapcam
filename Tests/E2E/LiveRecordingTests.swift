@@ -106,4 +106,37 @@ final class LiveRecordingTests: XCTestCase {
         }
         print("LIVE tail diagnostics: " + report.joined(separator: " | "))
     }
+
+    /// Real clicks (scripted by --drive-input-selftest at a fixed point) -> auto zoom -> frame + export.
+    func testAutoZoomFromRealClicks() async throws {
+        let p = try Project.create(package: pkg)
+        let clicks = try p.clicks()
+        print("LIVE auto-zoom: clicks=\(clicks.count)")
+        try XCTSkipIf(clicks.isEmpty, "recording has no clicks (use --drive-input-selftest)")
+        try p.apply(.autoZooms)
+        struct Z: Decodable { var tlStartNs: Int64; var tlEndNs: Int64; var mode: String; var target: [Double]; var scale: Double }
+        let zooms = try p.query("{\"q\":\"zooms\"}", as: [Z].self)
+        print("LIVE auto-zoom: zooms=\(zooms.map { "[\(Double($0.tlStartNs)/1e9)-\(Double($0.tlEndNs)/1e9)s \($0.mode) t=\($0.target) x\($0.scale)]" })")
+        XCTAssertGreaterThanOrEqual(zooms.count, 1)
+        let first = clicks[0].tlNs
+        let z = try XCTUnwrap(zooms.first { $0.tlStartNs <= first && $0.tlEndNs >= first }, "a zoom must cover the first click")
+        XCTAssertLessThanOrEqual(z.tlStartNs, first, "zoom starts at or before the click")
+        XCTAssertEqual(z.mode, "auto")
+        // Target should be near the click (display points -> normalized).
+        let sx = Double(p.session.tracks.screen.pixelSize[0]) / p.session.source.scale, sy = Double(p.session.tracks.screen.pixelSize[1]) / p.session.source.scale
+        let ev = try String(contentsOf: pkg.appendingPathComponent("recording/seg-000/events.jsonl"), encoding: .utf8)
+            .split(separator: "\n").compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        let down = try XCTUnwrap(ev.first { ($0["type"] as? String) == "down" })
+        let nx = (down["x"] as! Double) / sx, ny = (down["y"] as! Double) / sy
+        print("LIVE auto-zoom: first click at normalized (\(nx), \(ny)), zoom target \(z.target)")
+        XCTAssertEqual(z.target[0], nx, accuracy: 0.08); XCTAssertEqual(z.target[1], ny, accuracy: 0.08)
+        let mid = (max(z.tlStartNs, first) + z.tlEndNs) / 2
+        let fz = try p.frame(atNs: mid), f0 = try p.frame(atNs: 0)
+        XCTAssertLessThan(fz.screen_crop.w, f0.screen_crop.w, "mid-zoom crop must be narrower than full frame")
+        let out = work.appendingPathComponent("az.mp4")
+        _ = try await Exporter(project: CoreSource(p), settings: .init(outputHeight: 720, fps: 30), destination: out).run { _ in }
+        let r = try run("/opt/homebrew/bin/ffprobe", ["-v", "error", "-show_entries", "stream=codec_type:format=duration", "-of", "default=nw=1", out.path])
+        XCTAssertEqual(num(r, "duration") ?? 0, Double(p.durationNs) / 1e9, accuracy: 0.2, r)
+        print("LIVE auto-zoom: export ok \(r.replacingOccurrences(of: "\n", with: " "))")
+    }
 }

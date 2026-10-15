@@ -1,3 +1,5 @@
+READY 9678a35 qa: scripted input + auto-zoom verified live
+READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 # qa status
@@ -51,6 +53,10 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - Audit vs main 7d545a1: EXP-02/04 integrated via editor export sheet; TEST_REPORT update log extended.
 
+- Main fc29d18 includes my live results. Deleted my 10-min test package (F6 verified). Remaining NOT RUN: scripted input (needs Accessibility/Input Monitoring grant), UI-driven undo/redo/autosave (no hook), hotkey-driven recording (Accessibility).
+
+- Permissions granted (launch rule: `open -n -W`): scripted input PASS (38/38, max 15.4 ms, 0.98 pt), auto-zoom from real clicks PASS. Remaining NOT RUN: hotkey-driven recording, UI-driven undo/redo/autosave (no hook).
+
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
 
@@ -63,11 +69,12 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - Bundle strings are obfuscated anyway; REA/observation is the only practical route.
 
 ## Findings (live, main b5d1268)
-- F6 [render (AudioTimeline/Exporter) + core (audio_ranges), HIGH] Export of a REAL recording fails with `decode("The operation could not be completed")` when the export range includes the last ~100 ms and audio is on. Repro: record `build/Yapcam.app --capture-selftest 600`, then `YAPCAM_LIVE_PACKAGE=<pkg> swift test --disable-sandbox --filter LiveRecordingTests/testTailExportDiagnostics` -> `full-tail+audio: FAIL | tail-100ms+audio: OK | full-tail,no-audio: OK`. Cause hypothesis: system.m4a (decodes cleanly in ffmpeg) is 16 ms shorter than the segment (600.067 s vs 600.083 s); the audio range is built from segment duration, not the audio file's real end, so AVAssetReader reads past EOF. Fix: clamp audio ranges to the file duration (or treat EOF as silence). Same as Lead's live-e2e "HYPOTHESIS CONFIRMED". Blocks M1 export for every real recording with system audio (the editor's default export).
+- F6 FIXED (verified by qa on main 529f208: LiveRecordingTests 4/4 on the 10-min package). Original report: [render (AudioTimeline/Exporter) + core (audio_ranges), HIGH] Export of a REAL recording fails with `decode("The operation could not be completed")` when the export range includes the last ~100 ms and audio is on. Repro: record `build/Yapcam.app --capture-selftest 600`, then `YAPCAM_LIVE_PACKAGE=<pkg> swift test --disable-sandbox --filter LiveRecordingTests/testTailExportDiagnostics` -> `full-tail+audio: FAIL | tail-100ms+audio: OK | full-tail,no-audio: OK`. Cause hypothesis: system.m4a (decodes cleanly in ffmpeg) is 16 ms shorter than the segment (600.067 s vs 600.083 s); the audio range is built from segment duration, not the audio file's real end, so AVAssetReader reads past EOF. Fix: clamp audio ranges to the file duration (or treat EOF as silence). Same as Lead's live-e2e "HYPOTHESIS CONFIRMED". Blocks M1 export for every real recording with system audio (the editor's default export).
 - F7 [Lead/process, MEDIUM] Two of my long runs (1 s and 7.5 min) were killed by other processes without a crash report (4-min and 10-min runs under the lock file were fine). Lock-file rule works.
 - F8 [capture, LOW] Window recording: session.json `tracks.screen.pixel_size` = [1627,1015] but screen.mov is 1626x1014 (even-size rounding). Consumers that trust pixel_size (render source geometry) may be off by 1 px; either write the real file size or document rounding. Repro: `Yapcam --live-e2e <dir> window`.
 - A/V sync, 10 min: PASS (drift 7.3 ms). Export-vs-preview: PASS (0.50/255).
 
+- Self-test flags on main 529f208 used: pause+A/V PASS, toolbar exclusion PASS (frames viewed, deleted), drive-input BLOCKED on Accessibility/Input Monitoring grant for build/Yapcam.app (user). Still waiting: F6 fix (render).
 - REC-18 recovery: PASS (see TEST_REPORT section 4). Waiting for ui hooks (--capture-selftest target/pause, --ui-record-selftest, --drive-input-selftest) on main; F6 retest pending render fix (package kept in ~/Movies/Yapcam/QA/capture).
 
 ## Live QA log (2026-10-15 morning, main b5d1268)
@@ -75,6 +82,7 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - My shell has no Accessibility and no Screen Recording permission (AXIsProcessTrusted false), so I cannot drive the UI by CGEvent or screenshot. `scripts/qa/drive-input.swift` events from my shell are NOT delivered. Only code running inside the signed app has the grants.
 
 ## Requests (to Lead)
+- USER ACTION: grant Accessibility and Input Monitoring to build/Yapcam.app (System Settings > Privacy & Security), then qa reruns `--drive-input-selftest` (scripted clicks/moves vs events.jsonl, CUR-02) and the hotkey scenario.
 - Optional: add `YapcamCapture` to the E2E test target deps so recover checks can live in Tests/E2E (today scripts/qa/run-recover-check.sh uses a scratch copy with cleanup trap).
 - Live QA hooks in the signed app (ui/capture; I cannot edit Sources): extend `--capture-selftest` with options `--target display|window:<title>|area:x,y,w,h`, `--pause-after <s>`, `--no-audio`, `--out <dir>`, and add `--drive-input <script.json>` (post scripted moves/clicks from inside the app, which has Accessibility) so pause/resume, window/area capture and scripted-input timing can be tested without my shell having permissions.
 - Push: after `git rebase main` my local team/qa (head: see git log) diverged from origin/team/qa; plain push is non-fast-forward and the classifier denied force-push and an ours-merge. Please fetch from ~/yapcam-team/qa directly (worktrees share the repo) or push it yourself; content is identical apart from the rebase.
