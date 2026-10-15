@@ -1,5 +1,6 @@
-READY WORKTREE CAP-1 per-app system audio + CAP-2 webcam resolution caps; capture tests/signed build pass; full-suite host gate
-READY WORKTREE CAP-3 durable recording markers + CAP-6 preflight API; signed build/capture tests pass; UI/native gates
+READY 9b0cadc CAP-2/M3 camera sample failure hardening; 136 capture tests + Rust + signed build pass; native gates remain
+READY 9b0cadc CAP-1 per-app system audio + CAP-2 webcam resolution caps; capture tests/signed build pass; full-suite host gate
+READY 9b0cadc CAP-3 durable recording markers + CAP-6 preflight API; signed build/capture tests pass; UI/native gates
 READY 8c3345e USB iPhone/iPad source/API; build + 118 tests, LIMITED (no physical device)
 READY 4817b58 F9 always-write containing display_name; signed build/unit verified; Lead reports fixed
 READY f400c3e QA F8 even-size pixel metadata; unit verified + QA native pass on 3b68bde
@@ -16,16 +17,16 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 ## Reference gap work (2026-10-15)
 - Follow-up local backlog review: no FEATURES capture row is todo; remaining
   acceptance needs host Speech/media, real camera/mic/laptop/USB/Retina, UI/core/
-  editor wiring, or Lead's Git checkpoint. Rebase remains gated by uncommitted
-  owned work and the previously observed read-only Git metadata; no retry/stash
-  workaround. Main is still badc4e4 and capture sources on main have no base delta.
+  editor wiring. Lead checkpointed all code/tests as 9b0cadc and rebased onto
+  badc4e4 during this verification; main is an ancestor of HEAD. Only this status
+  follow-up is uncommitted. Git remains read-only; no stash/permission workaround.
 - CAP-2/M3 hardening follow-up: extracted the existing AV sample validation into
   AuxiliarySamples (same callback/writer queue) and tested the real SegmentWriter
   with genuine injected BGRA video/48 kHz PCM. Camera format changes larger OR
   smaller than negotiation, wrong media, missing clocks and invalid PTS preserve
   prior camera samples while screen/mic continue; failed-before-first-frame cameras
   create no track. Five injected cases across two parameterized regressions pass.
-- Fixed an ordering gap revealed by these cases: the callback previously enqueued
+- Fixed an ordering gap identified while adding these cases: the callback previously enqueued
   disable on its own writer queue, letting already-queued restored-size camera
   frames slip through before disable executed. Validation now disables immediately
   on the writer queue, with dispatch preconditions; device notifications on other
@@ -33,11 +34,20 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   mid-segment, warnings are once per failed track, and other tracks remain usable.
 - Follow-up validation: capture 136 tests / 7 explicit opt-in skips / zero failures
   (20.1 s including hour/100-crash simulation). Rust 69 pass / 1 ignored. Canonical
-  signed build is running. Full Swift host gate from the earlier attempt remains:
+  signed app + strict codesign pass (Yapcam Dev Signing). After Lead rebased onto
+  the icon integration, the canonical app is being rebuilt to verify resource copy. Source/test/status privacy scans and shell syntax
+  checks pass, as does git diff --check. Full Swift host gate from the earlier attempt remains:
   six E2E Metal-unavailable failures plus mixed-runner signal 6, not rerun unchanged.
   Logs: /tmp/yapcam-capture-auxiliary-{focused,tests,rust,app,privacy}.log.
   No app launched, no icon/source outside capture ownership touched. Public APIs
   and package formats are unchanged from the ready handoff below.
+- Cleanup audit: the two previously documented capture-owned isolation roots are
+  still IN USE (main.o0iym76c: PIDs 75979/76125; harness.igb_95s6:
+  PIDs 77512/77831). They were listed and retained. No other team directories
+  inspected/deleted; the current build's tiny Swift wrapper was cleaned by its
+  EXIT trap. Lead's existing request to terminate those stalled jobs outside the
+  sandbox remains. New cleanup plan /tmp/yapcam-capture-auxiliary-cleanup.json is
+  empty because neither old root is safe to delete while in use.
 - Lead icon integration acknowledged: main badc4e4 owns AppIcon.icns,
   CFBundleIconFile and the build-script copy. Capture will not modify/regenerate
   the icon. At this stopping point, 16 owned files remain ready but uncommitted;
@@ -153,9 +163,9 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   and reference A2–A6; own implementation/prose only, no extracted assets/code.
 - Rebase attempt from clean d931104 onto main dee1061 denied creation of Git's
   rebase-merge directory. Lead still checkpoints/rebases/pushes this worktree.
-  Main has since advanced to badc4e4 (app icon); no capture source/test delta
-  between HEAD and main. Please checkpoint/rebase/push the 19 owned changed files
-  (including four new source files and one new test file). No Git workaround used.
+  UPDATE: Lead has since rebased onto badc4e4 (app icon) and checkpointed all
+  19 owned files as 9b0cadc (including four new source files and one new test file).
+  Only the current status follow-up needs checkpointing. No Git workaround used.
   Existing USB source is checkpointed as 8c3345e, not the old WORKTREE label.
 
 ## USB baseline handoff (historical validation; checkpointed)
@@ -753,9 +763,9 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
 
 ## Next / Lead requests
 1. Local capture implementation backlog is exhausted after the CAP-2/M3 sample
-   failure hardening above. Checkpoint/rebase/push the 19 owned reference-gap files
-   (Git still read-only here),
-   review separate SC audio-stream lifetimes and camera negotiation. CAP-1/2/3/6
+   failure hardening above. Code/tests checkpointed as 9b0cadc, rebased onto icon
+   main badc4e4; checkpoint this status follow-up and integrate/push after review.
+   Review separate SC audio-stream lifetimes and camera negotiation. CAP-1/2/3/6
    module work is ready; UI consumes the API/marker shortcut/preflight handoff above;
    core/editor expose marker events through edited source-time mapping. Add public
    options/APIs/marker event/device additions to SWIFT_API/FORMATS. QA runs the
