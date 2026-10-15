@@ -79,7 +79,13 @@ final class MotionProjectTests: XCTestCase {
         let blurred=try pixels(zoom: 0,pan: 1)
         XCTAssertNotEqual(blurred,sharp)
         let outside=(70*320+45)*4
-        XCTAssertLessThan(sharp[outside],3)
-        XCTAssertGreaterThan(blurred[outside],5,"Moving edge contributes outside the current rectangle")
+        // Readback is BGRA. The fixture's upper-left quadrant is red, so blue
+        // remains zero even when the moving edge contributes correctly.
+        for channel in 0..<3 { XCTAssertLessThan(sharp[outside+channel],3) }
+        let red=blurred[outside+2]
+        XCTAssertGreaterThan(red,100,"Moving red edge contributes outside the current rectangle; BGRA=\(Array(blurred[outside..<outside+4]))")
+        XCTAssertLessThan(red,230,"Shutter samples give partial coverage, not a fully shifted opaque edge")
+        XCTAssertLessThan(blurred[outside],3,"Red fixture edge has no blue contribution")
+        print("RENDER_PAN_EDGE sharp_bgra=\(Array(sharp[outside..<outside+4])) blurred_bgra=\(Array(blurred[outside..<outside+4]))")
     }
 }

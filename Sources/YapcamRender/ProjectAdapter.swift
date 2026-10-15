@@ -50,8 +50,8 @@ public extension FrameCompositor {
 }
 
 @MainActor public extension PreviewPlayer {
-    convenience init(project: Project) throws {
-        try self.init(project: project as any RenderProjectSource)
+    convenience init(project: Project,speechEnhancement: SpeechEnhancementSettings? = nil) throws {
+        try self.init(project: project as any RenderProjectSource,speechEnhancement: speechEnhancement)
         observeChanges(name: Project.didChange,object: project)
     }
 }

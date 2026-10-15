@@ -1,0 +1,73 @@
+import Foundation
+
+/// Built privately before publication, then retained by AudioTimeline until native readers finish.
+final class SpeechAudioPreparation: @unchecked Sendable {
+    let directory: URL
+    private(set) var files: [URL: URL] = [:]
+    private(set) var reports: [SpeechEnhancementReport] = []
+    init(root: URL) throws {
+        directory=root.appendingPathComponent("yapcam-speech-mix-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: true)
+    }
+    deinit { try? FileManager.default.removeItem(at: directory) }
+    func process(_ sources: [URL],settings: SpeechEnhancementSettings,progress: @escaping @Sendable (Double) -> Void) async throws {
+        for (index,source) in sources.enumerated() {
+            try Task.checkCancellation()
+            let destination=directory.appendingPathComponent("mic-\(index).caf")
+            let report=try await SpeechEnhancer.processFile(source,to: destination,settings: settings) { value in
+                progress((Double(index)+value)/Double(sources.count))
+            }
+            files[source]=destination; reports.append(report)
+        }
+    }
+}
+
+extension AudioTimeline {
+    /// Preview/export share the same microphone preparation and mapping. Caller supplies a snapshot.
+    static func prepare(project: any RenderProjectSource,range: Range<Int64>,speechEnhancement: SpeechEnhancementSettings? = nil,cacheRoot: URL? = nil,progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> AudioTimeline {
+        try Task.checkCancellation()
+        try speechEnhancement?.validate()
+        let preparation: SpeechAudioPreparation?
+        if let settings=speechEnhancement {
+            let sources=try await worker { try microphoneSources(project: project,range: range) }
+            if sources.isEmpty { preparation=nil }
+            else {
+                let value=try SpeechAudioPreparation(root: cacheRoot ?? FileManager.default.temporaryDirectory)
+                try await value.process(sources,settings: settings,progress: progress)
+                preparation=value
+            }
+        } else { preparation=nil }
+        try Task.checkCancellation()
+        let result=try await worker { try AudioTimeline(project: project,range: range,speechPreparation: preparation) }
+        try Task.checkCancellation()
+        progress(1)
+        return result
+    }
+    private static func microphoneSources(project: any RenderProjectSource,range: Range<Int64>) throws -> [URL] {
+        var sources=Set<URL>()
+        if let rows=try project.renderAudioRanges() {
+            for row in rows {
+                try Task.checkCancellation(); try row.validate()
+                if row.track == .mic && row.tlStartNs<range.upperBound && row.tlEndNs>range.lowerBound && row.fileEndNs>row.fileStartNs {
+                    sources.insert(try packageMediaURL(row.path,root: project.packageURL))
+                }
+            }
+        } else {
+            let manifest=try RecordingManifest.load(package: project.packageURL),clips=try project.renderClips()
+            for segment in manifest.segments {
+                try Task.checkCancellation()
+                guard let path=segment.files["mic"] else { continue }
+                let start=segment.srcStartNs+(segment.trackStartNs["mic"] ?? 0),end=segment.srcStartNs+segment.durationNs
+                if clips.contains(where: { max(start,$0.srcStartNs)<min(end,$0.srcEndNs) }) {
+                    sources.insert(try packageMediaURL(path,root: project.packageURL.appendingPathComponent("recording")))
+                }
+            }
+        }
+        return sources.sorted { $0.path<$1.path }
+    }
+    /// Forward cancellation to detached metadata/composition work and join before releasing caches.
+    private static func worker<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+        let task=Task.detached(priority: .userInitiated) { try Task.checkCancellation(); return try body() }
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+}
