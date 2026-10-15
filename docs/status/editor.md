@@ -1,6 +1,6 @@
 # editor status
 
-READY e824589 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 1795a43 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Rebased on main c1bf553 (full suite 482 green, UISmokeTests skipped). "Add zoom" now uses core's `insert_zoom`, so new zooms inherit the last edited zoom style (real-core test: scale 3.5 carried over). Masks/layout segments still use the old paths (no insert UI to switch). 206 editor tests green.
