@@ -494,8 +494,7 @@ import YapcamEditor
     }
 
     @Test func badArgumentsExplainThemselves() {
-        for bad in [["--capture-selftest", "0"], ["--capture-selftest", "5000"], ["--capture-selftest", "3", "--target", "window:abc"],
-                    ["--capture-selftest", "3", "--target", "area:1,2,3"], ["--capture-selftest", "3", "--target", "area:0,0,8,8"],
+        for bad in [["--capture-selftest", "0"], ["--capture-selftest", "5000"],                     ["--capture-selftest", "3", "--target", "area:1,2,3"], ["--capture-selftest", "3", "--target", "area:0,0,8,8"],
                     ["--capture-selftest", "3", "--target", "screen"], ["--capture-selftest", "3", "--target"]] {
             let (r, e) = parse(bad)
             #expect(r == nil && !(e ?? "").isEmpty, "\(bad)")
@@ -516,5 +515,43 @@ import YapcamEditor
     @Test func hostClockIsMonotonic() {
         let a = SelfTests.hostNs(), b = SelfTests.hostNs()
         #expect(b >= a && a > 0)
+    }
+}
+
+@MainActor @Suite struct SelfTestOptionTests {
+    private func parse(_ a: [String]) -> (SelfTests.CaptureArgs?, String?) {
+        var e: String?
+        let r = SelfTests.parseCapture(["Yapcam"] + a, error: &e)
+        return (r, e)
+    }
+
+    @Test func displayAndWindowTitleTargets() {
+        #expect(parse(["--capture-selftest", "3", "--target", "display"]).0?.target == .display)
+        #expect(parse(["--capture-selftest", "3", "--target", "window:Terminal"]).0?.target == .windowTitle("Terminal"))
+        #expect(parse(["--capture-selftest", "3", "--target", "window:77"]).0?.target == .window(77))
+        #expect(parse(["--capture-selftest", "3", "--target", "window:"]).1 != nil)
+    }
+
+    @Test func noAudioOutAndScriptOptions() {
+        let r = parse(["--capture-selftest", "4", "--no-audio", "--out", "/tmp/qa-out", "--drive-input", "/tmp/s.json"]).0
+        #expect(r?.noAudio == true && r?.outputDirectory == "/tmp/qa-out" && r?.driveInputScript == "/tmp/s.json")
+        #expect(parse(["--capture-selftest", "4"]).0?.noAudio == false)
+        #expect(parse(["--capture-selftest", "4", "--out"]).1 != nil)
+        #expect(parse(["--capture-selftest", "4", "--drive-input", "--no-audio"]).1 != nil)
+    }
+
+    @Test func scriptFileLoadsSortsAndValidates() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-script-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let good = dir.appending(path: "good.json")
+        try Data(#"[{"kind":"click","x":10,"y":20,"at":2},{"kind":"move","x":5,"y":6,"at":0.5}]"#.utf8).write(to: good)
+        let s = try SelfTests.loadScript(good.path)
+        #expect(s.map(\.kind) == [.move, .click] && s[1].x == 10)
+        let bad = dir.appending(path: "bad.json")
+        try Data(#"[{"kind":"drag","x":1,"y":1,"at":0}]"#.utf8).write(to: bad)
+        #expect(throws: EngineError.self) { try SelfTests.loadScript(bad.path) }
+        try Data("not json".utf8).write(to: bad)
+        #expect(throws: (any Error).self) { try SelfTests.loadScript(bad.path) }
     }
 }
