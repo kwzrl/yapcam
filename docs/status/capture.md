@@ -1,4 +1,4 @@
-READY 4c5420b + WORKTREE M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
+READY 7383d08 M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
 READY 4c5420b round-2 C1 no-speech window recovery/warnings; native say host gate pending
 READY a52fc4a AUD-06 groundwork / PCM file tests; native model host gate pending
 READY 63f4abb package 1 AUD-10 implementation/unit tests; real Speech host gate pending
@@ -8,24 +8,50 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 03:39 CEST: main remains 121d9de; no new capture
-  assignment, review finding or native host result. M3's five files still await
-  Lead's checkpoint. Existing validation remains applicable; no repeat test run.
+- Backlog audit 2026-10-15 03:59 CEST: main is still 0df4bbb; no new capture review
+  finding or host acceptance result. Remaining capture/Lead backlog is native Speech,
+  native fragmented-media/live-device verification and termination of the stale runs
+  below. lsof still reports all four listed PIDs using the two retained directories;
+  no additional deletion is safe. No temporary copies or repeat builds/tests created.
+- Lead checkpointed M3 in 7383d08 and integrated it into main 0df4bbb. Capture source
+  and Swift tests match main. Current changes are cleanup documentation/status only.
 - M3 implementation/unit validation complete. The one-hour 60 fps
   writer/event simulation and 100 seeded crash trials pass; capture limits are below.
   Native fragment probe compiles but remains a sandbox media-services host gate.
 - C1 is checkpointed in 4c5420b and integrated; no duplicate fix needed. Lead reports
   main a02a89e green (256 Swift + 97 XCTest + 61 Rust; render 86/86 on Metal).
-- Validation uses main a02a89e source + owned changes. Latest main 121d9de adds only
-  docs/STATUS.md. Signed build and Rust 61 pass; isolated capture suite 100 tests /
+- Validation used main a02a89e source + owned changes. Signed build and Rust 61
+  pass; isolated capture suite 100 tests /
   6 media skips / zero failures. Final main-based run also passes the hour simulation
   and capture tests; full-suite environment failures are recorded below.
-- Local HEAD 4c5420b (parent 78a8a0e). Clean-tree rebase was attempted before M3 edits;
+- Local HEAD 7383d08. Clean-tree rebase onto main 0df4bbb attempted at 03:44 CEST;
   Git still denies creating rebase-merge (Operation not permitted). Lead handles
-  checkpoint/rebase/push. Pending: SegmentWriter.swift, LongSessionTests.swift,
-  NativeFragmentTests.swift, tests README and this status; only capture-owned files.
+  checkpoint/rebase/push. Pending: tests README and this status only.
 - Native Speech/isolation, real capture and long-session encoder/device behavior are
   not established by simulation or the separate renderer Metal hardware results.
+
+## Temporary disk cleanup — 2026-10-15 03:44 CEST
+- Listed exact paths/sizes before deletion and checked open files/cwds with lsof.
+  Deleted 14 completed capture-only repo/harness/build/cache/tool directories:
+  TMPDIR/yapcam-c1-{harness.i_bkzqya,main.cmsqs41i},
+  TMPDIR/yapcam-isolation-{final-build.uxivlpw1,tools.qzyz0s6z},
+  TMPDIR/yapcam-m3-{harness.ua3jj4nm,main.xkum3ts6};
+  /tmp/yapcam-capture-{main-xxcz46te,module-cache,review-main.JPDnEz,review-tools,
+  tools,validation}, /tmp/yapcam-isolation-module-cache and
+  /tmp/yapcam-transcription-main.pnEG9w. Removed four stale c1/m3 pointer files.
+- Allocated size before deletion: 4952432 KiB (4.72 GiB); observed available-space
+  increase: 4737284 KiB (4.52 GiB), to 33379928 KiB. Other teams may be writing
+  concurrently. Retained small validation logs and the exact deletion manifest at
+  /tmp/yapcam-capture-cleanup-plan.json. No generic tmp.* or other-team dirs touched.
+- Still in use, NOT deleted: TMPDIR/yapcam-isolation-main.o0iym76c (PIDs 75979,
+  76125) and TMPDIR/yapcam-isolation-harness.igb_95s6 (PIDs 77512, 77831), about
+  0.95 GiB combined. These are old stalled capture test runs; sandbox signal denial
+  was already established. Lead: terminate those runs outside the sandbox, then
+  capture can delete their directories after confirming no remaining users.
+- Future temporary-directory scripts must install EXIT/HUP/INT/TERM cleanup traps,
+  keep artifacts under one capture run root and wait for children before cleanup.
+  Tests README has the shell template; Swift fixtures already use defer. No new
+  harness copy or build was needed for this cleanup/documentation change.
 
 ## M3 long-session / crash hardening
 - LongSessionTests drives production SegmentWriter routing and InputEventRecorder
@@ -316,8 +342,8 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   checks do not establish real device sync/loss, Retina or multi-display acceptance.
 
 ## Next / Lead requests
-1. Checkpoint M3's five owned files listed above, rebase/advance to main and push
-   under the agreed read-only Git workflow. C1/prior packages are integrated. No other
+1. Checkpoint cleanup docs/status, rebase/advance to main and push under the agreed
+   read-only Git workflow. M3/C1/prior packages are integrated. No other
    independent capture implementation item remains in the current assignment.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run live
