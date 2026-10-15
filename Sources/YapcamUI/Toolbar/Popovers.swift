@@ -188,3 +188,23 @@ struct NotesPopover: View {
         .padding(14).frame(width: 300)
     }
 }
+
+// MARK: - After recording
+
+struct AfterRecordingPopover: View {
+    @EnvironmentObject var settings: AppSettings
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PopoverHeader(title: "After recording")
+            ForEach(AfterRecording.allCases) { a in
+                SelectableRow(selected: settings.afterRecording == a) { settings.afterRecording = a } content: { Text(a.title) }
+            }
+            Divider()
+            Toggle("Create zooms automatically", isOn: $settings.createAutoZooms)
+            Toggle("Show quick export widget", isOn: $settings.showQuickExportWidget)
+            Text("Quick export makes a 1080p MP4 with audio. The widget offers Copy, Save and Edit instead of opening the editor.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14).frame(width: 290)
+    }
+}

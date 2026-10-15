@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor enum UISnapshot {
     static let expectedNames: [String] = {
         var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
-                 "popover-notes", "teleprompter", "overlay-display", "overlay-window",
+                 "popover-notes", "teleprompter", "overlay-display", "overlay-window", "get-ready", "quick-export-widget", "popover-after-recording",
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
                  "settings-storage", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
@@ -85,6 +85,15 @@ import SwiftUI
             WindowOverlayRoot(screenFrame: sample.frame, primaryMaxY: 450, model: previewModel(.window, hover: WindowRow(
                 id: 5, pid: 1, layer: 0, app: "Safari", title: "Yapcam — Overview", bounds: CGRect(x: 130, y: 70, width: 430, height: 290))), start: { _ in })
         }, width: 720) }))
+        out.append(("get-ready", {
+            RecordingController.shared.debugSetPhase(.countdown(5)); RecordingController.shared.debugSetCountdownProgress(0.4)
+            return host(GetReadyCard(cancel: {}, skip: {}).environmentObject(RecordingController.shared), width: 340)
+        }))
+        out.append(("quick-export-widget", {
+            RecordingController.shared.debugSetPhase(.idle)
+            return host(QuickExportWidgetView(model: QuickExportWidgetModel(), close: {}).environmentObject(QuickExport.shared), width: 340)
+        }))
+        out.append(("popover-after-recording", { host(AfterRecordingPopover(), width: 290) }))
         out.append(("popover-audio", { host(SystemAudioPopover(), width: 260) }))
         out.append(("popover-mic", { host(MicrophonePopover(), width: 280) }))
         out.append(("popover-camera", { host(CameraPopover(), width: 280) }))

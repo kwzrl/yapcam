@@ -63,7 +63,7 @@ struct SourceCard: View {
             }
             HStack(spacing: 1) {
                 Button(action: start) {
-                    Text("Start recording").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text(settings.afterRecording.recordLabel).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                         .frame(minWidth: 150, minHeight: 34)
                         .background(UnevenRoundedRectangle(topLeadingRadius: 9, bottomLeadingRadius: 9, bottomTrailingRadius: 0, topTrailingRadius: 0, style: .continuous).fill(Color.red))
                 }
@@ -71,7 +71,7 @@ struct SourceCard: View {
                 .accessibilityLabel("Start recording")
                 Menu {
                     Picker("Frame rate", selection: $settings.maxFPS) { Text("60 fps").tag(60); Text("30 fps").tag(30) }
-                    Picker("Countdown", selection: $settings.countdown) { Text("No countdown").tag(0); Text("3 seconds").tag(3); Text("5 seconds").tag(5) }
+                    Picker("Countdown", selection: $settings.countdown) { Text("No countdown").tag(0); Text("3 seconds").tag(3); Text("5 seconds").tag(5); Text("10 seconds").tag(10) }
                     Toggle("Record system audio", isOn: $settings.systemAudio)
                 } label: {
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)

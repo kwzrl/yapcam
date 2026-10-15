@@ -10,8 +10,8 @@ import YapcamEditor
 
 @Suite struct KeyComboTests {
     @Test func defaultsDisplay() {
-        #expect(KeyCombo.startStop.display == "⌥⌘R")
-        #expect(KeyCombo.pauseResume.display == "⌥⌘P")
+        #expect(HotkeyAction.startStop.defaultCombo?.display == "⌃⌘↩")
+        #expect(HotkeyAction.pauseResume.defaultCombo?.display == "⌥⌘P")
     }
     @Test func codableRoundTrip() throws {
         let c = KeyCombo(keyCode: UInt32(kVK_F5), modifiers: UInt32(controlKey | shiftKey))
@@ -659,7 +659,7 @@ import YapcamEditor
         let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
         let s = AppSettings(store: suite)
         #expect(s.openEditorAfterRecording == true)
-        #expect(s.countdown == 3)
+        #expect(s.countdown == 0)      // None by default (reference)
         s.openEditorAfterRecording = false          // persisted only into this suite
         #expect(AppSettings(store: suite).openEditorAfterRecording == false)
     }
@@ -733,5 +733,94 @@ import YapcamEditor
         // Whole display selected: still inside the bounds.
         let f4 = AreaOverlayBarLayout.frame(size: size, selection: bounds, in: bounds)
         #expect(bounds.contains(f4))
+    }
+}
+
+// MARK: - Reference-aligned shortcuts, countdown, recording widget, after-recording action
+
+@MainActor @Suite struct ReferenceFlowTests {
+    private func settings() -> AppSettings { AppSettings(store: UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!) }
+
+    @Test func defaultShortcutsFollowTheReferenceLayout() {
+        // Physical keys (ANSI codes) and modifiers; the printed character depends on the keyboard layout.
+        let cmdOpt = UInt32(cmdKey | optionKey)
+        let want: [HotkeyAction: (Int, UInt32)] = [
+            .startStop: (kVK_Return, UInt32(cmdKey | controlKey)), .recordDisplay: (kVK_ANSI_3, cmdOpt), .recordWindow: (kVK_ANSI_4, cmdOpt),
+            .recordArea: (kVK_ANSI_5, cmdOpt), .pauseResume: (kVK_ANSI_P, cmdOpt), .restart: (kVK_Delete, cmdOpt),
+            .marker: (kVK_ANSI_F, cmdOpt | UInt32(controlKey)), .toggleWidget: (kVK_ANSI_Quote, cmdOpt), .prompterPlay: (kVK_ANSI_Period, cmdOpt),
+            .toggleNotes: (kVK_ANSI_Slash, cmdOpt), .quickExportCopy: (kVK_ANSI_C, cmdOpt), .quickExportSave: (kVK_ANSI_S, cmdOpt),
+            .openLast: (kVK_ANSI_Z, cmdOpt),
+        ]
+        for (a, d) in want { #expect(a.defaultCombo == KeyCombo(keyCode: UInt32(d.0), modifiers: d.1), "\(a)") }
+        #expect(HotkeyAction.startStop.defaultCombo?.display == "⌃⌘↩")
+        #expect(HotkeyAction.restart.defaultCombo?.display == "⌥⌘⌫")
+        #expect(HotkeyAction.cancel.defaultCombo == nil)
+        #expect(Set(HotkeyAction.allCases.compactMap(\.defaultCombo)).count == HotkeyAction.allCases.compactMap(\.defaultCombo).count)   // no clashes
+    }
+
+    @Test func rebindingStoresOnlyChangesAndResets() {
+        let s = settings()
+        #expect(s.combo(for: .pauseResume) == HotkeyAction.pauseResume.defaultCombo)
+        let mine = KeyCombo(keyCode: 0x23, modifiers: 0x100)
+        s.setCombo(mine, for: .pauseResume)
+        #expect(s.combo(for: .pauseResume) == mine && s.shortcuts.count == 1)
+        s.setCombo(HotkeyAction.pauseResume.defaultCombo, for: .pauseResume)
+        #expect(s.shortcuts.isEmpty)                                   // back to the default stores nothing
+        s.setCombo(nil, for: .marker)
+        #expect(s.combo(for: .marker) == nil)                          // cleared
+        s.resetShortcuts()
+        #expect(s.combo(for: .marker) == HotkeyAction.marker.defaultCombo)
+    }
+
+    @Test func clashesAreFlagged() {
+        let s = settings()
+        s.setCombo(HotkeyAction.recordDisplay.defaultCombo, for: .recordWindow)
+        let c = HotkeyManager.conflicts(in: s)
+        #expect(c == [.recordWindow])
+    }
+
+    @Test func menuKeyEquivalents() {
+        #expect(HotkeyAction.openLast.defaultCombo?.menuKey?.key.count == 1)       // the layout's character for that key
+        #expect(HotkeyAction.openLast.defaultCombo?.menuKey?.flags == [.command, .option])
+        #expect(HotkeyAction.startStop.defaultCombo?.menuKey?.key == "\r")
+        #expect(KeyCombo.none.menuKey == nil)
+    }
+
+    @Test func countdownOptionsAndDefault() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
+        #expect(AppSettings(store: suite).countdown == 0)              // None by default
+        for n in [0, 3, 5, 10] { suite.set(n, forKey: "countdown"); #expect(AppSettings(store: suite).countdown == n) }
+        suite.set(7, forKey: "countdown"); #expect(AppSettings(store: suite).countdown == 0)
+    }
+
+    @Test func afterRecordingDefaultsAndLabels() {
+        let s = settings()
+        #expect(s.afterRecording == .createProject && s.createAutoZooms && !s.showQuickExportWidget && s.showRecordingWidget)
+        #expect(AfterRecording.createProject.recordLabel == "Start recording")
+        #expect(AfterRecording.exportCopy.recordLabel == "Record & Copy" && AfterRecording.exportSave.recordLabel == "Record & Save")
+        s.afterRecording = .exportSave
+        #expect(AppSettings(store: s.debugStore).afterRecording == .exportSave)
+    }
+
+    @Test func markersAreWrittenNextToTheRecording() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-markers-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let pkg = dir.appending(path: "M.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pkg.appending(path: "recording"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        PostRecording.writeMarkers([1_500_000_000, 4_000_000_000], to: pkg)
+        let obj = try JSONSerialization.jsonObject(with: Data(contentsOf: pkg.appending(path: "recording/markers.json"))) as? [String: [Int64]]
+        #expect(obj?["markers_ns"] == [1_500_000_000, 4_000_000_000])
+        // no recording folder → nothing is created
+        PostRecording.writeMarkers([1], to: dir.appending(path: "none.yapcam"))
+        #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "none.yapcam").path))
+    }
+
+    @Test func markerOnlyWhileRecordingAndNotWhenIdle() {
+        let rec = RecordingController.shared
+        rec.debugSetPhase(.idle); rec.addMarker()
+        #expect(rec.markers.isEmpty)
+        rec.debugSetPhase(.paused); rec.addMarker()
+        #expect(rec.markers.isEmpty)
+        rec.debugSetPhase(.idle)
     }
 }

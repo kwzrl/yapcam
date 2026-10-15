@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import YapcamCapture
 import YapcamEditor
 
@@ -15,8 +16,6 @@ import YapcamEditor
 }
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let startStopKey = GlobalHotKey()
-    private let pauseKey = GlobalHotKey()
     private var statusItem: NSStatusItem?
     private var recordingObserver: Any?
 
@@ -98,6 +97,7 @@ import YapcamEditor
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if RecordingController.shared.isRecording { RecordingController.shared.confirmFinish(); return false }
         ToolbarPanelController.shared.show()
         return true
     }
@@ -154,22 +154,19 @@ import YapcamEditor
 
     // MARK: Shortcuts / settings side effects
 
-    private var boundCombos: (KeyCombo, KeyCombo)?
+    private var boundShortcuts: [String: KeyCombo] = [:]
 
     private func bindShortcuts() {
-        let s = AppSettings.shared
-        boundCombos = (s.startStopShortcut, s.pauseShortcut)
-        if !startStopKey.register(s.startStopShortcut, action: { RecordingController.shared.toggleStartStop() }) {
-            Probe.log("could not register start/stop shortcut \(s.startStopShortcut.display)")
-        }
-        if !pauseKey.register(s.pauseShortcut, action: { RecordingController.shared.togglePause() }) {
-            Probe.log("could not register pause shortcut \(s.pauseShortcut.display)")
-        }
+        boundShortcuts = AppSettings.shared.shortcuts
+        HotkeyManager.shared.rebind()
     }
 
     private func applyLiveSettings() {
         let s = AppSettings.shared
-        if let b = boundCombos, b != (s.startStopShortcut, s.pauseShortcut) { bindShortcuts() }
+        if boundShortcuts != s.shortcuts {
+            bindShortcuts()
+            NSApp.mainMenu = MainMenu.build(target: self)      // menu shortcuts follow the settings
+        }
         let wanted: NSApplication.ActivationPolicy = s.showInDock ? .regular : .accessory
         if NSApp.activationPolicy() != wanted { NSApp.setActivationPolicy(wanted) }
         applyMenuBarItem()
@@ -184,9 +181,30 @@ import YapcamEditor
                 item.button?.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Yapcam")
                 item.menu = MainMenu.statusMenu(target: self)
                 statusItem = item
+                observeRecordingForTray()
             }
         } else if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item); statusItem = nil
+        }
+    }
+
+    private var trayObserver: AnyCancellable?
+
+    /// While recording the menu bar icon becomes a stop button; idle it is the app glyph with its menu.
+    private func observeRecordingForTray() {
+        trayObserver = RecordingController.shared.$phase.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] phase in
+            guard let item = self?.statusItem, let button = item.button else { return }
+            if phase == .recording || phase == .paused {
+                item.menu = nil
+                button.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Stop recording")
+                button.contentTintColor = .systemRed
+                button.target = self; button.action = #selector(AppDelegate.toggleRecording)
+            } else {
+                button.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Yapcam")
+                button.contentTintColor = nil
+                button.action = nil
+                item.menu = MainMenu.statusMenu(target: self!)
+            }
         }
     }
 
@@ -195,6 +213,12 @@ import YapcamEditor
     @objc func toggleRecording() { RecordingController.shared.toggleStartStop() }
     @objc func togglePause() { RecordingController.shared.togglePause() }
     @objc func toggleToolbar() { ToolbarPanelController.shared.toggle() }
+    @objc func addMarker() { RecordingController.shared.addMarker() }
+    @objc func restartRecording() { RecordingController.shared.confirmRestart() }
+    @objc func cancelRecording() { RecordingController.shared.confirmCancel() }
+    @objc func openLastRecording() { ProjectActions.openLast() }
+    @objc func quickExportCopy() { QuickExport.shared.runOnLast(.copy) }
+    @objc func quickExportSave() { QuickExport.shared.runOnLast(.save) }
     @objc func showNotes() { NotesWindow.shared.show() }
     @objc func showSettings() { SettingsWindow.shared.show() }
     @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil) }
@@ -231,6 +255,8 @@ extension AppDelegate: NSMenuItemValidation {
             item.title = r.isRecording || r.phase == .countdown(0) ? "Stop Recording" : "Start Recording"
             if case .countdown = r.phase { item.title = "Cancel Countdown" }
             return r.phase != .starting && r.phase != .finishing
+        case #selector(addMarker): return r.phase == .recording
+        case #selector(restartRecording), #selector(cancelRecording): return r.isRecording
         case #selector(togglePause):
             item.title = r.phase == .paused ? "Resume Recording" : "Pause Recording"
             return r.isRecording

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum ToolbarPopover: Hashable { case audio, microphone, camera }
+enum ToolbarPopover: Hashable { case audio, microphone, camera, afterRecording }
 
 
 struct ToolbarView: View {
@@ -74,7 +74,14 @@ struct ToolbarView: View {
             settingsMenu
 
             RecordButton(recording: false, large: true, action: rec.toggleStartStop)
-                .help("Start recording (\(settings.startStopShortcut.display))")
+                .help("\(settings.afterRecording.recordLabel) (\(settings.startStopShortcut.display))")
+                .overlay(alignment: .topTrailing) {
+                    Button { toggle(.afterRecording) } label: {
+                        Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).frame(width: 16, height: 16).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("After recording…").accessibilityLabel("After recording options")
+                }
+                .popover(isPresented: binding(.afterRecording), arrowEdge: edge) { AfterRecordingPopover().environmentObject(settings) }
                 .padding(.top, 2)
         }
     }
@@ -173,8 +180,12 @@ struct ToolbarView: View {
     }
 
     private var busyControls: some View {
-        ProgressView().controlSize(.small).frame(width: 44, height: 90)
-            .accessibilityLabel(rec.phase == .finishing ? "Saving recording" : "Starting recording")
+        VStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            if rec.workingLong { Text("Working…").font(.system(size: 9.5)).foregroundStyle(.secondary) }
+        }
+        .frame(width: 48, height: 90)
+        .accessibilityLabel(rec.phase == .finishing ? "Saving recording" : "Starting recording")
     }
 
     // MARK: Recording
@@ -201,8 +212,10 @@ struct ToolbarView: View {
                           help: "\(paused ? "Resume" : "Pause") (\(settings.pauseShortcut.display))", active: false, action: rec.togglePause)
             RecordButton(recording: true, action: rec.toggleStartStop)
                 .help("Stop recording (\(settings.startStopShortcut.display))")
-            ToolbarButton(symbol: "arrow.counterclockwise", label: "Restart", help: "Discard this take and start over", active: false, action: rec.restart)
-            ToolbarButton(symbol: "trash", label: "Cancel", help: "Discard recording", active: false, action: rec.cancel)
+            ToolbarButton(symbol: "flag", label: "Marker", help: "Add a marker here (\(settings.combo(for: .marker)?.display ?? ""))", active: false,
+                          enabled: !paused, action: rec.addMarker)
+            ToolbarButton(symbol: "arrow.counterclockwise", label: "Restart", help: "Discard this take and start over (asks first)", active: false, action: rec.confirmRestart)
+            ToolbarButton(symbol: "trash", label: "Cancel", help: "Cancel and delete the recording (asks first)", active: false, action: rec.confirmCancel)
         }
     }
 

@@ -73,7 +73,7 @@ struct TeleprompterView: View {
         }
         .panelSurface(cornerRadius: 14)
         .onReceive(tick) { _ in
-            guard speed > 0, rec.phase == .recording else { return }
+            guard speed > 0, rec.prompterPlaying, rec.phase == .recording else { return }
             offset += speed * 0.05
             // Reduce Motion: move in one step per second instead of continuously.
             tickCount += 1

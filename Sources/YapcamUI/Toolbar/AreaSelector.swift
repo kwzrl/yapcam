@@ -297,7 +297,7 @@ private struct AreaBar: View {
             Divider().frame(height: 18)
             Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
             Button(action: confirm) {
-                Text("Start recording").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                Text(AppSettings.shared.afterRecording.recordLabel).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                     .padding(.horizontal, 14).frame(height: 30)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hasRect ? Color.red : Color.gray))
             }
