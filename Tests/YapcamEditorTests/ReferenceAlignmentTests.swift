@@ -394,7 +394,7 @@ import YapcamCore
             #expect(m.string("canvas.aspect") == "source" && g.canvasWidth == 1728 && g.canvasHeight == 1080)   // 320×200 recording → 1728×1080
             #expect(m.number("canvas.radius") == 16 && m.number("canvas.motion_blur") == 1 && m.number("canvas.background.blur") == 0)
             #expect(m.usesPaddingRatio && abs(m.number("canvas.padding_ratio") - 0.10) < 1e-9)
-            #expect(abs(g.dest.minX - 0.10 * min(g.canvasWidth, g.canvasHeight)) < 1.5)                             // 108 px padding
+            #expect(abs(min(g.dest.minX, g.dest.minY) - 0.10 * min(g.canvasWidth, g.canvasHeight)) < 1.5)          // 108 px padding on the constraining axis (content is centered on the other)
             #expect(m.string("cursor.set_id") == "classic" && m.number("cursor.smoothing") == 0 && m.string("cursor.click_effect") == "none")
             #expect(m.springValues(screen: true) == (125, 12, 1.5))
         } else {

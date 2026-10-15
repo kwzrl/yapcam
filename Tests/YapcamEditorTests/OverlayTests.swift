@@ -286,7 +286,8 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
     @Test func invalidChoicesAreRejectedWithStateUnchanged() throws {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let m = try EditorDocument(package: d).model
-        m.set("cursor.set_id", string: "nope"); #expect(m.lastError != nil && m.value("cursor.set_id") == .null)
+        let setBefore = m.value("cursor.set_id")
+        m.set("cursor.set_id", string: "nope"); #expect(m.lastError != nil && m.value("cursor.set_id") == setBefore)
         m.lastError = nil
         m.set("cursor.logical_size", string: "huge"); #expect(m.lastError != nil && m.string("cursor.logical_size") == "regular")
     }
