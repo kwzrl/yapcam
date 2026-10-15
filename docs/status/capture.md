@@ -16,10 +16,11 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Latest continuation check: 2026-10-15 17:11 UTC; main eacbd4d, local HEAD d14646b
-  (rebased through f611874). Capture source/tests match main; Lead's next rebase
-  remains pending. UI reports preset/default isolation fixed (three 465-test runs).
-  No capture-owned code change or native failure was added; local Next is empty.
+- Latest continuation check: 2026-10-15 17:21 UTC; Lead checkpoint b27f94b is based
+  on current main eacbd4d. Capture source/tests match main; rebase is current.
+  No assignment/QA or UI marker-forwarding changes appeared since the last audit.
+  Local Next remains empty; existing capture validation is current. No app launch,
+  repeated tests or Git metadata mutation performed. Only this status is modified.
 - CAP-3 integration discrepancy in updated main FEATURES: the row now lists only
   editor presentation as pending, but RecordingController.addMarker still writes
   elapsed*1e9 into its UI array and EngineSession/LiveEngine expose no capture marker
@@ -811,7 +812,7 @@ Dispatch note for Lead: capture needs a new concrete assignment or native failur
 report to continue implementation; the unchanged consumer rows are already handed off.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint this status and rebase capture HEAD d14646b onto main eacbd4d
+1. Lead: checkpoint this status refresh; capture is rebased onto main eacbd4d
    (Git remains read-only here). UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
    event marker query/TimelineMarker is complete; editor uses tlNs for display and
