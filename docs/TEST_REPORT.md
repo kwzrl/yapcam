@@ -80,8 +80,9 @@ Method: the app's own launch flags (`--capture-selftest N [--target window:<id>|
 | Export option sets (library, `ExportOptionSetsTests`, 5 tests) | PASS | catalogs/defaults/quantisers, default MP4 h264 720p 60 fps, Both = paired h264 + hevc files, GIF 480p HQ and play-once (loop count 1 vs 0) |
 | Copy to clipboard (library) | PASS | exported FILE on a private pasteboard, previous-exports list, missing file rejected |
 | Inspector order and Cmd+1..0 (editor Swift Testing, model level) | PASS | InspectorSectionOrderTests / ReferenceAlignmentTests pass; no physical key presses |
-| Reference hotkey layout, live | **BLOCKED: no in-app hook** | the existing `--live-e2e hotkey` scenario still uses the OLD API (`settings.startStopShortcut`, hardcoded Option-Command flags): it cannot press the new table (start Ctrl-Cmd-Return, display/window/area Opt-Cmd-3/4/5, pause Opt-Cmd-P, restart Opt-Cmd-Backspace). Needs ui hook `--hotkey-selftest` (see Requests). A second Yapcam instance of the main checkout also registers the same global hotkeys: collision risk |
-| After-recording choices (create project / export+copy / export+save) and quick-export widget, live | **BLOCKED: no in-app hook** | `--ui-record-selftest` always uses the default (create project); needs `--after-recording create|copy|save [--quick-widget]` that sets the choice and logs the clipboard file URL / saved file and widget state. Library-level clipboard and export verified |
+| Global hotkeys posted from inside the app (`--ui-record-selftest 10 --hotkey-script ...`, main 97b9d82) | PASS for start/stop, marker, pause, resume; PARTIAL for pick and restart | all 15 combos registered, 0 refusals, every press logged `global=true`. Ctrl-Cmd-Return: idle -> recording and recording -> idle (package complete 4.72 s, editor opened in front). Ctrl-Opt-Cmd-F: markers 0 -> 1 while recording. Opt-Cmd-P: recording -> paused -> recording (expect OK both). Pick hotkeys Opt-Cmd-3/4/5: delivered, phase stays idle, but the following posted Return did NOT start a recording from the overlay, and Ctrl-Cmd-Return in window/area mode answers "Choose a window / Select an area to record first". Restart (Opt-Cmd-Backspace): the script stalls on its confirmation dialog (see F11) |
+| Other Yapcam instance vs hotkeys | checked | before each run a Carbon probe registered all 8 reference combos successfully (nothing else held them), so posted keys could only reach the test instance |
+| After-recording choices (`--ui-record-selftest 6 --after-recording ...`, main 97b9d82) | PASS (create, widget, copy, save) | create: editor opened and in front. widget: quickExportWidgetVisible=true, editor not opened. copy: export state done, clipboard holds 1 file URL (1.43 MB mp4, in ~/Library/Caches/Yapcam/QuickExport). save with `--save-to`: file written, 1728x1080 H.264 + AAC, 6.2 s; 4 of 5 runs fine, 1 run hung after the package with no outcome line (F12, not reproduced in 4 retries) |
 | Autosave then kill (exit 9) then reopen (`--editor-selftest --crash-after-autosave` + `--editor-reopen-check`) | PASS | save state clean before crash; reopened with clips=1 zooms=1 duration 2695 ms padding 72 |
 | Kill with only the journal (`--crash-now` + reopen check) | PASS | unsavedJournalPresent=true; restore path recovers clips=1 zooms=1 padding 72 (state dirty = unsaved restore) |
 | Editor export via the export model (`--editor-export-selftest`) | PASS | 1920x1080, 2.700 s (project 2.695 s), 1 audio track |
@@ -115,6 +116,8 @@ From docs/FEATURES.md (113 rows): verified 38, integrated 47, implemented 18, li
 | F8 | LOW | capture | window recording: session.json pixel_size 1627x1015, video 1626x1014 | fixed in 3b68bde, verified (201x151 window -> [200,150]) |
 | F7 | MEDIUM | process | other processes killed two long runs | resolved by .app-lock rule |
 | F10 | LOW | ui | after Stop the editor was not in front | fixed, verified on 3dd0d3b |
+| F11 | LOW | ui | hook: `--hotkey-script "startStop,wait:3,restart,wait:1,return,..."`: after the restart hotkey the script produces no further log lines (stalls) - the confirmation dialog probably blocks the script's own `return` step; also pick hotkeys + `return` do not start from the overlay | open (hook limitation or real: ui to check whether the overlay window is key so a real Return starts recording) |
+| F12 | LOW | ui | `--after-recording save --save-to <file>` hung once (no `afterRecording=save` line, process alive 9 min, killed by qa); 4 later runs fine | open, intermittent |
 | F4 | LOW | editor | privacy-scan flags an absolute home path in docs/status/editor.md | open |
 Details and repros: docs/status/qa.md.
 
@@ -131,6 +134,7 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | Date | Main | What changed in this report |
 |---|---|---|
 | 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
+| 2026-10-15 20:55 | 97b9d82 | Hotkeys live (start/stop/marker/pause/resume PASS; pick+restart partial, F11) and after-recording create/widget/copy/save PASS (F12 one intermittent hang) |
 | 2026-10-15 19:55 | 3dd0d3b | F10 verified fixed (editor in front after Stop); hotkey and after-recording live checks blocked on missing in-app hooks |
 | 2026-10-15 19:45 | c1bf553 | Live DoD re-run on the integrated gap list: overlay+Start, scripted input, auto-zoom rule, area/window/pause, export option sets, clipboard, inspector order PASS; F10 editor not in front (low); hotkeys and after-recording buttons not run live |
 | 2026-10-15 14:00 | badc4e4 | F9 fixed and verified (window package opens, edit+export OK); default live flow still OK after ui/editor redesigns |
