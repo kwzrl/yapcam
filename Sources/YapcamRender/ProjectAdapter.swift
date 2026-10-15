@@ -23,12 +23,36 @@ extension Project: RenderProjectSource {
         }
         var configuration=RenderConfiguration()
         // Core "pointer", including always_default, denotes the system arrow.
-        // The separately authored pointing hand remains available through custom source configuration.
+        // The separately authored pointing hand is an explicit cursor.shape.
         switch extras.cursor_style {
         case 0: configuration.cursorStyle = .recorded
         case 1,3: configuration.cursorStyle = .arrow
         case 2: configuration.cursorStyle = .touch
         default: throw RenderError.invalidSettings("Core returned unsupported cursor style: \(extras.cursor_style)")
+        }
+        // These selections are root settings. Read Core's effective shape so
+        // always_default wins over a stored shape, without changing frame scale.
+        let options=try renderOptions()
+        configuration.cursorSetID=options.cursorSetId
+        if let shape=options.cursorShape {
+            switch shape {
+            case .arrow: configuration.cursorStyle = .arrow
+            case .pointingHand: configuration.cursorStyle = .pointer
+            case .touch: configuration.cursorStyle = .touch
+            case .text: configuration.cursorStyle = .text
+            case .resizeHorizontal: configuration.cursorStyle = .resizeHorizontal
+            case .resizeVertical: configuration.cursorStyle = .resizeVertical
+            case .resizeDiagonalNWSE: configuration.cursorStyle = .resizeDiagonalNWSE
+            case .resizeDiagonalNESW: configuration.cursorStyle = .resizeDiagonalNESW
+            case .openHand: configuration.cursorStyle = .openHand
+            case .closedHand: configuration.cursorStyle = .closedHand
+            }
+        }
+        switch options.cursorLogicalSize {
+        case .small: configuration.cursorSize = .small
+        case .regular: configuration.cursorSize = .regular
+        case .large: configuration.cursorSize = .large
+        case .extraLarge: configuration.cursorSize = .extraLarge
         }
         let motion=try frameMotion(atNs: atNs)
         configuration.cursorRotationRadians=motion.cursor_rotation_rad
