@@ -17,7 +17,13 @@ final class ScreenQualityTests: XCTestCase {
         var json=try project.query("{\"q\":\"render_options_at\",\"tl_ns\":0}",as: [String:JSONValue].self)
         let decoder=JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         XCTAssertNil(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).screenQuality)
+        // Optional query objects can be empty even while the current Core emits
+        // canonical complete objects. Both must keep the documented defaults.
+        XCTAssertEqual(try JSONDecoder().decode(ScreenQualitySettings.self,from: Data("{}".utf8)),ScreenQualitySettings())
         json["screen_quality"] = .object([:])
+        XCTAssertEqual(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).screenQuality,ScreenQualitySettings())
+        try project.apply(.set(path: "canvas.screen_quality",value: .object([:])))
+        json=try project.query("{\"q\":\"render_options_at\",\"tl_ns\":0}",as: [String:JSONValue].self)
         XCTAssertEqual(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).screenQuality,ScreenQualitySettings())
         for mode in ScreenQualitySettings.Upscaling.allCases {
             json["screen_quality"] = .object(["improve_quality":.number(0.25),"upscaling":.string(mode.rawValue)])

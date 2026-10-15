@@ -68,7 +68,7 @@ extension Project: RenderProjectSource {
             case .closedHand: configuration.cursorStyle = .closedHand
             }
         }
-        switch options.cursorLogicalSize {
+        switch options.cursorLogicalSize ?? .regular {
         case .small: configuration.cursorSize = .small
         case .regular: configuration.cursorSize = .regular
         case .large: configuration.cursorSize = .large

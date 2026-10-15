@@ -45,7 +45,9 @@ final class ScreenDecorationTests: XCTestCase {
         let project=try Project.create(package: root)
         var json=try project.query("{\"q\":\"render_options_at\",\"tl_ns\":0}",as: [String:JSONValue].self)
         let decoder=JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
-        XCTAssertNil(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).insetOrigin)
+        XCTAssertEqual(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).insetOrigin,.zero)
+        json.removeValue(forKey: "inset_origin")
+        XCTAssertNil(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).insetOrigin,"Older query payloads still inherit centered rendering")
         json["inset_origin"] = .array([.number(1),.number(-0.5)])
         XCTAssertEqual(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).insetOrigin,SIMD2(1,-0.5))
         let f=try project.frame(atNs: 0)
