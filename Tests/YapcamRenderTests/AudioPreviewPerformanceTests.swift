@@ -6,6 +6,7 @@ import MetalKit
 final class AudioPreviewPerformanceTests: XCTestCase {
     @MainActor func testAudioPreview1080And4KReportsFPSDropsClockAndRSS() async throws {
         try RenderM3Artifacts.requireLongRun()
+        try requireLivePreviewAccess()
         let device=try requireRenderDevice()
         _ = NSApplication.shared
         let root=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-m3-audio-preview-\(UUID().uuidString)")
@@ -13,6 +14,7 @@ final class AudioPreviewPerformanceTests: XCTestCase {
         let seconds=30.0
         let source=try LongRunSource(package: root,durationSeconds: 45,pulses: [],decodedVideo: true)
         for height in [1080,2160] {
+            try requireLivePreviewAccess()
             let player=try PreviewPlayer(project: source)
             let view=MTKView(frame: NSRect(x: 0,y: 0,width: 640,height: 360),device: device)
             let delegate=PreviewView.Coordinator(player: player)
