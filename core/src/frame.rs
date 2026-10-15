@@ -449,15 +449,14 @@ impl Project {
             let k = (tl_ns - r.tl_start_ns) as f64 / (r.tl_end_ns - r.tl_start_ns) as f64;
             r.start_gain_db + (r.end_gain_db - r.start_gain_db) * k
         });
-        let gain =
-            time::timeline_to_source(&self.data.timeline.clips, tl_ns).map_or(1.0, |(i, _)| {
-                let s = &self.data.timeline.clips[i].settings;
-                if track == "mic" {
-                    s.mic_gain
-                } else {
-                    s.system_gain
-                }
-            });
+        let gain = clip.map_or(1.0, |i| {
+            let s = &self.data.timeline.clips[i].settings;
+            if track == "mic" {
+                s.mic_gain
+            } else {
+                s.system_gain
+            }
+        });
         (10.0f64.powf((base + db) / 20.0) * gain) as f32
     }
     fn cursor_at(&self, f: &mut Frame, src: i64, clip_i: usize) {
@@ -806,6 +805,9 @@ mod m2_tests {
         assert_eq!(p.data, original);
         assert!(p
             .apply(&json!({"op":"apply_preset","preset":{"recording":"../elsewhere"}}))
-            .is_err());
+            .unwrap()
+            .changed
+            .is_empty());
+        assert_eq!(p.data, original);
     }
 }

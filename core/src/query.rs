@@ -142,23 +142,7 @@ impl Project {
                 }
                 Ok(rows.into())
             }
-            "preset" => {
-                let mut cursor = self.data.cursor.clone();
-                cursor.ranges.clear();
-                let mut camera = self.data.camera.clone();
-                camera.layouts.clear();
-                let mut canvas = self.data.canvas.clone();
-                canvas.highlights.clear();
-                canvas.annotations.clear();
-                canvas.reactions.clear();
-                canvas.captions.clear();
-                let mut audio = self.data.audio.clone();
-                audio.ranges.clear();
-                audio.music.clear();
-                Ok(
-                    json!({"canvas":canvas,"cursor":cursor,"camera":camera,"audio":audio,"zoom_settings":self.data.zoom_settings,"export":self.data.export_settings}),
-                )
-            }
+            "preset" => crate::preset::export(&self.data),
             "autosave_policy" => {
                 Ok(json!({"enabled":self.data.autosave,"delay_ns":30_000_000_000_i64}))
             }
@@ -168,6 +152,9 @@ impl Project {
                 json!({"undo_steps":self.undo.len(),"redo_steps":self.redo.len(),"limit":1000,"coalesce_ms":100}),
             ),
             "timeline_constraints" => Ok(crate::editing::constraints()),
+            "camera_style" => Ok(serde_json::to_value(&self.data.camera.style)?),
+            "camera_style_library" => Ok(crate::camera_style::library()),
+            "markers" => Ok(crate::markers::query(self)),
             "typing_suggestions" => Ok(crate::auto::typing_suggestions(self)),
             "speech_enhancement" => self.speech_enhancement_plan(),
             "audio_automation" => Ok(serde_json::to_value(&self.data.audio.ranges)?),

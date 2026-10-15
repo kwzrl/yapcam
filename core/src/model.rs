@@ -234,7 +234,15 @@ pub struct CursorRange {
     pub tl_end_ns: i64,
     pub visible: bool,
 }
+settings!(CameraStyle {
+    preset: String = "original".into(), intensity: f64 = 1.0,
+    warmth: f64 = 0.0, background_pop: f64 = 0.2, contrast: f64 = 0.25,
+    color_intensity: f64 = 0.15, sharpen: f64 = 0.0, grain: f64 = 0.0,
+    background_blur: f64 = 0.0, crop: [f64; 4] = [0.0,0.0,1.0,1.0],
+    lut_path: Option<String> = None
+});
 settings!(Camera {
+    style: CameraStyle = CameraStyle::default(),
     visible: bool = true, position: [f64; 2] = [0.82, 0.78], size: f64 = 0.22,
     shape: String = "rounded_rect".into(), radius: f64 = 24.0,
     mirrored: bool = true, opacity: f64 = 1.0, layouts: Vec<Layout> = vec![],

@@ -67,3 +67,9 @@ mod cursor_catalog;
 mod editing;
 
 mod capabilities;
+
+mod preset;
+
+mod markers;
+
+mod camera_style;

@@ -352,7 +352,9 @@ mod tests {
         assert_eq!(p.data.camera.layouts[0].tl_end_ns, 3_000_000_000);
         assert_eq!(p.data.canvas.highlights[0].tl_end_ns, 3_000_000_000);
         let id = p.data.timeline.clips[0].id.clone();
+        let keys = p.key_overlay_index.clone();
         p.apply(&json!({"op":"set_clip_settings","clip_id":id,"patch":{"mic_gain":0.5,"system_gain":0,"hide_cursor":true,"disable_smoothing":true}})).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&keys, &p.key_overlay_index));
         assert_eq!(p.frame(0).unwrap().mic_gain, 0.5);
         assert_eq!(p.frame(0).unwrap().system_gain, 0.0);
         assert_eq!(p.frame(0).unwrap().cursor_visible, 0);
@@ -360,6 +362,15 @@ mod tests {
             p.query(&json!({"q":"audio_ranges"})).unwrap()[0]["gain"],
             0.0
         );
+        p.apply(&json!({"op":"set","path":"cursor.speed_preset","value":"smooth"}))
+            .unwrap();
+        p.apply(&json!({"op":"set_clip_settings","clip_id":id,"patch":{"hide_cursor":false,"disable_smoothing":true}})).unwrap();
+        let raw = p.frame(500_000_000).unwrap().cursor_x;
+        p.apply(
+            &json!({"op":"set_clip_settings","clip_id":id,"patch":{"disable_smoothing":false}}),
+        )
+        .unwrap();
+        assert_ne!(p.frame(500_000_000).unwrap().cursor_x, raw);
         p.apply(&json!({"op":"split","at_tl_ns":1_000_000_000}))
             .unwrap();
         assert_eq!(

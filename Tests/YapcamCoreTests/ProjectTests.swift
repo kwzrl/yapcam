@@ -558,8 +558,16 @@ private func expectClosed(_ operation: () throws -> Void) {
             #expect(try p.frame(atNs: 0).background_kind == 2)
             let preset = first.appendingPathComponent("image-preset.json")
             try p.exportPreset(to: preset)
+            let exported = try JSONDecoder().decode([String: JSONValue].self, from: Data(contentsOf: preset))
+            if case .object(let canvas)? = exported["canvas"], case .object(let background)? = canvas["background"] {
+                #expect(background["asset"] == nil)
+            } else { Issue.record("Missing background look") }
+            // Deliberately give the destination a different media index.
+            try other.importBackgroundImage(image)
+            try other.apply(.set(path: "canvas.background.kind", value: .string("solid")))
             try other.importPreset(from: preset)
             #expect(try other.frame(atNs: 0).background_kind == 2)
+            #expect(try other.frame(atNs: 0).background_asset != p.frame(atNs: 0).background_asset)
             try other.save()
             #expect(try Project.open(package: second).frame(atNs: 0).background_kind == 2)
             try other.undo()
@@ -1183,5 +1191,159 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         try p.save()
         #expect(try Project.open(package: package).capabilities().deviceFrameActive)
         try p.undo(); #expect(try p.frame(atNs: 0).screen_crop.w == before.screen_crop.w)
+    }
+}
+
+@Test func presetSavedInProjectAAppliesToProjectB() throws {
+    try withFixture { first in
+        try withFixture { second in
+            let source = try Project.create(package: first)
+            let target = try Project.create(package: second)
+            try source.apply(.split(atNs: 2_000_000_000))
+            let sourceClips = try source.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+            try source.apply(.setClipSettings(clipID: sourceClips[1].id, patch: ["hide_cursor": .bool(true)]))
+            try source.apply(.addZoom(ZoomSpec(startNs: 0, endNs: 2_000_000_000)))
+            try source.apply(.set(path: "canvas.padding", value: .number(75)))
+            try source.apply(.set(path: "canvas.crop", value: .array([.number(0.1), .number(0.1), .number(0.7), .number(0.7)])))
+            try target.apply(.split(atNs: 1_000_000_000))
+            try target.apply(.addZoom(ZoomSpec(startNs: 1_000_000_000, endNs: 3_000_000_000)))
+            try target.apply(.insertTimelineItem(.layout))
+            try target.apply(.insertTimelineItem(.mask))
+            func state() throws -> [String: JSONValue] { try JSONDecoder().decode([String: JSONValue].self, from: target.toJSON()) }
+            let before = try state()
+            let file = first.appendingPathComponent("A.yapcampreset")
+            try source.exportPreset(to: file)
+            let exported = try JSONDecoder().decode([String: JSONValue].self, from: Data(contentsOf: file))
+            #expect(exported["timeline"] == nil && exported["zooms"] == nil && exported["recording"] == nil)
+            if case .object(let canvas)? = exported["canvas"] {
+                #expect(canvas["highlights"] == nil && canvas["crop"] == nil && canvas["captions"] == nil)
+            } else { Issue.record("Missing portable canvas style") }
+            try target.importPreset(from: file)
+            let after = try state()
+            for key in ["id", "recording", "media", "timeline", "zooms", "insertion_styles", "notes", "typing"] {
+                #expect(after[key] == before[key])
+            }
+            if case .object(var canvas)? = before["canvas"] {
+                canvas["padding"] = .number(75)
+                canvas["padding_ratio"] = .null
+                #expect(after["canvas"] == .object(canvas))
+            }
+            #expect(after["camera"] == before["camera"])
+            try target.undo()
+            var undone = try state(); undone["modified_at"] = before["modified_at"]
+            #expect(undone == before)
+            try target.redo()
+            try target.save()
+            #expect(try Project.open(package: second).query("{\"q\":\"zooms\"}", as: [JSONValue].self)
+                == target.query("{\"q\":\"zooms\"}", as: [JSONValue].self))
+            // Older files may contain an entire source project. Keep only its look.
+            try source.toJSON().write(to: file)
+            try target.importPreset(from: file)
+            #expect(try state()["timeline"] == before["timeline"])
+            #expect(try state()["zooms"] == before["zooms"])
+        }
+    }
+}
+
+@Test func capturedMarkersMapThroughCutsSpeedSnapshotsAndReopen() throws {
+    try withFixture { package in
+        let firstLog = package.appendingPathComponent("recording/seg-000/events.jsonl")
+        try Data("{\"t\":500000000,\"type\":\"marker\",\"marker_id\":\"first\"}\n{\"t\":1000000000,\"type\":\"marker\",\"marker_id\":\"cut-boundary\"}\n".utf8).write(to: firstLog)
+        let secondLog = package.appendingPathComponent("recording/seg-001/events.jsonl")
+        try Data("{\"t\":250000000,\"type\":\"marker\",\"marker_id\":\"resumed\"}\n".utf8).write(to: secondLog)
+        let p = try Project.create(package: package)
+        let original = try p.markers()
+        #expect(original.map(\.markerID) == ["first", "cut-boundary", "resumed"])
+        #expect(original.map(\.tlNs) == [500_000_000, 1_000_000_000, 3_250_000_000])
+        #expect(original[2].segment == 1 && original[2].segmentNs == 250_000_000)
+        try p.apply(.split(atNs: 1_000_000_000))
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        let split = try p.markers()
+        #expect(split.count == 3 && split[1].clipID == clips[1].id)
+        try p.apply(.setSpeed(clipID: clips[0].id, speed: 2))
+        let sped = try p.markers()
+        #expect(sped.map(\.tlNs) == [250_000_000, 500_000_000, 2_750_000_000])
+        let snapshot = try p.snapshot()
+        try p.apply(.deleteRange(startNs: 400_000_000, endNs: 600_000_000))
+        #expect(try p.markers().map(\.markerID) == ["first", "resumed"])
+        #expect(try snapshot.markers() == sped)
+        try p.undo()
+        #expect(try p.markers() == sped)
+        try p.redo()
+        let cut = try p.markers()
+        try p.save()
+        #expect(try Project.open(package: package).markers() == cut)
+        #expect(try Data(contentsOf: firstLog) == Data("{\"t\":500000000,\"type\":\"marker\",\"marker_id\":\"first\"}\n{\"t\":1000000000,\"type\":\"marker\",\"marker_id\":\"cut-boundary\"}\n".utf8))
+    }
+}
+
+private func identityCubeData() -> Data {
+    let rows = (0..<8).map { "\($0 & 1) \(($0 >> 1) & 1) \(($0 >> 2) & 1)" }.joined(separator: "\n")
+    return Data(("# Original identity fixture\nTITLE \"Core test\"\nLUT_3D_SIZE 2\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n" + rows + "\n").utf8)
+}
+@Test func cubeLUTParserRejectsMalformedUnboundedAndNonfiniteInputs() throws {
+    let valid = identityCubeData()
+    let lut = try CubeLUT(data: valid)
+    #expect(lut.dimension == 2 && lut.values.count == 24)
+    #expect(lut.domainMin == [0,0,0] && lut.domainMax == [1,1,1])
+    let text = String(decoding: valid, as: UTF8.self)
+    for invalid in ["", "LUT_1D_SIZE 2\n0 0 0\n1 1 1", text.replacingOccurrences(of: "LUT_3D_SIZE 2", with: "LUT_3D_SIZE 65"),
+                    text + "0 0 0\n", text.replacingOccurrences(of: "DOMAIN_MAX 1 1 1", with: "DOMAIN_MAX 0 1 1"),
+                    text.replacingOccurrences(of: "1 1 1\n", with: "NaN 1 1\n"), text + "DOMAIN_MIN 0 0 0\n"] {
+        #expect(throws: CoreError.self) { try CubeLUT(data: Data(invalid.utf8)) }
+    }
+    #expect(throws: CoreError.self) { try CubeLUT(data: Data([0xff])) }
+}
+@Test func cameraStylesAndLocalLUTPresetsRemainPortableAndTransactional() throws {
+    try withFixture { first in
+        try withFixture { second in
+            let p = try Project.create(package: first)
+            let target = try Project.create(package: second)
+            #expect(try p.cameraStyle().preset == "original")
+            let recipes = try p.cameraStyleLibrary()
+            #expect(recipes.count == 12 && Set(recipes.map(\.id)).count == 12)
+            try p.apply(.set(path: "camera.style.preset", value: .string(recipes[1].id)))
+            #expect(try p.renderOptions().cameraStyle?.warmth == recipes[1].warmth)
+            try p.apply(.set(path: "camera.style.contrast", value: .number(0.3)))
+            #expect(try p.cameraStyle().preset == "custom")
+            let file = first.appendingPathComponent("identity.cube")
+            let data = identityCubeData(); try data.write(to: file)
+            try p.importCameraLUT(from: file)
+            #expect(try p.cameraLUT()?.dimension == 2)
+            let sourceStyle = try p.cameraStyle()
+            #expect(sourceStyle.preset == "lut" && sourceStyle.lutPath?.hasPrefix("assets/") == true)
+            #expect(try Data(contentsOf: file) == data)
+            let preset = first.appendingPathComponent("camera.yapcampreset")
+            try p.exportPreset(to: preset)
+            let fields = try JSONDecoder().decode([String: JSONValue].self, from: Data(contentsOf: preset))
+            #expect(fields["_camera_lut"] != nil)
+            if case .object(let camera)? = fields["camera"], case .object(let style)? = camera["style"] {
+                #expect(style["lut_path"] == nil && style["crop"] == nil)
+            } else { Issue.record("Missing camera look") }
+            try target.importPreset(from: preset)
+            #expect(try target.cameraLUT() == p.cameraLUT())
+            #expect(try target.cameraStyle().lutPath != sourceStyle.lutPath)
+            try target.save()
+            #expect(try Project.open(package: second).cameraLUT() == p.cameraLUT())
+            try target.undo()
+            #expect(try target.cameraStyle().preset == "original")
+            let before = try p.toJSON()
+            let assets = first.appendingPathComponent("assets")
+            let beforeFiles = try FileManager.default.contentsOfDirectory(atPath: assets.path).sorted()
+            p.close()
+            #expect(throws: CoreError.self) { try p.importCameraLUT(from: file) }
+            #expect(try p.toJSON() == before)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: assets.path).sorted() == beforeFiles)
+            // A malformed LUT after a staged image must clean up the image too.
+            let image = try Data(contentsOf: second.appendingPathComponent("recording/seg-000/cursors/1.png"))
+            let invalid: [String: JSONValue] = ["_background_image": .string(image.base64EncodedString()), "_camera_lut": .string("aW52YWxpZA==")]
+            try JSONEncoder().encode(invalid).write(to: preset)
+            let targetBefore = try target.toJSON()
+            let targetAssets = second.appendingPathComponent("assets")
+            let targetFiles = try FileManager.default.contentsOfDirectory(atPath: targetAssets.path).sorted()
+            #expect(throws: CoreError.self) { try target.importPreset(from: preset) }
+            #expect(try target.toJSON() == targetBefore)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: targetAssets.path).sorted() == targetFiles)
+        }
     }
 }
