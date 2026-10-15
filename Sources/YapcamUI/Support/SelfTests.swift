@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreMedia
 import YapcamCapture
+import YapcamEditor
 
 /// Launch-flag self-tests for QA and CI. All results go to ~/Library/Logs/Yapcam/probe.log.
 ///
@@ -152,7 +153,7 @@ import YapcamCapture
 
     /// Records through the same `RecordingController` path as the Record button, with the toolbar and HUD
     /// on screen. `driveInput` additionally posts scripted CGEvents while recording.
-    static func runUIRecord(seconds: Double, driveInput: Bool) async {
+    static func runUIRecord(seconds: Double, driveInput: Bool, source: String? = nil) async {
         let tag = driveInput ? "drive-input-selftest" : "ui-record-selftest"
         guard seconds > 0, seconds <= 3600 else { Probe.log("\(tag) failed seconds must be in (0, 3600]"); return }
         let settings = AppSettings.shared, rec = RecordingController.shared
@@ -160,12 +161,16 @@ import YapcamCapture
         let saved = (settings.countdown, settings.openEditorAfterRecording, settings.sourceMode)
         defer { (settings.countdown, settings.openEditorAfterRecording, settings.sourceMode) = saved }
         settings.sourceMode = .display
-        settings.openEditorAfterRecording = false
         ToolbarPanelController.shared.show()
         try? await Task.sleep(for: .seconds(1))
         let trusted = AXIsProcessTrusted()
-        Probe.log("\(tag) start seconds=\(seconds) accessibility=\(trusted) inputMonitoring=\(CGPreflightListenEventAccess()) countdown=\(settings.countdown)")
-        rec.begin()
+        Probe.log("\(tag) start seconds=\(seconds) source=\(source ?? "record-button") accessibility=\(trusted) inputMonitoring=\(CGPreflightListenEventAccess()) countdown=\(settings.countdown)")
+        if let source {
+            // The same path a click takes: source overlay → Start recording.
+            guard await startThroughOverlay(source, settings: settings, tag: tag) else { return }
+        } else {
+            rec.begin()
+        }
         guard await waitFor({ rec.phase == .recording }, seconds: Double(settings.countdown) + 20) else {
             Probe.log("\(tag) failed never recording phase=\(rec.phase) alert=\(rec.alert?.message ?? "-")")
             return
@@ -178,11 +183,47 @@ import YapcamCapture
         } else {
             try? await Task.sleep(for: .seconds(seconds))
         }
+        Probe.log("\(tag) overlays while recording: sourceOverlayWindows=\(SourceOverlay.shared.windowCountForTesting) areaOverlayActive=\(AreaSelector.shared.isActive)")
         rec.stop()
         _ = await waitFor({ rec.phase == .idle }, seconds: 60)
         if let a = rec.alert { Probe.log("\(tag) alert \(a.title): \(a.message)") }
         let pkg = newestPackage(in: settings.storageDirectory)
         Probe.log("\(tag) \(pkg == nil ? "failed no package" : "ok") \(pkg?.path ?? "")")
+        // After Stop the editor opens at once, in front, on the new recording.
+        let editor = await waitFor({ EditorBridge.anyDocument() != nil }, seconds: 15)
+        let front = EditorBridge.anyDocument() != nil && NSApp.windows.contains { $0.isKeyWindow && $0.windowController != nil }
+        Probe.log("\(tag) editorOpened=\(editor) editorInFront=\(front) editorPackage=\(EditorBridge.anyDocument()?.project.packageURL.lastPathComponent ?? "-")")
+    }
+
+    /// Display / window / area: show the overlay, then press Start recording the way a click would.
+    private static func startThroughOverlay(_ source: String, settings: AppSettings, tag: String) async -> Bool {
+        switch source {
+        case "display":
+            SourceOverlay.shared.show(.display)
+            try? await Task.sleep(for: .seconds(1.5))
+            Probe.log("\(tag) overlay shown: windows=\(SourceOverlay.shared.windowCountForTesting)")
+            SourceOverlay.shared.startForTesting()
+        case "window":
+            SourceOverlay.shared.show(.window)
+            try? await Task.sleep(for: .seconds(1))
+            let me = ProcessInfo.processInfo.processIdentifier
+            guard let row = WindowHit.onScreenRows().first(where: { $0.layer == 0 && $0.pid != me && $0.bounds.width >= 200 && $0.bounds.height >= 150 }) else {
+                Probe.log("\(tag) failed no window to record"); return false
+            }
+            SourceOverlay.shared.setHoverForTesting(row)
+            try? await Task.sleep(for: .seconds(1))
+            Probe.log("\(tag) overlay shown: windows=\(SourceOverlay.shared.windowCountForTesting) highlighting \(row.app) “\(row.title)” \(Int(row.bounds.width))x\(Int(row.bounds.height))")
+            SourceOverlay.shared.startForTesting(windowRow: row)
+        case "area":
+            settings.areaRect = CGRect(x: 200, y: 150, width: 800, height: 500)
+            AreaPicker.begin()
+            try? await Task.sleep(for: .seconds(1.5))
+            Probe.log("\(tag) area overlay shown: active=\(AreaSelector.shared.isActive)")
+            AreaSelector.shared.confirmForTesting()
+        default:
+            Probe.log("\(tag) failed unknown --source \(source) (use display, window or area)"); return false
+        }
+        return true
     }
 
     /// Posts the scripted events and logs each with the host-clock ns the capture layer also uses.

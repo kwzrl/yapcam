@@ -29,146 +29,20 @@ private struct SelectableRow<Content: View>: View {
     }
 }
 
-// MARK: - Source pickers (opened from the toolbar's Display / Window / Device buttons)
-
-struct DisplayPopover: View {
-    let dismiss: () -> Void
-    @EnvironmentObject var settings: AppSettings
-    @State private var displays = Displays.all()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            PopoverHeader(title: "Display")
-            ForEach(displays) { d in
-                SelectableRow(selected: Displays.resolve(settings.displayID)?.id == d.id) {
-                    settings.displayID = d.id; settings.sourceMode = .display; dismiss()
-                } content: {
-                    Image(systemName: "display").frame(width: 20)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(d.name)
-                        Text("\(Int(d.pixelSize.width)) × \(Int(d.pixelSize.height))").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .padding(14).frame(width: 260)
-        .onAppear { displays = Displays.all() }
-    }
-}
-
-struct WindowPopover: View {
-    let dismiss: () -> Void
-    @EnvironmentObject var settings: AppSettings
-    @StateObject private var windows = WindowList()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                PopoverHeader(title: "Window")
-                Spacer()
-                Button { Task { await windows.reload() } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless).help("Refresh window list").accessibilityLabel("Refresh window list")
-            }
-            if let e = windows.error, windows.windows.isEmpty {
-                Text(e).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 80)
-            } else if windows.windows.isEmpty {
-                ProgressView("Looking for windows…").controlSize(.small).frame(maxWidth: .infinity, minHeight: 120)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                        ForEach(windows.windows) { w in
-                            WindowCell(info: w, selected: settings.windowID == w.id, thumbnail: windows.thumbnails[w.id]) {
-                                settings.windowID = w.id; settings.sourceMode = .window; dismiss()
-                            }
-                            .onAppear { windows.loadThumbnail(for: w.id) }
-                        }
-                    }.padding(.vertical, 2)
-                }
-                .frame(height: 340)
-            }
-        }
-        .padding(14).frame(width: 400)
-        .task { await windows.reload() }
-    }
-}
-
-struct DevicePopover: View {
-    let dismiss: () -> Void
-    @EnvironmentObject var settings: AppSettings
-    @ObservedObject var model = DeviceScreensModel.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            PopoverHeader(title: "Device")
-            if model.devices.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "iphone.gen3.radiowaves.left.and.right").font(.system(size: 30)).foregroundStyle(.tertiary)
-                        .accessibilityHidden(true)
-                    Text("Connect an iPhone or iPad via USB").font(.system(size: 13, weight: .medium))
-                    Text(model.error ?? (model.loaded ? "Unlock it and tap Trust if it asks. It appears here when it is ready."
-                                                      : "Looking for devices…"))
-                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, minHeight: 130)
-            } else {
-                ForEach(model.devices) { d in
-                    SelectableRow(selected: settings.deviceID == d.id || model.devices.count == 1) {
-                        settings.deviceID = d.id; settings.sourceMode = .device; dismiss()
-                    } content: {
-                        Image(systemName: "iphone").frame(width: 20)
-                        Text(d.name).lineLimit(1)
-                    }
-                }
-                Text("Touches on the device are not recorded as cursor events.").font(.caption).foregroundStyle(.secondary)
-                    .padding(.top, 4)
-            }
-        }
-        .padding(14).frame(width: 280)
-        .onAppear { model.startPolling() }
-        .onDisappear { if settings.sourceMode != .device { model.stopPolling() } }
-    }
-}
-
 /// Starts the area overlay right away (Area button); the chosen rectangle is saved in settings.
 @MainActor enum AreaPicker {
     static func begin() {
+        SourceOverlay.shared.hide()
         let settings = AppSettings.shared
         if Displays.info(for: settings.areaDisplayID) == nil { settings.areaDisplayID = Displays.resolve(0)?.id ?? 0 }
         guard let screen = Displays.screen(for: settings.areaDisplayID) ?? NSScreen.main else { return }
         let keep = settings.areaDisplayID == screen.displayID ? settings.areaRect : nil
         AreaSelector.shared.begin(on: screen, initial: keep) { rect in
-            if let rect, let id = screen.displayID { settings.areaDisplayID = id; settings.areaRect = rect }
+            guard let rect, let id = screen.displayID else { return }
+            settings.areaDisplayID = id; settings.areaRect = rect; settings.sourceMode = .area
+            // The overlay has left the screen by the time the countdown/recording starts.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { RecordingController.shared.begin() }
         }
-    }
-}
-
-private struct WindowCell: View {
-    let info: WindowInfo
-    let selected: Bool
-    let thumbnail: NSImage?
-    let action: () -> Void
-    @State private var hover = false
-    @Environment(\.contrastOpacity) private var contrast
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 4) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(contrast.subtleFill))
-                    if let t = thumbnail { Image(nsImage: t).resizable().scaledToFit().padding(2) }
-                    else { ProgressView().controlSize(.small) }
-                }
-                .frame(height: 88)
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? Color.accentColor : (hover ? Color.primary.opacity(contrast.outline) : .clear), lineWidth: 2))
-                Text(info.displayTitle).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                Text(info.appName).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .accessibilityLabel("\(info.displayTitle), \(info.appName)")
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

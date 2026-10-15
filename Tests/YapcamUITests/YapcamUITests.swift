@@ -664,3 +664,74 @@ import YapcamEditor
         #expect(AppSettings(store: suite).openEditorAfterRecording == false)
     }
 }
+
+// MARK: - Recording flow: source overlays
+
+@MainActor @Suite struct RecordingFlowTests {
+    @Test func toolbarOffersDisplayWindowAreaOnly() {
+        #expect(SourceMode.toolbarModes == [.display, .window, .area])
+        #expect(!SourceMode.toolbarModes.contains(.device))
+    }
+
+    @Test func aSavedDeviceModeFallsBackToDisplay() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
+        suite.set("device", forKey: "sourceMode")
+        #expect(AppSettings(store: suite).sourceMode == .display)
+        suite.set("window", forKey: "sourceMode")
+        #expect(AppSettings(store: suite).sourceMode == .window)
+    }
+
+    @Test func cgPointAndRectConversionAcrossArrangements() {
+        // primary 1680×1050 at the origin; a second display above it and one to the left.
+        let primaryMaxY: CGFloat = 1050
+        let above = CGRect(x: 0, y: 1050, width: 1512, height: 982)        // AppKit frame
+        let left = CGRect(x: -1440, y: 0, width: 1440, height: 900)
+        // The mouse at AppKit (100, 1000) is 50 pt below the top of the primary display.
+        #expect(OverlayGeometry.cgPoint(fromAppKit: CGPoint(x: 100, y: 1000), primaryMaxY: primaryMaxY) == CGPoint(x: 100, y: 50))
+        // A window on the primary at CG (200,100,400×300) is the same rect locally.
+        let main = CGRect(x: 0, y: 0, width: 1680, height: 1050)
+        #expect(OverlayGeometry.localRect(cg: CGRect(x: 200, y: 100, width: 400, height: 300), screenFrame: main, primaryMaxY: primaryMaxY)
+                == CGRect(x: 200, y: 100, width: 400, height: 300))
+        // On the display above, CG y is negative; 20 pt below that display top edge is y = -982+20.
+        let local = OverlayGeometry.localRect(cg: CGRect(x: 10, y: -982 + 20, width: 300, height: 200), screenFrame: above, primaryMaxY: primaryMaxY)
+        #expect(local == CGRect(x: 10, y: 20, width: 300, height: 200))
+        // On the display to the left: x is negative in both systems.
+        let l = OverlayGeometry.localRect(cg: CGRect(x: -1400, y: 50, width: 300, height: 200), screenFrame: left, primaryMaxY: primaryMaxY)
+        #expect(l == CGRect(x: 40, y: 50 - (1050 - 900), width: 300, height: 200))
+    }
+
+    @Test func windowUnderCursorIsTheTopmostRecordableOne() {
+        func row(_ id: UInt32, pid: Int32 = 10, layer: Int = 0, _ r: CGRect) -> WindowRow { WindowRow(id: id, pid: pid, layer: layer, app: "A", title: "t", bounds: r) }
+        let rows = [
+            row(1, layer: 25, CGRect(x: 0, y: 0, width: 1680, height: 30)),       // menu bar: layer ≠ 0
+            row(2, pid: 99, CGRect(x: 100, y: 100, width: 500, height: 400)),     // ours (overlay): excluded
+            row(3, CGRect(x: 150, y: 150, width: 300, height: 200)),              // front window
+            row(4, CGRect(x: 100, y: 100, width: 800, height: 600)),              // behind
+            row(5, CGRect(x: 0, y: 0, width: 40, height: 40)),                    // too small
+        ]
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 200, y: 200), excludingPID: 99)?.id == 3)
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 700, y: 650), excludingPID: 99)?.id == 4)
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99) == nil)
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 1600, y: 1000), excludingPID: 99) == nil)
+    }
+
+    @Test func startCardSitsNextToTheAreaSelection() {
+        let bounds = CGRect(x: 0, y: 0, width: 1680, height: 1050)
+        let size = CGSize(width: 520, height: 52)
+        // Room below: bar under the selection, centered on it.
+        let a = CGRect(x: 200, y: 150, width: 800, height: 500)
+        let f1 = AreaOverlayBarLayout.frame(size: size, selection: a, in: bounds)
+        #expect(f1.minY >= a.maxY && abs(f1.midX - a.midX) < 0.5)
+        // Selection reaches the bottom: bar goes above it.
+        let b = CGRect(x: 200, y: 500, width: 800, height: 540)
+        let f2 = AreaOverlayBarLayout.frame(size: size, selection: b, in: bounds)
+        #expect(f2.maxY <= b.minY)
+        // Selection at the far right: bar stays on screen.
+        let c = CGRect(x: 1500, y: 100, width: 170, height: 100)
+        let f3 = AreaOverlayBarLayout.frame(size: size, selection: c, in: bounds)
+        #expect(f3.maxX <= bounds.maxX - 8 && f3.minX >= 8)
+        // Whole display selected: still inside the bounds.
+        let f4 = AreaOverlayBarLayout.frame(size: size, selection: bounds, in: bounds)
+        #expect(bounds.contains(f4))
+    }
+}

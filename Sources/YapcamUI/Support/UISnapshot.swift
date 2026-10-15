@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor enum UISnapshot {
     static let expectedNames: [String] = {
         var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
-                 "popover-notes", "teleprompter", "popover-display", "popover-window", "popover-device",
+                 "popover-notes", "teleprompter", "overlay-display", "overlay-window",
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
                  "settings-storage", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
@@ -59,12 +59,32 @@ import SwiftUI
         return h
     }
 
+    private static func previewModel(_ kind: SourceOverlayModel.Kind, hover: WindowRow? = nil) -> SourceOverlayModel {
+        let m = SourceOverlayModel(kind: kind); m.activeDisplayID = 1; m.hover = hover; return m
+    }
+
+    /// A stand-in desktop so the overlays read as they do on screen.
+    private struct OverlayPreview<Content: View>: View {
+        @ViewBuilder var content: Content
+        var body: some View {
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.25, green: 0.35, blue: 0.55), Color(red: 0.55, green: 0.40, blue: 0.60)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.9)).frame(width: 430, height: 290).offset(x: -25, y: -5)
+                RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.7)).frame(width: 220, height: 150).offset(x: 210, y: 110)
+                content
+            }.frame(width: 720, height: 450)
+        }
+    }
+
     private static func extraViews() -> [(String, () -> NSView)] {
         let s = AppSettings.shared
         var out: [(String, () -> NSView)] = []
-        out.append(("popover-display", { host(DisplayPopover(dismiss: {}), width: 260) }))
-        out.append(("popover-window", { host(WindowPopover(dismiss: {}), width: 400) }))
-        out.append(("popover-device", { host(DevicePopover(dismiss: {}), width: 280) }))
+        let sample = DisplayInfo(id: 1, name: "SyncMaster", frame: CGRect(x: 0, y: 0, width: 720, height: 450), scale: 1)
+        out.append(("overlay-display", { host(OverlayPreview { DisplayOverlayRoot(display: sample, model: previewModel(.display), start: { _ in }) }, width: 720) }))
+        out.append(("overlay-window", { host(OverlayPreview {
+            WindowOverlayRoot(screenFrame: sample.frame, primaryMaxY: 450, model: previewModel(.window, hover: WindowRow(
+                id: 5, pid: 1, layer: 0, app: "Safari", title: "Yapcam — Overview", bounds: CGRect(x: 130, y: 70, width: 430, height: 290))), start: { _ in })
+        }, width: 720) }))
         out.append(("popover-audio", { host(SystemAudioPopover(), width: 260) }))
         out.append(("popover-mic", { host(MicrophonePopover(), width: 280) }))
         out.append(("popover-camera", { host(CameraPopover(), width: 280) }))

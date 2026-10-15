@@ -10,6 +10,8 @@ import SwiftUI
 
     var isActive: Bool { window != nil }
     func cancelForTesting() { end(nil) }
+    /// Presses Start recording exactly as Return does (self-tests).
+    func confirmForTesting() { (window?.contentView as? AreaOverlayView)?.confirm() }
     var debugContentView: NSView? { window?.contentView }
 
     func begin(on screen: NSScreen, initial: CGRect?, completion: @escaping (CGRect?) -> Void) {
@@ -69,6 +71,8 @@ private final class AreaOverlayView: NSView {
     private enum Handle: CaseIterable { case tl, t, tr, r, br, b, bl, l }
     private var drag = Drag.none
     private var bar: NSHostingView<AreaBar>?
+
+    func confirm() { if let r = rect { onFinish?(r.integral) } }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -270,10 +274,11 @@ private final class AreaOverlayView: NSView {
         }
         guard let bar else { return }
         let size = bar.fittingSize
-        bar.frame = CGRect(x: bounds.midX - size.width / 2, y: bounds.maxY - size.height - 60, width: size.width, height: size.height)
+        bar.frame = AreaOverlayBarLayout.frame(size: size, selection: rect, in: bounds)
     }
 
     override func viewDidMoveToWindow() { updateBar() }
+
 }
 
 private struct AreaBar: View {
@@ -291,10 +296,31 @@ private struct AreaBar: View {
             .pickerStyle(.segmented).labelsHidden().frame(width: 260).accessibilityLabel("Aspect ratio")
             Divider().frame(height: 18)
             Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
-            Button("Use Area", action: confirm).keyboardShortcut(.defaultAction).disabled(!hasRect)
+            Button(action: confirm) {
+                Text("Start recording").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 14).frame(height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hasRect ? Color.red : Color.gray))
+            }
+            .buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(!hasRect)
+            .accessibilityLabel("Start recording")
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .panelSurface(cornerRadius: 12)
         .padding(4)
+    }
+}
+
+/// Where the Start-recording card goes relative to the selection (view coordinates, top-left origin).
+enum AreaOverlayBarLayout {
+    static func frame(size: CGSize, selection: CGRect?, in bounds: CGRect) -> CGRect {
+        let gap: CGFloat = 14
+        guard let r = selection else {
+            return CGRect(x: bounds.midX - size.width / 2, y: bounds.maxY - size.height - 60, width: size.width, height: size.height)
+        }
+        var y = r.maxY + gap                                      // larger y is lower on screen
+        if y + size.height > bounds.maxY - 8 { y = r.minY - gap - size.height }
+        if y < 8 { y = min(bounds.maxY - size.height - 8, r.maxY - size.height - gap) }   // no room either side: inside, at the bottom
+        let x = min(max(8, r.midX - size.width / 2), bounds.maxX - size.width - 8)
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 }

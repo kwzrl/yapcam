@@ -1,4 +1,4 @@
-READY ui: live record→stop→editor verified, toolbar/HUD absent from video; BUG for core+render: export with audio fails on real recordings (see status)
+READY ui: recording-flow brief implemented (source overlays with Start recording, editor opens at once after stop, Device removed); unit-tested and rendered light/dark; NOT yet run live (user instance running)
 
 READY ui: QA self-test launch flags (--capture-selftest options, --ui-record-selftest, --drive-input-selftest) built, tested, run live; NOTE for QA: this app does NOT have Accessibility/Input Monitoring (logged accessibility=false)
 
@@ -149,6 +149,17 @@ Ran with `open -n -W`, no lock, no other instance, script aborts on any skip; I 
 - Global hotkeys via `--live-e2e <dir> hotkey` (Accessibility now granted): ⌥⌘R started recording, ⌥⌘P → paused, ⌥⌘P → recording, ⌥⌘R → idle with a package. Verified.
 - User guide updated (hotkeys verified, known audio-export issue removed, recovery wording).
 Still unverified: real mic/camera (no devices), VoiceOver, multi-display, Retina.
+
+## Recording flow brief (docs/briefs/recording-flow.md) — READY
+- Source → start in one step: Display / Window / Area toolbar buttons now open overlays (`Toolbar/SourceOverlay.swift`, `AreaSelector`) with the card: title + "1680×1050 · 60 fps", big **Start recording** + chevron menu (fps, countdown, system audio), "Esc to cancel".
+  - Display: dimmed overlay on every display, the card on the display under the pointer (follows the mouse across displays), click Start.
+  - Window: tinted fill + outline on the topmost window under the pointer (CGWindowList front-to-back, own windows and tiny/non-normal windows ignored), card with app, title and size inside it; click the window or the button.
+  - Area: the drag/handles/size-label/aspect-preset overlay; the card now reads Start recording and sits next to the selection (below, else above, else inside); Return starts.
+  - All overlay windows are registered with `CaptureExclusions`; they close before the countdown/recording begins. The toolbar Record button still starts with the last used source.
+- Stop → editor: `LiveEngine.openEditor` opens the editor and brings it to the front (`EditorBridge.bringEditorsToFront`); the stop paths (toolbar, hotkey, menu bar) all go through `RecordingController.stop`. The "Open the editor when a recording stops" setting is gone from Settings (the flag still exists for self-tests, default true, isolated defaults).
+- Device removed from the toolbar (`SourceMode.toolbarModes`; a saved device mode falls back to Display); capture wiring kept.
+- QA hooks: `--ui-record-selftest <sec> --source display|window|area` goes through overlay + Start (display: the overlay card's Start; window: highlights the first normal window then Start; area: 800×500 at (200,150) then Start). It logs `overlay shown: windows=N`, `overlays while recording: sourceOverlayWindows=0 areaOverlayActive=false`, and after stop `editorOpened=… editorInFront=… editorPackage=…`. NOT RUN LIVE: the user's Yapcam instance is running (rule), so only unit tests and in-test rendering so far.
+- Tests: `RecordingFlowTests` (toolbar modes, saved device mode fallback, CG↔local rect conversion on stacked/left displays, window-under-cursor pick order, Start-card placement). Snapshots (viewed light + dark, 1×/2×): `overlay-display`, `overlay-window`, `area-overlay` (+ all toolbar states). 365 tests pass.
 
 ## Lead parts 1–3 (toolbar redesign etc.)
 1. DEFAULTS BUG fixed: `AppDefaults.store` is the one place preferences live; every self-test/QA/snapshot launch flag (`AppDefaults.selfTestFlags`) switches to the throw-away suite `mov.yapcam.Yapcam.selftest` (reset each launch) before anything is read, so scripted runs never write user settings. `openEditor` defaults to true (it already did; the 0 came from an old self-test) and I removed my stale `countdown`/`windowID` keys from the user's defaults. Tests `SelfTestIsolationTests`.
