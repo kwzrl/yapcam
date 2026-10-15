@@ -56,3 +56,6 @@ pub mod spring;
 pub mod effects;
 
 pub mod motion;
+
+#[cfg(test)]
+mod hardening;

@@ -300,3 +300,33 @@ cuts, undo/save/reopen, zero allocation, layout/clamp bounds, type-flicker and j
 fixtures, long Int64 tail settings, and prerelease schema migration with unchanged
 media/clocks. Cursor tilt/per-kind rendering and UI controls remain integration
 work for Render/Editor; actual hardware pixel checks are separate from model proof.
+
+
+## M3 reproducible hardening harnesses
+
+Run the normal suite with `cargo test --manifest-path core/Cargo.toml`. It includes
+a frozen schema corpus in Tests/Fixtures/schema, exact-field migration/round-trip
+checks, a fractional-edge oracle for indexed cut mapping, and 10,000 seeded random
+JSON commands sent through the actual C ABI. Fuzz failures print seed, step and
+command; checks cover rollback/history, valid state/frame outputs, immutable
+snapshots, invalid UTF-8/JSON/deep batches and 100 durable save/open round trips.
+The new Swift MigrationTests also opens frozen v0/v1 packages through the ABI.
+
+The large benchmark is deliberately ignored by the normal suite; run:
+
+```sh
+CARGO_BUILD_JOBS=4 cargo test --release --manifest-path core/Cargo.toml scale_60_minutes -- --ignored --nocapture
+```
+
+It generates a 60-minute capture model with 3,600,000 events at 1kHz in memory,
+5,000 clips and 1,000 zooms; no generated events or recordings enter the repository.
+Media references come from copied synthetic fixtures. This measures evaluator/edit
+scaling, not pixel decoding or capture-file load time. It calls the real yc_frame_at
+boundary at 2,048 seeded random times after 32 warm-ups, checks zero hot allocations,
+and reports nearest-rank p50/p99/max wall-clock latency from Instant. Property
+apply/undo each have 64 samples with autosave off and on; speed/split/30-minute cut
+and auto-zoom each have eight durable samples. Edit measurements include actual
+journal writes/fsyncs when enabled. Save includes durable project/.prev publication;
+project.json size is measured from the file. Limits: frame p99 <=1ms and every
+sampled edit <=50ms. Times are host/load-specific; read docs/status/core.md for
+the workload, measured results, and before/after fixes.

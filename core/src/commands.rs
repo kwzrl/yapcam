@@ -153,12 +153,12 @@ fn apply_inner(
             if a < 0 || b <= a || b > time::duration(&p.timeline.clips) {
                 return Err(Error::new(1, "Invalid delete range"));
             }
+            let index = time::ClipTimeIndex::new(&p.timeline.clips);
             let mut clips = Vec::new();
             let mut removed = Vec::new();
             for (i, c) in p.timeline.clips.iter().enumerate() {
-                let left_end = time::timeline_boundary_to_source(&p.timeline.clips, i, a).unwrap();
-                let right_start =
-                    time::timeline_boundary_to_source(&p.timeline.clips, i, b).unwrap();
+                let left_end = index.boundary_to_source(&p.timeline.clips, i, a).unwrap();
+                let right_start = index.boundary_to_source(&p.timeline.clips, i, b).unwrap();
                 if left_end == right_start {
                     clips.push(c.clone());
                 } else {

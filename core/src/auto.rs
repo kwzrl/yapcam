@@ -23,10 +23,20 @@ pub fn generate_zooms(
     }
     let points = context.session.source.content_rect_points;
     let mut candidates = Vec::new();
-    for (i, _) in p.timeline.clips.iter().enumerate() {
+    let time_index = time::ClipTimeIndex::new(&p.timeline.clips);
+    for (i, clip) in p.timeline.clips.iter().enumerate() {
         for (seg, events) in context.session.segments.iter().zip(&context.events) {
             let mut cursor = [points[2] / 2.0, points[3] / 2.0];
-            for e in events {
+            let a = events.partition_point(|e| seg.src_start_ns + e.t < clip.src_start_ns);
+            let b = events.partition_point(|e| seg.src_start_ns + e.t < clip.src_end_ns);
+            if let Some(e) = events[..a]
+                .iter()
+                .rev()
+                .find(|e| e.x.is_some() && e.y.is_some())
+            {
+                cursor = [e.x.unwrap(), e.y.unwrap()];
+            }
+            for e in &events[a..b] {
                 if let (Some(x), Some(y)) = (e.x, e.y) {
                     cursor = [x, y];
                 }
@@ -34,7 +44,7 @@ pub fn generate_zooms(
                     continue;
                 }
                 if let Some(t) =
-                    time::source_to_timeline(&p.timeline.clips, i, seg.src_start_ns + e.t)
+                    time_index.source_to_timeline(&p.timeline.clips, i, seg.src_start_ns + e.t)
                 {
                     candidates.push((
                         t,
@@ -200,6 +210,41 @@ mod tests {
     use super::*;
     use crate::{model::Event, project::tests::Fixture};
     use serde_json::json;
+    #[test]
+    fn windowed_candidates_keep_prior_coordinates_and_repeat_on_each_clip() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.events[0] = [
+            json!({"t":0,"type":"move","x":32,"y":40}),
+            json!({"t":700_000_000,"type":"key","key":"a"}),
+            json!({"t":900_000_000,"type":"key","key":"b","x":256,"y":100}),
+        ]
+        .into_iter()
+        .map(|v| serde_json::from_value(v).unwrap())
+        .collect();
+        p.events[1].clear();
+        p.data.timeline.clips = vec![
+            Clip {
+                id: "retained".into(),
+                src_start_ns: 600_000_000,
+                src_end_ns: 900_000_000,
+                speed: 1.0,
+            },
+            Clip {
+                id: "repeat".into(),
+                src_start_ns: 600_000_000,
+                src_end_ns: 900_000_000,
+                speed: 2.0,
+            },
+        ];
+        p.apply(&json!({"op":"auto_zooms"})).unwrap();
+        assert_eq!(p.data.zooms.len(), 1);
+        assert_eq!(p.data.zooms[0].target, [0.1, 0.2]);
+        assert_eq!(p.data.zooms[0].tl_end_ns, 450_000_000);
+        let before = p.data.clone();
+        p.apply(&json!({"op":"auto_zooms"})).unwrap();
+        assert_eq!(p.data, before);
+    }
     #[test]
     fn clusters_typing_manual_preservation_and_global_off() {
         let f = Fixture::new();

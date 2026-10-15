@@ -81,6 +81,11 @@ impl Fraction {
         }
     }
     fn add(self, b: Self) -> Self {
+        if self.d == 1 && b.d == 1 {
+            if let Some(n) = self.n.checked_add(b.n) {
+                return Self { n, d: 1 };
+            }
+        }
         let g = gcd(self.d, b.d);
         let left = b.d / g;
         let right = self.d / g;
@@ -112,6 +117,9 @@ impl Fraction {
         Self::new(scaled, 1i128 << 32)
     }
     fn round(self) -> i64 {
+        if self.d == 1 {
+            return self.n.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+        }
         let n = self.n.abs();
         let value = n / self.d
             + if n % self.d >= self.d / 2 + self.d % 2 {
@@ -123,11 +131,17 @@ impl Fraction {
         signed.clamp(i64::MIN as i128, i64::MAX as i128) as i64
     }
     fn greater_than(self, t: i64) -> bool {
+        if self.d == 1 {
+            return self.n > t as i128;
+        }
         let whole = self.n / self.d;
         whole > t as i128 || (whole == t as i128 && self.n % self.d > 0)
     }
 }
 fn exact_duration(c: &Clip) -> Fraction {
+    if c.speed == 1.0 {
+        return Fraction::integer(c.src_end_ns - c.src_start_ns);
+    }
     let speed = Fraction::rate(c.speed);
     Fraction::new((c.src_end_ns - c.src_start_ns) as i128 * speed.d, speed.n)
 }
@@ -187,43 +201,90 @@ impl SpeedTimeMap {
 }
 /// Actual quantized source intervals removed by a cut, expressed on the old
 /// rational timeline. Effects shift by media actually removed, not a Double sum.
+/// Cold prefix table reuses the same rational sums as the allocation-free map.
+/// Build once per edit, rather than recomputing every earlier clip for every boundary.
+pub(crate) struct ClipTimeIndex {
+    starts: Vec<Fraction>,
+}
+impl ClipTimeIndex {
+    pub(crate) fn new(clips: &[Clip]) -> Self {
+        let mut starts = Vec::with_capacity(clips.len() + 1);
+        let mut start = Fraction::integer(0);
+        starts.push(start);
+        for c in clips {
+            start = start.add(exact_duration(c));
+            starts.push(start);
+        }
+        Self { starts }
+    }
+    pub(crate) fn source_to_timeline(&self, clips: &[Clip], i: usize, src: i64) -> Option<i64> {
+        let c = clips.get(i)?;
+        if src < c.src_start_ns || src >= c.src_end_ns {
+            return None;
+        }
+        let rate = Fraction::rate(c.speed);
+        Some(
+            self.starts[i]
+                .add(Fraction::new(
+                    (src - c.src_start_ns) as i128 * rate.d,
+                    rate.n,
+                ))
+                .round(),
+        )
+    }
+    pub(crate) fn boundary_to_source(&self, clips: &[Clip], i: usize, tl: i64) -> Option<i64> {
+        boundary_to_source(clips.get(i)?, self.starts[i], tl)
+    }
+}
+struct CutSpan {
+    start: Fraction,
+    end: Fraction,
+    removed_before: Fraction,
+}
 pub(crate) struct CutTimeMap {
-    spans: Vec<(Fraction, Fraction)>,
+    spans: Vec<CutSpan>,
+    total: Fraction,
 }
 impl CutTimeMap {
     pub(crate) fn new(clips: &[Clip], removed: &[(usize, i64, i64)]) -> Self {
-        let spans = removed
-            .iter()
-            .map(|&(i, a, b)| {
-                let c = &clips[i];
-                let rate = Fraction::rate(c.speed);
-                let start = start_of(&clips[..i]);
-                let at = |src| {
-                    start.add(Fraction::new(
-                        (src - c.src_start_ns) as i128 * rate.d,
-                        rate.n,
-                    ))
-                };
-                (at(a), at(b))
-            })
-            .collect();
-        Self { spans }
+        let index = ClipTimeIndex::new(clips);
+        let mut spans = Vec::with_capacity(removed.len());
+        let mut total = Fraction::integer(0);
+        for &(i, a, b) in removed {
+            let c = &clips[i];
+            let rate = Fraction::rate(c.speed);
+            let at = |src| {
+                index.starts[i].add(Fraction::new(
+                    (src - c.src_start_ns) as i128 * rate.d,
+                    rate.n,
+                ))
+            };
+            let start = at(a);
+            let end = at(b);
+            spans.push(CutSpan {
+                start,
+                end,
+                removed_before: total,
+            });
+            total = total.add(end.subtract(start));
+        }
+        Self { spans, total }
     }
     pub(crate) fn map(&self, t: i64) -> i64 {
-        let mut removed = Fraction::integer(0);
-        for &(a, b) in &self.spans {
-            if t == a.round() || t == b.round() {
-                return a.subtract(removed).round();
-            }
-            if a.greater_than(t) {
-                break;
-            }
-            if b.greater_than(t) {
-                return a.subtract(removed).round();
-            }
-            removed = removed.add(b.subtract(a));
+        // Pick the first rounded end >= t. Keeping the FIRST coincident edge
+        // preserves the original mapper's sub-ns/snapped-boundary behavior.
+        let i = self.spans.partition_point(|s| s.end.round() < t);
+        let Some(s) = self.spans.get(i) else {
+            return Fraction::integer(t).subtract(self.total).round();
+        };
+        if t == s.start.round()
+            || t == s.end.round()
+            || (!s.start.greater_than(t) && s.end.greater_than(t))
+        {
+            s.start.subtract(s.removed_before).round()
+        } else {
+            Fraction::integer(t).subtract(s.removed_before).round()
         }
-        Fraction::integer(t).subtract(removed).round()
     }
 }
 pub fn duration(clips: &[Clip]) -> i64 {
@@ -246,8 +307,9 @@ pub fn source_boundary_to_timeline(clips: &[Clip], clip_index: usize, src: i64) 
     Some(start_of(&clips[..clip_index]).add(delta).round())
 }
 pub fn timeline_boundary_to_source(clips: &[Clip], clip_index: usize, tl: i64) -> Option<i64> {
-    let c = clips.get(clip_index)?;
-    let start = start_of(&clips[..clip_index]);
+    boundary_to_source(clips.get(clip_index)?, start_of(&clips[..clip_index]), tl)
+}
+fn boundary_to_source(c: &Clip, start: Fraction, tl: i64) -> Option<i64> {
     // Preserve canonical snapped edges, including the rounded duration endpoint.
     if tl <= start.round() {
         return Some(c.src_start_ns);
@@ -320,6 +382,81 @@ pub fn sample(session: &Session, track: &str, src: i64) -> Sample {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn indexed_clip_and_cut_maps_match_linear_oracle_at_fractional_edges() {
+        let mut clips = Vec::new();
+        let mut src = 0;
+        for i in 0..97 {
+            let length = if i == 43 {
+                (1_i64 << 53) + 37
+            } else {
+                1 + (i * 197) % 10000
+            };
+            clips.push(Clip {
+                id: format!("oracle-{i}"),
+                src_start_ns: src,
+                src_end_ns: src + length,
+                speed: [1.0, 1.5, 3.0, 32.0, 1.000000001][i as usize % 5],
+            });
+            src += length;
+        }
+        let index = ClipTimeIndex::new(&clips);
+        let mut removed = Vec::new();
+        for (i, c) in clips.iter().enumerate() {
+            for src in [
+                c.src_start_ns,
+                c.src_start_ns + (c.src_end_ns - c.src_start_ns) / 2,
+                c.src_end_ns - 1,
+            ] {
+                assert_eq!(
+                    index.source_to_timeline(&clips, i, src),
+                    source_to_timeline(&clips, i, src)
+                );
+            }
+            let (a, b) = clip_bounds(&clips, i).unwrap();
+            for t in [a.saturating_sub(1), a, a + 1, b.saturating_sub(1), b, b + 1] {
+                assert_eq!(
+                    index.boundary_to_source(&clips, i, t),
+                    timeline_boundary_to_source(&clips, i, t)
+                );
+            }
+            if i % 3 != 1 {
+                removed.push((i, c.src_start_ns, c.src_end_ns));
+            }
+        }
+        let map = CutTimeMap::new(&clips, &removed);
+        let linear = |t| {
+            let mut removed = Fraction::integer(0);
+            for span in &map.spans {
+                let a = span.start;
+                let b = span.end;
+                if t == a.round() || t == b.round() {
+                    return a.subtract(removed).round();
+                }
+                if a.greater_than(t) {
+                    break;
+                }
+                if b.greater_than(t) {
+                    return a.subtract(removed).round();
+                }
+                removed = removed.add(b.subtract(a));
+            }
+            Fraction::integer(t).subtract(removed).round()
+        };
+        for span in &map.spans {
+            for t in [
+                span.start.round().saturating_sub(1),
+                span.start.round(),
+                span.start.round() + 1,
+                span.end.round().saturating_sub(1),
+                span.end.round(),
+                span.end.round() + 1,
+            ] {
+                assert_eq!(map.map(t), linear(t), "cut oracle at {t}");
+            }
+        }
+        assert_eq!(map.map(duration(&clips)), linear(duration(&clips)));
+    }
     #[test]
     fn tiny_speed_changes_are_not_rounded_away() {
         let length = (1_i64 << 53) + 37;

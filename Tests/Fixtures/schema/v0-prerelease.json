@@ -1,0 +1,17 @@
+{
+  "schema_version": 0,
+  "id": "frozen-v0-prerelease",
+  "created_at": "2026-10-14T21:00:00Z",
+  "modified_at": "2026-10-14T21:00:00Z",
+  "recording": "recording/session.json",
+  "timeline": {
+    "clips": [
+      {
+        "id": "frozen-clip",
+        "src_start_ns": 0,
+        "src_end_ns": 5000000000,
+        "speed": 1.0
+      }
+    ]
+  }
+}
