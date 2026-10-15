@@ -20,7 +20,7 @@ public struct VectorCursorSet: Sendable, Equatable, Identifiable {
 }
 
 public extension VectorCursorLibrary {
-    /// Twelve Yapcam sets, each with arrow, pointing-hand and touch artwork (36 selections).
+    /// Twelve original Yapcam sets; each provides every VectorCursorStyle at four logical sizes.
     static let presets: [VectorCursorSet] = {
         let ink=SIMD4<Float>(0.08,0.08,0.08,1),white=SIMD4<Float>(1,1,1,1)
         func set(_ id: String,_ title: String,_ category: VectorCursorSet.Category,
@@ -51,8 +51,8 @@ public extension VectorCursorLibrary {
         ]
     }()
     static func preset(id: String) -> VectorCursorSet? { presets.first { $0.id==id } }
-    static func artwork(_ style: VectorCursorStyle,setID: String,scale: CGFloat = 2) throws -> VectorCursorArtwork {
+    static func artwork(_ style: VectorCursorStyle,setID: String,size: VectorCursorSize = .regular,scale: CGFloat = 2) throws -> VectorCursorArtwork {
         guard let preset=preset(id: setID) else { throw RenderError.invalidSettings("Unknown original cursor set: \(setID)") }
-        return try artwork(style,preset: preset,scale: scale)
+        return try artwork(style,preset: preset,size: size,scale: scale)
     }
 }
