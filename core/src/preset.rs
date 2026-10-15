@@ -46,6 +46,8 @@ fn filter(input: &Value, schema: &Value) -> Value {
                 .iter()
                 .filter_map(|(key, shape)| {
                     let value = input.get(key)?;
+                    let supplied_fields =
+                        value.as_object().is_some_and(|fields| !fields.is_empty());
                     // An invalid style object must fail validation rather than silently
                     // accepting it as an empty patch.
                     let value = if shape.is_object() && !value.is_object() {
@@ -53,6 +55,14 @@ fn filter(input: &Value, schema: &Value) -> Value {
                     } else {
                         filter(value, shape)
                     };
+                    // Ignoring an unknown-only object must not select an optional
+                    // setting whose current value is null. Explicit {} still opts in.
+                    if shape.is_object()
+                        && supplied_fields
+                        && value.as_object().is_some_and(|fields| fields.is_empty())
+                    {
+                        return None;
+                    }
                     Some((key.clone(), value))
                 })
                 .collect(),

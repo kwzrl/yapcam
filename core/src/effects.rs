@@ -940,3 +940,92 @@ mod envelope_regressions {
         assert_eq!(p.frame_extras(0).unwrap().fade_opacity, 0.0);
     }
 }
+
+#[cfg(test)]
+mod inset_origin_tests {
+    use crate::project::{decode_project, tests::Fixture, Project};
+    use serde_json::json;
+
+    #[test]
+    fn inset_origin_is_centered_for_legacy_and_portable_without_frame_changes() {
+        let fixture = Fixture::new();
+        let mut project = Project::create(&fixture.0).unwrap();
+        let query = json!({"q":"render_options_at","tl_ns":500_000_000});
+        assert_eq!(
+            project.query(&query).unwrap()["inset_origin"],
+            json!([0.0, 0.0])
+        );
+        let frame = project.frame(500_000_000).unwrap();
+        let snapshot = project.clone();
+        project
+            .apply(&json!({"op":"set","path":"canvas.inset_origin","value":[1,-1]}))
+            .unwrap();
+        assert_eq!(
+            project.query(&query).unwrap()["inset_origin"],
+            json!([1.0, -1.0])
+        );
+        assert_eq!(
+            project.query(&json!({"q":"render_options"})).unwrap()["inset_origin"],
+            json!([1.0, -1.0])
+        );
+        assert_eq!(
+            project
+                .query(&json!({"q":"effects_at","tl_ns":500_000_000}))
+                .unwrap()["render_options"]["inset_origin"],
+            json!([1.0, -1.0])
+        );
+        assert_eq!(
+            snapshot.query(&query).unwrap()["inset_origin"],
+            json!([0.0, 0.0])
+        );
+        assert_eq!(
+            project.frame(500_000_000).unwrap().screen_dest,
+            frame.screen_dest
+        );
+        for invalid in [
+            json!([0]),
+            json!([0, 0, 0]),
+            json!([1.01, 0]),
+            json!([0, -1.01]),
+            json!([null, 0]),
+            json!({}),
+            json!(null),
+        ] {
+            let before = project.data.clone();
+            let steps = project.undo.len();
+            assert!(project.apply(&json!({"op":"batch","commands":[{"op":"set","path":"notes","value":"rollback"},{"op":"set","path":"canvas.inset_origin","value":invalid}]})).is_err());
+            assert_eq!(project.data, before);
+            assert_eq!(project.undo.len(), steps);
+        }
+        project.undo().unwrap();
+        assert_eq!(
+            project.query(&query).unwrap()["inset_origin"],
+            json!([0.0, 0.0])
+        );
+        project.redo().unwrap();
+        let preset = project.query(&json!({"q":"preset"})).unwrap();
+        project
+            .apply(&json!({"op":"set","path":"canvas.inset_origin","value":[0,0]}))
+            .unwrap();
+        project
+            .apply(&json!({"op":"apply_preset","preset":preset}))
+            .unwrap();
+        project.save(&fixture.0).unwrap();
+        assert_eq!(
+            Project::open(&fixture.0).unwrap().query(&query).unwrap()["inset_origin"],
+            json!([1.0, -1.0])
+        );
+        let mut legacy = serde_json::to_value(&project.data).unwrap();
+        legacy["canvas"]
+            .as_object_mut()
+            .unwrap()
+            .remove("inset_origin");
+        assert_eq!(
+            decode_project(&serde_json::to_vec(&legacy).unwrap())
+                .unwrap()
+                .canvas
+                .inset_origin,
+            [0.0, 0.0]
+        );
+    }
+}

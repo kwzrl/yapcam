@@ -3,6 +3,7 @@ import Testing
 import YapcamCore
 
 @Test func projectScreenQualityIsExplicitPortableAndPreservesLegacyRendering() throws {
+    #expect(try JSONDecoder().decode(CoreScreenQuality.self, from: Data("{}".utf8)) == CoreScreenQuality())
     let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     let package = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-core-quality-\(UUID().uuidString).yapcam")
     defer { try? FileManager.default.removeItem(at: package) }
@@ -38,4 +39,24 @@ import YapcamCore
     try project.setScreenQuality(nil)
     try project.save()
     #expect(try Project.open(package: package).renderOptions().screenQuality == nil)
+}
+
+@Test func insetOriginIsPortableAndKeepsCenteredLegacyDefault() throws {
+    let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let package = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-core-inset-\(UUID().uuidString).yapcam")
+    defer { try? FileManager.default.removeItem(at: package) }
+    try FileManager.default.copyItem(at: fixtures.appendingPathComponent("Fixtures/synthetic/basic.yapcam"), to: package)
+    let project = try Project.create(package: package)
+    #expect(try project.renderOptions().insetOrigin == [0,0])
+    let snapshot = try project.snapshot()
+    try project.apply(.set(path: "canvas.inset_origin", value: .array([.number(-1),.number(1)])))
+    #expect(try project.renderOptions(atNs: 500_000_000).insetOrigin == [-1,1])
+    #expect(try snapshot.renderOptions().insetOrigin == [0,0])
+    let before = try project.toJSON()
+    #expect(throws: CoreError.self) { try project.apply(.set(path: "canvas.inset_origin", value: .array([.number(1.1),.number(0)]))) }
+    #expect(try project.toJSON() == before)
+    try project.undo(); #expect(try project.renderOptions().insetOrigin == [0,0])
+    try project.redo()
+    try project.save()
+    #expect(try Project.open(package: package).renderOptions().insetOrigin == [-1,1])
 }
