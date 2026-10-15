@@ -1,6 +1,6 @@
 # editor status
 
-READY d693808 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 45be9b8 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - ED-5 glass loupe: zoom inspector Style Classic / Glass loupe with lens size (0.25–0.75), bevel, colour fringing; zoom rows read `style`/`lens` from core; real-core round-trip (clamping, undo). 212 editor tests green. Lens pixels in preview/export not looked at (render owns sampling). FEATURES.md GAP-ED-5/RND-5 rows can drop the "editor lens control pending" note.
