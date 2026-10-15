@@ -115,6 +115,7 @@ struct PreviewSubmissionMetrics {
     public func setPreviewSettings(_ settings: PreviewSettings) throws {
         try settings.validate()
         guard settings != previewSettings else { return }
+        try compositor.setScreenQualityOverride(settings.screenQuality)
         let rateChanged=settings.playbackRate != previewSettings.playbackRate
         if rateChanged {
             updateClock() // Finish the old rate before changing the host-clock anchor.

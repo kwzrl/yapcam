@@ -20,6 +20,7 @@ public final class FrameCompositor: @unchecked Sendable {
     private var needsVisualInvalidation = false
     private var totalSourceOpens = 0
     private var motionBlurEnabled = true
+    private var screenQualityOverride: ScreenQualitySettings?
     private let framesPerSecond: Int
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
@@ -30,8 +31,11 @@ public final class FrameCompositor: @unchecked Sendable {
     private var cameraLUTs: [URL: CameraLUTTexture] = [:]
     private let empty: MTLTexture
 
-    public init(device: MTLDevice, project: any RenderProjectSource, framesPerSecond: Int = 60) throws {
+    public init(device: MTLDevice, project: any RenderProjectSource, framesPerSecond: Int = 60,
+                screenQuality: ScreenQualitySettings? = nil) throws {
         guard (1...60).contains(framesPerSecond) else { throw RenderError.invalidSettings("Compositor frame rate must be 1...60") }
+        try screenQuality?.validate()
+        screenQualityOverride=screenQuality
         self.framesPerSecond=framesPerSecond
         self.device = device; self.project = project
         identityLUT = try CameraLUTTexture(CubeLUT.identity(), device: device)
@@ -62,6 +66,12 @@ public final class FrameCompositor: @unchecked Sendable {
     var sourceOpenCount: Int { lock.withLock { totalSourceOpens } }
     /// Cheap preview-only switch; does not rebuild audio, snapshots or decoders.
     public func setMotionBlurEnabled(_ enabled: Bool) { invalidationLock.withLock { motionBlurEnabled=enabled } }
+    /// Applies to subsequent encodes without reopening sources. Nil restores the
+    /// evaluated project setting; an explicit zero/off selection bypasses processing.
+    public func setScreenQualityOverride(_ settings: ScreenQualitySettings?) throws {
+        try settings?.validate()
+        invalidationLock.withLock { screenQualityOverride=settings }
+    }
     private func decoded(_ sample: YcSample, track: String) throws -> TextureFrame? {
         guard sample.present != 0 else { return nil }
         guard let segment = manifest.segment(at: sample.segment), let path = segment.files[track] else { throw RenderError.missingMedia("Missing \(track) in segment \(sample.segment)") }
@@ -85,15 +95,16 @@ public final class FrameCompositor: @unchecked Sendable {
     /// A preview generation supplies its frozen source so edits cannot mix frame/effects.
     func encode(_ frame: YcFrame,from project: any RenderProjectSource,to target: MTLTexture,in cb: MTLCommandBuffer) throws {
         lock.lock(); defer { lock.unlock() }
-        let (invalidate,visuals,blurEnabled) = invalidationLock.withLock {
-            let value=(needsInvalidation,needsVisualInvalidation,motionBlurEnabled)
+        let (invalidate,visuals,blurEnabled,qualityOverride) = invalidationLock.withLock {
+            let value=(needsInvalidation,needsVisualInvalidation,motionBlurEnabled,screenQualityOverride)
             needsInvalidation=false; needsVisualInvalidation=false; return value
         }
         if invalidate { sources.removeAll(); cameraEffects.invalidate(); CVMetalTextureCacheFlush(cache,0) }
         if invalidate || visuals { images.removeAll(); cameraLUTs.removeAll(); cursorMetadata.removeAll(); layerRenderer.invalidate() }
         guard target.pixelFormat == .bgra8Unorm_srgb, frame.canvas_w > 0, frame.canvas_h > 0 else { throw RenderError.metal("Compositor requires an sRGB BGRA target and nonzero canvas") }
         let effects = try project.renderEffects(atNs: frame.tl_ns,canvasSize: CGSize(width: Int(frame.canvas_w),height: Int(frame.canvas_h)))
-        let options = effects.configuration
+        var options = effects.configuration
+        if let qualityOverride { options.screenQuality=qualityOverride }
         try validateFrame(frame,configuration: options,layers: effects.layers)
         let screen = try decoded(frame.screen, track: "screen")
         let camera = try decoded(frame.camera, track: "camera")
