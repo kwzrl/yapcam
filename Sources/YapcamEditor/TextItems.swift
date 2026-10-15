@@ -9,6 +9,8 @@ public enum TextKind: String, CaseIterable, Sendable {
 }
 
 /// Annotation / reaction / caption record (core `canvas.annotations|reactions|captions`).
+public struct CaptionWord: Equatable, Sendable { public var text: String; public var startNs: Int64, endNs: Int64 }
+
 public struct TextItem: Equatable, Identifiable, Sendable {
     public var id: String
     public var kind: TextKind
@@ -19,6 +21,11 @@ public struct TextItem: Equatable, Identifiable, Sendable {
     public var fontSize: Double
     public var color: [Double], background: [Double]
     public var radius: Double, opacity: Double
+    /// Style members the editor does not edit directly (font_family, reveal, growth, entrance, language, …), kept verbatim.
+    public var extraStyle: [String: JSONValue] = [:]
+    /// Caption word timing from core (absolute timeline ns); rescaled when the caption is retimed, dropped when its text changes.
+    public var words: [CaptionWord] = []
+    var parsedSpan: TimeSpan?
     public var span: TimeSpan { TimeSpan(startNs: startNs, endNs: endNs) }
 
     public static func make(_ kind: TextKind, id: String, start: Int64, end: Int64, text: String) -> TextItem {
@@ -56,7 +63,17 @@ extension EditorModel {
                 let c = nums(st["color"]), bg = nums(st["background"])
                 if c.count == 4 { t.color = c }; if bg.count == 4 { t.background = bg }
                 t.radius = num(st["radius"], 12); t.opacity = num(st["opacity"], 1)
+                let known: Set<String> = ["font_size", "color", "background", "radius", "opacity"]
+                t.extraStyle = st.filter { !known.contains($0.key) }
             }
+            if case .array(let ws)? = o["words"] {
+                t.words = ws.compactMap { w in
+                    guard case .object(let wo) = w, case .string(let s)? = wo["text"], case .number(let a)? = wo["tl_start_ns"],
+                          case .number(let b)? = wo["tl_end_ns"] else { return nil }
+                    return CaptionWord(text: s, startNs: Int64(a), endNs: Int64(b))
+                }
+            }
+            t.parsedSpan = TimeSpan(startNs: t.startNs, endNs: t.endNs)
             return t
         }
     }
@@ -66,10 +83,21 @@ extension EditorModel {
 
     private func json(_ t: TextItem) -> JSONValue {
         func arr(_ a: [Double]) -> JSONValue { .array(a.map { .number($0) }) }
-        return .object(["id": .string(t.id), "tl_start_ns": .number(Double(t.startNs)), "tl_end_ns": .number(Double(t.endNs)),
-                        "text": .string(t.text), "rect": arr(t.rect), "space": .string(t.space),
-                        "style": .object(["font_size": .number(t.fontSize), "color": arr(t.color), "background": arr(t.background),
-                                          "radius": .number(t.radius), "opacity": .number(t.opacity)])])
+        var style = t.extraStyle
+        for (k, v) in ["font_size": JSONValue.number(t.fontSize), "color": arr(t.color), "background": arr(t.background),
+                       "radius": .number(t.radius), "opacity": .number(t.opacity)] { style[k] = v }
+        var o: [String: JSONValue] = ["id": .string(t.id), "tl_start_ns": .number(Double(t.startNs)), "tl_end_ns": .number(Double(t.endNs)),
+                                      "text": .string(t.text), "rect": arr(t.rect), "space": .string(t.space), "style": .object(style)]
+        if t.kind == .caption, !t.words.isEmpty { o["words"] = .array(rescaled(t).map { w in
+            .object(["text": .string(w.text), "tl_start_ns": .number(Double(w.startNs)), "tl_end_ns": .number(Double(w.endNs))]) }) }
+        return .object(o)
+    }
+    /// Word timing follows the caption when it is moved or resized (linear, integer arithmetic like core's retiming).
+    private func rescaled(_ t: TextItem) -> [CaptionWord] {
+        guard let old = t.parsedSpan, old.durationNs > 0, old != TimeSpan(startNs: t.startNs, endNs: t.endNs) else { return t.words }
+        let newLen = t.endNs - t.startNs
+        func map(_ x: Int64) -> Int64 { t.startNs + Int64((Double(x - old.startNs) * Double(newLen) / Double(old.durationNs)).rounded()) }
+        return t.words.map { CaptionWord(text: $0.text, startNs: map($0.startNs), endNs: max(map($0.endNs), map($0.startNs) + 1)) }
     }
     private func writeText(_ kind: TextKind, _ items: [TextItem]) { set(kind.path, .array(items.map(json))) }
     func writeTextList(_ kind: TextKind, _ items: [TextItem]) { writeText(kind, items) }
@@ -80,13 +108,20 @@ extension EditorModel {
         guard end - start >= minItemNs else { lastError = "Not enough room here."; return nil }
         var t = TextItem.make(kind, id: "\(kind.rawValue)-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end,
                               text: text ?? (kind == .annotation ? "Your text" : kind == .caption ? "Caption" : "👍"))
-        if kind == .caption { t = captionLook.apply(to: t, outputHeight: outputHeight) }
+        if kind == .caption {
+            t = captionLook.apply(to: t, outputHeight: outputHeight)
+            for (k, v) in captionTypography { t.extraStyle[k] = .string(v) }
+        }
         writeText(kind, textItems(kind) + [t])
         guard lastError == nil else { return nil }
         selection = .text(kind, t.id); return t.id
     }
     public func updateText(_ kind: TextKind, id: String, _ change: (inout TextItem) -> Void) {
-        writeText(kind, textItems(kind).map { var t = $0; if t.id == id { change(&t) }; return t })
+        writeText(kind, textItems(kind).map {
+            var t = $0
+            if t.id == id { change(&t); if t.text != $0.text { t.words = [] } }       // corrected text no longer matches its word timing
+            return t
+        })
     }
     public func removeText(_ kind: TextKind, id: String) { writeText(kind, textItems(kind).filter { $0.id != id }) }
 

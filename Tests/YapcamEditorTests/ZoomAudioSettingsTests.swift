@@ -177,3 +177,39 @@ import YapcamCore
         #expect(EditorCommand.set(path: "cursor.size_points", value: .number(2)).isVisualOnly)
     }
 }
+
+@MainActor @Suite struct CaptionTypographyTests {
+    @Test func typographyAndWordTimingSurviveCaptionEdits() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("ct-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        m.seek(toNs: 500_000_000)
+        let id = try #require(m.addText(.caption, text: "hello brave world"))
+        m.setCaptionTypography("font_family", "serif"); m.setCaptionTypography("reveal", "word"); m.setCaptionTypography("language", "en-US")
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        var c = try #require(m.textItems(.caption).first { $0.id == id })
+        #expect(c.extraStyle["font_family"] == .string("serif") && c.extraStyle["reveal"] == .string("word") && c.extraStyle["language"] == .string("en-US"))
+        #expect(c.words.isEmpty)                                                              // untimed: core spreads words at evaluation time
+        let s0 = c.startNs, step = (c.endNs - c.startNs) / 3
+        m.updateText(.caption, id: id) { t in
+            t.words = ["hello", "brave", "world"].enumerated().map { CaptionWord(text: $1, startNs: s0 + Int64($0) * step, endNs: s0 + Int64($0 + 1) * step) }
+        }
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        c = try #require(m.textItems(.caption).first { $0.id == id })
+        #expect(c.words.count == 3)
+        let first = c.words[0]
+        m.updateText(.caption, id: id) { $0.startNs += 100_000_000; $0.endNs += 100_000_000 }  // moving keeps the words aligned
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        c = try #require(m.textItems(.caption).first { $0.id == id })
+        #expect(c.words.count == 3 && c.words[0].startNs == first.startNs + 100_000_000)
+        m.updateText(.caption, id: id) { $0.text = "something else entirely" }                  // text correction drops stale timing
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        c = try #require(m.textItems(.caption).first { $0.id == id })
+        #expect(c.extraStyle["font_family"] == .string("serif") && c.text == "something else entirely")
+        m.setCaptionTypography("language", "not a tag!!")                                      // core validates the tag
+        #expect(m.lastError != nil)
+        m.close()
+    }
+}
