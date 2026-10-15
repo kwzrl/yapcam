@@ -179,6 +179,8 @@ public protocol PlaybackEngine: AnyObject {
     func invalidate()
     /// nil = off. Preview re-prepares its audio when the settings change.
     func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws
+    /// Local preview controls (size cap, resolution, speed, motion blur); engines without them ignore the call.
+    func setPreviewOptions(_ options: PreviewOptions) throws
     /// Called by the model whenever `currentNs`/`isPlaying` change.
     var onChange: (@MainActor () -> Void)? { get set }
 }

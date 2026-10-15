@@ -43,6 +43,7 @@ public final class EditorModel: ObservableObject {
     public var presetStore: PresetStore = EditorPresets.currentStore
     public var defaults: UserDefaults = EditorPresets.currentStore.defaults
     @Published public var paletteVisible = false
+    @Published public var previewOptions = PreviewOptions()
     @Published public var silenceRangesState: SilenceRangesState = .idle
     var silenceRangesTask: Task<Void, Never>?
     @Published public var speedMenuVisible = false

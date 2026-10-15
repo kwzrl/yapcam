@@ -64,3 +64,37 @@ import YapcamCore
         m.setLayoutOwnSettings(id: id, false); #expect(m.layouts.first { $0.id == id }?.settings == nil)
     }
 }
+
+@MainActor @Suite struct PreviewOptionsTests {
+    @Test func optionsApplyToThePlayerAndAreRemembered() {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let player = FakePlayer()
+        let m = EditorModel(project: FakeProject(), player: player); m.defaults = iso.defaults
+        var o = PreviewOptions(); o.maxHeight = 720; o.resolution = 0.5; o.rate = 2; o.motionBlur = false
+        m.setPreviewOptions(o)
+        #expect(player.previewOptionCalls == [o] && m.previewOptions == o)
+        let again = EditorModel(project: FakeProject(), player: player); again.defaults = iso.defaults
+        again.loadStoredPreviewOptions()
+        #expect(again.previewOptions == o && player.previewOptionCalls.last == o)           // restored on the next document
+        iso.defaults.set(999, forKey: "yapcam.preview.maxHeight")                          // junk values fall back to the defaults
+        let third = EditorModel(project: FakeProject(), player: player); third.defaults = iso.defaults
+        third.loadStoredPreviewOptions(); #expect(third.previewOptions.maxHeight == nil)
+    }
+}
+
+@MainActor @Suite struct RealPreviewOptionsTests {
+    @Test func realPlayerAcceptsEveryOffer() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("po-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d)
+        for h in PreviewOptions.heights { for r in PreviewOptions.resolutions { for rate in PreviewOptions.rates {
+            var o = PreviewOptions(); o.maxHeight = h; o.resolution = r.value; o.rate = rate
+            doc.model.setPreviewOptions(o)
+            #expect(doc.model.lastError == nil, "\(h) \(r.label) \(rate): \(doc.model.lastError ?? "")")
+        } } }
+        var o = PreviewOptions(); o.rate = 2; o.motionBlur = false; doc.model.setPreviewOptions(o)
+        #expect(doc.player.previewSettings.playbackRate == 2 && doc.player.motionBlurEnabled == false)
+        doc.model.close()
+    }
+}

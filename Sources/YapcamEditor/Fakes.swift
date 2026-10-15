@@ -226,6 +226,8 @@ public final class FakePlayer: PlaybackEngine {
     public private(set) var isPlaying = false
     public var onChange: (@MainActor () -> Void)?
     public private(set) var invalidations = 0
+    public private(set) var previewOptionCalls: [PreviewOptions] = []
+    public func setPreviewOptions(_ o: PreviewOptions) throws { previewOptionCalls.append(o) }
     public private(set) var seeks: [(Int64, Bool)] = []
     public init() {}
     public func play() { isPlaying = true; onChange?() }

@@ -40,6 +40,7 @@ import UniformTypeIdentifiers
         if !hasProject { try? project.save() }
         if restored { model.markRecoveredUnsaved() }   // journal-only state must be written on close
         model.presetStore = presets; model.defaults = presets.defaults
+        model.loadStoredPreviewOptions()
         model.fitTimeline(width: 900)
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
         let transcriptURL = package.appendingPathComponent("recording/transcript.json")

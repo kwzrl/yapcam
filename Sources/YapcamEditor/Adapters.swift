@@ -42,6 +42,8 @@ final class ProjectRenderSource: RenderProjectSource, @unchecked Sendable {
         return fx
     }
     func renderAudioRanges() throws -> [RenderAudioRange]? { try project.renderAudioRanges() }
+    /// Core's `audio.stereo_mic`: without this forward the default (true) hides the toggle's effect in preview and export.
+    func renderStereoMicrophone() throws -> Bool { try project.renderStereoMicrophone() }
     /// Music tracks (built-in and files) and click sounds, evaluated by core (`audio_overlays`). Without this
     /// forward the protocol default returns [] and all added audio is silently missing from preview and export.
     func renderAudioOverlays() throws -> [AudioOverlay] { try project.renderAudioOverlays() }
@@ -265,6 +267,14 @@ final class PreviewPlayerAdapter: PlaybackEngine {
     func seek(toNs: Int64, precise: Bool) { player.seek(toNs: toNs, precise: precise) }
     func invalidate() { player.invalidate() }
     func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws { try player.setSpeechEnhancement(settings.map(\.render)) }
+    func setPreviewOptions(_ o: PreviewOptions) throws {
+        var s = player.previewSettings
+        s.maximumHeight = o.maxHeight
+        s.resolution = PreviewSettings.Resolution(rawValue: o.resolution) ?? .full
+        s.playbackRate = o.rate
+        try player.setPreviewSettings(s)
+        player.setMotionBlurEnabled(o.motionBlur)
+    }
 }
 
 struct RenderExportEngine: ExportEngine {

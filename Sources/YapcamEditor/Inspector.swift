@@ -467,6 +467,7 @@ struct InspectorView: View {
             if model.hasMic {
                 ToggleRow(model: model, title: "Mute", path: "audio.mic_muted")
                 NumberRow(model: model, title: "Volume", path: "audio.mic_gain_db", range: -48...12, unit: "dB", format: "%.0f")
+                ToggleRow(model: model, title: "Keep stereo microphone", path: "audio.stereo_mic")
                 VoiceCleanupSection(model: model)
             } else { Text("This recording has no microphone track.").foregroundStyle(.secondary) }
         }
