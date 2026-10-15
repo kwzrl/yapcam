@@ -16,11 +16,11 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Backlog recheck: 2026-10-15 15:09 UTC; HEAD 59856d4 and main 5328b45 unchanged.
-  Capture source/tests match main; brief, main FEATURES and QA/UI handoffs have
-  no new capture implementation assignment or defect. Main is already in HEAD.
-  Existing 136-test/Rust/signed-build evidence remains current. Only this status
-  is modified. No app launch, repeated tests or denied Git operation performed.
+- Backlog recheck: 2026-10-15 15:29 UTC; Lead checkpointed the empty local Next list
+  as 751f413. Main remains 5328b45 and is already in HEAD. Capture source/tests
+  match main; no new capture assignment, defect or native result appeared in the
+  brief, main feature rows or QA/UI handoffs. Existing validation remains current.
+  Only this audit refresh is modified; no tests/app launch/Git mutation repeated.
 - Ownership of follow-up work is explicit in Next versus External handoffs below:
   capture implementation is integrated, while app wiring/native acceptance stays
   open. Cross-team todo rows do not mean the capture module is unimplemented.
@@ -795,8 +795,8 @@ native acceptance when Lead posts results. Current APIs, regression tests and
 host commands are ready; validation limits remain explicit above.
 
 ## External handoffs / Lead requests
-1. Capture module changes are in main via 9b0cadc; Lead checkpoint 59856d4 is
-   rebased onto main 5328b45. Only this status refresh needs checkpointing.
+1. Capture module changes are in main via 9b0cadc; status checkpoint 751f413 is
+   based on main 5328b45. Only this audit refresh needs checkpointing.
    UI: consume audio-selection/camera-cap/preflight APIs and forward EngineSession
    marker actions to capture; main's current UI-only marker sidecar is a distinct
    clean-stop path (exact handoff above). Core/editor: map durable event markers
