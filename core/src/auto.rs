@@ -34,24 +34,19 @@ pub fn generate_zooms(
     let mut candidates = Vec::new();
     let time_index = time::ClipTimeIndex::new(&p.timeline.clips);
     for (i, clip) in p.timeline.clips.iter().enumerate() {
-        for (seg, events) in context.session.segments.iter().zip(&context.events) {
-            let mut cursor = [points[2] / 2.0, points[3] / 2.0];
-            let a = events.partition_point(|e| seg.src_start_ns + e.t < clip.src_start_ns);
-            let b = events.partition_point(|e| seg.src_start_ns + e.t < clip.src_end_ns);
-            if let Some(e) = events[..a]
-                .iter()
-                .rev()
-                .find(|e| e.x.is_some() && e.y.is_some())
-            {
-                cursor = [e.x.unwrap(), e.y.unwrap()];
-            }
-            for e in &events[a..b] {
-                if let (Some(x), Some(y)) = (e.x, e.y) {
-                    cursor = [x, y];
-                }
-                if e.kind != "down" {
-                    continue;
-                }
+        for (seg, input) in context.session.segments.iter().zip(&context.input) {
+            let a = input
+                .clicks
+                .partition_point(|e| seg.src_start_ns + e.t < clip.src_start_ns);
+            let b = input
+                .clicks
+                .partition_point(|e| seg.src_start_ns + e.t < clip.src_end_ns);
+            for (j, e) in input.clicks[a..b].iter().enumerate() {
+                let cursor = if input.click_has_position[a + j] {
+                    [e.x, e.y]
+                } else {
+                    [points[2] / 2.0, points[3] / 2.0]
+                };
                 if let Some(t) =
                     time_index.source_to_timeline(&p.timeline.clips, i, seg.src_start_ns + e.t)
                 {
@@ -415,6 +410,11 @@ mod tests {
             .push(serde_json::from_value(json!({"t":500_000_000,"type":"key","key":"a"})).unwrap());
         p.events[0].sort_by_key(|e| e.t);
         p.events[1].clear();
+        p.input = p
+            .events
+            .iter()
+            .map(|e| crate::input::InputCache::new(e))
+            .collect();
         let before = p.data.clone();
         p.apply(&json!({"op":"auto_zooms"})).unwrap();
         let bounds: Vec<_> = p
@@ -462,6 +462,11 @@ mod tests {
         .map(|v| serde_json::from_value(v).unwrap())
         .collect();
         p.events[1].clear();
+        p.input = p
+            .events
+            .iter()
+            .map(|e| crate::input::InputCache::new(e))
+            .collect();
         p.data.timeline.clips = vec![
             Clip {
                 id: "retained".into(),
@@ -502,6 +507,11 @@ mod tests {
         for events in &mut p.events {
             events.sort_by_key(|e| e.t);
         }
+        p.input = p
+            .events
+            .iter()
+            .map(|e| crate::input::InputCache::new(e))
+            .collect();
         p.apply(&json!({"op":"auto_zooms"})).unwrap();
         assert_eq!(p.data.zooms.len(), 1);
         let once = p.data.zooms.clone();
