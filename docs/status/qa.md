@@ -1,4 +1,4 @@
-READY 3bebb7b qa: audit vs 25f2b97
+READY HEAD qa: audit vs 065a117
 
 # qa status
 
@@ -42,6 +42,8 @@ READY 3bebb7b qa: audit vs 25f2b97
 - Audit vs main 8600691: M3 hardening in capture (100 crash trials, hour sim), render (long export, analyzer), core (cursor catalog, key overlay perf) noted in rows; no status class changes.
 
 - Audit vs main 25f2b97: CUR-06 now integrated (editor cursor picker); KNOWN_LIMITATIONS updated.
+
+- Audit vs main 065a117: M3 long-export/soak/preview results folded into FEATURES (EXP-09 verified), KNOWN_LIMITATIONS.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
