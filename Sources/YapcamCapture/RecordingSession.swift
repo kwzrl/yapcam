@@ -85,6 +85,21 @@ import ScreenCaptureKit
         }
     }
 
+    /// UI invokes this from the rebindable marker shortcut while recording.
+    @discardableResult public func addMarker() throws -> RecordingMarker {
+        try addMarker(atHostNs: CaptureClock.now)
+    }
+
+    @discardableResult func addMarker(atHostNs host: Int64) throws -> RecordingMarker {
+        guard state == .recording, !busy, let events, let index = manifest?.segments.last?.index,
+              let origin = activeHostStartNs, host >= origin,
+              host - origin <= Int64.max - completedNs else { throw invalidState("add marker") }
+        let id = UUID().uuidString
+        let time = try events.addMarker(id: id, hostNs: host)
+        guard time <= Int64.max - completedNs else { throw invalidState("add marker") }
+        return RecordingMarker(id: id, segmentIndex: index, segmentNs: time, srcNs: completedNs + time)
+    }
+
     public func resume() async throws {
         guard state == .paused, !busy else { throw invalidState("resume") }
         busy = true; state = .preparing
@@ -234,7 +249,7 @@ import ScreenCaptureKit
         let devices = AuxiliaryCapture(writer: writer, fps: options.maxFPS)
         devices.onWarning = writer.onWarning
         self.devices = devices
-        let deviceMetadata = await devices.start(microphoneID: options.microphoneID, cameraID: options.cameraID)
+        let deviceMetadata = await devices.start(microphoneID: options.microphoneID, cameraID: options.cameraID, cameraMaxResolution: options.cameraMaxResolution)
         if let mic = deviceMetadata.mic { self.manifest?.tracks.mic = mic }
         if let camera = deviceMetadata.camera { self.manifest?.tracks.camera = camera }
         try persist()

@@ -12,6 +12,11 @@ struct CaptureEvent: Codable, Equatable, Sendable {
     var id: Int? = nil
     var key: String? = nil
     var modifiers: [String]? = nil
+    var markerID: String? = nil
+    enum CodingKeys: String, CodingKey {
+        case t, type, x, y, button, dx, dy, id, key, modifiers
+        case markerID = "marker_id"
+    }
 }
 
 struct CursorMetadata: Codable, Sendable {
@@ -143,6 +148,21 @@ struct InputEventSnapshot: Sendable {
     }
 
     private func relative(_ host: Int64) -> Int64 { max(lastTime, max(0, host - hostStartNs)) }
+
+    /// Explicit markers are independent of keystroke recording and input permission.
+    /// Synchronize before acknowledging the action so crash recovery retains it.
+    func addMarker(id: String, hostNs: Int64) throws -> Int64 {
+        guard let file, !failed else { throw CaptureError.writerFailed("Marker event log is unavailable") }
+        let time = relative(hostNs)
+        do {
+            var bytes = try JSONEncoder().encode(CaptureEvent(t: time, type: "marker", markerID: id))
+            bytes.append(0x0a)
+            try file.write(contentsOf: bytes)
+            try file.synchronize()
+            lastTime = time
+            return time
+        } catch { report(error); throw error }
+    }
 
     /// A stationary global pointer still moves in content coordinates when its
     /// window moves or resizes underneath it.

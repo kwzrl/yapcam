@@ -31,6 +31,9 @@ extension SCStream: CaptureSessionStream {}
             availableBytes: PackageIO.availableBytes,
             prepare: { options in
                 if case .device(let id) = options.target {
+                    if case .applications = options.systemAudioSelection {
+                        throw CaptureError.writerFailed("Application audio selection applies to Mac sources. Choose all audio or off for a USB device.")
+                    }
                     guard options.maxFPS == 30 || options.maxFPS == 60 else {
                         throw CaptureError.writerFailed("Frame rate must be 30 or 60")
                     }
@@ -47,8 +50,19 @@ extension SCStream: CaptureSessionStream {}
                     resolved.configuration.height = pixels[1]
                     let stream = SCStream(filter: resolved.filter, configuration: resolved.configuration, delegate: writer)
                     try stream.addStreamOutput(writer, type: .screen, sampleHandlerQueue: writer.queue)
-                    if options.systemAudio { try stream.addStreamOutput(writer, type: .audio, sampleHandlerQueue: writer.queue) }
-                    return stream
+                    var audio: SCStream?
+                    if let filter = resolved.audioFilter {
+                        let config = SCStreamConfiguration()
+                        config.width = 2; config.height = 2
+                        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+                        config.capturesAudio = true; config.excludesCurrentProcessAudio = true
+                        config.sampleRate = 48_000; config.channelCount = 2
+                        config.showsCursor = false; config.queueDepth = 3
+                        let audioStream = SCStream(filter: filter, configuration: config, delegate: writer)
+                        try audioStream.addStreamOutput(writer, type: .audio, sampleHandlerQueue: writer.queue)
+                        audio = audioStream
+                    }
+                    return CaptureStreamGroup(video: stream, audio: audio)
                 }
             }, makeWriter: { SegmentWriter(directory: $0, hostStartNs: $1, maxFPS: $2) },
             startEvents: { try $0.start() })

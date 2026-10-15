@@ -8,7 +8,9 @@ import Foundation
                            pauseAfter: Double? = nil, systemAudio: Bool = true,
                            microphoneID: String? = nil, cameraID: String? = nil,
                            hideDesktopIcons: Bool = false, captureNotifications: Bool = true,
-                           recordKeystrokes: Bool = false) async throws -> URL {
+                           recordKeystrokes: Bool = false, systemAudioSelection: SystemAudioSelection? = nil,
+                           cameraMaxResolution: CameraMaxResolution = .hd1080,
+                           addMarkers: Bool = false) async throws -> URL {
         guard seconds.isFinite, seconds > 0, seconds <= 3600 else { throw CaptureError.writerFailed("Self-test duration must be in (0, 3600]") }
         let environment = ProcessInfo.processInfo.environment
         let deviceRequested: Bool
@@ -27,16 +29,20 @@ import Foundation
         let pauseAfter = overrides.pauseAfter ?? pauseAfter
         let output = outputDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam/QA/capture")
         let session = RecordingSession(options: RecordingOptions(target: selectedTarget,
-            systemAudio: systemAudio, microphoneID: microphoneID, cameraID: cameraID,
+            systemAudio: systemAudio, microphoneID: overrides.microphoneID ?? microphoneID, cameraID: overrides.cameraID ?? cameraID,
             recordKeystrokes: recordKeystrokes, maxFPS: overrides.maxFPS ?? maxFPS, hideDesktopIcons: hideDesktopIcons,
-            captureNotifications: captureNotifications, outputDirectory: output))
+            captureNotifications: captureNotifications,
+            systemAudioSelection: overrides.systemAudioSelection ?? systemAudioSelection,
+            cameraMaxResolution: overrides.cameraMaxResolution ?? cameraMaxResolution, outputDirectory: output))
         try await session.start()
         do {
+            if overrides.addMarkers ?? addMarkers { try session.addMarker() }
             if let pause = pauseAfter, pause > 0, pause < seconds {
                 try await Task.sleep(for: .seconds(pause))
                 try await session.pause()
                 try await Task.sleep(for: .seconds(0.5))
                 try await session.resume()
+                if overrides.addMarkers ?? addMarkers { try session.addMarker() }
                 try await Task.sleep(for: .seconds(seconds - pause))
             } else { try await Task.sleep(for: .seconds(seconds)) }
             return try await session.stop()
@@ -53,9 +59,39 @@ struct CaptureSelfTestOverrides {
     var target: CaptureTarget?
     var maxFPS: Int?
     var pauseAfter: Double?
+    var systemAudioSelection: SystemAudioSelection?
+    var cameraMaxResolution: CameraMaxResolution?
+    var cameraID: String?
+    var microphoneID: String?
+    var addMarkers: Bool?
 
     init(environment: [String: String], sources: CaptureSources, seconds: Double) throws {
         func invalid(_ key: String) -> CaptureError { .writerFailed("Invalid self-test environment: \(key)") }
+        if let value = environment["YAPCAM_CAPTURE_SELFTEST_AUDIO"] {
+            switch value {
+            case "off": systemAudioSelection = .off
+            case "all": systemAudioSelection = .allApplications
+            default:
+                guard value.hasPrefix("apps:") else { throw invalid("AUDIO (off, all, apps:bundleID,...)" ) }
+                let ids = value.dropFirst(5).components(separatedBy: ",")
+                guard ids.allSatisfy({ !$0.isEmpty && !$0.contains(where: \.isWhitespace) }) else { throw invalid("AUDIO application IDs") }
+                systemAudioSelection = .applications(bundleIDs: ids)
+            }
+        }
+        if let value = environment["YAPCAM_CAPTURE_SELFTEST_CAMERA_MAX"] {
+            guard let number = Int(value), let cap = CameraMaxResolution(rawValue: number) else { throw invalid("CAMERA_MAX (720, 1080, 2160)") }
+            cameraMaxResolution = cap
+        }
+        for key in ["CAMERA_ID", "MICROPHONE_ID"] {
+            if let value = environment["YAPCAM_CAPTURE_SELFTEST_" + key] {
+                guard !value.isEmpty else { throw invalid(key) }
+                if key == "CAMERA_ID" { cameraID = value } else { microphoneID = value }
+            }
+        }
+        if let value = environment["YAPCAM_CAPTURE_SELFTEST_MARKERS"] {
+            guard value == "0" || value == "1" else { throw invalid("MARKERS (0 or 1)") }
+            addMarkers = value == "1"
+        }
         if let value = environment["YAPCAM_CAPTURE_SELFTEST_FPS"] {
             guard let fps = Int(value), fps == 30 || fps == 60 else { throw invalid("FPS (30 or 60)") }
             maxFPS = fps

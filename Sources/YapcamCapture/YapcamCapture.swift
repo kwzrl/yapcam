@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import CoreGraphics
 import ScreenCaptureKit
+import IOKit.audio
 
 public struct DisplaySource: Identifiable, Sendable {
     public let id: CGDirectDisplayID
@@ -24,6 +25,10 @@ public struct CaptureDevice: Identifiable, Sendable {
     public let id: String
     public let name: String
     public let isDefault: Bool
+    public let isBuiltIn: Bool
+    public init(id: String, name: String, isDefault: Bool, isBuiltIn: Bool = false) {
+        self.id = id; self.name = name; self.isDefault = isDefault; self.isBuiltIn = isBuiltIn
+    }
 }
 
 public struct CaptureSources: Sendable {
@@ -31,6 +36,7 @@ public struct CaptureSources: Sendable {
     public var windows: [WindowSource]
     public var cameras: [CaptureDevice]
     public var microphones: [CaptureDevice]
+    public var applications: [CaptureApplication] = []
     public var deviceScreens: [CaptureDevice] = []
     public var deviceScreenDiscoveryError: String? = nil
 
@@ -66,6 +72,9 @@ public struct CaptureSources: Sendable {
         let windows = try await CaptureThumbnails.sources(candidates, includeImages: includeWindowThumbnails)
         var result = CaptureSources(displays: displays, windows: windows,
                                     cameras: devices(.video), microphones: devices(.audio))
+        result.applications = SystemAudioPolicy.applications(content.applications.map {
+            CaptureApplication(bundleID: $0.bundleIdentifier, name: $0.applicationName)
+        })
         do { result.deviceScreens = try deviceScreens.get() }
         catch { result.deviceScreenDiscoveryError = error.localizedDescription }
         return result
@@ -78,7 +87,8 @@ public struct CaptureSources: Sendable {
         return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: media, position: .unspecified).devices.filter {
             media != .video || !DeviceScreenDiscovery.isScreenDevice($0)
         }.map {
-            CaptureDevice(id: $0.uniqueID, name: $0.localizedName, isDefault: $0.uniqueID == defaultID)
+            CaptureDevice(id: $0.uniqueID, name: $0.localizedName, isDefault: $0.uniqueID == defaultID,
+                          isBuiltIn: $0.transportType == Int32(kIOAudioDeviceTransportTypeBuiltIn))
         }
     }
 }
@@ -92,9 +102,16 @@ public enum CaptureTarget: Sendable, Codable, Equatable {
 
 public struct RecordingOptions: Sendable, Codable {
     public var target: CaptureTarget
-    public var systemAudio: Bool
+    public var systemAudioSelection: SystemAudioSelection
+    /// Compatibility switch. Enabling from off selects all applications.
+    public var systemAudio: Bool {
+        get { systemAudioSelection != .off }
+        set { if !newValue { systemAudioSelection = .off }
+              else if systemAudioSelection == .off { systemAudioSelection = .allApplications } }
+    }
     public var microphoneID: String?
     public var cameraID: String?
+    public var cameraMaxResolution: CameraMaxResolution
     public var recordKeystrokes: Bool
     public var maxFPS: Int
     public var excludeYapcamWindows: Bool
@@ -102,25 +119,26 @@ public struct RecordingOptions: Sendable, Codable {
     public var captureNotifications: Bool
     public var outputDirectory: URL
 
-    public init(target: CaptureTarget, systemAudio: Bool = true, microphoneID: String? = nil,
+    public init(target: CaptureTarget, systemAudio: Bool = false, microphoneID: String? = nil,
                 cameraID: String? = nil, recordKeystrokes: Bool = false, maxFPS: Int = 60,
                 excludeYapcamWindows: Bool = true, hideDesktopIcons: Bool = false,
-                captureNotifications: Bool = true, outputDirectory: URL) {
-        self.target = target; self.systemAudio = systemAudio; self.microphoneID = microphoneID
-        self.cameraID = cameraID; self.recordKeystrokes = recordKeystrokes; self.maxFPS = maxFPS
+                captureNotifications: Bool = true, systemAudioSelection: SystemAudioSelection? = nil,
+                cameraMaxResolution: CameraMaxResolution = .hd1080, outputDirectory: URL) {
+        self.target = target; self.systemAudioSelection = systemAudioSelection ?? (systemAudio ? .allApplications : .off); self.microphoneID = microphoneID
+        self.cameraID = cameraID; self.cameraMaxResolution = cameraMaxResolution; self.recordKeystrokes = recordKeystrokes; self.maxFPS = maxFPS
         self.excludeYapcamWindows = excludeYapcamWindows; self.outputDirectory = outputDirectory
         self.hideDesktopIcons = hideDesktopIcons; self.captureNotifications = captureNotifications
     }
 
     enum CodingKeys: String, CodingKey {
-        case target, systemAudio, microphoneID, cameraID, recordKeystrokes, maxFPS
+        case target, systemAudio, systemAudioSelection, microphoneID, cameraID, cameraMaxResolution, recordKeystrokes, maxFPS
         case excludeYapcamWindows, hideDesktopIcons, captureNotifications, outputDirectory
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         self.init(target: try values.decode(CaptureTarget.self, forKey: .target),
-            systemAudio: try values.decodeIfPresent(Bool.self, forKey: .systemAudio) ?? true,
+            systemAudio: try values.decodeIfPresent(Bool.self, forKey: .systemAudio) ?? false,
             microphoneID: try values.decodeIfPresent(String.self, forKey: .microphoneID),
             cameraID: try values.decodeIfPresent(String.self, forKey: .cameraID),
             recordKeystrokes: try values.decodeIfPresent(Bool.self, forKey: .recordKeystrokes) ?? false,
@@ -128,8 +146,26 @@ public struct RecordingOptions: Sendable, Codable {
             excludeYapcamWindows: try values.decodeIfPresent(Bool.self, forKey: .excludeYapcamWindows) ?? true,
             hideDesktopIcons: try values.decodeIfPresent(Bool.self, forKey: .hideDesktopIcons) ?? false,
             captureNotifications: try values.decodeIfPresent(Bool.self, forKey: .captureNotifications) ?? true,
+            systemAudioSelection: try values.decodeIfPresent(SystemAudioSelection.self, forKey: .systemAudioSelection),
+            cameraMaxResolution: try values.decodeIfPresent(CameraMaxResolution.self, forKey: .cameraMaxResolution) ?? .hd1080,
             outputDirectory: try values.decode(URL.self, forKey: .outputDirectory))
     }
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(target, forKey: .target)
+        try values.encode(systemAudio, forKey: .systemAudio)
+        try values.encode(systemAudioSelection, forKey: .systemAudioSelection)
+        try values.encodeIfPresent(microphoneID, forKey: .microphoneID)
+        try values.encodeIfPresent(cameraID, forKey: .cameraID)
+        try values.encode(cameraMaxResolution, forKey: .cameraMaxResolution)
+        try values.encode(recordKeystrokes, forKey: .recordKeystrokes)
+        try values.encode(maxFPS, forKey: .maxFPS)
+        try values.encode(excludeYapcamWindows, forKey: .excludeYapcamWindows)
+        try values.encode(hideDesktopIcons, forKey: .hideDesktopIcons)
+        try values.encode(captureNotifications, forKey: .captureNotifications)
+        try values.encode(outputDirectory, forKey: .outputDirectory)
+    }
+
 }
 
 public enum Permission: String, Sendable, Equatable { case screen, microphone, camera, inputMonitoring, accessibility }

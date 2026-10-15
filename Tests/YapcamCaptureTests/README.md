@@ -348,3 +348,113 @@ capture_run_root="$(mktemp -d "${TMPDIR:-/tmp}/yapcam-capture-run.XXXXXXXX")"
 Swift fixtures use `defer` to remove their temporary directories. For abandoned
 script runs, list exact paths and establish capture ownership and absence of active
 users before deleting them. Shared names such as `tmp.*` do not establish ownership.
+
+## Reference capture controls (CAP-1 / CAP-2 / CAP-3 / CAP-6)
+
+The implementation uses behavior notes only; no reference assets or implementation
+are used. `RecordingOptions.systemAudioSelection` is `.off` by default,
+`.allApplications`, or `.applications(bundleIDs: [String])`. The compatibility
+`systemAudio` Boolean still works, and explicit old saved Boolean values migrate.
+`CaptureSources.applications` supplies stable checklist IDs/names; the audio stream
+has its own application filter, independent of the recorded picture. Missing apps
+or an empty checklist fail preparation rather than accidentally capturing all audio.
+USB device targets accept all/off, not a Mac application checklist.
+
+`cameraMaxResolution` is `.hd720`, `.hd1080` (default), or `.uhd4K`. This bounds
+native webcam dimensions, preserves aspect ratio, never upscales and falls back
+from 60 to 30 fps when the largest supported size requires it. Fractional
+29.97/59.94 modes keep their supported native clock (manifest fps is nominal). No suitable format
+means a warning and screen recording without camera. USB screen dimensions are
+independent. Actual webcam dimensions/fps remain in the existing manifest fields.
+Real format negotiation is unverified here because there is no webcam.
+
+`RecordingSession.addMarker() throws -> RecordingMarker` works only while actively
+recording, independently of captured keys/input permissions. UI binds the rebindable
+marker action to this API. It synchronizes an event before returning:
+
+```json
+{"t":123456789,"type":"marker","marker_id":"a UUID"}
+```
+
+`t` is segment-relative ns; add `segment.src_start_ns` for source ns. Returned
+markers include `id`, `segmentIndex`, `segmentNs`, `srcNs`. Recovery's existing
+journal repair preserves complete marker lines inside recovered media and removes
+truncated/out-of-range lines. Marker position follows the same pause/cut mapping
+as other input events. Core/editor must expose markers on the edited timeline.
+
+`CapturePreflight.check(options:sources:)` returns typed issues for silent camera,
+missing auxiliary inputs, denied/undetermined selected-input permissions, closed
+lid with a built-in microphone, and invalid app-audio selection. A missing lid
+sensor is unknown, not closed. No permission requests or machine settings changes
+are performed. UI owns the confirmation/continue-without-input flow.
+`windowResizeIssue()` checks Accessibility for the resize action only, since
+ordinary window recording does not require it.
+
+Hardware-free regression tests are in ReferenceCaptureTests, SessionLifecycleTests,
+SelfTestOptionsTests and SegmentFailureTests. Genuine injected BGRA/PCM samples
+verify that camera size changes (larger or smaller), wrong media, missing clocks
+and invalid timestamps disable only the camera. Frames queued after a failure
+cannot restart it; the screen/mic continue and a single warning is emitted. Native acceptance still requires the signed app, launch
+rules above, real tones, a camera, and (for the lid check) a laptop.
+
+The existing signed `--capture-selftest` accepts additional environment values:
+
+- `YAPCAM_CAPTURE_SELFTEST_AUDIO`: `off`, `all`, or `apps:bundle.id,other.bundle.id`.
+- `YAPCAM_CAPTURE_SELFTEST_CAMERA_MAX`: `720`, `1080`, `2160`.
+- `YAPCAM_CAPTURE_SELFTEST_CAMERA_ID` / `YAPCAM_CAPTURE_SELFTEST_MICROPHONE_ID`: device unique IDs.
+- `YAPCAM_CAPTURE_SELFTEST_MARKERS`: `1` writes a marker after start and after resume.
+
+Pass these with `open --env` in the existing guarded helper, never by launching
+Contents/MacOS directly. No override changes ordinary app preferences. Self-test
+keeps its historical audio-on fixture default; ordinary new RecordingOptions are
+audio-off. Test selected-app audio with distinct tones from two running apps and
+verify the unselected tone is absent while both apps remain visible in screen.mov.
+Repeat for window/area, all/off, and pause/resume. Camera: inspect camera.mov and
+manifest for each cap, with 60→30 fallback and smaller hardware. Markers: expect one
+journal event per segment, inside segment duration and independent of pause length.
+
+Guarded host commands, from the repository root (read the output package path from
+Yapcam's self-test log; replace app/device IDs with the discovered selections):
+
+```sh
+capture_gap_selftest() (
+    if [ -e "$HOME/Movies/Yapcam/QA/.app-lock" ]; then
+        printf '%s\n' 'QA owns the app; do not launch.' >&2; exit 1
+    fi
+    if pgrep -x Yapcam >/dev/null 2>&1; then
+        printf '%s\n' 'Another Yapcam is running; do not launch.' >&2; exit 1
+    else
+        capture_probe_status=$?
+        [ "$capture_probe_status" -eq 1 ] || exit "$capture_probe_status"
+    fi
+    capture_target="${1:-display}"
+    capture_audio="${2:-off}"
+    capture_camera_cap="${3:-1080}"
+    set -- -n -W --env "YAPCAM_CAPTURE_SELFTEST_TARGET=$capture_target" \
+        --env "YAPCAM_CAPTURE_SELFTEST_AUDIO=$capture_audio" \
+        --env "YAPCAM_CAPTURE_SELFTEST_CAMERA_MAX=$capture_camera_cap" \
+        --env 'YAPCAM_CAPTURE_SELFTEST_MARKERS=1' \
+        --env 'YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3'
+    if [ -n "${CAPTURE_CAMERA_ID:-}" ]; then
+        set -- "$@" --env "YAPCAM_CAPTURE_SELFTEST_CAMERA_ID=$CAPTURE_CAMERA_ID"
+    fi
+    if [ -n "${CAPTURE_MICROPHONE_ID:-}" ]; then
+        set -- "$@" --env "YAPCAM_CAPTURE_SELFTEST_MICROPHONE_ID=$CAPTURE_MICROPHONE_ID"
+    fi
+    exec /usr/bin/open "$@" build/Yapcam.app --args --capture-selftest 8
+)
+# Play different tones in Safari and a second app before selected-audio tests.
+capture_gap_selftest display apps:com.apple.Safari
+capture_gap_selftest window:com.apple.Terminal apps:com.apple.Safari
+capture_gap_selftest area:100,100,800,500 apps:com.apple.Safari
+capture_gap_selftest display all
+capture_gap_selftest display off
+# With CAPTURE_CAMERA_ID set to an attached webcam's actual unique ID:
+# capture_gap_selftest display off 720
+# capture_gap_selftest display off 1080
+# capture_gap_selftest display off 2160
+```
+
+Each run includes pause/resume and two markers. Audio-off must not leave system.m4a;
+app-selected output must contain only the chosen tone with no video exclusions
+caused by the audio choice. Native success is not implied by parser/unit tests.

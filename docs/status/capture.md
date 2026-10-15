@@ -1,4 +1,6 @@
-READY c21286e + WORKTREE USB iPhone/iPad source/API; build + 118 tests, LIMITED (no physical device)
+READY WORKTREE CAP-1 per-app system audio + CAP-2 webcam resolution caps; capture tests/signed build pass; full-suite host gate
+READY WORKTREE CAP-3 durable recording markers + CAP-6 preflight API; signed build/capture tests pass; UI/native gates
+READY 8c3345e USB iPhone/iPad source/API; build + 118 tests, LIMITED (no physical device)
 READY 4817b58 F9 always-write containing display_name; signed build/unit verified; Lead reports fixed
 READY f400c3e QA F8 even-size pixel metadata; unit verified + QA native pass on 3b68bde
 READY a3a51ad clean-finish lock cleanup / signed-app live variants; host checks pending
@@ -11,7 +13,152 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 # capture status
 
-## Current handoff
+## Reference gap work (2026-10-15)
+- Follow-up local backlog review: no FEATURES capture row is todo; remaining
+  acceptance needs host Speech/media, real camera/mic/laptop/USB/Retina, UI/core/
+  editor wiring, or Lead's Git checkpoint. Rebase remains gated by uncommitted
+  owned work and the previously observed read-only Git metadata; no retry/stash
+  workaround. Main is still badc4e4 and capture sources on main have no base delta.
+- CAP-2/M3 hardening follow-up: extracted the existing AV sample validation into
+  AuxiliarySamples (same callback/writer queue) and tested the real SegmentWriter
+  with genuine injected BGRA video/48 kHz PCM. Camera format changes larger OR
+  smaller than negotiation, wrong media, missing clocks and invalid PTS preserve
+  prior camera samples while screen/mic continue; failed-before-first-frame cameras
+  create no track. Five injected cases across two parameterized regressions pass.
+- Fixed an ordering gap revealed by these cases: the callback previously enqueued
+  disable on its own writer queue, letting already-queued restored-size camera
+  frames slip through before disable executed. Validation now disables immediately
+  on the writer queue, with dispatch preconditions; device notifications on other
+  queues still use the queued deviceUnavailable API. A failed camera cannot resume
+  mid-segment, warnings are once per failed track, and other tracks remain usable.
+- Follow-up validation: capture 136 tests / 7 explicit opt-in skips / zero failures
+  (20.1 s including hour/100-crash simulation). Rust 69 pass / 1 ignored. Canonical
+  signed build is running. Full Swift host gate from the earlier attempt remains:
+  six E2E Metal-unavailable failures plus mixed-runner signal 6, not rerun unchanged.
+  Logs: /tmp/yapcam-capture-auxiliary-{focused,tests,rust,app,privacy}.log.
+  No app launched, no icon/source outside capture ownership touched. Public APIs
+  and package formats are unchanged from the ready handoff below.
+- Lead icon integration acknowledged: main badc4e4 owns AppIcon.icns,
+  CFBundleIconFile and the build-script copy. Capture will not modify/regenerate
+  the icon. At this stopping point, 16 owned files remain ready but uncommitted;
+  git add failed creating worktrees/capture/index.lock (Operation not permitted).
+  Lead must checkpoint these edits, then rebase this worktree onto main. No stash,
+  icon edits or Git permission workaround used; capture source/tests on main have
+  no delta from our base. Prior signed validation predates the icon integration.
+- CAP-1 implemented: `SystemAudioSelection.off / .allApplications /
+  .applications(bundleIDs: [String])`; `RecordingOptions.systemAudioSelection`,
+  `CaptureSources.applications: [CaptureApplication]` (bundleID/name/id). New
+  recordings default off. Legacy explicit systemAudio=true/false settings decode
+  unchanged; the compatibility Bool enables all apps only when changing from off.
+  UI: default NEW picker preferences off too (existing UI explicitly passes its
+  Boolean and must migrate to the enum); retain a user's saved explicit choice.
+  Use the enum for the three audio modes and the application list for checklist
+  identity; persist bundle IDs, never process IDs. A selected app missing on
+  start/resume or an empty checklist produces an explicit error, never all audio.
+  USB sources support all/off for device audio; a Mac-app checklist is rejected.
+- A separate audio-only SCStream uses the app filter, keeping screen/window/area
+  video independent of audio selection and desktop/notification exclusions. Both
+  streams use the same host-clock writer/preroll handling. Startup failure rolls
+  back audio, shutdown attempts both streams even after one fails. No new package
+  format: selected apps mix into the existing system.m4a track. App own audio is
+  excluded. Application discovery de-duplicates bundle IDs and omits Yapcam.
+- CAP-1 validation: signed canonical app + strict codesign pass, 123 capture tests
+  (7 opt-in skips), Rust 69 pass / 1 ignored. Full Swift attempted: mixed
+  XCTest has 6 E2E export failures (Metal unavailable) / 46 skips of 129 tests;
+  Swift Testing mixed bundle then aborts with signal 6 after media/IOSurface
+  denials, precise abort cause not established. Isolated capture suite passes; Lead must rerun full suite on host. Logs:
+  /tmp/yapcam-capture-cap1-{tests,app}.log and reference-{rust,full-tests}.log.
+  No app launched. Host gate: two apps play distinct tones; select one and confirm
+  only its tone in system.m4a while video still includes both apps, repeat with
+  window/area and pause/resume, all/off. Signed self-test overrides below permit
+  native testing before UI wiring; honor QA app lock/other-instance rules.
+- CAP-2 implemented: `RecordingOptions.cameraMaxResolution: CameraMaxResolution`
+  (`.hd720`, `.hd1080`, `.uhd4K`; Codable integer 720/1080/2160). Default and
+  legacy missing-field default are 1080p. UI: camera menu selects this property;
+  it caps webcam only, not the screen/USB source. Largest supported native format
+  within the landscape-or-portrait size envelope wins; prefer requested fps when
+  dimensions tie, otherwise fall back from 60 to 30. Never upscale/exceed the cap.
+  29.97/59.94 modes preserve their native supported frame duration; manifest
+  fps remains the nominal 30/60, while sample PTS determines actual cadence.
+  Unsupported formats disable the auxiliary camera with an explicit warning;
+  screen recording continues. Frames with unexpected negotiated dimensions also
+  disable the camera rather than silently violating the cap/manifest dimensions.
+  Camera remains HEVC. Existing session.tracks.camera stores ACTUAL size/fps;
+  requested maximum is an options preference, not new recording metadata.
+- CAP-2 validation: 126 capture tests pass (7 explicit media skips), canonical
+  signed build/strict codesign pass. Native camera remains LIMITED (no webcam).
+  Host: connect a 4K webcam; test each limit at 30/60, inspect camera.mov and
+  session.json, verify fallback on a 720p-only device and camera loss. Logs:
+  /tmp/yapcam-capture-cap2-{tests,app}.log. CAP-1/CAP-2 need Lead Git checkpoints.
+- CAP-3 implemented: `@MainActor RecordingSession.addMarker() throws -> RecordingMarker`
+  (id/segmentIndex/segmentNs/srcNs), only while actively recording and not busy.
+  Uses first written screen frame as segment origin, adds previous segment duration,
+  excludes pauses; works with key recording off and without global input permission.
+  Events journal is synchronized before acknowledgement; no separate sidecar.
+  Additive event contract for Lead FORMATS/core/editor: events.jsonl line
+  `{"t":123456789,"type":"marker","marker_id":"UUID"}`. t is segment-local ns;
+  source time = segment.src_start_ns + t. No coordinates/key text on marker events.
+  Existing core Event.kind String/details map accepts the extra event/UUID; core
+  needs a marker query mapped through edits, editor needs timeline presentation.
+  UI: wire the rebindable marker action (Command+Option+Control+F default) to this
+  method. Capture never installs its own competing hotkey or records shortcut keys.
+  Tests cover idle/paused/finished rejection, first-screen origin, pause removal,
+  distinct IDs, persisted events and recovery trimming partial/out-of-media lines.
+- CAP-6 implemented read-only `CapturePreflight.check(options:sources:) ->
+  [CapturePreflightIssue]` (kind/message/permission/id). UI: present issues before
+  starting: camera without mic, selected camera/mic missing, missing permissions,
+  closed laptop lid with INTERNAL mic, invalid Mac app checklist/USB combination.
+  `CaptureDevice.isBuiltIn` comes from AV transport; no lid sensor is unknown.
+  `CapturePreflight.windowResizeIssue()` is only for resizing another app's window;
+  recording it ordinarily needs no Accessibility permission. No prompts/settings
+  changes happen in these APIs. Injected tests cover all branches; laptop warning
+  and real-camera behavior remain hardware limited. UI still owns confirmations,
+  changing missing selections and permission actions; do not mark dialogs verified.
+- CAP-4 DECISION: retain our 30/60 upper-rate option (default 60), actual frames
+  follow source/display cadence below it, VFR preserved; no support claim for
+  120/144 Hz recording. HEVC screen/webcam and two-second keyframe/fragment target
+  remain. Numeric reference qualities (screen 0.85 / webcam 0.6) are NOT implemented
+  or claimed equivalent: AVAssetWriter's AVVideoQualityKey is documented in the
+  installed SDK for JPEG/HEIC/ProRAW only. Retain its HEVC rate control rather than
+  pass an unsupported property. If exact encoder quality control is required,
+  Lead should assign a reviewed VideoToolbox backend change with native acceptance.
+- CAP-5 already implemented/checkpointed in 8c3345e; no duplicate USB implementation.
+  Device frame editor section belongs to core/editor; real USB hardware remains open.
+- CAP-7 HANDOFF to UI (ownership boundary): current RecordingController plays a
+  system cue then waits 450 ms, with no explicit volume. Use an original/OS sound
+  at gain 0.33, wait for completion capped at 540 ms BEFORE session.start(); stop
+  cue after finishing. Do not copy extracted reference sounds. Capture does not
+  play cues. UI needs timing/cancellation tests and live sound-leak acceptance.
+- Self-test API/environment now permits native verification before UI changes:
+  YAPCAM_CAPTURE_SELFTEST_AUDIO=off|all|apps:bundle.id,other.bundle.id;
+  CAMERA_MAX=720|1080|2160, CAMERA_ID/MICROPHONE_ID=device unique ID,
+  MARKERS=0|1 (all keys prefixed YAPCAM_CAPTURE_SELFTEST_). Markers enabled writes
+  one after start and after resume. Existing target/FPS/pause switches remain.
+  Self-test's explicit legacy audio-on default remains; NEW recording options off.
+  Tests reject invalid/empty overrides. README documents APIs/format/host gates.
+- Final validation: 134 capture tests / 7 explicit opt-in skips / zero failures
+  (18.1 s including hour/100-crash simulation). Final canonical signed build
+  and strict codesign pass with Yapcam Dev Signing / mov.yapcam.Yapcam.
+  Rust 69 pass / 1 ignored. Privacy scans and README shell syntax pass;
+  git diff --check passes. No live app launch and no capture media committed.
+  All temporary Swift flag wrappers were removed by EXIT traps. Listed/removed
+  27 inactive capture fixtures left by this run's mixed-bundle abort; manifest
+  /tmp/yapcam-capture-reference-cleanup.json. No other teams' directories touched.
+  Logs /tmp/yapcam-capture-reference-{tests,rust,full-tests,app,privacy}.log.
+- Apple implementation references (behavior notes above remain own prose):
+  [SC application filter](https://developer.apple.com/documentation/screencapturekit/sccontentfilter/init(display:including:exceptingwindows:)),
+  [AV native format configuration](https://developer.apple.com/documentation/avfoundation/avcapturedevice/activeformat).
+- No H capture gaps in the reference inventory. Priority: CAP-1, CAP-2 camera cap,
+  CAP-3 marker API, then CAP-4/5/6/7. Behavior notes read in gap-list capture section
+  and reference A2–A6; own implementation/prose only, no extracted assets/code.
+- Rebase attempt from clean d931104 onto main dee1061 denied creation of Git's
+  rebase-merge directory. Lead still checkpoints/rebases/pushes this worktree.
+  Main has since advanced to badc4e4 (app icon); no capture source/test delta
+  between HEAD and main. Please checkpoint/rebase/push the 19 owned changed files
+  (including four new source files and one new test file). No Git workaround used.
+  Existing USB source is checkpointed as 8c3345e, not the old WORKTREE label.
+
+## USB baseline handoff (historical validation; checkpointed)
 - USB iPhone/iPad screen source is IMPLEMENTED / LIMITED (no device attached).
   UI API ready in this worktree:
   CaptureTarget.device(String /* AVCaptureDevice.uniqueID */),
@@ -605,11 +752,18 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. USB device source/API is READY but hardware LIMITED. Checkpoint/rebase/push the
-   13 owned files and re-review AVCapture control/sample queue lifetimes. UI consumes
-   the API above; Lead adds .device and source metadata additions to SWIFT_API/FORMATS,
-   QA marks REC-17 limited pending a real USB device. F9/F8/lock cleanup are verified. Run host
-   commands only when QA releases .app-lock and no other Yapcam instance runs.
+1. Local capture implementation backlog is exhausted after the CAP-2/M3 sample
+   failure hardening above. Checkpoint/rebase/push the 19 owned reference-gap files
+   (Git still read-only here),
+   review separate SC audio-stream lifetimes and camera negotiation. CAP-1/2/3/6
+   module work is ready; UI consumes the API/marker shortcut/preflight handoff above;
+   core/editor expose marker events through edited source-time mapping. Add public
+   options/APIs/marker event/device additions to SWIFT_API/FORMATS. QA runs the
+   native app-selection/camera/marker checks using self-test overrides; host full
+   Swift suite is required after local mixed-bundle signal 6. CAP-4 high-refresh /
+   numeric-quality difference is explicit; CAP-7 cue timing needs UI ownership.
+   USB hardware remains limited; F9/F8/lock cleanup are verified. Honor QA lock and
+   no-other-app-instance launch rule on every native check.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
    the signed-app variants above plus static-tail/sync. Library kill/recover now

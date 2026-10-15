@@ -70,6 +70,7 @@ struct CaptureCoordinateMapping: Sendable {
 
 @MainActor struct ResolvedCapture {
     let filter: SCContentFilter
+    let audioFilter: SCContentFilter?
     let configuration: SCStreamConfiguration
     let geometry: CaptureGeometry
     let source: SourceMetadata
@@ -122,7 +123,7 @@ struct CaptureCoordinateMapping: Sendable {
         config.width = geometry.pixelWidth; config.height = geometry.pixelHeight
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.maxFPS))
         config.showsCursor = false
-        config.capturesAudio = options.systemAudio
+        config.capturesAudio = false // The independent audio stream owns the app selection.
         config.excludesCurrentProcessAudio = true
         config.sampleRate = 48_000; config.channelCount = 2
         config.queueDepth = 6
@@ -132,7 +133,14 @@ struct CaptureCoordinateMapping: Sendable {
         config.ignoreShadowsSingleWindow = true
         config.ignoreGlobalClipSingleWindow = true
         if let crop { config.sourceRect = crop }
-        return ResolvedCapture(filter: filter, configuration: config, geometry: geometry, source: source)
+        let audioFilter: SCContentFilter?
+        if options.systemAudio {
+            guard let display = content.displays.first(where: { $0.displayID == source.displayID }) ?? content.displays.first else {
+                throw CaptureError.sourceUnavailable
+            }
+            audioFilter = try SystemAudioPolicy.filter(selection: options.systemAudioSelection, display: display, content: content)
+        } else { audioFilter = nil }
+        return ResolvedCapture(filter: filter, audioFilter: audioFilter, configuration: config, geometry: geometry, source: source)
     }
 }
 

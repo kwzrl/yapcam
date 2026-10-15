@@ -337,3 +337,93 @@ private func enqueue(_ writer: SegmentWriter, key: String, ns: Int64) async thro
     await cleanup.value
     #expect(cleanedUp)
 }
+
+@Test(arguments: [32, 128])
+func negotiatedCameraSizeChangeDisablesImmediatelyAndKeepsOtherTracks(width: Int) async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let observer = TestWriterObserver(), good = try InjectedCaptureSamples()
+    let changed = try InjectedCaptureSamples(width: width, height: 64)
+    let host: Int64 = 4_000_000_000
+    let writer = SegmentWriter(directory: dir, hostStartNs: host, maxFPS: 60) { url, key, first in
+        let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
+        observer.sink(key, sink); return sink
+    }
+    writer.onWarning = { observer.warn($0) }; writer.onFailure = { observer.fail($0) }
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        writer.queue.async {
+            do {
+                let clock = CMClockGetHostTimeClock()
+                writer.append(try good.video(at: host), track: "screen")
+                AuxiliarySamples.append(try good.video(at: host + 10_000_000), track: .camera,
+                    clock: clock, cameraPixels: [64, 64], writer: writer)
+                AuxiliarySamples.append(try changed.video(at: host + 20_000_000), track: .camera,
+                    clock: clock, cameraPixels: [64, 64], writer: writer)
+                // These callbacks are already queued when the format failure occurs.
+                // Even an immediately restored size must not restart this track.
+                AuxiliarySamples.append(try good.video(at: host + 30_000_000), track: .camera,
+                    clock: clock, cameraPixels: [64, 64], writer: writer)
+                AuxiliarySamples.append(try changed.video(at: host + 40_000_000), track: .camera,
+                    clock: clock, cameraPixels: [64, 64], writer: writer)
+                AuxiliarySamples.append(try good.audio(at: host + 40_000_000), track: .microphone,
+                    clock: clock, cameraPixels: nil, writer: writer)
+                writer.append(try good.video(at: host + 50_000_000), track: "screen")
+                continuation.resume()
+            } catch { continuation.resume(throwing: error) }
+        }
+    }
+    let result = await writer.finish()
+    #expect(result.error == nil && observer.failures.isEmpty)
+    #expect(observer.sinks["camera"]?.sampleTimes == [host + 10_000_000])
+    #expect(observer.sinks["mic"]?.sampleTimes == [host + 40_000_000])
+    #expect(observer.sinks["screen"]?.sampleTimes == [host, host + 50_000_000])
+    #expect(result.starts == ["screen": 0, "camera": 10_000_000, "mic": 40_000_000])
+    #expect(result.files.keys.sorted() == ["camera", "mic", "screen"])
+    #expect(observer.warnings.count == 1)
+}
+
+private enum AuxiliaryFailureCase: Sendable, CaseIterable { case wrongMedia, clockMissing, timestampInvalid }
+
+@Test(arguments: AuxiliaryFailureCase.allCases)
+private func cameraFormatAndClockFailuresDoNotCreateTrackOrStopScreen(failure: AuxiliaryFailureCase) async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let observer = TestWriterObserver(), samples = try InjectedCaptureSamples()
+    let host: Int64 = 5_000_000_000
+    let writer = SegmentWriter(directory: dir, hostStartNs: host, maxFPS: 60) { url, key, first in
+        let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
+        observer.sink(key, sink); return sink
+    }
+    writer.onWarning = { observer.warn($0) }; writer.onFailure = { observer.fail($0) }
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        writer.queue.async {
+            do {
+                let clock = CMClockGetHostTimeClock()
+                writer.append(try samples.video(at: host), track: "screen")
+                var invalid = try failure == .wrongMedia ? samples.audio(at: host + 10_000_000) : samples.video(at: host + 10_000_000)
+                if failure == .timestampInvalid {
+                    var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 60),
+                        presentationTimeStamp: .invalid, decodeTimeStamp: .invalid)
+                    var copy: CMSampleBuffer?
+                    let status = CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault,
+                        sampleBuffer: invalid, sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleBufferOut: &copy)
+                    guard status == noErr, let copy else { throw CaptureError.writerFailed("Cannot inject invalid camera PTS") }
+                    invalid = copy
+                }
+                AuxiliarySamples.append(invalid, track: .camera, clock: failure == .clockMissing ? nil : clock,
+                    cameraPixels: [64, 64], writer: writer)
+                AuxiliarySamples.append(try samples.video(at: host + 20_000_000), track: .camera,
+                    clock: clock, cameraPixels: [64, 64], writer: writer)
+                AuxiliarySamples.append(try samples.audio(at: host + 30_000_000), track: .microphone,
+                    clock: clock, cameraPixels: nil, writer: writer)
+                writer.append(try samples.video(at: host + 50_000_000), track: "screen")
+                continuation.resume()
+            } catch { continuation.resume(throwing: error) }
+        }
+    }
+    let result = await writer.finish()
+    #expect(result.error == nil && observer.failures.isEmpty)
+    #expect(result.files.keys.sorted() == ["mic", "screen"])
+    #expect(result.starts == ["screen": 0, "mic": 30_000_000])
+    #expect(observer.sinks["screen"]?.sampleTimes == [host, host + 50_000_000])
+    #expect(observer.sinks["mic"]?.sampleTimes == [host + 30_000_000])
+    #expect(observer.sinks["camera"] == nil && observer.warnings.count == 1)
+}

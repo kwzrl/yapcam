@@ -521,3 +521,31 @@ private func readSession(_ package: URL) throws -> SessionManifest {
     }
     #expect(value.segments[1].srcStartNs == value.segments[0].durationNs)
 }
+
+@Test @MainActor func recordingMarkersUseScreenOriginAndExcludePauses() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.delayFirstFrame = true
+    let session = harness.session()
+    #expect(throws: CaptureError.self) { try session.addMarker() }
+    try await session.start()
+    let firstOrigin = try #require(harness.streams.first?.firstFrameNs)
+    let first = try session.addMarker(atHostNs: firstOrigin + 1)
+    #expect(first.segmentIndex == 0 && first.segmentNs == 1 && first.srcNs == 1)
+    try await session.pause()
+    #expect(throws: CaptureError.self) { try session.addMarker() }
+    let package = try #require(session.packageURL)
+    let firstDuration = try readSession(package).segments[0].durationNs
+    try await session.resume()
+    let resumedOrigin = try #require(harness.streams.last?.firstFrameNs)
+    let second = try session.addMarker(atHostNs: resumedOrigin + 2)
+    #expect(second.segmentIndex == 1 && second.segmentNs == 2 && second.srcNs == firstDuration + 2)
+    #expect(first.id != second.id)
+    _ = try await session.stop()
+    #expect(throws: CaptureError.self) { try session.addMarker() }
+    for (segment, marker) in [(0, first), (1, second)] {
+        let data = try Data(contentsOf: package.appendingPathComponent(String(format: "recording/seg-%03d/events.jsonl", segment)))
+        let event = try JSONDecoder().decode(CaptureEvent.self, from: data)
+        #expect(event.type == "marker" && event.markerID == marker.id && event.t == marker.segmentNs)
+        #expect(event.key == nil && event.x == nil && event.y == nil)
+    }
+}

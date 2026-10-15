@@ -71,7 +71,10 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         queue.async { self.disable(track, reason: reason) }
     }
 
-    private func disable(_ track: AuxiliaryTrack, reason: String) {
+    /// Sample validation must disable synchronously before the next queued frame.
+    /// Notifications from other queues enter through deviceUnavailable instead.
+    func disable(_ track: AuxiliaryTrack, reason: String) {
+        dispatchPrecondition(condition: .onQueue(queue))
         guard accepting, unavailableTracks.insert(track.rawValue).inserted else { return }
         onWarning?(reason)
         if track == .microphone { onMicLevel?(0) }

@@ -85,9 +85,9 @@ final class InjectedCaptureSamples: @unchecked Sendable {
     private let videoFormat: CMVideoFormatDescription
     private let audioFormat: CMAudioFormatDescription
     private let pcm: CMBlockBuffer
-    init() throws {
+    init(width: Int = 64, height: Int = 64) throws {
         var image: CVPixelBuffer?
-        guard CVPixelBufferCreate(kCFAllocatorDefault, 64, 64, kCVPixelFormatType_32BGRA, nil, &image) == kCVReturnSuccess,
+        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, nil, &image) == kCVReturnSuccess,
               let image else { throw CaptureError.writerFailed("Cannot allocate injected image") }
         pixel = image
         CVPixelBufferLockBaseAddress(pixel, [])

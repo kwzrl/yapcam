@@ -42,3 +42,30 @@ private let selfTestSources = CaptureSources(
         _ = try CaptureSelfTestOverrides(environment: environment, sources: selfTestSources, seconds: 6)
     }
 }
+
+@Test func selfTestAudioCameraAndMarkerOverrides() throws {
+    let values = try CaptureSelfTestOverrides(environment: [
+        "YAPCAM_CAPTURE_SELFTEST_AUDIO": "apps:com.example.a,com.example.b",
+        "YAPCAM_CAPTURE_SELFTEST_CAMERA_MAX": "2160", "YAPCAM_CAPTURE_SELFTEST_CAMERA_ID": "camera",
+        "YAPCAM_CAPTURE_SELFTEST_MICROPHONE_ID": "mic", "YAPCAM_CAPTURE_SELFTEST_MARKERS": "1"
+    ], sources: selfTestSources, seconds: 6)
+    #expect(values.systemAudioSelection == .applications(bundleIDs: ["com.example.a", "com.example.b"]))
+    #expect(values.cameraMaxResolution == .uhd4K && values.cameraID == "camera" && values.microphoneID == "mic")
+    #expect(values.addMarkers == true)
+    for (text, selection) in [("off", SystemAudioSelection.off), ("all", .allApplications)] {
+        #expect(try CaptureSelfTestOverrides(environment: ["YAPCAM_CAPTURE_SELFTEST_AUDIO": text], sources: selfTestSources, seconds: 6).systemAudioSelection == selection)
+    }
+}
+
+@Test(arguments: [
+    ["YAPCAM_CAPTURE_SELFTEST_AUDIO": "apps:"],
+    ["YAPCAM_CAPTURE_SELFTEST_AUDIO": "apps:a,,b"],
+    ["YAPCAM_CAPTURE_SELFTEST_AUDIO": "apps: a"],
+    ["YAPCAM_CAPTURE_SELFTEST_AUDIO": "none"],
+    ["YAPCAM_CAPTURE_SELFTEST_CAMERA_MAX": "4096"],
+    ["YAPCAM_CAPTURE_SELFTEST_CAMERA_ID": ""],
+    ["YAPCAM_CAPTURE_SELFTEST_MICROPHONE_ID": ""],
+    ["YAPCAM_CAPTURE_SELFTEST_MARKERS": "yes"]
+]) func selfTestRejectsInvalidAudioCameraOverrides(environment: [String: String]) {
+    #expect(throws: CaptureError.self) { _ = try CaptureSelfTestOverrides(environment: environment, sources: selfTestSources, seconds: 6) }
+}

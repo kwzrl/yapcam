@@ -12,13 +12,14 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private var observers: [NSObjectProtocol] = []
     private let sessionLock = NSLock()
     private var outputSessions: [ObjectIdentifier: AVCaptureSession] = [:] // sessionLock
+    private var cameraSizes: [ObjectIdentifier: [Int]] = [:] // sessionLock
     var onWarning: (@Sendable (String) -> Void)?
 
     init(writer: SegmentWriter, fps: Int) { self.writer = writer; self.fps = fps }
 
     struct Metadata: Sendable { var mic: AudioMetadata?; var camera: CameraMetadata? }
 
-    func start(microphoneID: String?, cameraID: String?) async -> Metadata {
+    func start(microphoneID: String?, cameraID: String?, cameraMaxResolution: CameraMaxResolution = .hd1080) async -> Metadata {
         await withCheckedContinuation { continuation in
             control.async {
                 var result = Metadata()
@@ -41,7 +42,6 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                         guard session.canAddInput(input) else { throw CaptureError.deviceLost(device.localizedName) }
                         session.addInput(input)
                         if media == .video {
-                            if session.canSetSessionPreset(.hd1280x720) { session.sessionPreset = .hd1280x720 }
                             let output = AVCaptureVideoDataOutput()
                             output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
                             output.alwaysDiscardsLateVideoFrames = true
@@ -52,20 +52,10 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                             if let connection = output.connection(with: .video), connection.isVideoMirroringSupported {
                                 connection.automaticallyAdjustsVideoMirroring = false; connection.isVideoMirrored = false
                             }
-                            try device.lockForConfiguration()
-                            let rates = device.activeFormat.videoSupportedFrameRateRanges
-                            let actualFPS = [self.fps, 30].first { fps in
-                                rates.contains { $0.minFrameRate <= Double(fps) && $0.maxFrameRate >= Double(fps) }
-                            }
-                            guard let actualFPS else {
-                                device.unlockForConfiguration()
-                                throw CaptureError.writerFailed("Camera does not support 30 or 60 fps in its current format")
-                            }
-                            device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(actualFPS))
-                            device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(actualFPS))
-                            device.unlockForConfiguration()
-                            let dimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
-                            result.camera = CameraMetadata(deviceName: device.localizedName, pixelSize: [Int(dimensions.width), Int(dimensions.height)], fps: actualFPS)
+                            let choice = try CameraFormatPolicy.configure(device, maximum: cameraMaxResolution, fps: self.fps)
+                            self.sessionLock.withLock { self.cameraSizes[ObjectIdentifier(output)] = [choice.width, choice.height] }
+                            result.camera = CameraMetadata(deviceName: device.localizedName,
+                                pixelSize: [choice.width, choice.height], fps: choice.fps)
                         } else {
                             let output = AVCaptureAudioDataOutput()
                             output.audioSettings = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 48_000,
@@ -109,7 +99,7 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         await withCheckedContinuation { continuation in
             control.async {
                 self.sessions.forEach { $0.stopRunning() }; self.sessions.removeAll()
-                self.sessionLock.withLock { self.outputSessions.removeAll() }
+                self.sessionLock.withLock { self.outputSessions.removeAll(); self.cameraSizes.removeAll() }
                 self.observers.forEach { NotificationCenter.default.removeObserver($0) }; self.observers.removeAll()
                 continuation.resume()
             }
@@ -120,14 +110,38 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         guard let input = connection.inputPorts.first?.input as? AVCaptureDeviceInput,
               input.device.isConnected else { return }
         let track: AuxiliaryTrack = output is AVCaptureVideoDataOutput ? .camera : .microphone
+        let session = sessionLock.withLock { outputSessions[ObjectIdentifier(output)] }
+        let expected = sessionLock.withLock { cameraSizes[ObjectIdentifier(output)] }
+        AuxiliarySamples.append(sampleBuffer, track: track, clock: session?.synchronizationClock,
+                                cameraPixels: expected, writer: writer)
+    }
+}
+
+/// The AV delegates and this router run on writer.queue. Keeping validation here
+/// lets real sample buffers exercise format/clock failures without camera hardware.
+enum AuxiliarySamples {
+    static func append(_ sample: CMSampleBuffer, track: AuxiliaryTrack, clock: CMClock?,
+                       cameraPixels: [Int]?, writer: SegmentWriter) {
+        dispatchPrecondition(condition: .onQueue(writer.queue))
+        if track == .camera {
+            guard let format = sample.formatDescription,
+                  CMFormatDescriptionGetMediaType(format) == kCMMediaType_Video else {
+                writer.disable(.camera, reason: "Camera video format unavailable; screen recording continues.")
+                return
+            }
+            let size = CMVideoFormatDescriptionGetDimensions(format)
+            guard cameraPixels == [Int(size.width), Int(size.height)] else {
+                writer.disable(.camera, reason: "Camera changed its negotiated size; screen recording continues.")
+                return
+            }
+        }
         // Output timestamps use the session synchronizationClock, not the input
         // port's native device clock (AVCaptureSession.h documents this explicitly).
-        guard let session = sessionLock.withLock({ outputSessions[ObjectIdentifier(output)] }),
-              let clock = session.synchronizationClock else {
-            writer.deviceUnavailable(track, reason: "Capture device clock unavailable; screen recording continues.")
+        guard let clock else {
+            writer.disable(track, reason: "Capture device clock unavailable; screen recording continues.")
             return
         }
-        do { writer.append(try CaptureClock.hostSample(sampleBuffer, from: clock), track: track.rawValue) }
-        catch { writer.deviceUnavailable(track, reason: "Capture device timestamps invalid; screen recording continues.") }
+        do { writer.append(try CaptureClock.hostSample(sample, from: clock), track: track.rawValue) }
+        catch { writer.disable(track, reason: "Capture device timestamps invalid; screen recording continues.") }
     }
 }
