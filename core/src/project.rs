@@ -385,20 +385,28 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             "custom" | "slow" | "mellow" | "quick" | "rapid" | "smooth" | "medium" | "none"
         )
     };
-    let spring_ok = |s: &Spring, version: u32| {
-        if version == 1 {
+    let spring_ok = |s: &Spring, version: u32, custom: bool| {
+        if version == 1 && custom {
             return (5.0..=600.0).contains(&s.tension)
                 && (5.0..=200.0).contains(&s.friction)
                 && (0.1..=15.0).contains(&s.mass);
         }
         (1.0..=2000.0).contains(&s.tension)
             && (1.0..=200.0).contains(&s.friction)
-            && (0.1..=10.0).contains(&s.mass)
+            && (0.1..=if version == 0 { 10.0 } else { 15.0 }).contains(&s.mass)
     };
     if !preset_ok(&cur.speed_preset)
         || !preset_ok(&p.zoom_settings.speed_preset)
-        || !spring_ok(&cur.spring, cur.physics_version)
-        || !spring_ok(&p.zoom_settings.spring, p.zoom_settings.physics_version)
+        || !spring_ok(
+            &cur.spring,
+            cur.physics_version,
+            cur.speed_preset == "custom",
+        )
+        || !spring_ok(
+            &p.zoom_settings.spring,
+            p.zoom_settings.physics_version,
+            p.zoom_settings.animation_style == "custom" && p.zoom_settings.speed_preset == "custom",
+        )
         || !(0.0..=0.45).contains(&p.zoom_settings.dead_zone)
         || cur.loop_duration_ns <= 0
     {
@@ -787,7 +795,11 @@ pub(crate) mod tests {
                 < 1e-9
         );
         assert_eq!(options["cursor_size_points"], 48.0);
-        assert!((frame.cursor_scale as f64 * 320.0 / frame.screen_dest.w - 3.0).abs() < 1e-5);
+        assert!((frame.cursor_scale as f64 * 320.0 / frame.screen_dest.w - 1.5).abs() < 1e-5);
+        let pixels = p.session.tracks.screen.pixel_size;
+        p.session.tracks.screen.pixel_size = [pixels[0] * 2, pixels[1] * 2];
+        assert_eq!(p.frame(0).unwrap().cursor_scale, frame.cursor_scale);
+        p.session.tracks.screen.pixel_size = pixels;
         assert_eq!(p.data.canvas.background.color, [0.12, 0.14, 0.18, 1.0]);
         assert!((10.0_f64.powf(p.data.audio.click_sound.gain_db / 20.0) - 0.25).abs() < 1e-12);
         p.apply(&serde_json::json!({"op":"set","path":"canvas.padding","value":12}))

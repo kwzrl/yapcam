@@ -59,7 +59,10 @@ Failed commands/batches change neither state nor history. `yc_apply` returns
 | set | path, value; known setting path only |
 | batch | commands array; nested batches limited to depth 32 |
 | auto_zooms | optional scale (default 2); replaces auto zooms and retains manual zooms |
-| auto_speed_typing | optional speed (default 3); ≥3 keys within 600 ms gaps; 150 ms padding |
+| auto_speed_typing | optional speed (remembered, initially 3; 1.5…8); apply all non-dismissed captured bursts with gaps <500ms, span ≥1.5s and density ≥2 keys/s |
+| apply_typing_suggestion | id, optional speed; apply one captured burst to every retained occurrence |
+| dismiss_typing_suggestion | id; persist the source-stable dismissal |
+| restore_typing_suggestions | clear dismissals |
 | process_silence | ranges [{tl_start_ns,tl_end_ns}], mode `cut` or `speed`, speed if mode speed; merges overlap and applies from right to left |
 | apply_preset | preset object containing only canvas/cursor/camera/audio/zoom_settings/export settings |
 | add_media | path (existing package-relative file), role `asset` or `background`; returns asset-N and selects image background when requested |
@@ -399,3 +402,32 @@ reads the cold options to select its generated artwork; the logical size changes
 artwork dimensions, not Core's animated frame scale. FORMATS.md lists all values
 and SWIFT_API.md documents CoreCursorLibrary and typed Swift enums. Pixel/picker
 wiring belongs to Render/Editor, separately from the verified Core contract.
+
+
+## Aligned behavior revision 1
+
+New projects use source aspect, 10% short-edge padding, radius16, directional
+shadow (.3 intensity,25px distance,45 degrees,20 blur mapped to radius160), our
+calm dark background, our classic cursor at48 logical points, motion blur1,
+zoom2 and no cursor smoothing until explicitly enabled. Our authored cursor
+canvas is32pt; frame.cursor_scale already maps its48pt logical size through source
+points (independent of Retina raster density). Existing projects decode into pixel
+padding, classic shadow and version0 spring behavior. Missing metadata never
+changes an old speech recipe. No Apple/reference artwork is included.
+
+The additive set paths and queries are specified in docs/FORMATS.md under
+"Core behavior alignment". Version1 screen springs use focused250/40/2.25 or
+smooth170/50/3; cursor presets use smooth470/70/3, medium340/60/3,
+rapid530/40/1 or none. Custom limits5…600/5…200/.1…15 apply when custom is active;
+inactive legacy custom parameters are retained when choosing an aligned preset.
+Finite screen ramps compress analytically to settle within the interval; under
+two capture frames snaps. Optional start_early leads by350ms.
+
+Swift Project.typingSuggestions() decodes source IDs and all retained timeline
+ranges. Apply one/all, dismiss and restore use EditCommand. Default speed3 is
+remembered, apply is idempotent, and captured groups are independent of edits.
+Project.setMicrophonePreset(_:) accepts voice, noiseReduction or podcast and
+selects our own offline DSP recipes; SpeechEnhancementPlan.micPreset/stereoMic
+carry additive metadata. stereoMic is a consumer preference; Core's prepared
+microphone files preserve original channels. Renderer/Editor consumers must wire
+the x shadow offset and UI controls separately; no C layout changes are needed.

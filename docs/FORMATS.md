@@ -613,8 +613,8 @@ these fields and picker before claiming selections change preview/export pixels.
 
 ## Core behavior alignment (new-project revision 1)
 
-CORE-1 is implemented. Additive CORE-2/3/5/6 contracts below are being implemented;
-consult docs/status/core.md READY entries before depending on a new field/query.
+CORE-1/2/3/5/6 contracts below are implemented. See docs/status/core.md for
+verification and renderer/editor integration handoffs.
 
 Existing schema-1 projects keep their serialized geometry and physics. New fields
 missing in an older file select the legacy mode; opening does not regenerate zooms
@@ -637,7 +637,7 @@ is enabled for new projects.
 | canvas.shadow.distance | 0...100 output pixels | 25 / inactive for classic |
 | canvas.shadow.angle_deg | 0...180 degrees | 45 / inactive for classic |
 | canvas.shadow.blur | 0...30; directional blur maps to radius x8 | 20 / inactive for classic |
-| cursor.size_points | null or 16...128 logical points (base cursor 16pt) | 48 / null (existing size multiplier) |
+| cursor.size_points | null or 16...128 logical points (our authored base is 32pt) | 48 / null (existing size multiplier) |
 | cursor.physics_version | 0 legacy or 1 aligned spring rules | 1 / 0 |
 | zoom_settings.physics_version | 0 legacy or 1 aligned spring rules | 1 / 0 |
 | zoom_settings.default_scale | 1...4; used for omitted new zoom levels | 2 / 2 |
@@ -679,4 +679,22 @@ source occurrences share one ID and return all retained timeline intersections.
 Dismissed IDs are omitted. Commands dismiss_typing_suggestion {id},
 restore_typing_suggestions {}, and apply_typing_suggestion {id,speed?} modify one
 history step; auto_speed_typing {speed?} applies all non-dismissed suggestions.
-Selecting speed remembers typing.speed. Unsupported IDs/values fail atomically.
+Selecting speed remembers typing.speed. Unsupported IDs/values fail atomically. Applied bursts remain queryable until
+dismissed; applying the same speed again is a no-op. Bursts do not cross capture
+segments and have no artificial lead/tail padding.
+
+Microphone presets use Yapcam DSP recipes, not reference processing: voice disables
+offline enhancement; noise_reduction selects an 80Hz high-pass, -42dB noise
+threshold, 18dB reduction, unit compressor ratio and no normalization; podcast
+uses 90Hz, -45dB, 12dB reduction, -20dB compressor threshold, ratio4 and -16LUFS
+normalization. Both use -1dBFS peak ceiling. Explicit preset selection resets
+the DSP recipe; loading missing preset metadata defaults to voice without changing
+the stored enable flag or recipe. stereo_mic is a persisted consumer preference;
+Core preserves original microphone channel count in offline prepared files.
+
+The Swift wrapper adds TypingSuggestion, typingSuggestions(), EditCommand cases
+applyTypingSuggestion(id:speed:), dismissTypingSuggestion(id:),
+restoreTypingSuggestions, and autoSpeedTyping(speed:) with omitted remembered
+speed. SpeechEnhancementPlan adds optional micPreset/stereoMic;
+MicrophonePreset and setMicrophonePreset(_:) wrap the documented set path.
+No C structure or ABI version changes are needed.

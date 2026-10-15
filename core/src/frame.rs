@@ -505,12 +505,13 @@ impl Project {
         let (cx, cy) = transform(x, y);
         f.cursor_x = cx;
         f.cursor_y = cy;
-        f.cursor_scale = (cursor
-            .size_points
-            .map_or(cursor.size, |points| points / 16.0)
-            * f.screen_dest.w
-            / pixels_width(self)
-            / f.screen_crop.w) as f32;
+        // Authored cursors use a 32pt canvas. Logical sizing is independent of
+        // Retina raster density; legacy multipliers keep their old pixel basis.
+        let source_scale = cursor.size_points.map_or_else(
+            || cursor.size / pixels_width(self),
+            |points| points / 32.0 / self.session.source.content_rect_points[2],
+        );
+        f.cursor_scale = (source_scale * f.screen_dest.w / f.screen_crop.w) as f32;
         f.cursor_id = if cursor.always_default {
             0
         } else {
