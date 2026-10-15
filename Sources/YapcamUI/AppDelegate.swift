@@ -36,6 +36,9 @@ import YapcamEditor
             Task { await SelfTests.runCapture(args); NSApp.terminate(nil) }
             return
         }
+        if args.contains("--editor-selftest") { Task { await EditorSelfTests.run(args); NSApp.terminate(nil) }; return }
+        if args.contains("--editor-reopen-check") { Task { await EditorSelfTests.reopenCheck(args); NSApp.terminate(nil) }; return }
+        if args.contains("--editor-export-selftest") { Task { await EditorSelfTests.export(args); NSApp.terminate(nil) }; return }
         for (flag, drive) in [("--ui-record-selftest", false), ("--drive-input-selftest", true)] {
             if let i = args.firstIndex(of: flag) {
                 let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
