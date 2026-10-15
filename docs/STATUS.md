@@ -27,6 +27,18 @@ Needs the user (≈10 min):
    edit, export vs preview, 10-min A/V sync, window exclusion.
 3. Observation of Screen Studio 4.0.4 for the [observed] rows.
 
+## Live verification (2026-10-15 from 10:25, screen recording granted)
+- Display recording + system audio + events: complete packages (HEVC 1680×1050 ~58 fps, AAC).
+- 10-min recording: 600.08 s, 34 476 frames, RSS ≤ 73 MB; A/V sync over 300 flash/beep pairs:
+  offsets 2.5 / −14.2 / 9.8 ms (first/mid/last), drift 7.3 ms (frame quantisation 16.7 ms).
+- Real recording opened in core, cut/zoom/padding, undo/redo, save/reopen: pass.
+- Export vs preview (real recording, 720p): mean abs luma diff 0.50/255.
+- F6 (export with audio failed on the last ~100 ms of real recordings): fixed by render,
+  verified by Lead on main 529f208 — LiveRecordingTests 4/4 incl. full edit+export (156 s).
+- ui: toolbar → record → stop → editor opens, verified live; toolbar/HUD absent from the video.
+- Still open: Accessibility/Input Monitoring not granted to the app (clicks/keys, scripted
+  input), window/area/pause live runs, recovery of an interrupted package.
+
 ## Reference
 Screen Studio **4.0.4-4926** (installed 2026-10-14) is the fixed reference for this build-out.
 
