@@ -89,7 +89,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | CUR-03 | Cursor | Smooth cursor movement toggle | docs | cursor.smoothing; off = raw | core+render | integrated (editor toggle -> core spring -> render; Rust frame goldens; pixels unverified) | Off: frame cursor == raw event pos |
 | CUR-04 | Cursor | Cursor speed presets Slow/Mellow/Quick/Rapid + tension/friction/mass | docs | spring params; presets map to values | core | integrated (editor speed presets -> core spring params; Rust spring test) | Spring step response unit tests |
 | CUR-05 | Cursor | Cursor size, show/hide, hide when idle, hide in sections | docs | cursor.size/visible/hide_when_idle + range overrides | core+editor | integrated (editor cursor tab + hidden-sections lane -> core ranges) | Hidden section frame has no cursor |
-| CUR-06 | Cursor | Cursor sets (macOS, tahoe, touch, many custom) | technical (assets: ~24 sets) | Native macOS cursor images + a few own styles | render | implemented (partial: render original vector cursors + editor style recorded/pointer/touch; no larger set library; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86); main 8600691: core cursor_catalog.rs landed (palette/shape/size contract in progress per core status)) | Switch set changes image |
+| CUR-06 | Cursor | Cursor sets (macOS, tahoe, touch, many custom) | technical (assets: ~24 sets) | Native macOS cursor images + a few own styles | render | integrated (original vector cursors in render + core cursor catalog + editor palette/shape/size picker 2dc85e9 with OverlayTests; render stage verified on Metal M4 (Lead run 03:15); larger set collection not planned beyond catalog) | Switch set changes image |
 | CUR-07 | Cursor | Click effect (ripple/ring) | docs/assumption | cursor.click_effect | render | integrated (editor click effect -> core -> render procedural effect; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Click frame differs from idle frame |
 | CUR-08 | Cursor | Cursor motion blur | docs | strength slider | render | integrated (editor cursor motion blur control -> core extras -> render; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Fast move frame blurred |
 | CUR-09 | Cursor | Loop cursor to start position | assumption | option | core | integrated (editor loop toggle -> core) | last pos = first pos |
@@ -168,7 +168,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EXP-06 | Export | MOV export, HEVC codec | docs(3rd party), assumption | format/codec | render | verified (testFormatsAndPresets: HEVC mp4 + H.264 mov) | – |
 | EXP-07 | Export | Export progress/cancel, partial file removed | assumption | Task cancel | render+ui | verified (testCancelRemovesPartialFile) | Cancel → no file |
 | EXP-08 | Export | Preview == export | architecture | same compositor | render | implemented (same evaluator; E2E checks zoom crop only; pixel diff vs preview not done: needs Metal host; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | ffmpeg frame diff < threshold |
-| EXP-09 | Export | Performance settings (hardware encode, parallelism) | docs | – | render | implemented (render metrics; ExportSyncTests prints benchmark; no hardware numbers yet; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
+| EXP-09 | Export | Performance settings (hardware encode, parallelism) | docs | – | render | verified (Lead run 04:40 M4 debug: 10-min 1080p30 export with audio 4.4x realtime, peak RSS 137 MB; 30-min soak 2.2x, RSS growth -2.5 MB; synthetic low-res sources, real recordings unmeasured) | – |
 | EXP-10 | Export | Quick share widget / copy file | docs | reveal in Finder / drag file; no upload | ui | limited (no cloud) | – |
 | EXP-11 | Export | Verification: reopen output and check tracks | contract | Exporter | render | verified (Exporter reopens output; E2E ffprobe agrees) | – |
 
@@ -202,7 +202,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
 
 ## Audit log
-Last audit: against main 8600691 (M3 notes added to CUR-06/10, REC-18/19); earlier a02a89e (Metal hardware results folded in); earlier 78a8a0e; earlier 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
+Last audit: against main 065a117 (M3 long-export results); earlier 25f2b97 (CUR-06 integrated); earlier 8600691 (M3 notes added to CUR-06/10, REC-18/19); earlier a02a89e (Metal hardware results folded in); earlier 78a8a0e; earlier 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
 named test or measurement passed; **limited (why)** = cannot be verified here. Live-capture
@@ -215,7 +215,6 @@ No row is `todo`. Open work, by owner:
 | Team | Rows | Missing |
 |---|---|---|
 | editor | AUD-06 | toggle UI + processor/URL wiring (core setting and render path exist) |
-| render | CUR-06 | larger cursor-set library (3 styles only) |
 | render + Lead | all new layers | host/Metal verification (`YAPCAM_REQUIRE_RENDER_HARDWARE=1`) of text, reactions, captions, highlights, camera effects |
 | capture + Lead | AUD-10 | real Speech-framework host check |
 | Lead | live rows | Screen Recording grant; then QA live tests (REC-*, AUD-01, CUR-01/02, A/V sync) |
@@ -229,3 +228,10 @@ Render 86/86 on Metal incl. text, reactions, captions, highlights, camera effect
 one frame after export. Synthetic-source benchmarks (60 frames, no audio): export 1080p 4.7x,
 4K 1.9x realtime; preview 1080p 57.6 fps (3 dropped / 2 s), 4K 58.9 fps (2 dropped / 2 s).
 Camera rows remain synthetic-input only (no camera hardware). Source: docs/STATUS.md.
+
+## M3 render hardware results (Lead run 04:40, main 065a117, Apple M4, debug build)
+10-minute 1080p30 export with audio (procedural flash + beep): A/V offset 0.04 ms at start, 0.02 ms
+middle and end; 4.4x realtime; peak RSS 137 MB. 30-minute soak (looping decoded source + PCM): 2.2x
+realtime, peak RSS 183 MB, steady growth -2.5 MB (no leak). Preview with audio, 30 s: 1080p 58.3 fps
+(45 dropped submissions), 4K 58.9 fps (31). The synthetic 10-min A/V result covers the render path
+only; capture-side A/V sync on a real recording stays open (TCC).

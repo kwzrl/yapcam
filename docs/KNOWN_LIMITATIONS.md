@@ -10,9 +10,9 @@ Honest list of what was **not** verified or **not** built. Details per row: `doc
   math/unit tests only.
 - **iPhone/iPad recording**: not tested (no device); only window capture of an iPhone Mirroring
   window could work.
-- Performance numbers are from synthetic decoded sources (no audio): export 1080p 4.7x,
-  4K 1.9x realtime; preview ~58 fps. No numbers yet for real recordings, long (10+ min) sessions,
-  or memory/thermal behaviour.
+- Performance numbers are from synthetic, low-resolution sources: export 1080p 4.7x, 4K 1.9x
+  realtime; 10-min export with audio 4.4x (A/V offset <0.05 ms, RSS 137 MB); 30-min soak 2.2x
+  (no leak); preview ~58 fps. Real 1080p/4K screen recordings and thermal behaviour are unmeasured.
 
 ## Live capture not verified (TCC)
 - macOS Screen Recording was not re-granted for the `Yapcam Dev Signing` build, so every real
@@ -34,8 +34,8 @@ Honest list of what was **not** verified or **not** built. Details per row: `doc
 - Guide wording conflicts left open (cursor animation preset names).
 
 ## Not implemented / partial
-- Cursor set library: 3 styles (recorded/pointer/touch) with original vector cursors; no large
-  set collection (CUR-06).
+- Cursor sets: original vector cursors with a core catalog and editor palette/shape/size picker
+  (CUR-06); no large collection like the reference's ~24 sets.
 - Cloud features (links, comments, accounts, payments, telemetry, auto-update) are out of
   scope by design.
 - Intro/outro: fade (and modes added by editor); no scene-transform library.
