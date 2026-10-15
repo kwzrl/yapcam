@@ -1,5 +1,7 @@
 READY ui: live record→stop→editor verified, toolbar/HUD absent from video; BUG for core+render: export with audio fails on real recordings (see status)
 
+READY ui: QA self-test launch flags (--capture-selftest options, --ui-record-selftest, --drive-input-selftest) built, tested, run live; NOTE for QA: this app does NOT have Accessibility/Input Monitoring (logged accessibility=false)
+
 # ui status
 
 ## Done (verified)
@@ -118,6 +120,15 @@ Main unchanged (35ba7c5), branch already rebased. Re-ran `--capture-selftest 3`:
 
 ## Temp cleanup (Lead request, main 0df4bbb)
 Listed `$TMPDIR` for ui-created dirs (`yapcam-ui-*`, `yapcam-notes-*`, `yapcam-preset-*`, `yapcam-r2-*`, `yapcam-smoke*`, `yapcam-case-*`): none left (every test removes its temp dir with `defer`). Deleted my scratchpad snapshot dir (548 KB). I create no repo copies or harness dirs and have no scripts; any future script gets an `EXIT` trap. Did not touch other teams' dirs, `~/Movies/Yapcam/{Probes,QA}` (not mine) or my worktree `.build` (468 MB, in use).
+
+## QA launch flags (Lead request) — ready for main
+All results go to `~/Library/Logs/Yapcam/probe.log`; each run terminates the app by itself. Launch with `open -n build/Yapcam.app --args …` only when no other Yapcam runs and `~/Movies/Yapcam/QA/.app-lock` is absent.
+1. `--capture-selftest <sec> [--target window:<id>|area:x,y,w,h] [--pause-after <sec>]` → `CaptureSelfTest.run` (area uses display-local top-left points on the main display; bad arguments are logged with the reason). Live: `--capture-selftest 5 --target area:100,100,640,360 --pause-after 2` → `capture-selftest ok <package>` under `~/Movies/Yapcam/QA/capture/`.
+2. `--ui-record-selftest <sec>` → toolbar shown, `RecordingController.begin()` (honours the user's countdown setting, 3 s by default), stops after `<sec>` of recording, logs `ui-record-selftest start …`, `recording started hostNs=…`, `ok <package>` (package in the user's recordings folder). Live run OK. Preferences are restored afterwards.
+3. `--drive-input-selftest <sec>` → same, plus a deterministic script (`SelfTests.inputScript`: a circle of moves every 0.25 s around the display center, a click at display-local (cx+100, cy−80) every 2 s) posted with CGEvent from inside the app; every event is logged `event <move|click> x= y= hostNs=` with the same host clock (CMClockGetHostTimeClock ns) the capture layer stamps events with; `recording started hostNs` and the package's `seg-000/host-start.json` give the origin.
+   FINDING: the app currently has NO Accessibility (the start line logs `accessibility=false inputMonitoring=false`). macOS then drops the posted events: in my live run (29 scripted events) `events.jsonl` held only 2 lines (no clicks, no scripted moves). Grant Accessibility (posting) and Input Monitoring (capturing) to build/Yapcam.app, then rerun; the script itself is ready. The log prints a WARNING in this case.
+Tests: `SelfTestArgumentTests` (argument parsing incl. bad input, script determinism/bounds/ordering, host clock). 332 tests pass.
+Side fix: my earlier `--live-e2e` runs changed the saved countdown to 0 and never restored it; it now restores preferences, and I reset the countdown to the default 3. Test packages I created were deleted.
 
 ## RULE ack (Lead, app instances) + incident disclosure
 I acknowledge the rule: no `pkill`/`killall` of Yapcam, only PIDs I started; check `~/Movies/Yapcam/QA/.app-lock` before any launch (if present: no launch, non-live work only); never `open` a Yapcam.app while another instance runs (launch my own binary directly and kill only that PID).

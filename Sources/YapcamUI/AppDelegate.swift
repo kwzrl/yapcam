@@ -32,14 +32,16 @@ import YapcamEditor
             return
         }
 
-        if let i = args.firstIndex(of: "--capture-selftest") {
-            let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
-            Task {
-                do { Probe.log("capture-selftest ok \(try await CaptureSelfTest.run(seconds: seconds).path)") }
-                catch { Probe.log("capture-selftest failed \(error)") }
-                NSApp.terminate(nil)
-            }
+        if args.contains("--capture-selftest") {
+            Task { await SelfTests.runCapture(args); NSApp.terminate(nil) }
             return
+        }
+        for (flag, drive) in [("--ui-record-selftest", false), ("--drive-input-selftest", true)] {
+            if let i = args.firstIndex(of: flag) {
+                let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
+                Task { await SelfTests.runUIRecord(seconds: seconds, driveInput: drive); NSApp.terminate(nil) }
+                return
+            }
         }
 
         if let i = args.firstIndex(of: "--live-e2e"), args.indices.contains(i + 1) {

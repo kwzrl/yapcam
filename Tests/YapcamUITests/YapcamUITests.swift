@@ -467,3 +467,53 @@ import YapcamEditor
         #expect(vis.contains(f))
     }
 }
+
+// MARK: - Launch-flag self-tests (QA hooks)
+
+@MainActor @Suite struct SelfTestArgumentTests {
+    private func parse(_ a: [String]) -> (SelfTests.CaptureArgs?, String?) {
+        var e: String?
+        let r = SelfTests.parseCapture(["Yapcam"] + a, error: &e)
+        return (r, e)
+    }
+
+    @Test func plainSecondsAndDefaults() {
+        #expect(parse(["--capture-selftest", "6"]).0 == .init(seconds: 6, target: nil, pauseAfter: nil))
+        #expect(parse(["--capture-selftest"]).0?.seconds == 5)
+    }
+
+    @Test func windowAndAreaTargets() {
+        #expect(parse(["--capture-selftest", "3", "--target", "window:1234"]).0?.target == .window(1234))
+        #expect(parse(["--capture-selftest", "3", "--target", "area:10,20,800,600"]).0?.target == .area(CGRect(x: 10, y: 20, width: 800, height: 600)))
+    }
+
+    @Test func pauseAfter() {
+        #expect(parse(["--capture-selftest", "6", "--pause-after", "2"]).0?.pauseAfter == 2)
+        #expect(parse(["--capture-selftest", "6", "--pause-after", "9"]).1?.contains("shorter") == true)
+    }
+
+    @Test func badArgumentsExplainThemselves() {
+        for bad in [["--capture-selftest", "0"], ["--capture-selftest", "5000"], ["--capture-selftest", "3", "--target", "window:abc"],
+                    ["--capture-selftest", "3", "--target", "area:1,2,3"], ["--capture-selftest", "3", "--target", "area:0,0,8,8"],
+                    ["--capture-selftest", "3", "--target", "screen"], ["--capture-selftest", "3", "--target"]] {
+            let (r, e) = parse(bad)
+            #expect(r == nil && !(e ?? "").isEmpty, "\(bad)")
+        }
+    }
+
+    @Test func inputScriptIsDeterministicInBoundsAndHasClicks() {
+        let display = CGRect(x: 0, y: 0, width: 1680, height: 1050)
+        let a = SelfTests.inputScript(display: display, duration: 10)
+        #expect(a == SelfTests.inputScript(display: display, duration: 10))
+        #expect(a.allSatisfy { display.contains(CGPoint(x: $0.x, y: $0.y)) })
+        #expect(a.contains { $0.kind == .click } && a.contains { $0.kind == .move })
+        #expect(a.map(\.at) == a.map(\.at).sorted())
+        #expect(a.allSatisfy { $0.at < 10 })
+        #expect(SelfTests.inputScript(display: display, duration: 0.5).isEmpty)
+    }
+
+    @Test func hostClockIsMonotonic() {
+        let a = SelfTests.hostNs(), b = SelfTests.hostNs()
+        #expect(b >= a && a > 0)
+    }
+}
