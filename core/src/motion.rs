@@ -469,26 +469,23 @@ mod tests {
             {"op":"set","path":"canvas.motion_blur","value":0.6},
             {"op":"add_zoom","zoom":{"tl_start_ns":0,"tl_end_ns":2_000_000_000_i64,"target":[0.5,0.5],"mode":"manual","scale":2,"ease_in_ns":1_000_000_000,"ease_out_ns":0}}
         ]})).unwrap();
-        let base = p.frame_motion(350_000_000).unwrap();
+        let base = p.frame_motion(50_000_000).unwrap();
         assert!(base.cursor_motion_blur > 0.0 && base.zoom_motion_blur > 0.0);
         for amount in [0.0, 0.5, 1.0] {
             p.apply(&json!({"op":"set","path":"canvas.global_motion_blur","value":amount}))
                 .unwrap();
-            let m = p.frame_motion(350_000_000).unwrap();
+            let m = p.frame_motion(50_000_000).unwrap();
             assert!((m.cursor_motion_blur - base.cursor_motion_blur * amount as f32).abs() < 1e-6);
             assert!((m.zoom_motion_blur - base.zoom_motion_blur * amount as f32).abs() < 1e-6);
             assert!((m.pan_motion_blur - base.pan_motion_blur * amount as f32).abs() < 1e-6);
             assert!(
-                (p.frame_extras(350_000_000).unwrap().cursor_motion_blur - 0.8 * amount as f32)
+                (p.frame_extras(50_000_000).unwrap().cursor_motion_blur - 0.8 * amount as f32)
                     .abs()
                     < 1e-6
             );
-            assert!(
-                (p.frame_geometry(350_000_000).unwrap().motion_blur - 0.6 * amount as f32).abs()
-                    < 1e-6
-            );
+            assert!((p.frame(50_000_000).unwrap().motion_blur - 0.6 * amount as f32).abs() < 1e-6);
             assert_eq!(
-                p.query(&json!({"q":"render_options_at","tl_ns":350_000_000}))
+                p.query(&json!({"q":"render_options_at","tl_ns":50_000_000}))
                     .unwrap()["cursor_motion_blur"],
                 json!(m.cursor_motion_blur as f64)
             );
@@ -500,7 +497,7 @@ mod tests {
             .remove("global_motion_blur");
         p.data = crate::project::decode_project(&serde_json::to_vec(&legacy).unwrap()).unwrap();
         assert_eq!(p.data.canvas.global_motion_blur, None);
-        assert_eq!(p.frame_motion(350_000_000).unwrap(), base);
+        assert_eq!(p.frame_motion(50_000_000).unwrap(), base);
         let before = p.data.clone();
         assert!(p
             .apply(&json!({"op":"set","path":"canvas.global_motion_blur","value":1.1}))

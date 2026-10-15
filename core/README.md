@@ -503,3 +503,11 @@ Pass original ClipSettings to preserve local volume/cursor choices. All media an
 events map through the new clip; no recording rewrite or copied media. Editor can
 batch add-caption for the restored word, and must retain original transcript source
 bounds. Split first in the same batch to insert inside an existing retained clip.
+
+
+Master blur (RND-8): canvas.global_motion_blur is an optional multiplier for all
+screen/zoom/pan/cursor strengths. New projects use1; absent/null keeps independent
+legacy strengths. Core Frame/FrameMotion/Extras/cold options already contain the
+multiplied strength, so Render must not multiply twice; actual fps/60 belongs in
+Render. UI should bind its single master control to this path. Existing per-kind
+amounts remain extras and are unchanged when switching the master off/on.
