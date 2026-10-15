@@ -12,10 +12,13 @@ import Foundation
         guard seconds.isFinite, seconds > 0, seconds <= 3600 else { throw CaptureError.writerFailed("Self-test duration must be in (0, 3600]") }
         let sources = try await CaptureSources.load(includeWindowThumbnails: false)
         guard let display = sources.displays.first else { throw CaptureError.sourceUnavailable }
+        let overrides = try CaptureSelfTestOverrides(environment: ProcessInfo.processInfo.environment,
+                                                    sources: sources, seconds: seconds)
+        let pauseAfter = overrides.pauseAfter ?? pauseAfter
         let output = outputDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam/QA/capture")
-        let session = RecordingSession(options: RecordingOptions(target: target ?? .display(display.id),
+        let session = RecordingSession(options: RecordingOptions(target: target ?? overrides.target ?? .display(display.id),
             systemAudio: systemAudio, microphoneID: microphoneID, cameraID: cameraID,
-            recordKeystrokes: recordKeystrokes, maxFPS: maxFPS, hideDesktopIcons: hideDesktopIcons,
+            recordKeystrokes: recordKeystrokes, maxFPS: overrides.maxFPS ?? maxFPS, hideDesktopIcons: hideDesktopIcons,
             captureNotifications: captureNotifications, outputDirectory: output))
         try await session.start()
         do {
@@ -31,5 +34,49 @@ import Foundation
             if error is CancellationError { await session.cancel() }
             throw error
         }
+    }
+}
+
+/// Environment switches apply only to this explicit self-test, never normal capture.
+/// They let the existing signed-app entry point exercise variants without UI wiring.
+struct CaptureSelfTestOverrides {
+    var target: CaptureTarget?
+    var maxFPS: Int?
+    var pauseAfter: Double?
+
+    init(environment: [String: String], sources: CaptureSources, seconds: Double) throws {
+        func invalid(_ key: String) -> CaptureError { .writerFailed("Invalid self-test environment: \(key)") }
+        if let value = environment["YAPCAM_CAPTURE_SELFTEST_FPS"] {
+            guard let fps = Int(value), fps == 30 || fps == 60 else { throw invalid("FPS (30 or 60)") }
+            maxFPS = fps
+        }
+        if let value = environment["YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER"] {
+            guard let pause = Double(value), pause.isFinite, pause > 0, pause < seconds else {
+                throw invalid("PAUSE_AFTER (between zero and duration)")
+            }
+            pauseAfter = pause
+        }
+        guard let value = environment["YAPCAM_CAPTURE_SELFTEST_TARGET"] else { return }
+        guard let display = sources.displays.first else { throw CaptureError.sourceUnavailable }
+        if value == "display" { target = .display(display.id); return }
+        if value.hasPrefix("window:") {
+            let selector = String(value.dropFirst(7))
+            if let id = UInt32(selector), sources.windows.contains(where: { $0.id == id }) {
+                target = .window(id); return
+            }
+            if let window = sources.windows.first(where: { $0.bundleID == selector }) {
+                target = .window(window.id); return
+            }
+            throw CaptureError.sourceUnavailable
+        }
+        if value.hasPrefix("area:") {
+            let fields = value.dropFirst(5).split(separator: ",", omittingEmptySubsequences: false)
+            let numbers = fields.compactMap { Double($0) }
+            guard fields.count == 4, numbers.count == 4, numbers.allSatisfy(\.isFinite) else { throw invalid("TARGET area:x,y,width,height") }
+            let rect = CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+            _ = try CaptureGeometry.area(displayBounds: display.frame, localRect: rect, scale: display.scale)
+            target = .area(display: display.id, rect: rect); return
+        }
+        throw invalid("TARGET (display, window:id/bundleID, area:x,y,width,height)")
     }
 }

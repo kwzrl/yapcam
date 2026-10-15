@@ -1,3 +1,4 @@
+READY b5d1268 + WORKTREE clean-finish lock cleanup / signed-app live variants; host checks pending
 READY 7383d08 M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
 READY 4c5420b round-2 C1 no-speech window recovery/warnings; native say host gate pending
 READY a52fc4a AUD-06 groundwork / PCM file tests; native model host gate pending
@@ -8,17 +9,41 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 06:42 CEST: main remains 7d545a1; no new capture review
-  finding or host acceptance result. Remaining capture/Lead backlog is native Speech,
-  native fragmented-media/live-device verification and termination of the stale runs
-  below. lsof still reports all four listed PIDs using the two retained directories;
-  no additional deletion is safe. No temporary copies or repeat builds/tests created.
-  Main adds editor export options and documentation; capture source and tests are
-  unchanged. No new Screen Recording grant or native acceptance is reported.
-- Lead checkpointed M3 in 7383d08 and integrated it into main 0df4bbb. Capture source
-  and Swift tests match main. Cleanup documentation/status is checkpointed in e83634c;
-  cleanup is now integrated in main 8600691. This audit changes status only.
-  No independent capture implementation item is open.
+- Backlog audit 2026-10-15 10:46 CEST: HEAD/main still b5d1268; lock cleanup and
+  signed-app test variants await Lead's checkpoint/host runs. No new review finding
+  or live result arrived. Existing validation applies; no repeat builds or temp
+  copies. Both old isolation directories still have all four listed active PIDs.
+- Screen Recording grant CONFIRMED by Lead since 10:25 for mov.yapcam.Yapcam /
+  Yapcam Dev Signing. Lead's --capture-selftest 6 completed: HEVC 1680x1050,
+  352 frames / 6.09 s, AAC system audio offset 1 ms, 95 events. This supersedes
+  historical TCC-denial notes; it is a display baseline, not window/area/pause or
+  speech/model acceptance. Lead will run native/live checks outside the sandbox.
+- Local HEAD/main b5d1268. git rebase main reports already up to date, with sandbox
+  errors writing REBASE_HEAD/AUTO_MERGE; no source rebase is needed at this base.
+  Lead still checkpoints/pushes. Eight owned files pending: RecordingPackageLease,
+  CaptureSelfTest, RecoveryTests, SessionLifecycleTests, TranscriptionTests,
+  SelfTestOptionsTests (new), tests README and this status. No recordings committed.
+- Fixed clean-finish .capture.lock residue: every normal lease release unlinks its
+  own inode while still holding flock. This includes recording stop, recovery and
+  transcription; paused sessions retain the file/lock. Crashes can leave an empty
+  file, safely reclaimed by a later lease. Acquisition rechecks inode identity so
+  an opener racing unlink cannot acquire a detached lock; release preserves a
+  replacement inode. No recording/manifest format change.
+- Tests cover active/paused presence, stop after resume, stop while paused, retained
+  exclusivity, replacement-inode protection, and recovery/transcription cleanup.
+  Hidden self-test environment options now select display/window/area, 30/60 fps
+  and pause, using the existing signed-app handler. Parser tests cover malformed,
+  nonfinite/out-of-bounds geometry, absent windows, fps and pause validation.
+- Validation: capture suite 104 tests / 6 explicit media skips / zero failures
+  (33.8 s, including one-hour/100-crash simulation); Rust 68 pass / 1 ignored.
+  scripts/build-app.sh passes; strict codesign confirms Yapcam Dev Signing and
+  mov.yapcam.Yapcam. Initial link failure was a stale Rust release library and was
+  resolved by rebuilding it. The temporary Swift flag wrapper used cleanup traps
+  and was deleted on exit; no repo/harness copy was created.
+  Final recovery/transcription lock-file assertions pass in a focused 2-test rerun.
+  Source/test/status gitleaks scans and git diff --check pass. No full unrelated
+  Swift/UI/Metal rerun; native host checks above remain pending.
+  Logs: /tmp/yapcam-capture-lock-{core,tests,rust,app,followup}.log.
 - M3 implementation/unit validation complete. The one-hour 60 fps
   writer/event simulation and 100 seeded crash trials pass; capture limits are below.
   Native fragment probe compiles but remains a sandbox media-services host gate.
@@ -28,12 +53,37 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   pass; isolated capture suite 100 tests /
   6 media skips / zero failures. Final main-based run also passes the hour simulation
   and capture tests; full-suite environment failures are recorded below.
-- Local HEAD 431d7d4, checkpointed/integrated by Lead. Clean-tree rebase onto main
-  7d545a1 attempted at 06:32 CEST; creating rebase-merge is still denied
-  (Operation not permitted). Lead handles checkpoint/rebase/push. Pending: this
-  status only; capture source/tests/README already match main.
 - Native Speech/isolation, real capture and long-session encoder/device behavior are
-  not established by simulation or the separate renderer Metal hardware results.
+  not established by simulation or the separate renderer Metal hardware results;
+  the confirmed short display capture above is additional host evidence.
+
+## Lead host commands — lock cleanup / window / area / pause
+After checkpoint/build of this worktree, run from a normal host terminal in the repo.
+Use one command at a time; -W waits for the self-test app to exit. Open a disposable
+TextEdit document for window cases. A numeric window ID also works after window:.
+All output stays in ~/Movies/Yapcam/QA/capture; inspect probe.log for package paths.
+
+```sh
+scripts/build-app.sh
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_FPS=30 build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 --env YAPCAM_CAPTURE_SELFTEST_FPS=30 --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit --env YAPCAM_CAPTURE_SELFTEST_FPS=30 --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
+YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter 'actualHEVCWriterAndInterruptedRecovery|NativeFragmentTests'
+```
+
+- Every clean package: status complete, NO recording/.capture.lock, screen start 0,
+  monotonic video/events, AAC timestamps aligned by track_start_ns. Check with ffprobe.
+- Pause: two segments; seg-001.src_start_ns equals seg-000.duration_ns; 0.5 s pause
+  excluded. Area: 800x600 pixels on the scale-1 host (rect is display-local points).
+- Window: move/resize during capture and during the pause; initial encoded surface
+  remains fixed. Inspect first/resumed frames for blank startup and a static tail
+  through the stop time. These properties still require the host recordings.
+- Native tests: static-tail duration/readback and sparse one-hour HEVC moof/sample
+  checks; append CAPTURE_NATIVE_HOUR output here. The latter is a 1 Hz media clock,
+  not a real-time 60 fps benchmark. Lead should also run kill/relaunch recovery.
 
 ## Temporary disk cleanup — 2026-10-15 03:44 CEST
 - Listed exact paths/sizes before deletion and checked open files/cwds with lsof.
@@ -122,8 +172,9 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   checked Int64 arithmetic. Only simulated one-hour behavior is established here;
   real file growth is VBR/content/device dependent. Start/resume and ongoing checks
   stop on <1 GB free; injected low-disk tests do not predict worst-case encoder bursts.
-- Real hardware/permission acceptance remains: Screen Recording for Yapcam Dev Signing;
-  native HEVC/AAC fragmented files and kill/relaunch recovery; live 30/60 fps, static
+- Screen Recording is now granted and Lead's short display capture passed. Remaining
+  host acceptance: window/area/pause variants, native HEVC/AAC fragments and
+  kill/relaunch recovery; sustained live 30/60 fps, static
   tails, event-to-video alignment and A/V drift; camera/mic sync/loss (no devices here);
   Retina and multi-display capture (scale 1/2/negative-origin math is tested, only one
   non-Retina display here). Also native Speech and AUSoundIsolation quality/latency.
@@ -342,17 +393,19 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
 - Latest confirmed UI handoff: self-test flag, recovery prompt and editor open wired.
   Icon/notification forwarding through RecordingOptions still needs UI alignment;
   use stream filtering rather than Finder preference changes/restarts.
-- Real capture remains gated by the current signing identity's Screen Recording grant
-  (UI/QA reported SCStream -3801). No camera/mic; one non-Retina display. Unit/simulated
-  checks do not establish real device sync/loss, Retina or multi-display acceptance.
+- Earlier UI/QA SCStream -3801 reports are superseded by Lead's 10:25 grant and
+  successful short display capture. No camera/mic; one non-Retina display. Unit and
+  display-baseline checks do not establish device sync/loss, Retina/multi-display,
+  or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. Checkpoint the latest status audit, rebase/advance to main and push under the
-   agreed read-only Git workflow. Cleanup/M3/C1/prior packages are integrated. No other
-   independent capture implementation item remains in the current assignment.
+1. Checkpoint the eight lock-cleanup/self-test files listed above, review lock inode
+   lifetime/races, and push under the agreed read-only Git workflow. Prior M3/C1
+   packages are integrated. Suggested commit: fix(capture): remove completed lease
+   files and expose signed-app capture test variants.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
-   Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run live
-   capture/static-tail/sync and kill/relaunch checks when permissions/devices exist.
+   Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
+   the signed-app variants above plus static-tail/sync and kill/relaunch checks.
    Re-review C1 warnings and M3 policy/test boundaries; full host suite is still needed.
 3. Present C1 warnings and rerun the opt-in say tests on an authorized host with
    local models. Main already includes UI's Speech usage key, production transcriber

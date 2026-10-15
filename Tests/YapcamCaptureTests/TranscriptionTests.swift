@@ -58,6 +58,7 @@ private struct SpeechFixture {
     #expect(words[0]["src_start_ns"] as? Int64 == 100_000_000)
     #expect(words[0]["segment_index"] as? Int == 0)
     #expect(words[0]["track"] as? String == "mic")
+    #expect(!FileManager.default.fileExists(atPath: fixture.package.appendingPathComponent("recording/.capture.lock").path))
 }
 
 @Test func explicitTranscriptionTrackDoesNotSwitchToAnotherTrack() async throws {
