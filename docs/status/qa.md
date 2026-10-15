@@ -1,4 +1,4 @@
-READY 55cc55d qa: hotkeys + after-recording live checks done (F11/F12 low)
+READY HEAD qa: suites re-run on 97b9d82; benchmark needs idle re-measure
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -77,6 +77,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - Main c565a93: editor markers on the timeline (CAP-3) and glass-loupe zoom style (ED-5/RND-5) landed -> rows re-statused. Hotkey and after-recording hooks still absent; another Yapcam instance (pid 94705) is running.
 
 - Live hotkeys + after-recording choices run on main 97b9d82 (see TEST_REPORT section 4): start/stop/marker/pause/resume and create/widget/copy/save PASS; pick hotkeys + restart partial (F11), one intermittent save hang (F12).
+
+- Suites re-run on 97b9d82: Rust 100, XCTest 207 (0 failures), Swift Testing 501. RENDER_BENCHMARK now 2.7x (1080p) / 0.75x (4K) vs 6.3x / 1.9x earlier, but the benchmark changed (120 frames at the new 60 fps default) and the machine was under load (avg ~6): not a confirmed regression. Request render/Lead: re-measure on an idle machine; 4K below realtime would matter for the 4K export default.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).

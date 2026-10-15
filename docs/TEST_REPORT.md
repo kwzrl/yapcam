@@ -7,8 +7,8 @@ Build and signing setup: see `docs/SETUP.md` (`scripts/setup-signing.sh` creates
 A fresh clone builds without manual steps (Lead check 05:05, main aa70d91).
 
 ## 1. Summary
-Status 2026-10-15 ~12:35, main 3b68bde (Mac mini M4, 1680x1050, signed build, all permissions granted).
-- **Automated:** Rust 68 pass (1 ignored); Swift: XCTest 129 pass (9 skipped, 0 failures), Swift Testing 340 tests in 65 suites pass; render on Metal 86/86 (Lead run); E2E 11/11 plus 5 live-recording tests.
+Status 2026-10-15 ~21:05, main 97b9d82 (Mac mini M4, 1680x1050, signed build, all permissions granted).
+- **Automated:** Rust 100 pass (1 ignored); Swift: XCTest 207 run (10 skipped, 0 failures), Swift Testing 501 tests in 99 suites pass; render on Metal 86/86 (Lead run); E2E 11/11 plus 5 live-recording tests.
 - **Live (real captures):** display, window, area, pause/resume, 10-minute recording with A/V sync (drift 7.3 ms), crash recovery, scripted input (max 15 ms / 0.98 pt), auto-zoom from real clicks, toolbar/HUD/countdown excluded, export with audio of a real 10-min recording at 1080p (4.3x realtime): all PASS.
 - **Defects found:** F6 export with audio failed on real recordings (**fixed, re-verified**); F8 window `pixel_size` mismatch (**fixed, re-verified with a 201x151 window: pixel_size [200,150] == video**); F9 completed window recordings could not be opened in core (**fixed on main badc4e4, re-verified**); F4 absolute home path in docs/status/editor.md (low, open).
 - **Also verified live now:** hotkey-driven recording (start/pause/resume/stop), UI-driven editor sequence (split, delete, zoom, padding, undo/redo via menu), crash after autosave and crash with only the journal (edits restored on reopen), UI export with audio (1920x1080).
@@ -16,17 +16,17 @@ Status 2026-10-15 ~12:35, main 3b68bde (Mac mini M4, 1680x1050, signed build, al
 - **Go/no-go:** M1 (record -> edit -> export 1080p) works end to end for display and area recordings. **Window recordings are blocked by F9** until capture/core fix `display_name`; all other recording modes pass. M2 rows: 113 in FEATURES.md (38 verified, 47 integrated, 18 implemented, 10 limited, 0 todo). M3 hardening: long export, soak, recovery, sync verified; see section 9 for limits.
 
 ## 2. Automated suites
-Run 2026-10-15 12:30 on main 3b68bde outside any sandbox.
+Run 2026-10-15 21:05 on main 97b9d82 outside any sandbox (machine under load: load average about 6 from other teams' runs).
 | Suite | Command | Result | Skips (why) |
 |---|---|---|---|
-| Rust core | `CARGO_BUILD_JOBS=4 cargo test --manifest-path core/Cargo.toml` | 68 passed, 0 failed | 1 ignored (intentional) |
-| Swift, whole package | `swift test --disable-sandbox -j 4` | XCTest 129 run, 0 failures; Swift Testing 340 tests / 65 suites passed; 22 s + 26 s | 9 XCTest skipped (live tests needing `YAPCAM_LIVE_PACKAGE`, hardware gates) |
+| Rust core | `CARGO_BUILD_JOBS=4 cargo test --manifest-path core/Cargo.toml` | 100 passed, 0 failed | 1 ignored (intentional) |
+| Swift, whole package | `swift test --disable-sandbox -j 4` | XCTest 207 run, 0 failures; Swift Testing 501 tests / 99 suites passed; 40 s + 60 s | 10 XCTest skipped (live tests needing `YAPCAM_LIVE_PACKAGE`, hardware gates) |
 | Render on Metal (strict) | `YAPCAM_REQUIRE_RENDER_HARDWARE=1 swift test --filter YapcamRenderTests` | 86/86 (Lead run 03:15) | none |
 | E2E pipeline (fixture) | `scripts/qa/run-e2e.sh` | 11/11 | - |
 | Live-recording tests | `YAPCAM_LIVE_PACKAGE=<pkg> swift test --filter LiveRecordingTests` | 4/4 on the real 10-min package (+ testAutoZoomFromRealClicks 1/1 on a drive-input recording) | need a real package |
 | Crash recovery check | `scripts/qa/run-recover-check.sh <interrupted pkg>` | PASS (kill -9); fails on window packages because of F9 | needs a package |
 | Privacy scan | `scripts/qa/privacy-scan.sh` | FAILED: 1 finding, absolute home path in docs/status/editor.md (F4) | - |
-| Benchmark line (from the full run) | `RENDER_BENCHMARK` | 1080p export 6.3x realtime, 4K 1.9x (synthetic source, 60 frames, no audio) | - |
+| Benchmark line (from the full run) | `RENDER_BENCHMARK` | 1080p 2.7x, 4K 0.75x realtime (synthetic source, now 120 frames at the new 60 fps default, no audio; run under load average ~6, NOT comparable with the earlier 6.3x / 1.9x at 30 fps/60 frames; re-measure on an idle machine) | - |
 | UI self-tests | `--editor-selftest`, `--editor-reopen-check`, `--editor-export-selftest`, `--live-e2e hotkey` | all PASS (section 4) | - |
 
 ## 3. Definition of Done checklist (docs/TESTING.md)
@@ -94,7 +94,7 @@ Method: the app's own launch flags (`--capture-selftest N [--target window:<id>|
 | Metric | Value | Source |
 |---|---|---|
 | Export 1080p30, real 10-min recording with audio and edits | 599.1 s output in 138 s = **4.3x realtime** | qa, LiveRecordingTests |
-| Export 1080p / 4K, synthetic source, 60 frames, no audio | 6.3x / 1.9x realtime | full-suite RENDER_BENCHMARK, 12:30 |
+| Export 1080p / 4K, synthetic source, 120 frames at 60 fps, no audio, machine under load | 2.7x / 0.75x realtime (earlier at 30 fps / 60 frames: 6.3x / 1.9x) | full-suite RENDER_BENCHMARK, 21:05; re-measure idle |
 | Export 10-min synthetic with audio (render team) | 4.4x realtime, peak RSS 137 MB, A/V offset <0.05 ms | docs/STATUS.md |
 | Export 30-min soak | 2.2x realtime, RSS growth -2.5 MB (no leak) | docs/STATUS.md |
 | Preview with audio, 30 s | 1080p 58.3 fps, 4K 58.9 fps | docs/STATUS.md |
@@ -134,6 +134,7 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | Date | Main | What changed in this report |
 |---|---|---|
 | 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
+| 2026-10-15 21:10 | 97b9d82 | Suites re-run: Rust 100, XCTest 207 (0 failures), Swift Testing 501; render benchmark lower but not comparable (60 fps default, 120 frames, machine under load) |
 | 2026-10-15 20:55 | 97b9d82 | Hotkeys live (start/stop/marker/pause/resume PASS; pick+restart partial, F11) and after-recording create/widget/copy/save PASS (F12 one intermittent hang) |
 | 2026-10-15 19:55 | 3dd0d3b | F10 verified fixed (editor in front after Stop); hotkey and after-recording live checks blocked on missing in-app hooks |
 | 2026-10-15 19:45 | c1bf553 | Live DoD re-run on the integrated gap list: overlay+Start, scripted input, auto-zoom rule, area/window/pause, export option sets, clipboard, inspector order PASS; F10 editor not in front (low); hotkeys and after-recording buttons not run live |
