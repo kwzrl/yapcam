@@ -2,7 +2,30 @@
 
 Maintained by Lead. Team detail: `docs/status/<team>.md`. Feature state: `docs/FEATURES.md`.
 
-## Morning handover (2026-10-15 06:55)
+## Handover (2026-10-15 13:00) — current
+
+- App: `~/yapcam/build/Yapcam.app` (built from main by `scripts/build-app.sh`).
+- Repo: https://github.com/kwzrl/yapcam (public, Apache-2.0). Integrated commit: see
+  `git log -1 main` (f40e11b at time of writing).
+- Tests: Rust 69 (1 ignored), Swift Testing 344 in 65 suites, XCTest 129 (9 skipped);
+  render on Metal 86/86; E2E + live-recording tests; privacy scan + gitleaks (full history) clean.
+- Live-verified: display/window/area capture, pause/resume, hotkeys, 10-min A/V sync (drift
+  7.3 ms), crash recovery (capture + editor autosave), scripted input (≤15 ms), auto-zoom from
+  real clicks, toolbar/HUD excluded, UI editor actions, export with audio 1080p (4.3× realtime).
+- FEATURES.md: 119 rows — 16 verified live, 23 verified, 47 integrated, 18 implemented,
+  15 limited (incl. out-of-scope cloud/account rows).
+- Defects found and fixed today: F6 (export tail with audio), F8 (window pixel size),
+  F9 (window recordings did not open). Open defects: none known on main.
+- Not verified: real camera/mic, Retina/multi-display, live permission-revoked/low-disk
+  (injected-fault tests only), mouse-level clicking of toolbar/editor (self-tests call the
+  same actions), Screen Studio [observed] rows, VoiceOver.
+
+Continuation plan: (1) observation session of Screen Studio 4.0.4 with the user → fill
+[observed] rows, file gaps per team; (2) camera + mic test with real devices; (3) second
+display / Retina test; (4) review round 3 on code since 78a8a0e; (5) release preparation
+(Developer ID signing + notarization, bundled third-party notices) — out of scope so far.
+
+## Morning handover (superseded) (2026-10-15 06:55)
 
 State: main 64645c3 — 316 Swift + 114 XCTest (4 skipped) + 68 Rust tests green; render
 86/86 on Metal; fresh clone builds. FEATURES.md: 119 rows — 24 verified, 48 integrated,
