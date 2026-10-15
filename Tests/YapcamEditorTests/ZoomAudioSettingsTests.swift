@@ -116,3 +116,22 @@ import YapcamCore
         #expect(g.height == 720 && g.bytes > 0)      // 720p exists for GIF, so the choice is kept
     }
 }
+
+@MainActor @Suite struct ScreenStyleSettingsTests {
+    @Test func screenQualityAndInsetOriginRoundTripThroughCore() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("sq-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        m.set("canvas.screen_quality", .object([:]))
+        m.set("canvas.screen_quality.improve_quality", number: 0.8); m.set("canvas.screen_quality.upscaling", string: "fast")
+        m.set("canvas.inset_origin", .array([.number(0.5), .number(-0.25)]))
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.number("canvas.screen_quality.improve_quality") == 0.8 && m.string("canvas.screen_quality.upscaling") == "fast")
+        #expect(m.numbers("canvas.inset_origin") == [0.5, -0.25])
+        m.set("canvas.screen_quality", .null)
+        if case .null? = m.value("canvas.screen_quality") {} else { Issue.record("screen quality should be cleared") }
+        m.set("canvas.inset_origin", .array([.number(2), .number(0)]))                   // out of range is rejected by core
+        #expect(m.lastError != nil && m.numbers("canvas.inset_origin") == [0.5, -0.25])
+    }
+}

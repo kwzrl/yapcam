@@ -54,6 +54,7 @@ struct BackgroundPanel: View {
             ShadowRows(model: model)
             NumberRow(model: model, title: "Texture", path: "canvas.background.noise", range: 0...1, defaultValue: 0)
             ToggleRow(model: model, title: "Window frame", path: "canvas.window_chrome")
+            ScreenQualityRows(model: model)
         }
     }
 
@@ -82,6 +83,42 @@ struct InsetRows: View {
         if model.number("canvas.inset") > 0 {
             NumberRow(model: model, title: "Inset width", path: "canvas.inset", range: 1...24, unit: "pt", format: "%.0f", defaultValue: 4)
             ColorRow(model: model, title: "Inset color", path: "canvas.inset_color", opacity: true)
+            InsetOriginRows(model: model)
+        }
+    }
+}
+
+/// Moves the inset border toward an edge (`canvas.inset_origin` [x, y] in -1…1; 0 = centered).
+struct InsetOriginRows: View {
+    @ObservedObject var model: EditorModel
+    @State private var x = 0.0
+    @State private var y = 0.0
+    private func current() -> (Double, Double) { let v = model.numbers("canvas.inset_origin"); return (v.first ?? 0, v.count > 1 ? v[1] : 0) }
+    private func commit() { model.set("canvas.inset_origin", .array([.number(x), .number(y)])) }
+    var body: some View {
+        LabeledContent("Border position, left ↔ right") {
+            Slider(value: $x, in: -1...1) { e in if !e { commit() } }.accessibilityLabel("Inset border horizontal position")
+        }
+        LabeledContent("Border position, top ↔ bottom") {
+            Slider(value: $y, in: -1...1) { e in if !e { commit() } }.accessibilityLabel("Inset border vertical position")
+        }
+        if x != 0 || y != 0 { Button("Center the border") { x = 0; y = 0; commit() }.buttonStyle(.borderless) }
+        Color.clear.frame(height: 0)
+            .onAppear { (x, y) = current() }
+            .onChange(of: model.revision) { _, _ in (x, y) = current() }
+    }
+}
+
+/// Spatial clean-up and upscaling of the recording (`canvas.screen_quality`; off unless chosen).
+struct ScreenQualityRows: View {
+    @ObservedObject var model: EditorModel
+    private var enabled: Bool { if case .object? = model.value("canvas.screen_quality") { true } else { false } }
+    var body: some View {
+        Toggle("Improve screen quality", isOn: Binding(get: { enabled }, set: { model.set("canvas.screen_quality", $0 ? .object([:]) : .null) }))
+        if enabled {
+            NumberRow(model: model, title: "Improvement", path: "canvas.screen_quality.improve_quality", range: 0...1, defaultValue: 0.5)
+            PickerRow(model: model, title: "Upscaling", path: "canvas.screen_quality.upscaling", options: [("Off", "off"), ("Fast", "fast"), ("Quality", "quality")])
+            Text("Smooths noise and banding and resamples small recordings; it is not an AI enhancement.").font(.caption).foregroundStyle(.secondary)
         }
     }
 }
