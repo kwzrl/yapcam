@@ -1,41 +1,38 @@
-READY d14c367 + pending follow-up: screen quality, inset origin and toolbar marker compatibility; Rust100/Core Swift71/Render13 portable +6 native skips, Clippy and signed build/codesign PASS. Lead MUST checkpoint all seven pending files before integration/push.
+READY b2f5593 integrated on main 3dd0d3b and pushed to origin/team/core: all Core handoffs complete; Rust100/Core Swift71/Render13 portable +6 native skips, Clippy and signed build/codesign PASS. Backlog empty; Lead metadata rebase only.
 
 # Core status
 
-Updated 2026-10-15 17:41 UTC. Branch team/core; Lead checkpoint d14c367,
-based on main c1bf553 (main is an ancestor). Lead already rebased during this run;
-no additional rebase needed. Microphone package b852c2c is integrated/published.
-The current source includes d14c367 plus the final tested follow-up below; d14c367
-alone predates the Core Swift empty-quality-object decoder fix and strengthened
-preset/inset regressions. Do not integrate/push that intermediate checkpoint alone.
+Updated 2026-10-15 18:01 UTC. Branch team/core; Lead checkpoint b2f5593
+contains all seven final follow-up files. Complete Core source/tests/contracts match
+main 3dd0d3b (git diff --quiet HEAD main on owned implementation paths PASS).
+Pushed b2f5593 to origin/team/core, fast-forward from b852c2c; independently verified
+remote SHA b2f55930b781da0208c836be95467b89630a5ac4. Never pushed main.
+Clean-tree git rebase main attempted; sandbox still rejects creation of
+.git/worktrees/core/rebase-merge (Operation not permitted). Lead metadata rebase
+is the only Git action remaining; no reset/stash/workaround attempted.
 
 ## Next
 
-Continuation audit 17:41 UTC: main remains c1bf553; no new Core assignment or
-integration since the final green run. Rechecked the brief, FEATURES' Core row
-and updated consumer handoffs. Editor's new camera/layout controls and Render's
-enhanced-mic regression use delivered Core APIs; their new statuses request no
-additional Core implementation. Preserve the seven-file verified follow-up for
-Lead's checkpoint. No source changes, app activity or redundant test runs this
-cycle; diff --check passes. Main is already an ancestor, so no rebase needed.
+No remaining assigned Core implementation item. Rechecked the brief, FEATURES'
+Core row and consumer handoffs at 18:01 UTC: no new request. CORE-1...10/shared
+features, microphone selection, screen_quality, inset_origin and toolbar sidecar
+markers are integrated/published. Current Render adapter already handles the old
+lens/color/matte alias requests through zoom_lens/camera_style/camera_layout.
+Caption font/reveal metadata remains conditional on a new concrete Editor request.
 
-No remaining assigned Core implementation item after this consumer-request audit.
-Closed the missed Render screen_quality/inset_origin and UI markers.json handoffs,
-in addition to original CORE-1...10/shared gap work. Original empty-backlog audits
-missed those explicit handoffs; this cycle corrects them. Older Render glass_loupe,
-camera_color and camera_matte alias requests are superseded by the current adapter
-consuming zoom_lens/camera_style/camera_layout. FEATURES conditionally mentions
-caption font/reveal metadata if Editor makes a new concrete request; no new request
-for those fields arrived in this cycle.
+Continuation audit: main remains 3dd0d3b and all owned implementation files still
+match it. Only this status file is dirty. No new source changes, test reruns or app
+activity this cycle; the verified/published checkpoint remains b2f5593. Core's
+implementation queue is exhausted; remaining actions are external review, metadata
+rebase and consumer/native acceptance, rather than another Core work package.
 
-Lead MUST checkpoint ALL these seven pending files before integration/push:
-Sources/YapcamCore/ScreenQuality.swift; Tests/YapcamCoreTests/ScreenQualityTests.swift;
-core/README.md; core/src/effects.rs; core/src/preset.rs;
-core/src/screen_quality_tests.rs; docs/status/core.md.
-In particular the Swift DTO fix is required for Render's existing valid {} contract,
-and the preset fix makes unknown-only optional objects leave disabled settings off.
-Please arrange the required other-family review and mirror new Swift APIs in the
-Lead-owned SWIFT_API.md. No header, other-team source/tests or frozen fixtures edited.
+The previously pending final Swift DTO/default/preset/inset fixes are now in
+b2f5593; the earlier seven-file checkpoint warning is resolved. Source/tests are
+unchanged from the final verified worktree below, so no redundant tests rerun this
+cycle. diff --check passes. Only this status refresh awaits the next checkpoint.
+Lead: rebase metadata, arrange required other-family review if outstanding, and
+mirror new public Swift APIs in Lead-owned SWIFT_API.md. Editor/Render own controls
+and native pixel acceptance. No app launched/PID signaled or other-team file edited.
 
 Final gate: Rust100 PASS/1 intentional scale ignore, Core Swift71 PASS, renderer
 contract suites19 =13 portable PASS/6 explicit native skips; Clippy all-targets
@@ -190,7 +187,7 @@ and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
 
-### READY final consumer handoffs (2026-10-15 17:37 UTC)
+### READY b2f5593 final consumer handoffs (verified 2026-10-15 17:37 UTC; integrated/pushed 17:52 UTC)
 
 - RND-7: canvas.inset_origin [x,y], each finite in[-1,1], defaults centered[0,0]
   for fresh/legacy projects. Queries append inset_origin for Render's existing
@@ -214,7 +211,7 @@ and owned Core regression tests only; no runtime default or Render test changed.
 - All five new Rust/three Swift regressions are included in final Rust100/Core Swift71
   gates. Existing Render ScreenQualityTests/ProjectAdapterTests/CoreLensLayoutTests
   pass13 portable cases;6 native cases skip explicitly without Metal/media services.
-  Final logs and checkpoint file list are in Next. Previous per-package green gates
+  Final logs are in Next; b2f5593 contains the complete source. Previous per-package green gates
   below remain historical; final combined gate supersedes their counts.
 
 
