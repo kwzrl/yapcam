@@ -34,7 +34,11 @@ Recording grants, so no UI driving or screenshots). Analysis with `scripts/qa/ve
 | Open real package in core, cut/zoom/padding edits, undo/redo, save/reopen | PASS | testOpenRealRecording (duration 600.083 s == recorded) |
 | Export vs preview frame diff (real recording, 720p, t=2 s) | PASS | mean abs luma diff 0.50/255 (threshold 6) |
 | Export 1080p of real recording with edits and audio | **FAIL (F6)** | decode error after 137 s when the range includes the final ~100 ms with audio; last 15 s with tail-100ms OK; full tail without audio OK |
-| Window capture / area capture / pause-resume (live) | NOT RUN | no hook in the app for these; Lead's live-e2e harness logged window and pause packages (see its results) |
+| Area capture (`--live-e2e area`) | PASS | 800x500 selection -> video 800x500, 241 frames, complete |
+| Window capture (`--live-e2e window`) | PASS (minor F8) | Terminal 1627x1015 pt -> video 1626x1014 (even-size rounding); session.json pixel_size says 1627x1015 |
+| Pause/resume (`--live-e2e pause`) | PASS | 2 segments 2.15 s + 1.93 s, pause excluded |
+| Default flow (toolbar, countdown, record, stop, editor, export) | PASS up to export; export with audio FAIL (F6) | editor opened on the new package; export without audio OK |
+| Toolbar/HUD/countdown excluded from video | PASS (ui team evidence) | ui extracted frames at 0.3/2/4 s; not repeated by qa |
 | Scripted input vs events.jsonl | NOT RUN | CGEvent posting from my shell is not delivered (no Accessibility); needs in-app `--drive-input` (Request to Lead) |
 | Toolbar excluded from exported video | NOT RUN | selftest shows no toolbar; needs UI-driven recording |
 | Autosave / kill -9 / reopen via UI, undo/redo via UI, toolbar interaction | NOT RUN | needs UI automation (no AX for qa) |
