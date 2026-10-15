@@ -1,3 +1,4 @@
+READY 5d7fe82 + WORKTREE round-2 C1 no-speech window recovery/warnings; 97 capture tests, native say host gate pending
 READY a52fc4a AUD-06 groundwork / PCM file tests; native model host gate pending
 READY 63f4abb package 1 AUD-10 implementation/unit tests; real Speech host gate pending
 READY 63f4abb package 2 injected-fault verification; unit tests pass
@@ -6,23 +7,68 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Audit 2026-10-15 02:38 CEST: checkpoint a52fc4a contains AUD-06 and is integrated
-  in main 88f1995. Capture source/tests and FORMATS.md/SWIFT_API.md match this worktree.
-  No new capture backlog, review file or native Speech/isolation result was found.
-  Only this status refresh changed; prior validation still applies.
-  Main/HEAD are unchanged since the failed rebase; no repeated Git write or test run.
+- Audit 2026-10-15 03:09 CEST: C1 remains ready in the worktree, awaiting checkpoint
+  and re-review; main remains 78a8a0e. No new capture finding or host Speech/isolation
+  result. Capture implementation is unchanged since validation; no tests/Git writes
+  repeated under the existing metadata restriction.
+- Round-2 C1 implemented/unit validated before new features: retain spoken windows
+  around no-speech errors and return/persist partial-result warnings. Only the exact
+  native no-speech domain/code is recoverable; other failures preserve previous JSON.
+- Validation 2026-10-15 03:02 CEST: main 78a8a0e export + owned changes builds/signs,
+  Rust 61 pass; isolated capture target 97 tests / 5 opt-in skips / zero failures.
+  Final main-based full Swift run also has no capture failure; host gates below.
 - AUD-06 Apple voice isolation groundwork implemented/unit validated. Prior AUD-10,
   fault and geometry packages are implemented and integrated; native Speech remains
   a host gate. Added VoiceIsolationService.swift, VoiceIsolationTests.swift and README.
-- Main f640b35 is the validation baseline. Fresh main export + owned files builds
-  and signs successfully as Yapcam Dev Signing; Rust 56 tests pass. Native model
-  quality/alignment remains unverified; do not mark the AUD-06 feature verified.
+- Native Speech and isolation quality/alignment remain unverified; do not mark those
+  features verified from unit tests or the independent review's software results.
 - Package 1 files: Sources/YapcamCapture/{TranscriptionService,AppleOnDeviceSpeech}.swift,
   Tests/YapcamCaptureTests/TranscriptionTests.swift, tests README and this status.
-- Observed local HEAD a52fc4a (parent f640b35), main 88f1995. Retried clean-tree
-  git rebase main: cannot create rebase-merge (Operation not permitted); no rebase
-  started. Lead handles worktree advancement and commits/push under read-only Git.
+- Observed local HEAD 5d7fe82 (parent 88f1995), main 78a8a0e. Lead continues to handle
+  commits/rebase/push under read-only Git. Pending C1 files: AppleOnDeviceSpeech.swift,
+  TranscriptionService.swift, TranscriptionTests.swift, tests README and this status.
   Only capture-owned source/tests/status changed; no new dependencies.
+
+## Round-2 C1 — no-speech window recovery / implementation verified
+- Preserve native NSError domain/code through SpeechRecognitionJob. Only
+  kAFAssistantErrorDomain / 1110 is recovered as an empty window. Continue sequential
+  recognition and keep earlier/later words; denial, timeout, decoding and other errors
+  remain fatal. Cancellation takes precedence even if it races a no-speech callback.
+- RecordingTranscript now exposes warnings and computed isPartial. Warnings are
+  persisted atomically alongside usable words and logged through OSLog; UI should
+  display their messages before importing captions (outside capture ownership).
+- Additive optional schema-1 warnings array: each object has code=no_speech_detected,
+  message, src_start_ns, src_end_ns, segment_index and track (mic/system_audio).
+  Ranges cover the failed window's disjoint ownership interval, not its overlap;
+  map through the same segment/track offsets as words and clip at the segment end.
+  Older JSON decodes with warnings=[]; successful warning-free JSON omits the key.
+  Lead: add this optional extension to FORMATS.md. Core's current word importer
+  already ignores additional transcript fields, so caption import stays compatible.
+- Four default regressions: spoken/error-1110/spoken with correct persisted warning;
+  unrelated domain/code stays fatal and preserves current output; cancellation
+  after no-speech; all-no-speech + source clipping + older JSON compatibility.
+- Two say opt-in tests build a CAF with speech at 2 s and 92 s, leaving the entire
+  44–89 s request silent. One uses actual file decoding and injected callback 1110;
+  the other uses real on-device recognition. Successful native [] for silence is
+  also valid (no error to recover); deterministic injection guarantees C1 coverage.
+- Actual say tests attempted: both fail explicitly because say produces no usable
+  speech frames in this sandbox. Host command is in README; log
+  /tmp/yapcam-c1-say-attempt.log. Real synthesis/recognition is not claimed verified.
+- Signed scripts/build-app.sh + strict codesign verification pass on main 78a8a0e
+  export + owned files. Rust 61 pass. Full Swift attempt: Swift Testing 236 tests /
+  31 issues (29 editor Metal-preview, 2 UI missing snapshots); XCTest 91 tests /
+  31 skips / 6 E2E Metal failures. No capture issue; no all-green full-suite claim.
+  Logs: /tmp/yapcam-c1-{app-build,capture,full-swift,rust}.log. Source/test gitleaks
+  and git diff --check pass; no media/credentials/dependencies added.
+- Lead/UI: surface RecordingTranscript.warnings (isPartial) to the user before
+  encoding/importing captions; OSLog also reports partial results. No UI visibility
+  claim is made from this capture-only change. Suggested checkpoint title:
+  fix(capture): retain transcript around no-speech windows and expose warnings.
+- Latest UI worktree now installs EditorWindows.transcriber and includes the Speech
+  usage key (AppDelegate.swift / Resources/Info.plist; also reported in UI status).
+  It currently encodes the returned transcript directly; add warning presentation
+  before that encoding. Main 78a8a0e does not yet include the usage key, so this is a
+  pending cross-team integration, not a capture implementation blocker.
 
 ## AUD-06 groundwork / assumptions and current evidence
 - Use Apple's public AUSoundIsolation effect (standard voice, 100% wet) through
@@ -49,8 +95,9 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 - Render's current P4 status confirms its separate original DSP helper is implemented
   but does not provide model-based isolation. The Apple isolation output can be an
   explicit input to that helper if core/editor elect to chain isolation and mastering.
-  At 02:38 its status reports shared preview/export DSP integration in progress.
-  Core persistence/editor toggle and native Apple isolation acceptance remain separate.
+  At 02:48 its status reports shared preview/export DSP integration commit-ready
+  through optional render settings. Core persistence/editor toggle and native Apple
+  isolation acceptance remain separate; this does not verify the isolation model.
 - Sandbox AudioComponentFindNext returns no Apple effects. A direct AVAudioUnitEffect
   initializer probe crashed on that absence; production uses discovery plus the
   throwing AUAudioUnit initializer instead. Native quality/alignment is unverified.
@@ -114,8 +161,9 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
 - track is mic or system_audio; segment_index is the session segment index.
   confidence is finite in [0,1]. text preserves Apple's recognized word/utterance
   segment (no invented token timing). locale records the requested recognition locale.
-- Empty words is a valid successful no-word result. Any recognition error aborts the
-  whole update; no partial transcript is published. Unknown newer schemas must be
+- Empty words is a valid successful no-word result. No-speech windows may publish
+  usable words plus the optional warnings documented above. Other recognition errors
+  abort the whole update. Unknown newer schemas must be
   refused by consumers. transcript.json.prev is optional previous-version fallback.
 - Existing files remain untouched except transcript.json/.prev and the metadata-free
   advisory .capture.lock. No absolute audio paths or recordings are embedded in JSON.
@@ -184,8 +232,10 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   app injection hook; real transcription/UI wiring and host permission remain pending.
   Editor now reports 226 full-suite tests green after a clean/rebuilt app; this is
   other-team validation and does not establish native Speech/isolation quality here.
-- b75ea0a implements review H2/H3/M1/M2/input-clock fixes. Host HEVC static-tail seek,
-  startup/resume flash and real input alignment still need verification/re-review.
+- Round-2 independent review confirms all round-1 capture fixes, including H2/H3,
+  cadence and recovery numbering. It reports a successful static-tail reader probe
+  at 3 s in a file ending at 5 s. Real startup/resume flash and live input alignment
+  remain hardware/permission acceptance checks; C1 is the new capture finding.
 - Lead / FORMATS.md: optional seg-XXX/track-starts.json maps track keys to start offsets
   (new screen=0); optional seg-XXX/host-start.json is the absolute first written screen
   PTS as JSON Int64. Write host origin before offsets so recovery fixes a stale manifest.
@@ -198,17 +248,18 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   checks do not establish real device sync/loss, Retina or multi-display acceptance.
 
 ## Next / Lead requests
-1. AUD-06 checkpoint a52fc4a and the prior three packages are integrated in main
-   88f1995. Advance this worktree to main and handle push/status checkpoint under
-   the agreed read-only Git workflow. No independent capture implementation remains.
-2. Arrange independent review of the new isolation/Speech services and prior H2/H3 timing fixes.
-   Run the full Swift suite on a Metal host; sandbox editor/E2E failures are not fixed
-   or hidden by capture. No fully green full-suite claim for these checkpoints.
-3. Add the Speech usage-description key, wire explicit authorization/transcription
-   into EditorWindows.transcriber at app startup (encode returned RecordingTranscript
-   using JSONEncoder), and rerun the opt-in say test on an authorized host with local
-   models. Append real results here; capture will address findings.
-4. Add transcript JSON plus the existing optional timing sidecars/lock to FORMATS.md.
+1. Checkpoint C1's five owned files, rebase/advance this worktree to main and push
+   under the agreed read-only Git workflow. Prior packages are integrated. No other
+   independent capture implementation item remains in the current assignment.
+2. Re-review C1's error classification and warning schema/clock mapping. Round-1
+   findings are confirmed fixed by round-2 review. Run the full Swift suite on the
+   host; sandbox editor/E2E/UI failures are not fixed or hidden by capture.
+3. Integrate UI's usage key and production transcriber hook, present C1 warnings,
+   then rerun the opt-in say tests on an authorized host with local models. UI already
+   implements permission request + JSON encoding in its worktree; real Speech remains
+   unverified. Append host results here; capture will address findings.
+4. Add transcript JSON including optional C1 warnings and existing timing sidecars/lock
+   to FORMATS.md; expose the warnings in the app's caption flow.
    Core already documents source-time import; complete consumer integration is outside
    capture ownership. QA should reconcile AUD-10 and fault/geometry rows
    from this evidence without marking real recognition or capture as verified.

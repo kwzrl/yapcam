@@ -60,6 +60,36 @@ enum SpeechChunking {
         return Int64(value)
     }
 
+    /// Preserve usable windows when Speech explicitly reports no speech. Other
+    /// failures are still fatal; never turn a timeout/denial/cancellation into silence.
+    static func collect(windows: [SpeechAudioWindow], sampleRate: Double,
+                        recognize: (SpeechAudioWindow) async throws -> [RecognizedSpeechWord]) async throws -> RecognizedSpeech {
+        var result = RecognizedSpeech()
+        for window in windows {
+            try Task.checkCancellation()
+            guard let start = nanoseconds(Double(window.startFrame) / sampleRate),
+                  let ownedStart = nanoseconds(Double(window.ownedStartFrame) / sampleRate),
+                  let ownedEnd = nanoseconds(Double(window.ownedEndFrame) / sampleRate),
+                  ownedEnd <= Int64.max - start else {
+                throw TranscriptionError.recognitionFailed("Audio duration overflow")
+            }
+            do {
+                let words = try await recognize(window)
+                try Task.checkCancellation()
+                result.words += shifted(words, startNs: start, ownedStartNs: ownedStart, ownedEndNs: ownedEnd)
+            } catch {
+                try Task.checkCancellation()
+                let native = error as NSError
+                if native.domain == "kAFAssistantErrorDomain", native.code == 1110 {
+                    result.noSpeechWindows.append((start + ownedStart)..<(start + ownedEnd))
+                } else if error is CancellationError || error is TranscriptionError {
+                    throw error
+                } else { throw TranscriptionError.recognitionFailed(error.localizedDescription) }
+            }
+        }
+        return result
+    }
+
     static func shifted(_ words: [RecognizedSpeechWord], startNs: Int64, ownedStartNs: Int64,
                         ownedEndNs: Int64) -> [RecognizedSpeechWord] {
         words.compactMap { word in
@@ -75,7 +105,7 @@ enum SpeechChunking {
 /// Only file decoding and on-device Speech requests happen here. Requests are
 /// bounded in memory/time, sequential, and always refuse a network recognizer.
 enum AppleOnDeviceSpeech {
-    static func recognize(_ url: URL, locale identifier: String) async throws -> [RecognizedSpeechWord] {
+    static func recognize(_ url: URL, locale identifier: String) async throws -> RecognizedSpeech {
         try Task.checkCancellation()
         switch TranscriptionService.authorizationState {
         case .notDetermined: throw TranscriptionError.authorizationRequired
@@ -88,12 +118,25 @@ enum AppleOnDeviceSpeech {
         }),
               let recognizer = SFSpeechRecognizer(locale: locale), recognizer.supportsOnDeviceRecognition,
               recognizer.isAvailable else { throw TranscriptionError.onDeviceUnavailable(identifier) }
+        return try await recognizeFile(url) { buffer in
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.requiresOnDeviceRecognition = true
+            request.shouldReportPartialResults = false
+            request.taskHint = .dictation
+            let context = SpeechRequestContext(recognizer: recognizer, request: request, buffer: buffer)
+            return try await SpeechRecognitionJob().run { context.start($0) }
+        }
+    }
+
+    /// Shared decode/window path; tests can inject native callback outcomes without
+    /// requiring Speech permission. Production always installs the on-device request.
+    static func recognizeFile(_ url: URL,
+                              recognizeWindow: (AVAudioPCMBuffer) async throws -> [RecognizedSpeechWord]) async throws -> RecognizedSpeech {
         let file = try AVAudioFile(forReading: url)
         guard file.length > 0 else { throw TranscriptionError.recognitionFailed("Audio file is empty") }
         let rate = file.processingFormat.sampleRate
         let windows = try SpeechChunking.windows(frameCount: file.length, sampleRate: rate)
-        var result: [RecognizedSpeechWord] = []
-        for window in windows {
+        return try await SpeechChunking.collect(windows: windows, sampleRate: rate) { window in
             try Task.checkCancellation()
             file.framePosition = window.startFrame
             guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: window.frameCount) else {
@@ -101,20 +144,8 @@ enum AppleOnDeviceSpeech {
             }
             try file.read(into: buffer, frameCount: window.frameCount)
             guard buffer.frameLength == window.frameCount else { throw TranscriptionError.recognitionFailed("Truncated audio file") }
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.requiresOnDeviceRecognition = true
-            request.shouldReportPartialResults = false
-            request.taskHint = .dictation
-            let context = SpeechRequestContext(recognizer: recognizer, request: request, buffer: buffer)
-            let words = try await SpeechRecognitionJob().run { context.start($0) }
-            guard let start = SpeechChunking.nanoseconds(Double(window.startFrame) / rate),
-                  let ownedStart = SpeechChunking.nanoseconds(Double(window.ownedStartFrame) / rate),
-                  let ownedEnd = SpeechChunking.nanoseconds(Double(window.ownedEndFrame) / rate) else {
-                throw TranscriptionError.recognitionFailed("Audio duration overflow")
-            }
-            result += SpeechChunking.shifted(words, startNs: start, ownedStartNs: ownedStart, ownedEndNs: ownedEnd)
+            return try await recognizeWindow(buffer)
         }
-        return result
     }
 }
 
@@ -134,7 +165,7 @@ private final class SpeechRequestContext: @unchecked Sendable {
                     return RecognizedSpeechWord(text: segment.substring, startNs: start, endNs: end, confidence: segment.confidence)
                 }
                 complete(.success(words))
-            } else if let error { complete(.failure(TranscriptionError.recognitionFailed(error.localizedDescription))) }
+            } else if let error { complete(.failure(error)) }
         }
         request.append(buffer)
         request.endAudio()

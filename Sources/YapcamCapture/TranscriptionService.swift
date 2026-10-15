@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 public enum TranscriptionTrack: String, Codable, Sendable { case microphone = "mic", systemAudio = "system_audio" }
 
@@ -35,13 +36,56 @@ public struct TranscriptWord: Codable, Sendable, Equatable {
     }
 }
 
+/// A recoverable recognition window omitted from an otherwise usable transcript.
+public struct TranscriptionWarning: Codable, Sendable, Equatable {
+    public let code: String
+    public let message: String
+    public let srcStartNs: Int64
+    public let srcEndNs: Int64
+    public let segmentIndex: Int
+    public let track: TranscriptionTrack
+
+    enum CodingKeys: String, CodingKey {
+        case code, message, track
+        case srcStartNs = "src_start_ns", srcEndNs = "src_end_ns", segmentIndex = "segment_index"
+    }
+}
+
 public struct RecordingTranscript: Codable, Sendable, Equatable {
     public let schemaVersion: Int
     public let engine: String
     public let locale: String
     public let words: [TranscriptWord]
+    public let warnings: [TranscriptionWarning]
+    public var isPartial: Bool { !warnings.isEmpty }
 
-    enum CodingKeys: String, CodingKey { case schemaVersion = "schema_version", engine, locale, words }
+    enum CodingKeys: String, CodingKey { case schemaVersion = "schema_version", engine, locale, words, warnings }
+
+    init(schemaVersion: Int, engine: String, locale: String, words: [TranscriptWord], warnings: [TranscriptionWarning] = []) {
+        self.schemaVersion = schemaVersion; self.engine = engine; self.locale = locale
+        self.words = words; self.warnings = warnings
+    }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
+        engine = try values.decode(String.self, forKey: .engine)
+        locale = try values.decode(String.self, forKey: .locale)
+        words = try values.decode([TranscriptWord].self, forKey: .words)
+        warnings = try values.decodeIfPresent([TranscriptionWarning].self, forKey: .warnings) ?? []
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(schemaVersion, forKey: .schemaVersion)
+        try values.encode(engine, forKey: .engine)
+        try values.encode(locale, forKey: .locale)
+        try values.encode(words, forKey: .words)
+        if !warnings.isEmpty { try values.encode(warnings, forKey: .warnings) }
+    }
+}
+
+struct RecognizedSpeech: Sendable {
+    var words: [RecognizedSpeechWord] = []
+    var noSpeechWindows: [Range<Int64>] = [] // File-local ns; disjoint window ownership.
 }
 
 struct RecognizedSpeechWord: Sendable {
@@ -52,13 +96,18 @@ struct RecognizedSpeechWord: Sendable {
 }
 
 /// Transcribes a finalized recording using Apple's on-device Speech recognizer.
-/// No recording edits, network fallback, permission prompt or partial JSON publish.
+/// Atomic JSON publication; no recording edits, network fallback or permission prompt.
 public actor TranscriptionService {
     typealias Recognize = @Sendable (URL, String) async throws -> [RecognizedSpeechWord]
-    private let recognize: Recognize
+    typealias RecognizeWithWarnings = @Sendable (URL, String) async throws -> RecognizedSpeech
+    private let recognize: RecognizeWithWarnings
+    private static let logger = Logger(subsystem: "mov.yapcam.Yapcam", category: "Transcription")
 
     public init() { recognize = { try await AppleOnDeviceSpeech.recognize($0, locale: $1) } }
-    init(recognize: @escaping Recognize) { self.recognize = recognize }
+    init(recognize: @escaping Recognize) {
+        self.recognize = { RecognizedSpeech(words: try await recognize($0, $1)) }
+    }
+    init(recognizeWithWarnings: @escaping RecognizeWithWarnings) { recognize = recognizeWithWarnings }
 
     /// nil selects mic when present in each segment, otherwise system audio.
     /// Explicit selection skips segments without that track; it never switches it.
@@ -79,6 +128,7 @@ public actor TranscriptionService {
         }
         var expectedStart: Int64 = 0
         var words: [TranscriptWord] = []
+        var warnings: [TranscriptionWarning] = []
         var audioFound = false
         for (position, segment) in manifest.segments.enumerated() {
             try Task.checkCancellation()
@@ -99,7 +149,16 @@ public actor TranscriptionService {
             }
             audioFound = true
             let base = segment.srcStartNs + offset
-            for word in try await recognize(audio, localeIdentifier) {
+            let recognition = try await recognize(audio, localeIdentifier)
+            for window in recognition.noSpeechWindows {
+                guard window.lowerBound >= 0, window.upperBound > window.lowerBound,
+                      window.lowerBound < sourceEnd - base else { continue }
+                warnings.append(TranscriptionWarning(code: "no_speech_detected",
+                    message: "Partial transcript: speech recognition reported no speech in this audio window.",
+                    srcStartNs: base + window.lowerBound, srcEndNs: base + min(window.upperBound, sourceEnd - base),
+                    segmentIndex: position, track: selected))
+            }
+            for word in recognition.words {
                 // Audio packets may straddle the finalized stop. Retain only the
                 // portion in source time, never the pause or an overshooting tail.
                 guard !word.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -116,8 +175,11 @@ public actor TranscriptionService {
         try Task.checkCancellation()
         words.sort { $0.srcStartNs < $1.srcStartNs }
         let transcript = RecordingTranscript(schemaVersion: 1, engine: "apple_speech_on_device",
-                                            locale: localeIdentifier, words: words)
+                                            locale: localeIdentifier, words: words, warnings: warnings)
         try PackageIO.write(transcript, to: output)
+        if transcript.isPartial {
+            Self.logger.warning("Partial transcript: \(warnings.count) audio windows reported no speech; other recognized words were retained.")
+        }
         return transcript
     }
 
