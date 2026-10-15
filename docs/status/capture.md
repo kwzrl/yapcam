@@ -16,9 +16,19 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Latest continuation check: 2026-10-15 19:03 UTC; main 97b9d82, local HEAD 4c0b7ee
-  (based on c565a93). Capture source/tests match main; Lead's next rebase is pending.
-  No capture-owned code gap or native failure appeared. Only this handoff changes.
+- Latest continuation check: 2026-10-15 19:23 UTC; main 01f05df, local HEAD 87ce75d
+  (based on 97b9d82). Capture source/tests match main; Lead's next rebase is pending.
+  No new capture implementation assignment or defect appeared; local Next is empty.
+- NEW QA HOST EVIDENCE on 97b9d82: start/stop, marker shortcut delivery and pause /
+  resume PASS; 15 shortcuts register with zero refusals. Completed hotkey recording
+  4.72 s, editor front. Marker observation is UI count 0 -> 1, not event persistence.
+  After-recording create/widget/copy/save pass; save export has video+AAC. F11
+  (restart confirmation / overlay script interaction) and F12 (one unreproduced
+  save hang in five runs) are UI-owned. Capture's API contract remains unchanged.
+- Read-only artifact check: no retained recording/markers.json found under the QA
+  recording root, so no package-level marker-persistence result can be claimed.
+  No media changed/deleted, no app launched. Static UI forwarding gap below still
+  exists; successful hotkey delivery does not show a durable capture marker.
 - CAP-3 editor consumer is now DELIVERED (c143346, reflected in main FEATURES):
   timeline marker flags, snapping/edit points consume Core's mapped marker query.
   UI's exact live recording path is still missing: RecordingController.addMarker
@@ -27,19 +37,17 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   newly recorded hotkey marks still need UI forwarding before end-to-end acceptance;
   the integrated CAP-3 row should retain that caveat. Capture's API/wire format is
   ready and unchanged; editor presentation is no longer a missing implementation.
-- UI's hotkey/after-recording self-test hooks have landed (HotkeyScriptTests;
-  UI reports 500 tests), but no new live capture results were added. Their marker
-  counts are UI state until the forwarding above is wired. Another app instance
-  still blocks native checks per QA. No app launched or unchanged tests rerun here.
+- UI's hotkey/after-recording hooks are now exercised by QA as above; marker
+  persistence and capture-option isolation remain distinct checks. No unchanged
+  tests rerun here; existing module validation remains current.
 - NEW HOST EVIDENCE from QA's TEST_REPORT (main c1bf553, 19:45): display overlay /
   Start / Stop yields a complete 12.19 s package; scripted input 47/47, timing
   0.27–8.67 ms (mean 1.95), position <=0.98 point, 5 paired clicks. Area 800x500,
   window 1626x1014 with matching manifest, pause 2.17 + 1.85 s all PASS. QA also
   reports real auto-zoom and export/clipboard/model checks passing. These are QA
   host runs, not new capture runs here; no new capture failure was reported.
-- F10 was UI-owned and is now VERIFIED FIXED by QA on 3dd0d3b. Reference hotkeys
-  and after-recording choices remain unverified because their UI self-test hooks
-  are missing (plus global-hotkey collision risk from another instance).
+- F10 is VERIFIED FIXED by QA on 3dd0d3b. Later QA hook results on 97b9d82
+  supersede the old hotkey/after-recording hook blockers; F11/F12 remain UI owned.
   Selected-app audio isolation, durable
   marker action forwarding, Speech and hardware-specific acceptance remain open;
   the successful baseline runs do not close those checks. No app launched here.
@@ -834,7 +842,7 @@ Dispatch note for Lead: capture needs a new concrete assignment or native failur
 report to continue implementation; the unchanged consumer rows are already handed off.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint this status refresh and rebase capture 4c0b7ee onto main 97b9d82
+1. Lead: checkpoint this status refresh and rebase capture 87ce75d onto main 01f05df
    (Git remains read-only here). UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
    event marker query/TimelineMarker and editor presentation/snapping are complete;
