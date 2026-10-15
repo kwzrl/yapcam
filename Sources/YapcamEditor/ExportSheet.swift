@@ -26,7 +26,13 @@ struct ExportSheet: View {
             case .failed(let message):
                 Label("Export failed", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
                 Text(message).font(.callout).textSelection(.enabled)
-                HStack { Spacer(); Button("Close") { export.reset(); dismiss() }; Button("Try again") { export.reset() }.keyboardShortcut(.defaultAction) }
+                if export.failedWithAudio { Text("If the problem is the audio, you can export the video without it.").font(.caption).foregroundStyle(.secondary) }
+                HStack {
+                    Spacer()
+                    Button("Close") { export.reset(); dismiss() }
+                    if export.failedWithAudio { Button("Export without audio") { export.retryWithoutAudio() } }
+                    Button("Try again") { export.reset() }.keyboardShortcut(.defaultAction)
+                }
             }
         }
         .padding(24).frame(width: 400)

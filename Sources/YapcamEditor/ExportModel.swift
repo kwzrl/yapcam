@@ -24,6 +24,9 @@ public final class ExportModel: ObservableObject {
     /// Current microphone clean-up settings (nil = off); read when an export starts.
     public var speechProvider: () -> SpeechEnhancement? = { nil }
     private var task: Task<Void, Never>?
+    public private(set) var lastDestination: URL?
+    /// True when the failed export included audio, so retrying without audio can help (e.g. an audio decode problem).
+    public private(set) var failedWithAudio = false
 
     public init(engine: ExportEngine) { self.engine = engine }
 
@@ -31,6 +34,8 @@ public final class ExportModel: ObservableObject {
 
     public func start(to destination: URL) {
         guard !isRunning else { return }
+        lastDestination = destination
+        failedWithAudio = false
         state = .running(0)
         let req = ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio && format.supportsAudio,
                                 speech: includeAudio && format.supportsAudio ? speechProvider() : nil, format: format, quality: quality)
@@ -44,12 +49,21 @@ public final class ExportModel: ObservableObject {
             } catch is CancellationError {
                 self?.state = .cancelled
             } catch {
+                self?.failedWithAudio = req.includeAudio
                 self?.state = .failed(error.localizedDescription)
             }
         }
     }
 
     private func progressed(_ p: Double) { if case .running = state { state = .running(p) } }
+
+    /// After a failed export that included audio: run the same export again without audio to the same file.
+    public func retryWithoutAudio() {
+        guard case .failed = state, failedWithAudio, let dest = lastDestination, !isRunning else { return }
+        includeAudio = false
+        state = .idle
+        start(to: dest)
+    }
 
     public func cancel() { task?.cancel() }
     /// Suspends until the current export reached a terminal state (returns immediately when idle).
