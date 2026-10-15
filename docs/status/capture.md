@@ -1,4 +1,4 @@
-READY 92b19e9 + WORKTREE QA F8 even-size pixel metadata; signed build/unit verified, host readback pending
+READY f400c3e QA F8 even-size pixel metadata; signed build/unit verified, host readback pending
 READY a3a51ad clean-finish lock cleanup / signed-app live variants; host checks pending
 READY 7383d08 M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
 READY 4c5420b round-2 C1 no-speech window recovery/warnings; native say host gate pending
@@ -19,14 +19,13 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   QA .app-lock AND confirming no other Yapcam instance runs. Direct executable
   launch attributes TCC to the shell. Helpers below/README now use guarded open
   with explicit --env values. QA lock absent at 12:13 audit; no app launched.
-- Backlog audit 2026-10-15 12:08 CEST: main fc29d18 contains QA F8 (odd window
-  manifest/file pixel mismatch). Fixed in this worktree; five owned files pending:
-  CaptureGeometry, GeometryMatrixTests, SessionLifecycleTests, tests README/status.
-  Capture source/tests otherwise match main. Signed build and unit checks pass below;
-  Lead must checkpoint/rebase/push and rerun native odd-window readback.
-  QA .app-lock was absent at audit; no app launch or repo/harness copy performed.
-  Main's only new commit records host verification; F8 source validation remains
-  applicable. No newer capture finding or native F8/hour/Speech result arrived.
+- F8 request rechecked 2026-10-15 12:17 CEST: the fix and odd-size regressions are
+  checkpointed in f400c3e and integrated in main c504858. Capture source/tests/README
+  match main. At scale 1, the reported 1627x1015 window now configures/stores
+  1626x1014 encoded pixels while source.content_rect_points retains 1627x1015.
+  Scale-1/2 geometry and coordinator resume tests pass; prior signed build/106-test
+  verification remains applicable. Native odd-window file readback is still pending.
+  Only this status is pending; no duplicate code change, build copy or app launch.
 - Fleet app rule acknowledged 2026-10-15 10:54 CEST; QA .app-lock existed then.
   NO Yapcam launch performed. Check it before every launch, and do non-live work
   while it exists. Never quit another instance or kill by process name; only stop
@@ -40,8 +39,8 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   352 frames / 6.09 s, AAC system audio offset 1 ms, 95 events. This supersedes
   historical TCC-denial notes; it is a display baseline, not window/area/pause or
   speech/model acceptance. Lead will run native/live checks outside the sandbox.
-- Local HEAD 92b19e9; main fc29d18 contains prior capture changes. Clean-tree rebase
-  attempted before F8 edits at 11:48 CEST: creating rebase-merge still denied.
+- Local HEAD f400c3e; main c504858 contains the capture changes. Clean-tree rebase
+  attempted at 12:17 CEST: creating rebase-merge still denied.
   Lead handles Git checkpoint/rebase/push; no recordings committed.
 - Fixed clean-finish .capture.lock residue: every normal lease release unlinks its
   own inode while still holding flock. This includes recording stop, recovery and
@@ -96,7 +95,7 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   Tiny temporary flag-wrapper directory was listed/removed by EXIT trap; no repo copy,
   no app launched and no recording generated. Logs /tmp/yapcam-capture-f8-{tests,rust,app}.log.
   Source/test/status gitleaks scans and git diff --check pass.
-- Lead: after checkpoint, run the guarded capture_selftest function below against an
+- Lead: after building main with f400c3e, run the guarded capture_selftest function below against an
   odd-sized window, e.g. capture_selftest window:com.apple.Terminal 60.
   Verify session.json tracks.screen.pixel_size equals ffprobe width/height in EVERY
   screen segment, including pause/resume after resize. Native F8 readback is pending.
@@ -499,9 +498,9 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. Checkpoint F8's five owned files listed above, rebase/push under the agreed
-   read-only Git workflow, and validate odd-window manifest/file pixel equality on
-   the host. Fleet-rule/lock cleanup/self-test changes are integrated. Run host
+1. F8 is checkpointed/integrated as f400c3e; checkpoint this status/rebase under the
+   agreed read-only Git workflow and validate odd-window manifest/file pixel equality
+   on the host. Fleet-rule/lock cleanup/self-test changes are integrated. Run host
    commands only when QA releases .app-lock and no other Yapcam instance runs.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
