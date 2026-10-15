@@ -1,4 +1,4 @@
-READY HEAD qa: audit vs 7d545a1
+READY 6c2de95 qa: audit vs 7d545a1
 
 # qa status
 
