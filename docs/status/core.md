@@ -1,25 +1,29 @@
-READY working tree on fca4cda: ED-10 caption style + word timing/edit mapping + cold instructions/Swift APIs; Rust104/Core Swift74/Render11 portable +4 native skips, Clippy and signed build/codesign PASS. Lead checkpoint all tracked/untracked files; consumer handoff below.
+READY 9b0da01: ED-10 caption style + word timing/edit mapping + cold instructions/Swift APIs; Rust104/Core Swift74/Render11 portable +4 native skips, Clippy and signed build/codesign PASS. Integrated on main01f05df; checkpoint pushed to origin/team/core; consumer handoff below.
 
 # Core status
 
-Updated 2026-10-15 19:00 UTC. Branch team/core; Lead checkpoint fca4cda; main97b9d82.
-The baseline matched main on Core implementation paths before this ED-10 follow-up.
-Clean-tree git rebase main failed creating .git/worktrees/core/rebase-merge
-(Operation not permitted); Lead handles checkpoint/rebase. No workaround/main push.
+Updated 2026-10-15 19:23 UTC. Branch team/core; Lead checkpoint 9b0da01; main01f05df.
+Main includes 9b0da01 and matches all Core implementation/test/format paths exactly.
+Rebase attempted with a clean tree (status refresh preserved/restored); sandbox
+rejects .git/worktrees/core/rebase-merge creation. Lead rebase required. No Git
+metadata workaround or main push. Tested checkpoint remains on origin/team/core.
 
 ## Next
 
 No remaining assigned Core implementation item. Editor's new explicit ED-10 request
-(status c143346, Requests section) is now implemented in the working tree. The prior
+(status c143346, Requests section) is now implemented in checkpoint 9b0da01. The prior
 empty-backlog state was correct before that new request. New contract was written
 first in FORMATS.md; Core README includes Swift/API and Render integration notes.
 
-Lead: checkpoint ALL modified/untracked owned files, including NEW
-core/src/captions.rs, Sources/YapcamCore/Captions.swift and
-Tests/YapcamCoreTests/CaptionStyleTests.swift, then rebase onto main. Required
+Lead: checkpoint 9b0da01 includes all 15 package files, including the three new
+caption implementation/test files, and is integrated in main01f05df/published to origin/team/core. Required
 other-family review should cover word mapping/patch handling and renderer timing.
 Mirror public API additions in Lead-owned SWIFT_API.md. No C header change.
-Do not push an intermediate checkpoint that omits the untracked implementation.
+19:23 UTC re-audit: brief, FEATURES Core backlog, reference Core gaps and consumer
+handoffs contain no additional assigned Core implementation. No source changed
+after the final green gate; only this status refresh remains uncommitted. Main and
+origin/team/core are unchanged since the prior audit; the same Git sandbox blocker
+remains, so no repeated rebase or unchanged test run was necessary.
 
 Editor: canvas.captions records now carry style.font_family(sans/serif/mono),
 reveal(line/word), growth(full/expanding/centered), entrance(appear/fade/slide) and
@@ -33,10 +37,12 @@ set paths. Existing line/full/appear sans pixels/defaults are retained.
 Render request: existing text layers now append font_family and caption metadata.
 Core already supplies visible text and applies line opacity/slide into layer opacity/
 rect (do not multiply again). Consume caption full/visible text + growth for glyph/
-background fitting, and per-word opacity/offset after shaping. The old adapter ignores
-these new font/growth/word instructions; DO NOT claim them rendered or enable those
-visual controls before adapter/shader support. Defaults remain compatible, and old
-adapter regression suites pass. Core does not approximate glyph widths.
+background fitting, and per-word opacity/offset after shaping. Main01f05df now includes
+Render's shared font-family backend; its status confirms the selector contract is
+consumed. Growth/per-word instructions still require renderer support and native
+acceptance before claiming those visuals. Defaults remain compatible; Core does not
+approximate glyph widths. Lens + cover-mask pre-lens ordering remains a separate
+Render/Lead contract discussion; no new Core change is specified by that note.
 
 Capture/Editor request: expose actual native supported locales for the recognition
 language picker; Core cannot truthfully provide a static supported-language list.
