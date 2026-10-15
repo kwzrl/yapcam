@@ -83,14 +83,10 @@ private func copyFixture() throws -> URL {
     @Test func exportsThroughRealRenderer() async throws {
         let pkg = try copyFixture(); defer { try? FileManager.default.removeItem(at: pkg) }
         let doc = try EditorDocument(package: pkg)
-        // KNOWN RENDER BUG (see docs/status/editor.md): exporting audio that includes fixture seg-000 hangs,
-        // so this test exports only the second segment (3 s…5 s) with audio.
-        doc.model.seek(toNs: 0)
-        try doc.project.apply(.deleteRange(startNs: 0, endNs: 3_000_000_000))
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("editor-export-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: out) }
         doc.export.height = 720
-        doc.export.includeAudio = false   // audio export hangs in render (status file)
+        doc.export.includeAudio = true    // audio export works again (render fixed the stall)
         doc.export.start(to: out)
         await doc.export.waitUntilFinished()
         #expect(doc.export.state == .done(out), "\(doc.export.state)")
