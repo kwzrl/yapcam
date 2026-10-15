@@ -3,6 +3,7 @@
 READY 7cdc3db editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Rebased on main eacbd4d: preset isolation merged — Lead's `PresetIsolation` task-locals / `EditorPresets.directory|globalDirectory|globalDefaults` API kept (ui depends on it), backed by `EditorStorage` and injectable `PresetStore`. Full suite (UISmokeTests skipped) 481 green.
 - Zoom "Start animation early" + default zoom level (`zoom_settings.start_early/default_scale`), voice preset (`audio.mic_preset`) in voice clean-up; round-trip test on real core. 204 editor tests green.
 - Per-clip settings: volume (mic/system, amplitude 0…1 on selected clip or clip under playhead), hide cursor, smoothing off via core `set_clip_settings`; splits inherit; real-core save/reopen test. Suite 203 editor tests green (full suite with UISmokeTests skipped green).
 - **Real adapters** (`Adapters.swift`): `CoreEditingProject` over `Project`, `PreviewPlayerAdapter` over `PreviewPlayer`, `RenderExportEngine` over `Exporter`, `ProjectRenderSource: RenderProjectSource` (core→render bridge; nobody else provides it). Verified by `RealStackTests` against `Tests/Fixtures/synthetic/basic.yapcam`: edit → save → reopen, invalid values rejected by core with state unchanged, clicks/geometry from core, journal restore/discard, missing media error, real export, copy-frame PNG 1920×1080.

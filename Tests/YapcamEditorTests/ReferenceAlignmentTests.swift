@@ -456,12 +456,12 @@ import YapcamCore
 @MainActor @Suite struct StorageIsolationTests {
     @Test func testProcessesNeverUseTheRealLocations() {
         #expect(EditorStorage.isIsolatedProcess)
-        #expect(PresetStore.shared.directory.standardizedFileURL != EditorStorage.realPresetsDirectory.standardizedFileURL)
-        #expect(PresetStore.shared.directory.path.contains(NSTemporaryDirectory().trimmingCharacters(in: CharacterSet(charactersIn: "/")).prefix(8)) || PresetStore.shared.directory.path.contains("yapcam-editor-isolated"))
+        #expect(EditorPresets.currentStore.directory.standardizedFileURL != EditorStorage.realPresetsDirectory.standardizedFileURL)
+        #expect(EditorPresets.currentStore.directory.path.contains(NSTemporaryDirectory().trimmingCharacters(in: CharacterSet(charactersIn: "/")).prefix(8)) || EditorPresets.currentStore.directory.path.contains("yapcam-editor-isolated"))
         let sentinel = "isolation-\(UUID().uuidString)"
-        PresetStore.shared.defaults.set(sentinel, forKey: "yapcam.isolation.probe")
+        EditorPresets.currentStore.defaults.set(sentinel, forKey: "yapcam.isolation.probe")
         #expect(UserDefaults.standard.string(forKey: "yapcam.isolation.probe") == nil)                   // not the user's domain
-        PresetStore.shared.defaults.removeObject(forKey: "yapcam.isolation.probe")
+        EditorPresets.currentStore.defaults.removeObject(forKey: "yapcam.isolation.probe")
     }
 
     @Test func environmentVariableSelectsTheFolder() {
@@ -475,7 +475,7 @@ import YapcamCore
         try Data("{}".utf8).write(to: a.store.url("only-in-a"))
         a.store.defaultName = "only-in-a"
         #expect(a.store.names() == ["only-in-a"] && b.store.names().isEmpty)
-        #expect(b.store.defaultName == nil && PresetStore.shared.defaultName != "only-in-a")
+        #expect(b.store.defaultName == nil && EditorPresets.currentStore.defaultName != "only-in-a")
         a.cleanup()
         #expect(a.store.names().isEmpty)
     }

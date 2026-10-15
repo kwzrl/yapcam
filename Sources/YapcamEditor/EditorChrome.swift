@@ -3,8 +3,36 @@ import AppKit
 
 // Window chrome of the editor: top bar, controls above the preview, mini rail, transport row.
 
-/// Name prompt for presets (the store itself lives in EditorStorage.swift).
-@MainActor enum EditorPresets {
+/// Per-task isolation for tests: each test runs with its own preset folder and defaults suite.
+/// (Task-locals carry Sendable values, so the defaults are given by suite name.)
+public enum PresetIsolation {
+    @TaskLocal public static var directory: URL?
+    @TaskLocal public static var defaultsSuiteName: String?
+}
+
+/// Where presets live, shared with the app's Presets menu. Resolution order: task-local override (tests), global override
+/// (app self-tests), then `EditorStorage` (env `YAPCAM_PRESETS_DIR`, isolated test/self-test processes, else the real folder).
+@MainActor public enum EditorPresets {
+    public nonisolated(unsafe) static var globalDirectory: URL?
+    public nonisolated(unsafe) static var globalDefaults: UserDefaults?
+
+    public nonisolated static var isRunningUnderTests: Bool { EditorStorage.isIsolatedProcess }
+
+    public static var directory: URL { PresetIsolation.directory ?? globalDirectory ?? EditorStorage.resolvedPresetsDirectory() }
+    static var defaults: UserDefaults {
+        if let n = PresetIsolation.defaultsSuiteName, let d = UserDefaults(suiteName: n) { return d }
+        return globalDefaults ?? EditorStorage.sharedDefaults
+    }
+    /// The store for the current isolation context (new models and documents pick this up).
+    public static var currentStore: PresetStore { PresetStore(directory: directory, defaults: defaults) }
+    static func names() -> [String] { currentStore.names() }
+    static func url(_ name: String) -> URL { currentStore.url(name) }
+    static func clean(_ name: String) -> String { currentStore.clean(name) }
+    static var defaultName: String? {
+        get { currentStore.defaultName }
+        set { currentStore.defaultName = newValue }
+    }
+
     /// Asks for a name (AppKit alert with a text field). nil = cancelled.
     static func promptName(title: String = "Save look as preset", initial: String = "My Preset", confirm: String = "Save") -> String? {
         let alert = NSAlert()

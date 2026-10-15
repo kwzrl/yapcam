@@ -18,7 +18,7 @@ import UniformTypeIdentifiers
     /// Opens `package/project.json`, or creates a project when only a recording exists.
     /// A leftover autosave journal is applied by core; pass `restoreUnsavedChanges: false`
     /// to discard it first (see `EditorWindows` for the prompt).
-    public init(package: URL, restoreUnsavedChanges: Bool = true, presets: PresetStore = .shared) throws {
+    public init(package: URL, restoreUnsavedChanges: Bool = true, presets: PresetStore = EditorPresets.currentStore) throws {
         if !restoreUnsavedChanges { Self.discardJournal(package) }
         let restored = restoreUnsavedChanges && Self.hasUnsavedJournal(package)
         let fm = FileManager.default

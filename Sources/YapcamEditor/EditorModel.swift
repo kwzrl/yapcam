@@ -40,8 +40,8 @@ public final class EditorModel: ObservableObject {
     public private(set) var playheadNs: Int64 { get { playhead.ns } set { if playhead.ns != newValue { playhead.ns = newValue } } }
     public private(set) var isPlaying: Bool { get { playhead.isPlaying } set { if playhead.isPlaying != newValue { playhead.isPlaying = newValue } } }
     /// Where this document's presets and remembered settings live (injectable; isolated outside the real app).
-    public var presetStore: PresetStore = .shared
-    public var defaults: UserDefaults = PresetStore.shared.defaults
+    public var presetStore: PresetStore = EditorPresets.currentStore
+    public var defaults: UserDefaults = EditorPresets.currentStore.defaults
     @Published public var paletteVisible = false
     @Published public var silenceRangesState: SilenceRangesState = .idle
     var silenceRangesTask: Task<Void, Never>?

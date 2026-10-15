@@ -27,6 +27,9 @@ public enum EditorStorage {
         return realPresetsDirectory
     }
 
+    /// One defaults domain per process (isolated processes get a fresh private suite).
+    nonisolated(unsafe) static let sharedDefaults: UserDefaults = resolvedDefaults()
+
     /// The defaults domain for settings that must not leak between isolated runs and the user's real ones.
     static func resolvedDefaults() -> UserDefaults {
         let env = ProcessInfo.processInfo.environment
@@ -54,7 +57,6 @@ public enum EditorStorage {
 @MainActor public final class PresetStore {
     public let directory: URL
     public let defaults: UserDefaults
-    public static let shared = PresetStore(directory: EditorStorage.resolvedPresetsDirectory(), defaults: EditorStorage.resolvedDefaults())
     static let defaultKey = "yapcam.defaultPreset"
 
     public init(directory: URL, defaults: UserDefaults) { self.directory = directory; self.defaults = defaults }
