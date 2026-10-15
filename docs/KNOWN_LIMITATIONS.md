@@ -29,6 +29,8 @@ All permissions are granted now and live capture was verified (docs/TEST_REPORT.
   snapshots and model tests, not by real clicking.
 
 ## Reference (Screen Studio) fidelity
+Update 2026-10-15 afternoon: the user extracted the bundle and a gap list/spec was produced. FEATURES.md section L folds it in (57 reference-gap rows, all with status and owner); numbers below marked 'TBD' are now mostly known and tracked there. The sentences that follow describe the earlier, limited analysis.
+
 - REA analysis of the Electron app was limited (resource limit; truncated graph; obfuscated
   strings; extraction not allowed). Reference behaviour is therefore from official guides,
   the asset/binary inventory and assumptions. **No [observed] rows**; exact defaults, slider
