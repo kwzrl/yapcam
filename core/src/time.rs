@@ -458,18 +458,21 @@ mod tests {
                 src_start_ns: 0,
                 src_end_ns: 9_007_199_254_740_999,
                 speed: 1.0,
+                settings: Default::default(),
             },
             Clip {
                 id: "fraction".into(),
                 src_start_ns: 50,
                 src_end_ns: 63,
                 speed: 1.2,
+                settings: Default::default(),
             },
             Clip {
                 id: "last".into(),
                 src_start_ns: 100,
                 src_end_ns: 119,
                 speed: 0.75,
+                settings: Default::default(),
             },
         ];
         let mut new = old.clone();
@@ -505,6 +508,7 @@ mod tests {
                 src_start_ns: src,
                 src_end_ns: src + length,
                 speed: [1.0, 1.5, 3.0, 32.0, 1.000000001][i as usize % 5],
+                settings: Default::default(),
             });
             src += length;
         }
@@ -583,6 +587,7 @@ mod tests {
                 src_start_ns: 0,
                 src_end_ns: length,
                 speed,
+                settings: Default::default(),
             }];
             let oracle = ((length as i128 * denominator + numerator / 2) / numerator) as i64;
             assert_eq!(duration(&clips), oracle, "rate {speed}");

@@ -37,6 +37,7 @@ fn scale_60_minutes() {
             src_start_ns: i * (END / 5000),
             src_end_ns: (i + 1) * (END / 5000),
             speed: 1.0,
+            settings: Default::default(),
         })
         .collect();
     p.data.zooms = (0..1000)

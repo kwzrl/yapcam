@@ -754,3 +754,111 @@ restoreTypingSuggestions, and autoSpeedTyping(speed:) with omitted remembered
 speed. SpeechEnhancementPlan adds optional micPreset/stereoMic;
 MicrophonePreset and setMicrophonePreset(_:) wrap the documented set path.
 No C structure or ABI version changes are needed.
+
+## Checked timeline edits and clip controls (CORE-4)
+
+The additive `timeline_constraints` query reports clip/zoom minimum100000000ns,
+layout/mask minimum500000000ns and insertion default3000000000ns.
+`{op:"timeline_edit",command:{...}}` applies one command or batch atomically and
+rejects newly created or retimed items below these limits. Unchanged existing
+short items remain readable/editable; the existing precision commands remain
+available for old packages and source-clock operations. Editor interactions must
+use this checked envelope. Rejection preserves state/history/journal.
+
+`insert_zoom`, `insert_layout`, `insert_mask` take `tl_start_ns` (default0), an
+optional `duration_ns` (default3s) and an optional `patch` of the item's existing
+fields (id/times immutable). Insertions clamp to the project end and reject a
+remaining duration below the item minimum. Layout defaults to overlay; masks use
+our existing highlight model. Explicit patches take precedence over default style.
+
+Each clip gains `settings` (serde default): mic_gain/system_gain/external_gain
+linear amplitudes0...1 (all1), hide_cursor=false, disable_smoothing=false.
+`set_clip_settings {clip_id,patch:{...}}` replaces only supplied known settings;
+invalid values/unknown fields fail atomically. Splits inherit settings, cuts and
+speed edits retain them, snapshots/history/save preserve them. `clips` query and
+Swift ClipInfo expose settings (unity/default settings may be omitted to keep
+large project files compact; ClipInfo.effectiveSettings supplies defaults). Frame audio gains and audio_ranges incorporate
+mic/system clip amplitudes; cursor flags override project settings. external_gain
+is persisted metadata for external-track consumers; absent external media is not
+invented. No numeric array-index set paths or C ABI changes are introduced.
+
+## Interactive undo grouping (CORE-7)
+
+`{op:"coalesced_edit",key:"gesture identity",command:{...}}` marks a continuous
+interactive change. Successful changes with the same key, committed less than
+100ms apart, share the first undo state; redo restores the final state. Different
+keys, ordinary discrete commands, undo and redo end a group. Failed/no-op commands
+never add a step. The key must be nonempty and <=256 UTF-8 bytes. Editor should
+use a stable key per edited object/property during a gesture; discrete actions
+remain separate even if clicked quickly. This explicit envelope preserves the
+existing precision command API's one-command/one-step contract.
+
+All histories retain at most1000 undo steps, dropping the oldest after adding a
+new step. History clocks/groups are runtime state, not serialized project style;
+saving and reopening starts a new history as before. Cold `history` query returns
+{undo_steps,redo_steps,limit:1000,coalesce_ms:100}. No C ABI change.
+
+## Last edited insertion styles (CORE-8)
+
+`insertion_styles` is persisted, undoable metadata with nullable zoom and mask
+styles, initially null for old/new files. Zoom style includes mode, scale and
+in/out durations; mask style includes radius, opacity, dim_opacity, fill, stroke
+and stroke_width. Geometry, source/timeline clocks, identities and disabled state
+are never inherited. Explicit insertion fields override remembered style. New
+insert_zoom/insert_mask and omitted add_zoom style fields use this metadata.
+
+Successful manual zoom add/update and mask insertion or canvas.highlights edits
+remember the edited style. Bulk mask replacement remembers the last changed row
+in array order. Automatic zoom regeneration does not change manual insertion
+style. Removing a range retains its remembered style. Undo/redo, snapshots and
+save/reopen preserve style history; legacy files start with null metadata and
+retain their existing item values. Read-only `insertion_styles` returns both
+nullable styles. Metadata has no generic set path and does not change the ABI.
+
+## Capability gates (CORE-9)
+
+Cold `capabilities` returns booleans can_crop, can_round_corners, can_inset,
+can_cursor, can_auto_zoom, can_camera, can_camera_layouts and can_external_audio,
+plus device_frame_active/external_recording. can_external_audio is currently false
+(the model can retain gain preferences, but no external audio mixer is exposed).
+
+`canvas.device_frame` is nullable descriptive frame identifier (null by default;
+nonempty <=128 bytes when set). It gates geometry; Core does not claim a device
+artwork renderer. With an active frame or external-device/continuity recording,
+crop evaluates full-frame and screen corners/inset evaluate zero, while stored
+values remain available when the gate is removed. External source kind aliases:
+device/external/external_device/iphone/ipad/continuity/screen_continuity. Local
+video import is not an external-device recording.
+
+Pointer overlays and automatic zoom require immutable captured mouse events and
+are unavailable for external recordings. Cursor already baked into the video
+also disables overlay rendering, while pointer events can still support zoom.
+Auto zoom requests without mouse capability coerce to manual; regeneration cannot
+manufacture pointer-driven ranges. Camera controls/layout capability requires an
+actual camera track/file. Stored layouts are retained for compatible media and
+presets; missing camera never synthesizes a frame. Editor must use the query to
+hide/disable controls. Frame evaluation applies gates allocation-free without
+rewriting saved crop/corners/inset/cursor settings. No C ABI changes.
+
+## Full-project autosave and dirty revisions (CORE-10)
+
+Cold `autosave_policy` returns {enabled,delay_ns:30000000000}; enabled reads the
+existing autosave setting. Immediate recovery journals continue to protect each
+edit; the 30-second quiet period applies to the full project.json save. An edit
+restarts the timer. Changing autosave off cancels the pending full save.
+
+Swift Project adds revision (UInt64) and isDirty, updated only after successful
+mutations; create/recovery-journal open starts dirty, a clean open starts clean.
+Failed/no-op commands do not advance the revision. apply/undo/redo advance it;
+ordinary save captures and marks the current revision clean under the same
+mutation gate. save(ifRevision:) returns false without writing when its captured
+revision has become stale. Successful save never clears a later edit's dirty flag.
+Reads still bypass the save/mutation gate as before; close rejects stale saves.
+
+ProjectAutosaver is an opt-in MainActor coordinator owned by the document. It
+observes Project.didChange, uses a trailing 30-second delay by default, and saves
+on a worker task only if the revision is still current. cancel() cancels the timer
+and unregisters observation; call before closing a document. Errors remain exposed
+in lastError and keep the project dirty. Existing Editor autosave must adopt this
+coordinator or align its own delay/revision guard; Core does not silently install
+a second timer on every Project. Snapshots have independent revision lifetimes.

@@ -114,8 +114,14 @@ impl Project {
             .ok_or_else(|| Error::new(1, "Frame time outside timeline"))?;
         let p = &self.data;
         let c = &p.canvas;
+        let capabilities = self.capabilities();
+        let crop = if capabilities.can_crop {
+            c.crop
+        } else {
+            [0.0, 0.0, 1.0, 1.0]
+        };
         let pixels = self.session.tracks.screen.pixel_size;
-        let source_aspect = pixels[0] as f64 / pixels[1] as f64 * c.crop[2] / c.crop[3];
+        let source_aspect = pixels[0] as f64 / pixels[1] as f64 * crop[2] / crop[3];
         let aspect = match c.aspect.as_str() {
             "source" => source_aspect,
             "custom" => c.output_size[0] as f64 / c.output_size[1] as f64,
@@ -161,17 +167,25 @@ impl Project {
             background_blur: c.background.blur as f32,
             screen: time::sample(&self.session, "screen", src),
             screen_crop: Rect {
-                x: c.crop[0],
-                y: c.crop[1],
-                w: c.crop[2],
-                h: c.crop[3],
+                x: crop[0],
+                y: crop[1],
+                w: crop[2],
+                h: crop[3],
             },
             screen_dest: fit(area, source_aspect),
-            screen_corner_radius: c.radius as f32,
+            screen_corner_radius: if capabilities.can_round_corners {
+                c.radius as f32
+            } else {
+                0.0
+            },
             shadow_radius: c.shadow.evaluated().2 as f32,
             shadow_opacity: c.shadow.opacity as f32,
             shadow_offset_y: c.shadow.evaluated().1 as f32,
-            inset_width: c.inset as f32,
+            inset_width: if capabilities.can_inset {
+                c.inset as f32
+            } else {
+                0.0
+            },
             inset_color: c.inset_color,
             click_progress: -1.0,
             camera: time::sample(&self.session, "camera", src),
@@ -201,7 +215,8 @@ impl Project {
             .iter()
             .filter(|z| {
                 z.enabled
-                    && (z.mode != "auto" || p.zoom_settings.automatic)
+                    && (z.mode != "auto"
+                        || (p.zoom_settings.automatic && capabilities.can_auto_zoom))
                     && tl_ns
                         >= if p.zoom_settings.start_early {
                             z.tl_start_ns.saturating_sub(350_000_000).max(0)
@@ -255,17 +270,17 @@ impl Project {
             };
             zoom_camera_factor = 1.0 + (p.camera.zoom_scale - 1.0) * weight.clamp(0.0, 1.0);
             let size = 1.0 / (1.0 + (z.scale - 1.0) * weight);
-            let w = c.crop[2] * size;
-            let h = c.crop[3] * size;
+            let w = crop[2] * size;
+            let h = crop[3] * size;
             let mut x = coordinate(
                 z.target[0] - w / 2.0,
-                c.crop[0],
-                c.crop[0] + (c.crop[2] - w).max(0.0),
+                crop[0],
+                crop[0] + (crop[2] - w).max(0.0),
             );
             let mut y = coordinate(
                 z.target[1] - h / 2.0,
-                c.crop[1],
-                c.crop[1] + (c.crop[3] - h).max(0.0),
+                crop[1],
+                crop[1] + (crop[3] - h).max(0.0),
             );
 
             if z.mode == "auto" && settings.follow_cursor && frame.screen.present != 0 {
@@ -274,10 +289,10 @@ impl Project {
                 let local = src - seg.src_start_ns;
                 let base = Rect { x, y, w, h };
                 let bounds = Rect {
-                    x: c.crop[0],
-                    y: c.crop[1],
-                    w: c.crop[2],
-                    h: c.crop[3],
+                    x: crop[0],
+                    y: crop[1],
+                    w: crop[2],
+                    h: crop[3],
                 };
                 let normalized = |p: crate::input::Point| {
                     [
@@ -387,9 +402,9 @@ impl Project {
             frame.camera.present = 0;
             frame.camera_opacity = 0.0;
         }
-        frame.mic_gain = self.audio_gain("mic", tl_ns);
-        frame.system_gain = self.audio_gain("system_audio", tl_ns);
-        if frame.screen.present != 0 {
+        frame.mic_gain = self.audio_gain_for_clip("mic", tl_ns, Some(clip_i));
+        frame.system_gain = self.audio_gain_for_clip("system_audio", tl_ns, Some(clip_i));
+        if frame.screen.present != 0 && capabilities.can_cursor {
             self.cursor_at(&mut frame, src, clip_i);
         }
         crate::layers::animate_frame(
@@ -412,6 +427,10 @@ impl Project {
         Ok(frame)
     }
     pub fn audio_gain(&self, track: &str, tl_ns: i64) -> f32 {
+        let clip = time::timeline_to_source(&self.data.timeline.clips, tl_ns).map(|(i, _)| i);
+        self.audio_gain_for_clip(track, tl_ns, clip)
+    }
+    fn audio_gain_for_clip(&self, track: &str, tl_ns: i64, clip: Option<usize>) -> f32 {
         let a = &self.data.audio;
         let (base, muted) = if track == "mic" {
             (a.mic_gain_db, a.mic_muted)
@@ -430,7 +449,16 @@ impl Project {
             let k = (tl_ns - r.tl_start_ns) as f64 / (r.tl_end_ns - r.tl_start_ns) as f64;
             r.start_gain_db + (r.end_gain_db - r.start_gain_db) * k
         });
-        10.0f64.powf((base + db) / 20.0) as f32
+        let gain =
+            time::timeline_to_source(&self.data.timeline.clips, tl_ns).map_or(1.0, |(i, _)| {
+                let s = &self.data.timeline.clips[i].settings;
+                if track == "mic" {
+                    s.mic_gain
+                } else {
+                    s.system_gain
+                }
+            });
+        (10.0f64.powf((base + db) / 20.0) * gain) as f32
     }
     fn cursor_at(&self, f: &mut Frame, src: i64, clip_i: usize) {
         let seg = &self.session.segments[f.screen.segment as usize];
@@ -452,7 +480,9 @@ impl Project {
         );
         let mut x = actual_x;
         let mut y = actual_y;
-        if cursor.smoothing > 0.0 && (cursor.physics_version == 0 || cursor.speed_preset != "none")
+        if !self.data.timeline.clips[clip_i].settings.disable_smoothing
+            && cursor.smoothing > 0.0
+            && (cursor.physics_version == 0 || cursor.speed_preset != "none")
         {
             let window = (20.0 * physics.mass / physics.friction)
                 .max(20.0 * physics.friction / physics.tension)
@@ -528,6 +558,7 @@ impl Project {
             .max_by_key(|r| r.tl_start_ns)
             .map_or(cursor.visible, |r| r.visible);
         let visible = range_visible
+            && !self.data.timeline.clips[clip_i].settings.hide_cursor
             && !self.session.tracks.screen.cursor_in_video
             && inside
             && (!cursor.hide_when_idle || local - last_move < cursor.idle_timeout_ns);

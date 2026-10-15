@@ -1,4 +1,4 @@
-READY defaults contract: exact old->new table and fixture rectangles documented in FORMATS.md/status; legacy defaults and explicit stored values preserved. Rust 76 + Core Swift 50 + strict codesign PASS; Render tests untouched. Lead checkpoint/rebase pending.
+READY CORE-4/7/8/9 runtime/Swift checks green; CORE-10 implementation and deterministic autosave tests pass (Rust80/Core Swift56). Final signed build, fuzz and scale verification in progress.
 
 # Core status
 
@@ -6,11 +6,17 @@ Updated 2026-10-15 14:29 UTC. Branch team/core; latest observed Lead checkpoint 
 
 ## Next
 
-Backlog audit 2026-10-15 14:39 UTC: reread common/core briefs, FEATURES.md owned rows and its Backlog section. M1/M2 and assigned M3/reference/default-contract work are complete; FEATURES Backlog assigns no open item to Core. No new runtime change or repeated test run was warranted. HEAD remains b6f1137 and main 5328b45; Core has not been newly integrated, and the documented unstaged changes still require Lead checkpoint before rebase. READY evidence remains Rust76/Core Swift50/strict codesign.
+FEATURES.md now assigns the remaining reference gaps to Core: CORE-4 minimums
+and clip controls first, then CORE-7 history grouping/cap, CORE-8 style inheritance,
+CORE-9 capabilities and CORE-10 save timing/dirty tracking. CORE-1/2/3/5/6 are READY.
+Lead checkpoint2c8cd9d includes the prior changes and already descends from main5328b45.
+Clean rebase reports up-to-date, with sandbox lock-write errors; no workaround used.
 
-Lead icon update acknowledged: Resources/AppIcon.icns, CFBundleIconFile and icon packaging remain untouched. At this stopping point git rebase main refused because the final Core changes are unstaged; no stash/reset or Git-metadata workaround used. Lead checkpoint is required before rebasing onto main (observed 5328b45).
-
-No open implementation item remains in the assigned CORE-1/2/3/5/6 backlog. Lead can checkpoint the remaining owned changes, rebase and integrate. Renderer/editor integration below still needs its owners. CORE-4/7/8/9/10 were not assigned.
+CORE-4 assumption: the editor will use additive timeline_edit checked envelopes
+for interactive minimums. Existing precision commands retain support for old
+sub-minimum timelines and exact clock tests; unchanged short items are grandfathered.
+Insert helpers apply3s defaults and minimum checks. This avoids silently rewriting
+old recordings. Contract documented in FORMATS.md before implementation.
 
 ## Default contract change — Render handoff
 
@@ -77,6 +83,16 @@ Verification: Rust76 and Core Swift50 PASS, strict codesign PASS; log
 and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
+
+- CORE-10 implementation: Project revision/isDirty/save(ifRevision:) guard; ProjectAutosaver opt-in MainActor trailing30s coordinator, worker full saves, cancellation/off/closed-error handling, immutable recovery journals unchanged. Generation changes only on successful edits/history; save under mutation gate clears only its own revision. Deterministic virtual-sleep tests pass, including restart/cancelled timer and stale save. Editor must replace its current2s timer with coordinator or align its own guard. Log /private/tmp/yapcam-core-autosave-check.log; final signed verification next.
+
+- CORE-9: capabilities query/Swift CoreCapabilities with pointer/camera/external/device-frame flags; canvas.device_frame metadata gates crop/corners/inset without rewriting saved values. Mouse capability cached at load; baked cursor overlay off, external mouse/auto off, camera requires track+file. Missing external audio mixer is explicitly unavailable. Legacy Source kinds preserved. Frame gates allocate zero. Log /private/tmp/yapcam-core-capabilities-check.log. Device artwork itself stays Render-owned/unclaimed.
+
+- CORE-8: insertion_styles metadata/query and Swift CoreInsertionStyles/insertionStyles(); explicit zoom add/update and mask insert/array edits remember style. New inserts inherit style with explicit fields winning; geometry/time/identity/disabled flags excluded. Undo/snapshot/save/reopen and automatic-generation independence tested. Log /private/tmp/yapcam-core-insertion-check.log.
+
+- CORE-7: coalesced_edit keyed gestures group successful commits <100ms; differing key/discrete edit/history actions end groups; all histories cap1000. Explicit grouping preserves prior precision command one-step semantics; Editor must wrap continuous gestures. Cold history query + Swift CoreHistoryState/historyState() and coalescedEdit API ready. Deterministic time-boundary, full cap/undo/redo and C ABI tests pass. Log /private/tmp/yapcam-core-history-check.log.
+
+- CORE-4: checked timeline_edit (100ms clip/zoom, 500ms layout/mask; old unchanged short items preserved), insert helpers default3s, per-clip mic/system/external gain + hide_cursor/disable_smoothing; actual mic/system frame and audio_ranges evaluation, inherited on splits and saved. Swift timelineEdit/setClipSettings/insertTimelineItem and ClipInfo.settings ready. Editor must use checked envelopes for interactive minimums; precision API remains compatible. Log /private/tmp/yapcam-core-minimums-check.log.
 
 - CORE-1: mouse-down windows start 300ms before and finish 2500ms after the click; start >=1ms, end <=duration-800ms. Ignore clicks at/after duration-1s. Merge range-edge gaps <=2500ms, independent of pointer distance. Default level2, cursor follow enabled. Keys alone do not create zooms. No-pointer captures coerce auto zooms to manual; stored zooms otherwise remain until regeneration. Manual ranges keep priority. Immutable click indexes now avoid scanning move events; coordinate carry, repeats, same-time capture order and positionless-click center fallback are covered.
 - CORE-2: new projects use source aspect, padding ratio .10 of the short canvas edge, radius16, directional shadow intensity .3/distance25/angle45/blur20 (radius160), our own calm dark background and classic cursor artwork, cursor size48 logical points, motion blur1, zoom2, music amplitude .05 and click amplitude .25. Older files retain pixel padding, radius18, classic shadow24/8, prior cursor sizing and motion settings. Scalar frames evaluate geometry; cold render_options append screen_shadow, padding_ratio and cursor_size_points.

@@ -110,6 +110,8 @@ pub struct ProjectData {
     #[serde(default)]
     pub typing: TypingSettings,
     #[serde(default)]
+    pub insertion_styles: InsertionStyles,
+    #[serde(default)]
     pub notes: String,
     #[serde(default = "enabled")]
     pub autosave: bool,
@@ -140,6 +142,8 @@ pub struct Clip {
     pub src_start_ns: i64,
     pub src_end_ns: i64,
     pub speed: f64,
+    #[serde(default, skip_serializing_if = "ClipSettings::is_default")]
+    pub settings: ClipSettings,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Zoom {
@@ -163,6 +167,33 @@ macro_rules! settings {
         #[serde(default, deny_unknown_fields)]
         pub struct $name { $(pub $field: $ty),* }
         impl Default for $name { fn default() -> Self { Self { $($field: $value),* } } }
+    }
+}
+settings!(InsertionStyles { zoom:Option<ZoomInsertionStyle>=None, mask:Option<MaskInsertionStyle>=None });
+settings!(ZoomInsertionStyle {
+    mode: String = "auto".into(),
+    scale: f64 = 2.0,
+    ease_in_ns: i64 = 300_000_000,
+    ease_out_ns: i64 = 300_000_000
+});
+settings!(MaskInsertionStyle {
+    radius: f64 = 12.0,
+    opacity: f64 = 1.0,
+    dim_opacity: f64 = 0.4,
+    fill: [f32; 4] = [1.0, 0.85, 0.2, 0.0],
+    stroke: [f32; 4] = [1.0, 0.85, 0.2, 1.0],
+    stroke_width: f64 = 3.0
+});
+settings!(ClipSettings {
+    mic_gain: f64 = 1.0,
+    system_gain: f64 = 1.0,
+    external_gain: f64 = 1.0,
+    hide_cursor: bool = false,
+    disable_smoothing: bool = false
+});
+impl ClipSettings {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
     }
 }
 settings!(TypingSettings { speed: f64 = 3.0, dismissed: Vec<String> = vec![] });
@@ -228,6 +259,7 @@ pub struct Layout {
     pub camera_shadow_radius: Option<f64>,
 }
 settings!(Canvas {
+    device_frame: Option<String> = None,
     aspect: String = "16:9".into(),
     output_size: [u32; 2] = [1920, 1080],
     background: Background = Background::default(),
@@ -397,6 +429,7 @@ impl ProjectData {
                         src_start_ns: 0,
                         src_end_ns: end,
                         speed: 1.0,
+                        settings: Default::default(),
                     }]
                 } else {
                     vec![]
@@ -410,6 +443,7 @@ impl ProjectData {
             export_settings: Export::default(),
             zoom_settings: ZoomSettings::default(),
             typing: TypingSettings::default(),
+            insertion_styles: InsertionStyles::default(),
             notes: String::new(),
             autosave: true,
         };

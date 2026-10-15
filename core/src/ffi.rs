@@ -239,18 +239,23 @@ pub unsafe extern "C" fn yc_apply(
                 .read()
                 .map_err(|_| Error::new(99, "Poisoned project"))?;
             let prepared = project.prepare_apply(&command)?;
-            let staged = prepared
-                .next
-                .map(|next| (project.journal_target(&next), next, prepared.keys));
+            let staged = prepared.next.map(|next| {
+                (
+                    project.journal_target(&next),
+                    next,
+                    prepared.keys,
+                    prepared.group,
+                )
+            });
             (staged, prepared.changes)
         };
-        if let Some((journal, next, keys)) = staged {
+        if let Some((journal, next, keys, group)) = staged {
             journal.write(&next)?; // No state/read/frame lock is held during disk IO.
             let obsolete = h
                 .inner
                 .write()
                 .map_err(|_| Error::new(99, "Poisoned project"))?
-                .commit_apply(next, keys);
+                .commit_apply(next, keys, group);
             drop(obsolete);
         }
         if !out.is_null() {

@@ -63,3 +63,7 @@ mod hardening;
 mod key_overlay;
 
 mod cursor_catalog;
+
+mod editing;
+
+mod capabilities;

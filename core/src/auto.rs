@@ -26,7 +26,7 @@ pub fn generate_zooms(
         return Err(Error::new(1, "Invalid automatic zoom scale"));
     }
     p.zooms.retain(|z| z.mode != "auto");
-    if !p.zoom_settings.automatic {
+    if !p.zoom_settings.automatic || crate::capabilities::external(&context.session.source.kind) {
         cs.changed.push("zooms".into());
         return Ok(());
     }
@@ -340,12 +340,14 @@ mod tests {
                 src_start_ns: 400_000_000,
                 src_end_ns: 1_000_000_000,
                 speed: 1.2,
+                settings: Default::default(),
             },
             Clip {
                 id: "repeat".into(),
                 src_start_ns: 700_000_000,
                 src_end_ns: 1_300_000_000,
                 speed: 2.0,
+                settings: Default::default(),
             },
         ];
         let rows = p.query(&query).unwrap();
@@ -398,6 +400,7 @@ mod tests {
             src_start_ns: 0,
             src_end_ns: 30_000_000_000,
             speed: 1.0,
+            settings: Default::default(),
         }];
         p.events[0] = [
             1_000_000_000_i64,
@@ -480,12 +483,14 @@ mod tests {
                 src_start_ns: 600_000_000,
                 src_end_ns: 2_900_000_000,
                 speed: 1.0,
+                settings: Default::default(),
             },
             Clip {
                 id: "repeat".into(),
                 src_start_ns: 600_000_000,
                 src_end_ns: 2_900_000_000,
                 speed: 2.0,
+                settings: Default::default(),
             },
         ];
         p.apply(&json!({"op":"auto_zooms"})).unwrap();
