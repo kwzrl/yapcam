@@ -20,7 +20,7 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 
 # Optional dedicated signing keychain; unlock it if a password file exists.
 KEYCHAIN="${YAPCAM_SIGN_KEYCHAIN:-$HOME/Library/Keychains/yapcam-signing.keychain-db}"
-PASS_FILE="${YAPCAM_SIGN_KEYCHAIN_PASS_FILE:-$HOME/yapcam-fleet/.signing-keychain-pass}"
+PASS_FILE="${YAPCAM_SIGN_KEYCHAIN_PASS_FILE:-$HOME/.config/yapcam/signing-keychain-pass}"
 if [[ -f "$KEYCHAIN" && -f "$PASS_FILE" ]]; then
   security unlock-keychain -p "$(<"$PASS_FILE")" "$KEYCHAIN" 2>/dev/null || true
 fi
