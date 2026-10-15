@@ -55,7 +55,8 @@ import YapcamCore
         let f0 = try FrameSnapshot.png(source: source, atNs: 500_000_000)
         let p0 = pixels(f0)
         print("REAL frame 0.5 s: \(p0.w)×\(p0.h), distinct sampled colors \(distinctColors(p0))")
-        #expect(p0.w == 1920 && p0.h == 1080 && distinctColors(p0) > 50)          // real screen content, not a flat color
+        let expectedCanvas = DefaultsContract.expectedCanvas(m, source: (1680, 1050))
+        #expect(Double(p0.w) == expectedCanvas.w && Double(p0.h) == expectedCanvas.h && distinctColors(p0) > 50)          // real screen content, not a flat color
         if let keep { try f0.write(to: keep.appending(path: "real-frame-0.png")) }
 
         // Zoom on the real recording: focus on the lower-left, check the evaluated crop and the picture.

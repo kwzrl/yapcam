@@ -263,7 +263,10 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         let source = ProjectRenderSource(doc.project)
         let size = CGSize(width: 1920, height: 1080)
         var cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
-        #expect(cfg.cursorSetID == nil && cfg.cursorSize == .regular)
+        // New projects start with the authored "classic" palette, older ones with the recorded cursor artwork.
+        var baseSet: String? = nil; if case .string(let s)? = m.value("cursor.set_id") { baseSet = s }
+        #expect(cfg.cursorSetID == baseSet && cfg.cursorSize == .regular)
+        if m.defaultsRevision >= 1 { #expect(baseSet == "classic") } else { #expect(baseSet == nil) }
         m.set("cursor.set_id", string: "lagoon"); m.set("cursor.logical_size", string: "large"); m.set("cursor.shape", string: "text")
         #expect(m.lastError == nil, "\(m.lastError ?? "")")
         cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration

@@ -241,7 +241,7 @@ struct InspectorView: View {
             Button("Regenerate automatic zooms") { model.regenerateAutoZooms() }
         }
         Section("Motion blur") {
-            NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1, defaultValue: 0)
+            NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1, defaultValue: model.factoryMotionBlur)
             Text("One strength for zoom, screen movement and cursor.").font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -348,7 +348,11 @@ struct InspectorView: View {
     @ViewBuilder private var cursor: some View {
         Section("Cursor") {
             ToggleRow(model: model, title: "Show cursor", path: "cursor.visible", defaultValue: true)
-            NumberRow(model: model, title: "Size", path: "cursor.size", range: 0.5...4, unit: "×")
+            if model.usesCursorPoints {
+                NumberRow(model: model, title: "Size", path: "cursor.size_points", range: 16...128, unit: "pt", format: "%.0f", defaultValue: 48)
+            } else {
+                NumberRow(model: model, title: "Size", path: "cursor.size", range: 0.5...4, unit: "×")
+            }
             NumberRow(model: model, title: "Smoothing", path: "cursor.smoothing", range: 0...1)
             PickerRow(model: model, title: "Movement speed", path: "cursor.speed_preset", options: speedPresets)
             ToggleRow(model: model, title: "Hide when idle", path: "cursor.hide_when_idle")
