@@ -250,6 +250,15 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         }
     }
     let c = &p.canvas;
+    if c.inset_origin.iter().any(|v| !(-1.0..=1.0).contains(v)) {
+        return invalid("Invalid inset origin");
+    }
+    if c.screen_quality.as_ref().is_some_and(|s| {
+        !(0.0..=1.0).contains(&s.improve_quality)
+            || !matches!(s.upscaling.as_str(), "off" | "fast" | "quality")
+    }) {
+        return invalid("Invalid screen quality setting");
+    }
     if c.device_frame
         .as_ref()
         .is_some_and(|s| s.is_empty() || s.len() > 128)
@@ -674,6 +683,7 @@ impl Project {
             }
             events.push(list);
         }
+        crate::markers::load_sidecar(package, &session, &mut events)?;
         if !crate::auto::has_mouse_data(&events)
             || crate::capabilities::external(&session.source.kind)
         {
