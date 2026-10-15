@@ -24,7 +24,8 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertEqual(snapshot.durationNs,3_500_000_000)
         let timeline=try AudioTimeline(project: snapshot,range: 0..<snapshot.durationNs)
         XCTAssertEqual(timeline.composition.duration.seconds,3.5,accuracy: 0.001)
-        try project.apply(.set(path: "canvas.padding",value: .number(100)))
+        // Pixel padding is inactive with Core's new factory padding_ratio.
+        try project.apply(.set(path: "canvas.aspect",value: .string("1:1")))
         XCTAssertNotEqual(try project.frame(atNs: 0).screen_dest.x,try snapshot.frame(atNs: 0).screen_dest.x)
         XCTAssertEqual(try snapshot.frame(atNs: 500_000_000).screen.src_ns,2_000_000_000)
     }
@@ -126,7 +127,7 @@ final class ProjectAdapterTests: XCTestCase {
         let project=try Project.create(package: package)
         let canvas=CGSize(width: 1920,height: 1080)
         let defaults=try project.renderEffects(atNs: 0,canvasSize: canvas).configuration
-        XCTAssertNil(defaults.cursorSetID)
+        XCTAssertEqual(defaults.cursorSetID,try project.renderOptions().cursorSetId,"Adapter preserves Core's factory palette (classic for revision 1)")
         XCTAssertEqual(defaults.cursorStyle,.recorded)
         XCTAssertEqual(defaults.cursorSize,.regular)
         try project.apply(.batch([
@@ -158,6 +159,9 @@ final class ProjectAdapterTests: XCTestCase {
             .set(path: "cursor.set_id",value: .null),
             .set(path: "cursor.logical_size",value: .string("regular"))
         ]))
+        var recorded=defaults; recorded.cursorSetID=nil
+        XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,recorded,"Explicit null requests recorded artwork, independently of factory palette")
+        try project.apply(.set(path: "cursor.set_id",value: defaults.cursorSetID.map(JSONValue.string) ?? .null))
         XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,defaults)
     }
     func testPersistedCursorSelectionsChangeRealProjectPixelsThroughOneCompositor() throws {
@@ -165,6 +169,7 @@ final class ProjectAdapterTests: XCTestCase {
         let project=try Project.create(package: package)
         try project.apply(.batch([
             .set(path: "cursor.size",value: .number(4)),
+            .set(path: "cursor.set_id",value: .null),
             .set(path: "cursor.click_effect",value: .string("none"))
         ]))
         let compositor=try FrameCompositor(device: device,project: project)
@@ -239,8 +244,9 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertTrue(configuration.cameraFaceFraming)
         XCTAssertEqual(configuration.cameraShadowRadius,32)
         XCTAssertEqual(effects.layers.count,2,"One highlight followed by one fade; no duplicate cold layers")
-        XCTAssertEqual(effects.layers[0].rect,CGRect(x: 480,y: 270,width: 960,height: 540))
-        XCTAssertEqual(effects.layers[1].rect,CGRect(x: 0,y: 0,width: 1920,height: 1080))
+        let width=CGFloat(frame.canvas_w), height=CGFloat(frame.canvas_h)
+        XCTAssertEqual(effects.layers[0].rect,CGRect(x: width*0.25,y: height*0.25,width: width*0.5,height: height*0.5))
+        XCTAssertEqual(effects.layers[1].rect,CGRect(x: 0,y: 0,width: width,height: height))
         XCTAssertEqual(effects.layers[1].opacity,0.5)
         try project.apply(.set(path: "cursor.style",value: .string("pointer")))
         XCTAssertEqual(try source.renderEffects(atNs: 500_000_000,canvasSize: CGSize(width: 1920,height: 1080)).configuration.cursorStyle,.touch)
@@ -251,7 +257,7 @@ final class ProjectAdapterTests: XCTestCase {
         let project=try Project.create(package: package)
         let preview=try PreviewPlayer(project: project)
         let old=try preview.renderProject.frame(atNs: 0)
-        try project.apply(.set(path: "canvas.padding",value: .number(150)))
+        try project.apply(.set(path: "canvas.aspect",value: .string("1:1")))
         XCTAssertEqual(try preview.renderProject.frame(atNs: 0).screen_dest.x,old.screen_dest.x)
         preview.invalidate()
         XCTAssertEqual(try preview.renderProject.frame(atNs: 0).screen_dest.x,try project.frame(atNs: 0).screen_dest.x)

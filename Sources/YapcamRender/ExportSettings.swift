@@ -63,6 +63,22 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     public func supports(height: Int) -> Bool {
         Self.heights(for: format).contains(height) && (format == .gif || height != 2160 || compression?.supports4K != false)
     }
+    /// Map a sheet or older saved preset into this format/target's catalog.
+    /// Rates/heights snap down (or up to the catalog minimum); never raises
+    /// compression to preserve 4K. Ranges, quality and explicit bitrate survive
+    /// unchanged and still undergo validation when an exporter is constructed.
+    public func closestValidPreset(for target: Target = .file) -> Self {
+        var result = self
+        result.fps = Self.normalizedFrameRate(fps,for: format)
+        let heights = Self.heights(for: format).filter { result.supports(height: $0) }
+        result.outputHeight = heights.last { $0 <= outputHeight } ?? heights[0]
+        if format == .gif {
+            result.codec = .h264 // GIF has no video codec, audio or microphone processing.
+            result.includeAudio = false
+            result.speechEnhancement = nil
+        } else if target == .clipboard && codec == .both { result.codec = .h264 }
+        return result
+    }
     public func destinations(for primary: URL) -> [URL] {
         guard codec == .both else { return [primary] }
         let stem = primary.deletingPathExtension()

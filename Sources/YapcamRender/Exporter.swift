@@ -19,10 +19,13 @@ public final class Exporter: @unchecked Sendable {
     public var metrics: ExportMetrics? { lock.withLock { completedMetrics } }
     /// Both-codec jobs return the H.264 URL from run and list both completed files here.
     public var outputURLs: [URL] { lock.withLock { completedOutputs } }
+    /// Actual catalog settings, including normalization of older sheet/saved presets.
+    public var effectiveSettings: ExportSettings { settings }
     public init(project: any RenderProjectSource, settings: ExportSettings, destination: URL) throws {
         self.project = try project.renderSnapshot()
-        self.settings = settings; self.destination = destination
-        _ = try settings.validatedRange(duration: self.project.durationNs)
+        guard settings.fps > 0, settings.outputHeight > 0 else { throw RenderError.invalidSettings("Export dimensions and frame rate must be positive") }
+        self.settings = settings.closestValidPreset(); self.destination = destination
+        _ = try self.settings.validatedRange(duration: self.project.durationNs)
         guard destination.isFileURL else { throw RenderError.invalidSettings("Export destination must be a local file") }
     }
     public func run(progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
