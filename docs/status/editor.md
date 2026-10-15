@@ -73,7 +73,7 @@ Checked `$TMPDIR` for editor-created directories (prefixes editor-test-/rf-/r2-/
 ## Build note
 After rebasing onto a core that changed `EditCommand`, an incremental `swift test` crashed with SIGSEGV in unrelated tests (`objc_retain` in an `EditCommand` copy, ui's PresetTests) — stale object layouts. `swift package clean` + rebuild fixed it: 3 consecutive full runs green (212 tests, 30 suites). If a rebase gives random crashes, clean first.
 
-## Review fixes (docs: /Users/larry/yapcam-fleet/reviews/review-ui-editor-1.md; tests in `ReviewFixTests.swift`)
+## Review fixes (docs: ~/yapcam-fleet/reviews/review-ui-editor-1.md; tests in `ReviewFixTests.swift`)
 - **#3 export destroyed existing file**: export now writes to a sibling temp file and replaces the destination (`replaceItemAt`) only after the exporter's verified success (`AtomicExport`); cancel/failure leave the original and remove the temp. Tests: failure, cancellation, success/fresh path.
 - **#4 relink could delete the selected source**: relink goes through core's transactional `Project.relink` (stages a copy of the source first, backs up and rolls back); the old delete-then-copy code is gone. Test: user picks the changed file itself as the replacement → file survives.
 - **#5 journal-only restore erased edits**: `EditorDocument` treats `autosave/project.json` as a project (open wins over create). Test: only the journal survives → padding/zoom restored.
