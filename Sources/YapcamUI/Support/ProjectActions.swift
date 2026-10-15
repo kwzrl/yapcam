@@ -6,12 +6,15 @@ import YapcamCore
 @MainActor enum ProjectActions {
     /// Destinations claimed by imports that are still running, so two imports of
     /// same-named videos never pick the same package and never delete each other's.
-    private static var reserved = Set<URL>()
+    /// Keys are lowercased, Unicode-normalized paths: on a case-insensitive volume `Demo.yapcam`
+    /// and `demo.yapcam` are the same destination.
+    private static var reserved = Set<String>()
+    private static func key(_ url: URL) -> String { url.standardizedFileURL.path.precomposedStringWithCanonicalMapping.lowercased() }
 
     static func uniqueURL(in dir: URL, name: String) -> URL {
         var url = dir.appending(path: "\(name).yapcam", directoryHint: .isDirectory)
         var i = 2
-        while FileManager.default.fileExists(atPath: url.path) || reserved.contains(url) {
+        while FileManager.default.fileExists(atPath: url.path) || reserved.contains(key(url)) {
             url = dir.appending(path: "\(name) \(i).yapcam", directoryHint: .isDirectory); i += 1
         }
         return url
@@ -20,10 +23,10 @@ import YapcamCore
     /// Picks a free package URL and holds it until `release` is called.
     static func reserveURL(in dir: URL, name: String) -> URL {
         let url = uniqueURL(in: dir, name: name)
-        reserved.insert(url)
+        reserved.insert(key(url))
         return url
     }
-    static func release(_ url: URL) { reserved.remove(url) }
+    static func release(_ url: URL) { reserved.remove(key(url)) }
 
     static func rename(_ url: URL, to newName: String) throws -> URL {
         let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-")
@@ -91,7 +94,8 @@ import YapcamCore
                 _ = try await Project.importVideo(video, package: pkg)
                 RecordingController.shared.engine.openEditor(package: pkg)
             } catch {
-                try? FileManager.default.removeItem(at: pkg)
+                // Never delete here: `importVideo` removes only what it created itself, and
+                // `pkg` may be a package someone else made in the meantime.
                 RecordingController.shared.alert = AppAlert(title: "Could not import the video", message: error.localizedDescription)
             }
         }

@@ -70,6 +70,8 @@
             <array><string>public.movie</string></array>
         </dict>
     </array>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Yapcam turns your recorded speech into captions using on-device speech recognition. Audio never leaves your Mac.</string>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 Yapcam contributors. Apache License 2.0.</string>
 </dict>
