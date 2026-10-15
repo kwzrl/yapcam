@@ -191,8 +191,9 @@ import YapcamEditor
         Probe.log("\(tag) \(pkg == nil ? "failed no package" : "ok") \(pkg?.path ?? "")")
         // After Stop the editor opens at once, in front, on the new recording.
         let editor = await waitFor({ EditorBridge.anyDocument() != nil }, seconds: 15)
-        let front = EditorBridge.anyDocument() != nil && NSApp.windows.contains { $0.isKeyWindow && $0.windowController != nil }
-        Probe.log("\(tag) editorOpened=\(editor) editorInFront=\(front) editorPackage=\(EditorBridge.anyDocument()?.project.packageURL.lastPathComponent ?? "-")")
+        try? await Task.sleep(for: .seconds(1))          // the raise happens twice: right away and again after layout
+        let front = EditorBridge.editorIsFrontAndKey
+        Probe.log("\(tag) editorOpened=\(editor) editorInFront=\(front) appActive=\(NSApp.isActive) editorPackage=\(EditorBridge.anyDocument()?.project.packageURL.lastPathComponent ?? "-")")
     }
 
     /// Display / window / area: show the overlay, then press Start recording the way a click would.

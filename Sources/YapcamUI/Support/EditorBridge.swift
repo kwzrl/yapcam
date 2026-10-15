@@ -23,12 +23,29 @@ import YapcamEditor
         return nil
     }
 
-    /// After a recording stops the editor must be in front, not behind the app that was recorded.
+    /// After a recording stops the editor must be in front and key, every time. Activating a background
+    /// app is only honored reliably with the explicit "ignore other apps" form, so use it, then order the
+    /// editor windows front and make the newest one key (the floating toolbar must not stay key).
     static func bringEditorsToFront() {
-        NSApp.activate()
-        for w in NSApp.windows where w.isVisible {
-            if let c = w.windowController, find(EditorDocument.self, labeled: "editorDocument", in: c) != nil { w.makeKeyAndOrderFront(nil) }
+        raiseEditors()
+        // Window creation and SwiftUI layout settle a moment later; claim focus again once they have.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { MainActor.assumeIsolated { raiseEditors() } }
+    }
+
+    private static func raiseEditors() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        let editors = NSApp.windows.filter { w in
+            w.isVisible && w.windowController.map { find(EditorDocument.self, labeled: "editorDocument", in: $0) != nil } == true
         }
+        for w in editors { w.orderFrontRegardless() }
+        editors.last?.makeKeyAndOrderFront(nil)
+    }
+
+    /// True when the app is active and an editor window is the key window.
+    static var editorIsFrontAndKey: Bool {
+        guard NSApp.isActive, let key = NSApp.keyWindow, let c = key.windowController else { return false }
+        return find(EditorDocument.self, labeled: "editorDocument", in: c) != nil
     }
 
     static func keyEditor() -> EditorModel? { keyDocument()?.model }
