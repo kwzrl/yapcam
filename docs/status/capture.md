@@ -8,13 +8,15 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 03:59 CEST: main is still 0df4bbb; no new capture review
+- Backlog audit 2026-10-15 04:29 CEST: main remains 8600691; no new capture review
   finding or host acceptance result. Remaining capture/Lead backlog is native Speech,
   native fragmented-media/live-device verification and termination of the stale runs
   below. lsof still reports all four listed PIDs using the two retained directories;
   no additional deletion is safe. No temporary copies or repeat builds/tests created.
 - Lead checkpointed M3 in 7383d08 and integrated it into main 0df4bbb. Capture source
-  and Swift tests match main. Current changes are cleanup documentation/status only.
+  and Swift tests match main. Cleanup documentation/status is checkpointed in e83634c;
+  cleanup is now integrated in main 8600691. This audit changes status only.
+  No independent capture implementation item is open.
 - M3 implementation/unit validation complete. The one-hour 60 fps
   writer/event simulation and 100 seeded crash trials pass; capture limits are below.
   Native fragment probe compiles but remains a sandbox media-services host gate.
@@ -24,9 +26,10 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   pass; isolated capture suite 100 tests /
   6 media skips / zero failures. Final main-based run also passes the hour simulation
   and capture tests; full-suite environment failures are recorded below.
-- Local HEAD 7383d08. Clean-tree rebase onto main 0df4bbb attempted at 03:44 CEST;
-  Git still denies creating rebase-merge (Operation not permitted). Lead handles
-  checkpoint/rebase/push. Pending: tests README and this status only.
+- Local HEAD e83634c. Rebase onto main 8600691 refuses the pending status edit;
+  the earlier clean-tree attempt at 03:44 CEST denied creating rebase-merge
+  (Operation not permitted). Lead handles checkpoint/rebase/push. Pending: this
+  status only; capture source/tests/README already match main.
 - Native Speech/isolation, real capture and long-session encoder/device behavior are
   not established by simulation or the separate renderer Metal hardware results.
 
@@ -342,8 +345,8 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   checks do not establish real device sync/loss, Retina or multi-display acceptance.
 
 ## Next / Lead requests
-1. Checkpoint cleanup docs/status, rebase/advance to main and push under the agreed
-   read-only Git workflow. M3/C1/prior packages are integrated. No other
+1. Checkpoint the latest status audit, rebase/advance to main and push under the
+   agreed read-only Git workflow. Cleanup/M3/C1/prior packages are integrated. No other
    independent capture implementation item remains in the current assignment.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run live
