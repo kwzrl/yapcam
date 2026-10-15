@@ -30,3 +30,10 @@ Open (cannot test here): real camera/mic, Retina, multi-display, iPhone mirrorin
 
 ## Findings
 Filed in `docs/status/qa.md` with repro steps and owning team.
+
+## Disk hygiene
+Scripts in `scripts/qa/` must not leave temp data behind: any script that creates a
+directory uses `mktemp -d` plus `trap 'rm -rf "$TMP"' EXIT`. `run-e2e.sh` creates none;
+E2E tests create `yapcam-e2e-*` in the temp dir and remove it in `tearDown` (a killed run can
+leave one: delete `$(getconf DARWIN_USER_TEMP_DIR)yapcam-e2e-*`). Raw reference data lives in
+`~/yapcam-ref-local/` and is deleted when no longer needed.
