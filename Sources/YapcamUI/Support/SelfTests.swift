@@ -12,7 +12,9 @@ import YapcamCapture
     // MARK: Argument parsing (pure, unit-tested)
 
     enum TargetSpec: Equatable {
+        case display
         case window(UInt32)
+        case windowTitle(String)      // first window whose title or app name contains the text
         case area(CGRect)
     }
 
@@ -20,6 +22,10 @@ import YapcamCapture
         var seconds: Double
         var target: TargetSpec?
         var pauseAfter: Double?
+        var noAudio = false
+        var outputDirectory: String?
+        /// JSON file with scripted input to post from inside the app while recording.
+        var driveInputScript: String?
     }
 
     /// Parses everything after `--capture-selftest`. Returns nil with an explanation in `error`.
@@ -33,21 +39,45 @@ import YapcamCapture
         if let t = args.firstIndex(of: "--target") {
             guard args.indices.contains(t + 1) else { error = "--target needs a value"; return nil }
             let v = args[t + 1]
-            if v.hasPrefix("window:") {
-                guard let id = UInt32(v.dropFirst(7)), id != 0 else { error = "bad window id in \(v)"; return nil }
-                out.target = .window(id)
+            if v == "display" {
+                out.target = .display
+            } else if v.hasPrefix("window:") {
+                let rest = String(v.dropFirst(7))
+                guard !rest.isEmpty else { error = "empty window in \(v)"; return nil }
+                if let id = UInt32(rest) { guard id != 0 else { error = "bad window id in \(v)"; return nil }; out.target = .window(id) }
+                else { out.target = .windowTitle(rest) }
             } else if v.hasPrefix("area:") {
                 let p = v.dropFirst(5).split(separator: ",").compactMap { Double($0) }
                 guard p.count == 4, p[2] >= 16, p[3] >= 16, p[0] >= 0, p[1] >= 0 else { error = "area needs x,y,w,h (w,h ≥ 16): \(v)"; return nil }
                 out.target = .area(CGRect(x: p[0], y: p[1], width: p[2], height: p[3]))
-            } else { error = "unknown --target \(v) (use window:<id> or area:x,y,w,h)"; return nil }
+            } else { error = "unknown --target \(v) (use display, window:<id|title>, or area:x,y,w,h)"; return nil }
         }
         if let a = args.firstIndex(of: "--pause-after") {
             guard args.indices.contains(a + 1), let s = Double(args[a + 1]), s > 0 else { error = "--pause-after needs seconds"; return nil }
             guard s < out.seconds else { error = "--pause-after must be shorter than the recording"; return nil }
             out.pauseAfter = s
         }
+        out.noAudio = args.contains("--no-audio")
+        if let o = args.firstIndex(of: "--out") {
+            guard args.indices.contains(o + 1), !args[o + 1].hasPrefix("--") else { error = "--out needs a directory"; return nil }
+            out.outputDirectory = args[o + 1]
+        }
+        if let d = args.firstIndex(of: "--drive-input") {
+            guard args.indices.contains(d + 1), !args[d + 1].hasPrefix("--") else { error = "--drive-input needs a script.json path"; return nil }
+            out.driveInputScript = args[d + 1]
+        }
         return out
+    }
+
+    /// Loads `[{"kind":"move|click","x":..,"y":..,"at":seconds}]` (display-local top-left points).
+    static func loadScript(_ path: String) throws -> [ScriptedEvent] {
+        struct Row: Decodable { var kind: String; var x: Double; var y: Double; var at: Double }
+        let rows = try JSONDecoder().decode([Row].self, from: Data(contentsOf: URL(filePath: path)))
+        return try rows.map { r in
+            guard let k = ScriptedEvent.Kind(rawValue: r.kind) else { throw EngineError.failed("Unknown event kind “\(r.kind)” in the script (use move or click).") }
+            guard r.at >= 0 else { throw EngineError.failed("Event times in the script must be ≥ 0.") }
+            return ScriptedEvent(kind: k, x: r.x, y: r.y, at: r.at)
+        }.sorted { $0.at < $1.at }
     }
 
     /// The scripted input used by `--drive-input-selftest`: positions in display points, top-left origin.
@@ -86,17 +116,36 @@ import YapcamCapture
         }
         var target: CaptureTarget?
         switch parsed.target {
+        case .display?, nil: break
         case .window(let id)?: target = .window(CGWindowID(id))
+        case .windowTitle(let text)?:
+            let list = WindowList(); await list.reload()
+            guard let w = list.windows.first(where: { $0.title.localizedCaseInsensitiveContains(text) || $0.appName.localizedCaseInsensitiveContains(text) }) else {
+                Probe.log("capture-selftest failed no window matching “\(text)” (\(list.windows.count) windows listed)"); return
+            }
+            Probe.log("capture-selftest window “\(w.title)” of \(w.appName) id=\(w.id)")
+            target = .window(CGWindowID(w.id))
         case .area(let r)?:
             guard let d = Displays.resolve(0) else { Probe.log("capture-selftest failed no display"); return }
             target = .area(display: d.id, rect: r)
-        case nil: break
         }
-        Probe.log("capture-selftest start seconds=\(parsed.seconds) target=\(String(describing: target)) pauseAfter=\(String(describing: parsed.pauseAfter))")
+        var script: [ScriptedEvent] = []
+        if let path = parsed.driveInputScript {
+            do { script = try loadScript(path) } catch { Probe.log("capture-selftest failed bad drive-input script: \(UserMessage.describe(error))"); return }
+        }
+        Probe.log("capture-selftest start seconds=\(parsed.seconds) target=\(String(describing: target)) pauseAfter=\(String(describing: parsed.pauseAfter)) audio=\(!parsed.noAudio) out=\(parsed.outputDirectory ?? "default") script=\(script.count) accessibility=\(AXIsProcessTrusted())")
+        var driver: Task<Void, Never>?
+        if !script.isEmpty, let d = Displays.resolve(0) {
+            // Start the script shortly after capture begins; hostNs in the log lines up with events.jsonl.
+            driver = Task { try? await Task.sleep(for: .seconds(1)); await post(script, on: d, tag: "capture-selftest") }
+        }
         do {
-            let url = try await CaptureSelfTest.run(seconds: parsed.seconds, target: target, pauseAfter: parsed.pauseAfter)
+            let url = try await CaptureSelfTest.run(
+                seconds: parsed.seconds, outputDirectory: parsed.outputDirectory.map { URL(filePath: $0, directoryHint: .isDirectory) },
+                target: target, pauseAfter: parsed.pauseAfter, systemAudio: !parsed.noAudio)
             Probe.log("capture-selftest ok \(url.path)")
         } catch { Probe.log("capture-selftest failed \(UserMessage.describe(error)) | \(error)") }
+        driver?.cancel()
     }
 
     // MARK: --ui-record-selftest / --drive-input-selftest
@@ -139,6 +188,14 @@ import YapcamCapture
     /// Posts the scripted events and logs each with the host-clock ns the capture layer also uses.
     private static func drive(display: DisplayInfo, duration: Double, tag: String) async {
         let script = inputScript(display: CGRect(origin: .zero, size: display.frame.size), duration: duration)
+        let begun = Date()
+        await post(script, on: display, tag: tag)
+        let remaining = duration - Date().timeIntervalSince(begun)
+        if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)) }
+    }
+
+    /// Posts `script` (display-local top-left points) and logs each event with the capture host clock.
+    private static func post(_ script: [ScriptedEvent], on display: DisplayInfo, tag: String) async {
         let start = Date()
         Probe.log("\(tag) script events=\(script.count) displayPoints=\(Int(display.frame.width))x\(Int(display.frame.height)) hostNsAtScriptStart=\(hostNs())")
         for ev in script {
@@ -157,8 +214,6 @@ import YapcamCapture
             }
             Probe.log("\(tag) event \(ev.kind.rawValue) x=\(Int(ev.x)) y=\(Int(ev.y)) hostNs=\(hostBefore)")
         }
-        let remaining = duration - Date().timeIntervalSince(start)
-        if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)) }
     }
 
     /// Same clock the capture layer stamps events with (CMClockGetHostTimeClock, nanoseconds).
