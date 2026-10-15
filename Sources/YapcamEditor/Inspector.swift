@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import YapcamCore
 
 // MARK: setting rows (all bound to project paths; sliders commit on release = one undo step)
@@ -51,12 +52,13 @@ struct PickerRow: View {
 struct ColorRow: View {
     @ObservedObject var model: EditorModel
     let title: String, path: String
+    var opacity = false          // true: the picker edits alpha too
     var body: some View {
         ColorPicker(title, selection: Binding(
             get: { let c = model.color(path); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: c[3]) },
             set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
                    model.set(path, color: [n.redComponent, n.greenComponent, n.blueComponent, n.alphaComponent].map { Double($0) }) }),
-                    supportsOpacity: false)
+                    supportsOpacity: opacity)
     }
 }
 
@@ -98,7 +100,8 @@ struct InspectorView: View {
             case .zoom, .clip: tab = .appearance
             case .layout: tab = .camera
             case .cursorHide: tab = .cursor
-            case .highlight: tab = .overlays
+            case .highlight, .text: tab = .overlays
+            case .music: tab = .audio
             case .none: break
             }
         }
@@ -154,20 +157,36 @@ struct InspectorView: View {
             Text("Adds a 3 s region at the playhead. Drag its box in the preview; drag the yellow bar on the timeline to retime it.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        Section("Text and reactions") {
+            if case .text(let kind, let id) = model.selection, kind != .caption, let t = model.textItems(kind).first(where: { $0.id == id }) { TextControls(model: model, item: t) }
+            Button("Add text at playhead") { model.addText(.annotation) }
+            HStack(spacing: 4) {
+                ForEach(reactionGlyphs, id: \.self) { g in
+                    Button(g) { model.addText(.reaction, text: g) }.buttonStyle(.bordered).accessibilityLabel("Add reaction \(g)")
+                }
+            }
+            Text("Drag the text box in the preview to place it.").font(.caption).foregroundStyle(.secondary)
+        }
+        CaptionSection(model: model)
         Section("Intro and outro") {
             Picker("Intro", selection: Binding(get: { model.string("canvas.animation.entrance", default: "none") }, set: { model.set("canvas.animation.entrance", string: $0) })) {
-                Text("None").tag("none"); Text("Fade in").tag("fade")
+                ForEach(animationModes(intro: true), id: \.value) { Text($0.label).tag($0.value) }
             }
-            if model.string("canvas.animation.entrance", default: "none") == "fade" {
+            if model.string("canvas.animation.entrance", default: "none") != "none" {
                 DurationRow(model: model, title: "Intro length", path: "canvas.animation.entrance_duration_ns")
             }
             Picker("Outro", selection: Binding(get: { model.string("canvas.animation.exit", default: "none") }, set: { model.set("canvas.animation.exit", string: $0) })) {
-                Text("None").tag("none"); Text("Fade out").tag("fade")
+                ForEach(animationModes(intro: false), id: \.value) { Text($0.label).tag($0.value) }
             }
-            if model.string("canvas.animation.exit", default: "none") == "fade" {
+            if model.string("canvas.animation.exit", default: "none") != "none" {
                 DurationRow(model: model, title: "Outro length", path: "canvas.animation.exit_duration_ns")
             }
         }
+    }
+
+    private func animationModes(intro: Bool) -> [(label: String, value: String)] {
+        [("None", "none"), (intro ? "Fade in" : "Fade out", "fade"), (intro ? "Zoom in" : "Zoom out", "zoom"),
+         ("Slide from left", "slide_left"), ("Slide from right", "slide_right"), ("Slide from top", "slide_up"), ("Slide from bottom", "slide_down")]
     }
 
     private var speedPresets: [(label: String, value: String)] {
@@ -214,6 +233,20 @@ struct InspectorView: View {
                       options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch")])
             NumberRow(model: model, title: "Motion blur", path: "cursor.motion_blur", range: 0...1)
             NumberRow(model: model, title: "Spotlight radius", path: "cursor.spotlight_radius", range: 0...600, unit: "px", format: "%.0f")
+        }
+        Section("Key overlay") {
+            ToggleRow(model: model, title: "Show typed keys", path: "cursor.key_overlay.enabled")
+            if model.bool("cursor.key_overlay.enabled") {
+                ToggleRow(model: model, title: "Shortcuts only", path: "cursor.key_overlay.shortcuts_only", defaultValue: true)
+                DurationRow(model: model, title: "Stays visible", path: "cursor.key_overlay.duration_ns", default: 1_000_000_000)
+                RectRow(model: model, title: "Position", path: "cursor.key_overlay.rect", fallback: [0.3, 0.82, 0.4, 0.12])
+                NumberRow(model: model, title: "Font size", path: "cursor.key_overlay.style.font_size", range: 12...120, unit: "px", format: "%.0f")
+                ColorRow(model: model, title: "Text", path: "cursor.key_overlay.style.color")
+                ColorRow(model: model, title: "Background", path: "cursor.key_overlay.style.background", opacity: true)
+                NumberRow(model: model, title: "Corner radius", path: "cursor.key_overlay.style.radius", range: 0...48, unit: "px", format: "%.0f")
+                NumberRow(model: model, title: "Opacity", path: "cursor.key_overlay.style.opacity", range: 0...1)
+            }
+            Text("Needs “Record keystrokes” turned on before recording.").font(.caption).foregroundStyle(.secondary)
         }
         Section("Hidden sections") {
             if case .cursorHide(let i) = model.selection, let h = model.cursorHides.first(where: { $0.index == i }) {
@@ -280,6 +313,12 @@ struct InspectorView: View {
             ToggleRow(model: model, title: "Mute", path: "audio.system_muted")
             NumberRow(model: model, title: "Volume", path: "audio.system_gain_db", range: -48...12, unit: "dB", format: "%.0f")
         }
+        Section("Click sounds") {
+            ToggleRow(model: model, title: "Play a sound on clicks", path: "audio.click_sound.enabled")
+            PickerRow(model: model, title: "Sound", path: "audio.click_sound.variant", options: [("Soft", "soft"), ("Crisp", "crisp")])
+            NumberRow(model: model, title: "Volume", path: "audio.click_sound.gain_db", range: -48...12, unit: "dB", format: "%.0f")
+        }
+        MusicSection(model: model)
         Section("Volume changes over time") {
             ForEach(model.audioRanges) { r in
                 VStack(alignment: .leading, spacing: 4) {
@@ -374,6 +413,7 @@ struct CropSection: View {
 struct DurationRow: View {
     @ObservedObject var model: EditorModel
     let title: String, path: String
+    var `default` = 400_000_000.0
     @State private var seconds = 0.4
     @State private var editing = false
     var body: some View {
@@ -383,8 +423,8 @@ struct DurationRow: View {
                 Text(String(format: "%.1f s", seconds)).monospacedDigit().frame(width: 46, alignment: .trailing)
             }
         }
-        .onAppear { seconds = model.number(path, default: 400_000_000) / 1e9 }
-        .onChange(of: model.revision) { _, _ in if !editing { seconds = model.number(path, default: 400_000_000) / 1e9 } }
+        .onAppear { seconds = model.number(path, default: `default`) / 1e9 }
+        .onChange(of: model.revision) { _, _ in if !editing { seconds = model.number(path, default: `default`) / 1e9 } }
     }
 }
 
@@ -415,5 +455,160 @@ struct HighlightControls: View {
             set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
                    let alpha = get()[3]; set([Double(n.redComponent), Double(n.greenComponent), Double(n.blueComponent), alpha == 0 ? 0.3 : alpha]) }),
                     supportsOpacity: false)
+    }
+}
+
+struct RectRow: View {
+    @ObservedObject var model: EditorModel
+    let title: String, path: String, fallback: [Double]
+    @State private var r: [Double] = [0, 0, 1, 1]
+    @State private var editing = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.callout)
+            ForEach(0..<4, id: \.self) { i in
+                HStack {
+                    Text(["Left", "Top", "Width", "Height"][i]).font(.caption).frame(width: 44, alignment: .leading)
+                    Slider(value: Binding(get: { r[i] }, set: { r[i] = $0 }), in: i < 2 ? 0...0.95 : 0.05...1) { e in
+                        editing = e
+                        if !e { commit() }
+                    }
+                }
+            }
+        }
+        .onAppear(perform: load)
+        .onChange(of: model.revision) { _, _ in if !editing { load() } }
+    }
+    private func load() { let n = model.numbers(path); r = n.count == 4 ? n : fallback }
+    private func commit() {
+        var v = r; v[2] = min(v[2], 1 - v[0]); v[3] = min(v[3], 1 - v[1])
+        model.set(path, color: v)      // 4-number array
+    }
+}
+
+struct TextControls: View {
+    @ObservedObject var model: EditorModel
+    let item: TextItem
+    @State private var draft = ""
+    var body: some View {
+        let kind = item.kind, id = item.id
+        TextField(kind == .reaction ? "Emoji" : "Text", text: $draft, axis: .vertical)
+            .lineLimit(1...4)
+            .onSubmit { commitText() }
+            .onChange(of: item.id) { _, _ in draft = item.text }
+            .onAppear { draft = item.text }
+            .accessibilityLabel("Text content")
+        Button("Apply text") { commitText() }.disabled(draft == item.text)
+        Picker("Follows", selection: Binding(get: { item.space }, set: { v in model.updateText(kind, id: id) { $0.space = v } })) {
+            Text("Canvas (fixed)").tag("canvas"); Text("Screen (zoom/crop)").tag("source")
+        }
+        LabeledContent("Time") { Text("\(formatTimecode(item.startNs)) – \(formatTimecode(item.endNs))").monospacedDigit() }
+        Stepper("Size \(Int(item.fontSize)) px", value: Binding(get: { item.fontSize }, set: { v in model.updateText(kind, id: id) { $0.fontSize = min(max(v, 8), 400) } }), in: 8...400, step: 4)
+        TextColor(title: "Text color", get: { item.color }, set: { c in model.updateText(kind, id: id) { $0.color = c } })
+        TextColor(title: "Background", get: { item.background }, set: { c in model.updateText(kind, id: id) { $0.background = c } })
+        Stepper("Corner radius \(Int(item.radius)) px", value: Binding(get: { item.radius }, set: { v in model.updateText(kind, id: id) { $0.radius = max(0, v) } }), in: 0...64, step: 2)
+        Stepper("Opacity \(Int(item.opacity * 100))%", value: Binding(get: { item.opacity }, set: { v in model.updateText(kind, id: id) { $0.opacity = min(max(v, 0), 1) } }), in: 0...1, step: 0.1)
+        Button("Delete", role: .destructive) { model.deleteSelection() }
+    }
+    private func commitText() { model.updateText(item.kind, id: item.id) { $0.text = draft } }
+}
+
+struct TextColor: View {
+    let title: String
+    let get: () -> [Double]
+    let set: ([Double]) -> Void
+    var body: some View {
+        ColorPicker(title, selection: Binding(
+            get: { let c = get(); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: c[3]) },
+            set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
+                   set([Double(n.redComponent), Double(n.greenComponent), Double(n.blueComponent), Double(n.alphaComponent)]) }),
+                    supportsOpacity: true)
+    }
+}
+
+struct CaptionSection: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        let captions = model.textItems(.caption)
+        Section("Captions") {
+            switch model.captionState {
+            case .working: HStack { ProgressView().controlSize(.small); Text("Transcribing on this Mac…") }
+            case .failed(let m): Text(m).foregroundStyle(.red); Button("Dismiss") { model.captionState = .idle }
+            case .idle: Button(captions.isEmpty ? "Generate captions from speech" : "Regenerate captions") { model.generateCaptions() }
+            }
+            if case .text(.caption, let id) = model.selection, let t = captions.first(where: { $0.id == id }) { TextControls(model: model, item: t) }
+            Button("Add caption at playhead") { model.addText(.caption) }
+            if !captions.isEmpty {
+                Text("\(captions.count) caption\(captions.count == 1 ? "" : "s") — click one to edit text, timing and style.").font(.caption).foregroundStyle(.secondary)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(captions) { c in
+                            Button { model.selection = .text(.caption, c.id); model.seek(toNs: c.startNs) } label: {
+                                HStack {
+                                    Text(formatTimecode(c.startNs)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                    Text(c.text).lineLimit(1)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 2).padding(.horizontal, 6)
+                                .background(model.selection == .text(.caption, c.id) ? Color.accentColor.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 4))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }.frame(maxHeight: 180)
+            }
+        }
+    }
+}
+
+struct MusicSection: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        Section("Background music") {
+            if case .music(let id) = model.selection, let m = model.music.first(where: { $0.id == id }) { MusicControls(model: model, item: m) }
+            HStack {
+                ForEach(builtInMusic) { src in Button(src.name) { model.addBuiltInMusic(src) } }
+                Button("Add file…") { chooseFile() }
+            }
+            ForEach(model.music) { m in
+                Button { model.selection = .music(m.id) } label: {
+                    HStack { Text("♪ " + m.title).lineLimit(1); Spacer(); Text(formatTimecode(m.startNs, showFraction: false)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                }.buttonStyle(.plain)
+            }
+            Text("Built-in tracks are original. Music starts at the playhead and runs to the end.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+    private func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url { model.importMusicFile(url) }
+    }
+}
+
+struct MusicControls: View {
+    @ObservedObject var model: EditorModel
+    let item: MusicItem
+    @State private var gain = -18.0
+    @State private var editing = false
+    var body: some View {
+        let id = item.id
+        LabeledContent("Volume") {
+            HStack {
+                Slider(value: $gain, in: -48...6) { e in editing = e; if !e { model.setMusicGain(id: id, gain) } }
+                Text("\(Int(gain)) dB").monospacedDigit().frame(width: 52, alignment: .trailing)
+            }
+        }
+        .onAppear { gain = item.gainDb }
+        .onChange(of: item.gainDb) { _, v in if !editing { gain = v } }
+        .onChange(of: item.id) { _, _ in gain = item.gainDb }
+        Toggle("Loop", isOn: Binding(get: { item.loop }, set: { model.setMusicLoop(id: id, $0) }))
+        Stepper("Fade in \(String(format: "%.1f", Double(item.fadeInNs) / 1e9)) s", value: Binding(get: { Double(item.fadeInNs) / 1e9 }, set: { model.setMusicFades(id: id, inNs: Int64($0 * 1e9), outNs: item.fadeOutNs) }), in: 0...10, step: 0.5)
+        Stepper("Fade out \(String(format: "%.1f", Double(item.fadeOutNs) / 1e9)) s", value: Binding(get: { Double(item.fadeOutNs) / 1e9 }, set: { model.setMusicFades(id: id, inNs: item.fadeInNs, outNs: Int64($0 * 1e9)) }), in: 0...10, step: 0.5)
+        Toggle("Lower during speech", isOn: Binding(get: { item.duckEnabled }, set: { model.setMusicDucking(id: id, enabled: $0, gainDb: item.duckGainDb) }))
+        if item.duckEnabled {
+            Stepper("Lower by \(Int(-item.duckGainDb)) dB", value: Binding(get: { -item.duckGainDb }, set: { model.setMusicDucking(id: id, enabled: true, gainDb: -$0) }), in: 0...48, step: 3)
+            Text("Uses caption timing as speech. Generate captions first.").font(.caption).foregroundStyle(.secondary)
+        }
+        Button("Remove music", role: .destructive) { model.deleteSelection() }
     }
 }

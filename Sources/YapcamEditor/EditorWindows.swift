@@ -4,6 +4,9 @@ import YapcamCore
 
 @MainActor public enum EditorWindows {
     private static var controllers: [String: EditorWindowController] = [:]
+    /// Set by the app (it links YapcamCapture): runs on-device transcription for a package and returns the
+    /// RecordingTranscript JSON (also written to recording/transcript.json). Nil → captions can only use an existing transcript.
+    nonisolated(unsafe) public static var transcriber: (@Sendable (URL) async throws -> Data)?
 
     /// Opens (or focuses) the editor for a `.yapcam` package. Asks before restoring an
     /// unsaved autosave journal and offers relinking when media is missing.

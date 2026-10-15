@@ -121,6 +121,10 @@ public protocol EditingProject: AnyObject {
     func undo() throws
     func redo() throws
     func save() throws
+    /// Import RecordingTranscript JSON as captions (one undo step).
+    func importTranscript(_ data: Data) throws
+    /// Copy an audio file into the package and add it as a music track at `startNs` (one undo step).
+    func importMusic(_ file: URL, startNs: Int64) async throws
     /// Silent stretches of the main audio track in timeline time (decodes audio; may take a moment).
     func silentSpans() async throws -> [TimeSpan]
 }

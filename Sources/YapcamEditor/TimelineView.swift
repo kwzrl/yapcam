@@ -13,7 +13,10 @@ struct TimelineLayout {
     var cameraTop: CGFloat { zoomTop + Self.zoomTrackHeight + Self.gap }
     var cursorTop: CGFloat { hasCamera ? cameraTop + Self.laneHeight + Self.gap : cameraTop }
     var highlightTop: CGFloat { cursorTop + Self.laneHeight + Self.gap }
-    var totalHeight: CGFloat { highlightTop + Self.laneHeight + 8 }
+    var textTop: CGFloat { highlightTop + Self.laneHeight + Self.gap }
+    var captionTop: CGFloat { textTop + Self.laneHeight + Self.gap }
+    var musicTop: CGFloat { captionTop + Self.laneHeight + Self.gap }
+    var totalHeight: CGFloat { musicTop + Self.laneHeight + 8 }
 }
 
 struct TimelineView: View {
@@ -45,6 +48,9 @@ struct TimelineView: View {
                 if model.hasCamera { cameraLane(g) }
                 cursorLane(g)
                 highlightLane(g)
+                textLane(g, top: layout.textTop, kinds: [.annotation, .reaction])
+                textLane(g, top: layout.captionTop, kinds: [.caption])
+                musicLane(g)
                 if let snap = model.snapGuideNs {
                     Rectangle().fill(Color.yellow.opacity(0.9)).frame(width: 1, height: layout.totalHeight)
                         .offset(x: g.x(forNs: snap) + g.scrollOffsetPx)
@@ -151,6 +157,25 @@ struct TimelineView: View {
         }
     }
 
+    private func textLane(_ g: TimelineGeometry, top: CGFloat, kinds: [TextKind]) -> some View {
+        ZStack(alignment: .topLeading) {
+            laneBackground(g, top: top, label: "")
+            ForEach(kinds.flatMap { model.textItems($0) }) { t in
+                rangeChip(g, key: EditorModel.textKey(t), span: t.span, top: top, tint: t.kind == .caption ? .indigo : t.kind == .reaction ? .pink : .mint,
+                          title: t.text.replacingOccurrences(of: "\n", with: " "), selected: model.selection == .text(t.kind, t.id))
+            }
+        }
+    }
+
+    private func musicLane(_ g: TimelineGeometry) -> some View {
+        ZStack(alignment: .topLeading) {
+            laneBackground(g, top: layout.musicTop, label: "")
+            ForEach(model.music) { m in
+                rangeChip(g, key: m.id, span: m.span, top: layout.musicTop, tint: .green, title: "♪ " + m.title, selected: model.selection == .music(m.id))
+            }
+        }
+    }
+
     private func cursorLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
             laneBackground(g, top: layout.cursorTop, label: "")
@@ -191,6 +216,8 @@ struct TimelineView: View {
     private func hitRange(at p: CGPoint, _ g: TimelineGeometry) -> DragKind? {
         var items: [(key: String, span: TimeSpan, top: CGFloat, sel: EditorSelection)] = []
         if model.hasCamera { items += model.layouts.map { ($0.id, TimeSpan(startNs: $0.startNs, endNs: $0.endNs), layout.cameraTop, .layout($0.id)) } }
+        items += model.allText.map { ($0.kind == .caption ? EditorModel.textKey($0) : EditorModel.textKey($0), $0.span, $0.kind == .caption ? layout.captionTop : layout.textTop, .text($0.kind, $0.id)) }
+        items += model.music.map { ($0.id, $0.span, layout.musicTop, .music($0.id)) }
         items += model.highlights.map { ($0.id, $0.span, layout.highlightTop, .highlight($0.id)) }
         items += model.cursorHides.map { (EditorModel.cursorKey($0.index), $0.span, layout.cursorTop, .cursorHide($0.index)) }
         for it in items where p.y >= it.top && p.y < it.top + TimelineLayout.laneHeight {
@@ -209,6 +236,8 @@ struct TimelineView: View {
     private func currentSpan(_ key: String) -> TimeSpan? {
         if let l = model.layouts.first(where: { $0.id == key }) { return TimeSpan(startNs: l.startNs, endNs: l.endNs) }
         if let h = model.highlights.first(where: { $0.id == key }) { return h.span }
+        if let t = model.textItem(key: key) { return t.span }
+        if let m = model.music.first(where: { $0.id == key }) { return m.span }
         if key.hasPrefix("cursor:"), let i = Int(key.dropFirst(7)) { return model.cursorHides.first { $0.index == i }?.span }
         return nil
     }

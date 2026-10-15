@@ -36,6 +36,13 @@ import UniformTypeIdentifiers
         if restored { model.markRecoveredUnsaved() }   // journal-only state must be written on close
         model.fitTimeline(width: 900)
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
+        let transcriptURL = package.appendingPathComponent("recording/transcript.json")
+        model.captionSource = {
+            // An existing transcript is used as is; otherwise the app-provided on-device transcriber runs.
+            if let data = try? Data(contentsOf: transcriptURL) { return data }
+            guard let transcriber = EditorWindows.transcriber else { throw EditorError.transcriptionUnavailable }
+            return try await transcriber(package)
+        }
     }
 
     /// Renders the current timeline frame with the shared compositor and puts a PNG on the clipboard.
@@ -103,4 +110,9 @@ enum FrameSnapshot {
         guard CGImageDestinationFinalize(dest) else { throw RenderError.write("Cannot encode PNG") }
         return data as Data
     }
+}
+
+public enum EditorError: LocalizedError {
+    case transcriptionUnavailable
+    public var errorDescription: String? { "Speech transcription isn't available in this build." }
 }

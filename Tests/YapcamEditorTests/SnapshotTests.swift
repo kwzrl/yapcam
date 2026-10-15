@@ -49,10 +49,12 @@ import AppKit
         guard let dir = ProcessInfo.processInfo.environment["YAPCAM_SNAPSHOT_DIR"] else { return }
         let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer())
         m.addHighlightAtPlayhead(kind: .highlight)
-        m.set("canvas.animation.entrance", string: "fade")
+        m.set("canvas.animation.entrance", string: "slide_left")
+        m.seek(toNs: 4_000_000_000); m.addText(.annotation, text: "Click here")
+        m.addText(.caption, text: "Hello world"); m.addBuiltInMusic(builtInMusic[0])
         _ = NSApplication.shared
-        let host = NSHostingView(rootView: InspectorView(model: m, initialTab: .overlays).frame(width: 300, height: 700).background(Color(nsColor: .windowBackgroundColor)))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        let host = NSHostingView(rootView: InspectorView(model: m, initialTab: .overlays).frame(width: 300, height: 1500).background(Color(nsColor: .windowBackgroundColor)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 1500), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host; window.orderBack(nil)
         RunLoop.current.run(until: Date().addingTimeInterval(0.4)); host.layoutSubtreeIfNeeded()
         let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!

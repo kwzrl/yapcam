@@ -110,6 +110,10 @@ public final class CoreEditingProject: EditingProject {
     public func undo() throws { try project.undo(); refresh() }
     public func redo() throws { try project.redo(); refresh() }
     public func save() throws { try project.save() }
+    public func importTranscript(_ data: Data) throws { try project.importTranscript(data); refresh() }
+    public func importMusic(_ file: URL, startNs: Int64) async throws {
+        try await project.importMusic(file, startNs: startNs, endNs: nil, gainDb: -18, loop: true); refresh()
+    }
 
     private struct AudioRangeRow: Decodable {
         var track: String, path: String

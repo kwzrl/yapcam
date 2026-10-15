@@ -22,7 +22,7 @@ public struct EditorContent<Preview: View>: View {
                     preview
                         .aspectRatio(model.previewAspect, contentMode: .fit)
                         .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model) } }
-                        .overlay { if case .highlight(let id) = model.selection, model.highlights.contains(where: { $0.id == id }) { HighlightEditOverlay(model: model, id: id) } }
+                        .overlay { rectEditor }
                         .padding(8)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -53,6 +53,21 @@ public struct EditorContent<Preview: View>: View {
         } message: { Text(model.lastError ?? "") }
         .focusedSceneValue(\.editorModel, model)
         .onDisappear { model.saveNow() }
+    }
+
+    /// Box editor over the preview for the selected highlight or text item (not for music/captions lists).
+    @ViewBuilder private var rectEditor: some View {
+        if case .highlight(let id) = model.selection, model.highlights.contains(where: { $0.id == id }) {
+            RectEditOverlay(model: model,
+                            current: { model.highlights.first { $0.id == id }.map { (model.displayedRect(of: $0), $0.space) } },
+                            preview: { model.previewHighlightRect(id: id, rect: $0) }, commit: { model.commitHighlightRect() },
+                            base: { model.highlights.first { $0.id == id }?.rect })
+        } else if case .text(let kind, let id) = model.selection, let t = model.textItems(kind).first(where: { $0.id == id }) {
+            RectEditOverlay(model: model,
+                            current: { model.textItems(kind).first { $0.id == id }.map { (model.displayedRect(of: $0), $0.space) } },
+                            preview: { model.previewTextRect(key: EditorModel.textKey(t), rect: $0) }, commit: { model.commitTextRect() },
+                            base: { model.textItems(kind).first { $0.id == id }?.rect })
+        }
     }
 
     private func handleKey(_ p: KeyPress) -> KeyPress.Result {
@@ -163,11 +178,14 @@ struct FocusPickerOverlay: View {
     }
 }
 
-/// Rectangle editor over the preview for the selected mask/highlight: drag the body to move,
+/// Rectangle editor over the preview for the selected region/text: drag the body to move,
 /// drag a corner to resize. One command is committed on release.
-struct HighlightEditOverlay: View {
+struct RectEditOverlay: View {
     @ObservedObject var model: EditorModel
-    let id: String
+    let current: () -> (rect: [Double], space: String)?
+    let preview: ([Double]) -> Void
+    let commit: () -> Void
+    let base: () -> [Double]?
     @State private var start: (mode: Mode, rect: [Double], origin: CGPoint)?
     enum Mode { case move, corner(Int) }   // 0 TL, 1 TR, 2 BL, 3 BR
 
@@ -176,8 +194,8 @@ struct HighlightEditOverlay: View {
             let size = geo.size
             ZStack(alignment: .topLeading) {
                 Color.clear.contentShape(Rectangle())
-                if let h = model.highlights.first(where: { $0.id == id }), let g = model.project.frameGeometry(atNs: model.playheadNs) {
-                    let r = g.previewRect(fromNormalized: model.displayedRect(of: h), space: h.space)
+                if let c = current(), let g = model.project.frameGeometry(atNs: model.playheadNs) {
+                    let r = g.previewRect(fromNormalized: c.rect, space: c.space)
                     let frame = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
                     Rectangle().strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
                         .background(Color.accentColor.opacity(0.08))
@@ -190,27 +208,27 @@ struct HighlightEditOverlay: View {
             }
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { v in
-                    guard let h = model.highlights.first(where: { $0.id == id }), let g = model.project.frameGeometry(atNs: model.playheadNs) else { return }
+                    guard let c = current(), let rect = base(), let g = model.project.frameGeometry(atNs: model.playheadNs) else { return }
                     if start == nil {
-                        let r = g.previewRect(fromNormalized: h.rect, space: h.space)
+                        let r = g.previewRect(fromNormalized: rect, space: c.space)
                         let f = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
                         let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.minX, y: f.maxY), CGPoint(x: f.maxX, y: f.maxY)]
                         let hit = corners.firstIndex { hypot($0.x - v.startLocation.x, $0.y - v.startLocation.y) <= 14 }
                         guard hit != nil || f.contains(v.startLocation) else { return }
-                        start = (hit.map { .corner($0) } ?? .move, h.rect, v.startLocation)
+                        start = (hit.map { .corner($0) } ?? .move, rect, v.startLocation)
                     }
                     guard let s = start else { return }
-                    let d = g.normalizedDelta(dx: (v.location.x - s.origin.x) / size.width, dy: (v.location.y - s.origin.y) / size.height, space: h.space)
-                    model.previewHighlightRect(id: id, rect: HighlightGeometry.apply(rect: s.rect, delta: d, mode: s.mode))
+                    let d = g.normalizedDelta(dx: (v.location.x - s.origin.x) / size.width, dy: (v.location.y - s.origin.y) / size.height, space: c.space)
+                    preview(HighlightGeometry.apply(rect: s.rect, delta: d, mode: s.mode))
                 }
-                .onEnded { _ in start = nil; model.commitHighlightRect() })
+                .onEnded { _ in start = nil; commit() })
         }
         .accessibilityLabel("Region editor")
     }
 }
 
 enum HighlightGeometry {
-    static func apply(rect r: [Double], delta d: CGSize, mode: HighlightEditOverlay.Mode) -> [Double] {
+    static func apply(rect r: [Double], delta d: CGSize, mode: RectEditOverlay.Mode) -> [Double] {
         switch mode {
         case .move: return [r[0] + d.width, r[1] + d.height, r[2], r[3]]
         case .corner(let i):
