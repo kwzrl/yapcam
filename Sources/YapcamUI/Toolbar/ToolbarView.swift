@@ -91,6 +91,7 @@ struct ToolbarView: View {
         case .display: return Displays.resolve(settings.displayID)?.name ?? "Display"
         case .window: return "Window"
         case .area: return "Area"
+        case .device: return "iPhone or iPad"
         }
     }
 

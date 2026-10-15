@@ -170,8 +170,10 @@ import YapcamEditor
 
     @Test func everyWindowRendersInLightAndDark() async throws {
         _ = NSApplication.shared
-        let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-smoke-\(UUID().uuidString)", directoryHint: .isDirectory)
-        defer { try? FileManager.default.removeItem(at: dir) }
+        // YAPCAM_SNAPSHOT_KEEP=<dir> keeps the images (renders in this test process, no app launch).
+        let keep = ProcessInfo.processInfo.environment["YAPCAM_SNAPSHOT_KEEP"].map { URL(filePath: $0, directoryHint: .isDirectory) }
+        let dir = keep ?? FileManager.default.temporaryDirectory.appending(path: "yapcam-smoke-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { if keep == nil { try? FileManager.default.removeItem(at: dir) } }
         await UISnapshot.render(into: dir)
         #expect(UISmokeTests.check(dir) == [])
     }
@@ -599,5 +601,22 @@ import YapcamEditor
         let again = try EditorDocument(package: pkg, restoreUnsavedChanges: true)
         #expect((again.model.clips.count, again.model.zooms.count, again.model.durationNs) == want)
         #expect(abs(again.model.number("canvas.padding") - 72) < 1e-9)
+    }
+}
+
+@MainActor @Suite struct DeviceModeTests {
+    @Test func deviceModeExistsAndIsNeverFaked() {
+        #expect(SourceMode.allCases.contains(.device))
+        #expect(SourceMode.device.title == "Device" && SourceMode.device.symbol == "iphone")
+        #expect(IOSDevices.connected().isEmpty)          // no capture backend yet: never a made-up device
+        #expect(!IOSDevices.isSupported)
+    }
+
+    @Test func recordingADeviceExplainsInsteadOfFailingSilently() {
+        let s = AppSettings.shared
+        let saved = s.sourceMode; defer { s.sourceMode = saved }
+        s.sourceMode = .device
+        do { _ = try RecordingController.shared.makeOptions(); Issue.record("device mode must not produce recording options") }
+        catch { #expect(UserMessage.describe(error).contains("iPhone or iPad")) }
     }
 }
