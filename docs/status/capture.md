@@ -9,27 +9,28 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 11:17 CEST: main still 248630a; no new capture review
-  finding or host result. QA .app-lock is now absent; no app launch performed.
-  Lead's outside-sandbox host runs remain pending. Only fleet-rule documentation
-  is pending; no independent implementation item opened, rebuild or temp copy needed.
-  Guarded host commands are ready below and must recheck lock/processes at launch.
+- Backlog audit 2026-10-15 11:37 CEST: main remains 529db15; capture source and
+  tests unchanged. QA .app-lock is absent; no app launch, rebuild or temp copy.
+  QA/UI live evidence is recorded below; no newer host result or review finding.
+  No capture-owned defect was assigned;
+  native hour/Speech and capture-specific host variants still need acceptance.
+  Guarded host commands must recheck lock/processes at launch.
 - Fleet app rule acknowledged 2026-10-15 10:54 CEST; QA .app-lock existed then.
   NO Yapcam launch performed. Check it before every launch, and do non-live work
   while it exists. Never quit another instance or kill by process name; only stop
   PIDs started by capture. Host commands below now bypass LaunchServices and refuse
   to launch if QA owns the app, another instance runs, or inspection fails.
 - Lead checkpointed lock cleanup/self-test variants as a3a51ad and integrated them
-  in main 248630a. Host results remain pending. Current changes only update the
-  README/status launch instructions for the fleet app rule; no build or launch.
+  in main 248630a. Fleet-rule docs are checkpointed in e66eae5/integrated in 529db15.
+  Lock-cleanup and self-test-variant host results remain pending; status update only.
 - Screen Recording grant CONFIRMED by Lead since 10:25 for mov.yapcam.Yapcam /
   Yapcam Dev Signing. Lead's --capture-selftest 6 completed: HEVC 1680x1050,
   352 frames / 6.09 s, AAC system audio offset 1 ms, 95 events. This supersedes
   historical TCC-denial notes; it is a display baseline, not window/area/pause or
   speech/model acceptance. Lead will run native/live checks outside the sandbox.
-- Local HEAD a3a51ad; main 248630a contains the capture changes. Lead handles
-  Git checkpoint/rebase/push under the read-only metadata workflow. Only tests
-  README and this status are pending; no recordings committed.
+- Local HEAD e66eae5; main 529db15 contains the capture changes. Clean-tree rebase
+  attempted at 11:27 CEST: creating rebase-merge still denied. Lead handles Git
+  checkpoint/rebase/push. Only this status is pending; no recordings committed.
 - Fixed clean-finish .capture.lock residue: every normal lease release unlinks its
   own inode while still holding flock. This includes recording stop, recovery and
   transcription; paused sessions retain the file/lock. Crashes can leave an empty
@@ -63,6 +64,30 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 - Native Speech/isolation, real capture and long-session encoder/device behavior are
   not established by simulation or the separate renderer Metal hardware results;
   the confirmed short display capture above is additional host evidence.
+
+## New host evidence — main 529db15 / QA and UI reports
+- QA TEST_REPORT (runs on b5d1268): 4 min capture complete, 240.14 s / 13838 frames,
+  RSS flat 72 MB. Ten minutes: 600.08 s / 34476 frames, 300/300 flash/beep pairs,
+  first/mid/last A/V offsets 2.5/-14.2/9.8 ms, drift 7.3 ms, RSS max 73 MB,
+  package 97 MB. These are actual display/system-audio results, not the M3 ledger.
+- QA's interrupted runs left analyzable fragmented media (223/223 markers, 1.3 ms
+  drift); recover() and clean relaunch were NOT run, so recovery remains pending.
+- UI's live controller runs: area at (200,150), 800x500 points produced 800x500 video
+  and correct content; Terminal window 1627x1015 points produced 1626x1014 video
+  (encoder even-size rounding); pause/resume produced 2.16 + 1.93 = 4.09 s of source,
+  excluding the 2 s pause. UI verified toolbar/HUD/countdown and cursor absent from
+  recorded frames. This is UI's host evidence, not capture's environment-option tests;
+  window movement/resize, static tails/startup and .capture.lock cleanup still need checks.
+- QA F6 (HIGH) and UI repro: exporting real recordings with audio through the exact
+  tail fails; trimming ~100 ms or excluding audio works. System audio ends slightly
+  before the screen segment (QA: 600.067 vs 600.083 s). Assigned to core audio_ranges
+  / render AudioTimeline; capture must preserve the true per-track starts/durations.
+  No capture workaround pads or truncates the screen to hide the export defect.
+- Lead/QA: the signed-app window/area/pause environment hooks requested by QA now
+  exist on main; use the guarded commands below. QA's additional title selection,
+  no-audio/output flags and in-app scripted-input request are not implemented by
+  these hooks. UI notes synthetic hotkey posting failed without Accessibility;
+  Screen Recording grant alone does not prove input-injection permission.
 
 ## Lead host commands — lock cleanup / window / area / pause
 After checkpoint/build of this worktree, run from a normal host terminal in the repo.
@@ -420,8 +445,8 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. Checkpoint the README/status fleet-app-rule update under the agreed read-only Git
-   workflow. Lock cleanup/self-test variants are integrated as a3a51ad; review lock
+1. Checkpoint the latest host-evidence status under the agreed read-only Git
+   workflow. Fleet-rule docs and lock cleanup/self-test variants are integrated; review lock
    inode lifetime/races and run the host commands only when QA releases .app-lock
    and no other Yapcam instance runs. Prior M3/C1 packages are integrated.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
