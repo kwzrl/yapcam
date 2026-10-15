@@ -126,7 +126,7 @@ public struct CursorClick: Decodable, Sendable, Equatable {
     public var t: Int64; public var x: Double?; public var y: Double?; public var button: String?
 }
 public struct CoreRenderOptions: Decodable, Sendable, Equatable {
-    public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch }
+    public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch, arrow }
     public var cursorStyle: CursorStyle
     public var cursorMotionBlur: Double; public var cursorSpotlightRadius: Double
     public var backgroundNoise: Double; public var windowChrome: Bool
@@ -284,3 +284,56 @@ CUR-14 end hold, CUR-15 shake filtering, CUR-16 type debounce, ANI-02 zoom/pan
 presets, and CAM-07 overlay camera resizing are already evaluated by Core.
 Snapshots use the same indexes/settings and give deterministic backward seeks.
 Each frame/extras/motion call reads independently; export uses an immutable snapshot.
+
+## AUD-06 Core preparation bridge (no Core-to-Render dependency)
+
+```swift
+func speechEnhancementPlan() throws -> SpeechEnhancementPlan
+func prepareSpeechEnhancement(using processor:
+    @Sendable (URL, URL, CoreSpeechEnhancementSettings) async throws -> Void
+) async throws -> [PreparedMicrophoneMedia]
+```
+
+CoreSpeechEnhancementSettings is Codable/Sendable with highPassHz,
+noiseThresholdDb, noiseReductionDb, compressorThresholdDb, compressorRatio,
+targetLufs, peakCeilingDbfs, normalizeLoudness; defaults match FORMATS.md/Render.
+SpeechEnhancementPlan has enabled, settings, media[{path,mediaIndex}]. Each returned
+PreparedMicrophoneMedia has originalPath, processedURL, durationNs, channels,
+sampleRate. Core snapshots the plan, validates fingerprints and 48k Float32 output
+format/clock, cleans failed/cancelled runs, and leaves project/recordings unchanged.
+Successful results live in a unique package cache/speech run directory. Disabled or
+no-retained-mic states return []; native codec/processor failures throw explicitly.
+
+Editor owns this concrete Render invocation and URL substitution:
+
+```swift
+let frozen = try project.snapshot() // one export configuration
+let prepared = try await frozen.prepareSpeechEnhancement { source, destination, s in
+    let settings = YapcamRender.SpeechEnhancementSettings(
+        highPassHz: s.highPassHz, noiseThresholdDB: s.noiseThresholdDb,
+        noiseReductionDB: s.noiseReductionDb,
+        compressorThresholdDB: s.compressorThresholdDb,
+        compressorRatio: s.compressorRatio, targetLUFS: s.targetLufs,
+        peakCeilingDBFS: s.peakCeilingDbfs,
+        normalizeLoudness: s.normalizeLoudness)
+    _ = try await SpeechEnhancer.processFile(source, to: destination, settings: settings)
+}
+let replacements = Dictionary(uniqueKeysWithValues:
+    prepared.map { ($0.originalPath, $0.processedURL) })
+// Render source resolves mic media by this map, keeping original file_ns,
+// track offsets, clips/speeds and gain ramps. Never overwrite recording paths.
+```
+
+Render/Editor must wire their media-resolution hook; a persisted toggle alone does
+not claim enhanced output. Preview should discard results after configuration
+changes; export uses frozen above. No DSP dependency or file decoding enters Rust
+frame evaluation. Core tests inject identity/failing PCM processors to validate
+coordination; Render tests own DSP/normalization quality and native compressed IO.
+
+
+CUR-06 adds `CoreRenderOptions.CursorStyle.arrow` and the existing
+`.set(path: "cursor.style", value: .string("arrow"))`. `frameExtras(atNs:)`
+returns cursor_style 3; `renderOptions()`/`renderOptions(atNs:)` and
+`effects(atNs:)` decode `.arrow`. `cursor.always_default` still takes precedence
+and returns `.pointer`/code 1. All previous raw values and ABI layouts are stable.
+Render owns accepting extras code 3 and selecting its vector arrow texture.

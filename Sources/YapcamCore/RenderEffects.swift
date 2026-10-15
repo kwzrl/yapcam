@@ -3,7 +3,7 @@ import Foundation
 /// Supplemental options for the renderer's configuration hooks. These do not
 /// change YcFrame or introduce a dependency from Core to Render.
 public struct CoreRenderOptions: Decodable, Sendable, Equatable {
-    public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch }
+    public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch, arrow }
     public var cursorStyle: CursorStyle
     public var cursorRotationRad: Double
     public var zoomMotionBlur: Double

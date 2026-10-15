@@ -150,7 +150,7 @@ Root setting objects are applied through `apply_preset`, not `set`.
 | `cursor.ranges` | cursor visibility records below | [] |
 | `cursor.loop_to_start` | boolean | false |
 | `cursor.loop_duration_ns` | positive Int64 ns | 400000000 |
-| `cursor.style` | recorded / pointer / touch | recorded |
+| `cursor.style` | recorded / pointer / touch / arrow | recorded |
 | `cursor.motion_blur` | 0…1 | 0 |
 | `cursor.spotlight_radius` | 0…16384; zero disables | 0 |
 | `camera.visible` | boolean | true |
@@ -267,7 +267,7 @@ evaluates the last source sample. Errors leave the output unchanged.
 YcFrameHighlight is 80 bytes: YcRect canvas rect, float corner_radius/opacity/
 dim_opacity, float[4] fill/stroke (sRGB), float stroke_width. YcFrameExtras is 2600
 bytes with 8-byte alignment: Int64 tl_ns; UInt32 cursor_style (0 recorded, 1 pointer,
-2 touch); float cursor_motion_blur/cursor_spotlight_radius/background_noise; UInt8
+2 touch, 3 arrow); float cursor_motion_blur/cursor_spotlight_radius/background_noise; UInt8
 window_chrome/camera_background_removal/camera_face_framing/reserved; float
 camera_shadow_radius/fade_opacity; UInt32 highlight_count; 32 YcFrameHighlight
 slots. Reserved and unused slots are zero. Highlight_count is the valid array
@@ -498,3 +498,66 @@ has the same top-level unwind containment guarantee; snapshots match frame,
 extras and motion at a time. ABI_VERSION becomes 3; all old signatures/layouts
 remain valid. Renderer must opt into tilt/per-kind motion evaluation; no pixels
 cross C. Swift adds Project.frameMotion(atNs:) and typed motion(atNs:).
+
+## AUD-06 offline microphone enhancement
+
+Schema 1/ABI 3 stay unchanged. New settings default off and use the existing
+transactional set/batch/undo/journal/preset mechanism. Every new set path:
+
+| Path | Type / limits / default |
+|---|---|
+| `audio.speech_enhancement` | bool, false |
+| `audio.speech_enhancement_settings` | whole settings object, defaults below |
+| `audio.speech_enhancement_settings.high_pass_hz` | 20…300 Hz, 90 |
+| `audio.speech_enhancement_settings.noise_threshold_db` | −70…−15 dB, −45 |
+| `audio.speech_enhancement_settings.noise_reduction_db` | 0…60 dB, 30 |
+| `audio.speech_enhancement_settings.compressor_threshold_db` | −60…0 dB, −24 |
+| `audio.speech_enhancement_settings.compressor_ratio` | 1…10, 3 |
+| `audio.speech_enhancement_settings.target_lufs` | −36…−10 LUFS, −16 |
+| `audio.speech_enhancement_settings.peak_ceiling_dbfs` | −12…0 dBFS, −1 |
+| `audio.speech_enhancement_settings.normalize_loudness` | bool, true |
+
+Limits/defaults match Render's SpeechEnhancementSettings. This opts into Render's
+original offline DSP (high-pass, quiet-region expansion, compression, gated
+normalization and sample-peak limiting); no speech-isolation/model claim. It
+changes the decoded microphone signal, not source/file/timeline clocks or gains.
+System audio and music remain separate. Toggle/settings alone never decode audio,
+rewrite recording files or perform file IO on frame paths.
+
+New cold query `{"q":"speech_enhancement"}` returns
+`{enabled,settings,media:[{path,media_index}]}`. Media paths are package-relative
+registered microphone files that intersect retained clips after track_start_ns;
+each file appears once, sorted by path. Cuts/repeats/speeds do not cause duplicate
+processing. Muted retained microphones still appear so a prepared result remains
+usable after unmute. Disabled and no-retained-mic states are represented explicitly;
+no eligible media means an empty media array. Query allocates metadata only.
+
+Swift `Project.prepareSpeechEnhancement(using:)` snapshots settings and source
+metadata, returns [] without calling a processor when disabled/no mic, and calls
+an injected async processor once per eligible file. Core cannot import Render
+(which depends on Core); Editor passes a closure that calls Render's real
+SpeechEnhancer.processFile. Core verifies approved source size/head fingerprints
+before/after processing, checks output is 48k Float32 mono/stereo PCM with original
+channel count and file duration (within one 48k sample), and returns replacement
+URLs under a unique package cache/speech/<run-id>/ directory. Source references,
+file-local gaps, track offsets, timeline mapping and gain automation stay intact.
+Original recordings are never replaced or registered as processed assets. Failed
+or cancelled runs delete all their staged cache outputs; success keeps outputs for
+the caller's render/export lifetime. No persistent cache reuse/stale-settings claim.
+Call on an immutable export snapshot, or discard preview results when its edit
+settings change. Renderer/Editor substitute URLs by original media path and keep
+existing file_ns sampling unchanged. Input/codec unavailability is an explicit
+error, never a successful unprocessed result.
+
+
+## CUR-06 fixed arrow cursor contract
+
+`cursor.style` additionally accepts `"arrow"`. Root `render_options` and timed
+`render_options`/`effects_at` report `cursor_style: "arrow"`; frame extras reports
+`cursor_style = 3`. Codes 0 recorded, 1 pointer and 2 touch retain their meanings.
+`cursor.always_default = true` still overrides any stored style with pointer/code 1
+and cursor_id 0. A fixed style selects the renderer texture; the frame cursor_id
+otherwise continues to reflect captured events. Schema 1 and ABI 3 remain unchanged,
+and YcFrame/YcFrameExtras retain every field, size and offset. The existing set path
+uses normal undo/redo, preset and persistence behavior. Render adapters must accept
+code 3 and map it to their original vector arrow before enabling this selection.

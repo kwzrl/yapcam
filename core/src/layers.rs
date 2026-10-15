@@ -170,6 +170,7 @@ impl Project {
             } {
                 "pointer" => 1,
                 "touch" => 2,
+                "arrow" => 3,
                 _ => 0,
             },
             cursor_motion_blur: p.cursor.motion_blur as f32,
@@ -402,6 +403,71 @@ mod tests {
             p.query(&json!({"q":"preset"})).unwrap()["canvas"]["highlights"],
             json!([])
         );
+    }
+    #[test]
+    fn fixed_arrow_roundtrips_and_always_default_keeps_precedence() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        let original = p.frame(500_000_000).unwrap();
+        p.apply(&json!({"op":"set","path":"cursor.style","value":"arrow"}))
+            .unwrap();
+        let copy = p.clone();
+        assert_eq!(p.frame(500_000_000).unwrap().cursor_id, original.cursor_id);
+        for t in [0, 500_000_000, 5_000_000_000] {
+            assert_eq!(p.frame_extras(t).unwrap().cursor_style, 3);
+            assert_eq!(
+                p.query(&json!({"q":"render_options","tl_ns":t})).unwrap()["cursor_style"],
+                json!("arrow")
+            );
+            assert_eq!(
+                p.query(&json!({"q":"effects_at","tl_ns":t})).unwrap()["render_options"]
+                    ["cursor_style"],
+                json!("arrow")
+            );
+        }
+        assert_eq!(
+            p.query(&json!({"q":"render_options"})).unwrap()["cursor_style"],
+            json!("arrow")
+        );
+        assert_eq!(
+            p.query(&json!({"q":"preset"})).unwrap()["cursor"]["style"],
+            json!("arrow")
+        );
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                p.frame_extras(500_000_000).unwrap();
+            }),
+            0
+        );
+        p.save(&fixture.0).unwrap();
+        assert_eq!(
+            Project::open(&fixture.0)
+                .unwrap()
+                .frame_extras(0)
+                .unwrap()
+                .cursor_style,
+            3
+        );
+        p.apply(&json!({"op":"set","path":"cursor.always_default","value":true}))
+            .unwrap();
+        assert_eq!(p.frame_extras(0).unwrap().cursor_style, 1);
+        assert_eq!(p.frame(0).unwrap().cursor_id, 0);
+        assert_eq!(
+            p.query(&json!({"q":"render_options"})).unwrap()["cursor_style"],
+            json!("pointer")
+        );
+        assert_eq!(copy.frame_extras(0).unwrap().cursor_style, 3);
+        p.undo().unwrap();
+        assert_eq!(p.frame_extras(0).unwrap().cursor_style, 3);
+        p.undo().unwrap();
+        assert_eq!(p.frame_extras(0).unwrap().cursor_style, 0);
+        p.redo().unwrap();
+        assert_eq!(p.frame_extras(0).unwrap().cursor_style, 3);
+        let before = p.data.clone();
+        assert!(p
+            .apply(&json!({"op":"set","path":"cursor.style","value":"unknown"}))
+            .is_err());
+        assert_eq!(p.data, before);
     }
     #[test]
     fn fade_endpoints_options_and_snapshot_are_deterministic() {

@@ -254,7 +254,9 @@ settings!(Shadow {
 });
 settings!(Audio { mic_gain_db: f64 = 0.0, system_gain_db: f64 = 0.0,
     mic_muted: bool = false, system_muted: bool = false, ranges: Vec<AudioRange> = vec![],
-    music: Vec<MusicTrack> = vec![], click_sound: ClickSound = ClickSound::default() });
+    music: Vec<MusicTrack> = vec![], click_sound: ClickSound = ClickSound::default(),
+    speech_enhancement: bool = false,
+    speech_enhancement_settings: SpeechEnhancementSettings = SpeechEnhancementSettings::default() });
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct AudioRange {
     pub id: String,
@@ -264,6 +266,16 @@ pub struct AudioRange {
     pub start_gain_db: f64,
     pub end_gain_db: f64,
 }
+settings!(SpeechEnhancementSettings {
+    high_pass_hz: f64 = 90.0,
+    noise_threshold_db: f64 = -45.0,
+    noise_reduction_db: f64 = 30.0,
+    compressor_threshold_db: f64 = -24.0,
+    compressor_ratio: f64 = 3.0,
+    target_lufs: f64 = -16.0,
+    peak_ceiling_dbfs: f64 = -1.0,
+    normalize_loudness: bool = true,
+});
 settings!(TextStyle {
     font_size: f64 = 36.0,
     color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],

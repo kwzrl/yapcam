@@ -84,6 +84,46 @@ impl Project {
             .collect::<Vec<_>>()
             .into())
     }
+    fn speech_enhancement_plan(&self) -> Result<Value> {
+        let mut files = std::collections::BTreeMap::new();
+        for segment in &self.session.segments {
+            let Some(path) = segment.files.get("mic") else {
+                continue;
+            };
+            let start =
+                segment.src_start_ns + segment.track_start_ns.get("mic").copied().unwrap_or(0);
+            let end = segment.src_start_ns + segment.duration_ns;
+            if start >= end {
+                continue;
+            }
+            if !self
+                .data
+                .timeline
+                .clips
+                .iter()
+                .any(|c| c.src_start_ns < end && c.src_end_ns > start)
+            {
+                continue;
+            }
+            let path = format!("recording/{path}");
+            let index = self
+                .data
+                .media
+                .iter()
+                .position(|m| m.path == path)
+                .ok_or_else(|| Error::new(5, serde_json::to_string(&vec![&path]).unwrap()))?;
+            let index = u32::try_from(index)
+                .map_err(|_| Error::new(1, "Microphone media index overflow"))?;
+            files.insert(path, index);
+        }
+        let media: Vec<_> = files
+            .into_iter()
+            .map(|(path, index)| json!({"path":path,"media_index":index}))
+            .collect();
+        Ok(
+            json!({"enabled":self.data.audio.speech_enhancement,"settings":self.data.audio.speech_enhancement_settings,"media":media}),
+        )
+    }
     pub fn query(&self, query: &Value) -> Result<Value> {
         match query
             .get("q")
@@ -119,6 +159,7 @@ impl Project {
                     json!({"canvas":canvas,"cursor":cursor,"camera":camera,"audio":audio,"zoom_settings":self.data.zoom_settings,"export":self.data.export_settings}),
                 )
             }
+            "speech_enhancement" => self.speech_enhancement_plan(),
             "audio_automation" => Ok(serde_json::to_value(&self.data.audio.ranges)?),
             "map_audio_ranges" => self.map_audio_ranges(query),
             "annotations" => Ok(serde_json::to_value(&self.data.canvas.annotations)?),
@@ -446,5 +487,143 @@ mod tests {
             assert_eq!(audio[i]["src_start_ns"], json!(i as i64 * length));
             assert_eq!(audio[i]["src_end_ns"], json!((i as i64 + 1) * length));
         }
+    }
+}
+
+#[cfg(test)]
+mod speech_enhancement_tests {
+    use super::*;
+    use crate::{
+        model::*,
+        project::{fingerprint, tests::Fixture},
+    };
+    #[test]
+    fn speech_settings_paths_defaults_validation_history_preset_and_reopen() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        assert!(
+            !p.query(&json!({"q":"speech_enhancement"})).unwrap()["enabled"]
+                .as_bool()
+                .unwrap()
+        );
+        let settings = [
+            ("high_pass_hz", json!(100)),
+            ("noise_threshold_db", json!(-40)),
+            ("noise_reduction_db", json!(25)),
+            ("compressor_threshold_db", json!(-20)),
+            ("compressor_ratio", json!(4)),
+            ("target_lufs", json!(-18)),
+            ("peak_ceiling_dbfs", json!(-2)),
+            ("normalize_loudness", json!(false)),
+        ];
+        p.apply(&json!({"op":"set","path":"audio.speech_enhancement","value":true}))
+            .unwrap();
+        for (key, value) in settings {
+            p.apply(&json!({"op":"set","path":format!("audio.speech_enhancement_settings.{key}"),"value":value})).unwrap();
+        }
+        let plan = p.query(&json!({"q":"speech_enhancement"})).unwrap();
+        assert_eq!(plan["settings"]["high_pass_hz"], json!(100.0));
+        let before = p.data.clone();
+        let history = p.undo.len();
+        for (key, value) in [
+            ("high_pass_hz", json!(0)),
+            ("noise_threshold_db", json!(0)),
+            ("noise_reduction_db", json!(61)),
+            ("compressor_threshold_db", json!(-61)),
+            ("compressor_ratio", json!(11)),
+            ("target_lufs", json!(-40)),
+            ("peak_ceiling_dbfs", json!(1)),
+            ("normalize_loudness", json!(3)),
+        ] {
+            assert!(p.apply(&json!({"op":"set","path":format!("audio.speech_enhancement_settings.{key}"),"value":value})).is_err());
+            assert_eq!(p.data, before);
+            assert_eq!(p.undo.len(), history);
+        }
+        assert!(p
+            .apply(&json!({"op":"set","path":"audio.speech_enhancement","value":1}))
+            .is_err());
+        p.save(&f.0).unwrap();
+        assert_eq!(
+            Project::open(&f.0)
+                .unwrap()
+                .query(&json!({"q":"speech_enhancement"}))
+                .unwrap(),
+            plan
+        );
+        p.undo().unwrap();
+        assert!(p.data.audio.speech_enhancement_settings.normalize_loudness);
+        p.redo().unwrap();
+        assert_eq!(p.data, before);
+        let preset = p.query(&json!({"q":"preset"})).unwrap();
+        assert_eq!(preset["audio"]["speech_enhancement"], json!(true));
+        let snapshot = p.clone();
+        p.apply(&json!({"op":"set","path":"audio.speech_enhancement","value":false}))
+            .unwrap();
+        assert!(
+            snapshot.query(&json!({"q":"speech_enhancement"})).unwrap()["enabled"]
+                .as_bool()
+                .unwrap()
+        );
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                p.frame(0).unwrap();
+                p.frame_extras(0).unwrap();
+                p.frame_motion(0).unwrap();
+            }),
+            0
+        );
+    }
+    #[test]
+    fn microphone_plan_respects_cuts_track_starts_repeats_and_empty_tracks() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        let mut mic = fingerprint(&f.0.join("recording/seg-000/system.m4a")).unwrap();
+        mic.path = "recording/seg-000/system.m4a".into();
+        p.data.media.retain(|m| m.path != mic.path);
+        p.data.media.push(mic);
+        p.session.tracks.mic = Some(AudioTrack {
+            device_name: Some("fixture".into()),
+            sample_rate: 48000,
+            channels: 1,
+        });
+        p.session.segments[0]
+            .files
+            .insert("mic".into(), "seg-000/system.m4a".into());
+        p.session.segments[0]
+            .track_start_ns
+            .insert("mic".into(), 1_000_000_000);
+        let query = json!({"q":"speech_enhancement"});
+        assert_eq!(
+            p.query(&query).unwrap()["media"].as_array().unwrap().len(),
+            1
+        );
+        let mut repeated = p.data.timeline.clips[0].clone();
+        repeated.id = "repeat".into();
+        p.data.timeline.clips.push(repeated);
+        assert_eq!(
+            p.query(&query).unwrap()["media"].as_array().unwrap().len(),
+            1
+        );
+        p.data.timeline.clips = vec![Clip {
+            id: "kept".into(),
+            src_start_ns: 0,
+            src_end_ns: 900_000_000,
+            speed: 2.0,
+        }];
+        assert_eq!(p.query(&query).unwrap()["media"], json!([]));
+        p.data.timeline.clips[0].src_start_ns = 1_000_000_000;
+        p.data.timeline.clips[0].src_end_ns = 2_000_000_000;
+        assert_eq!(
+            p.query(&query).unwrap()["media"].as_array().unwrap().len(),
+            1
+        );
+        let no_frames = p.session.segments[0].duration_ns;
+        p.session.segments[0]
+            .track_start_ns
+            .insert("mic".into(), no_frames);
+        assert_eq!(p.query(&query).unwrap()["media"], json!([]));
+        let raw:ProjectData=serde_json::from_value(json!({"schema_version":1,"id":"legacy","created_at":"","modified_at":"","recording":"recording/session.json","timeline":{"clips":[]}})).unwrap();
+        assert!(!raw.audio.speech_enhancement);
+        assert_eq!(raw.audio.speech_enhancement_settings.high_pass_hz, 90.0);
     }
 }

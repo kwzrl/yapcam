@@ -89,7 +89,7 @@ typedef struct {
 
 typedef struct {
     int64_t tl_ns;
-    uint32_t cursor_style;             // 0 recorded, 1 pointer, 2 touch
+    uint32_t cursor_style;             // 0 recorded, 1 pointer, 2 touch, 3 arrow
     float cursor_motion_blur;          // 0..1
     float cursor_spotlight_radius;     // canvas pixels, 0 disables
     float background_noise;            // 0..1

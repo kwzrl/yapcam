@@ -725,3 +725,35 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         #expect(try Project.open(package: package).toJSON() == migrated.toJSON())
     }
 }
+
+
+@Test func fixedArrowStyleUsesAdditiveExtrasCodeAndDefaultOverride() throws {
+    try withGuideCursorFixture { package in
+        let p = try Project.create(package: package)
+        let originalID = try p.frame(atNs: 0).cursor_id
+        try p.apply(.set(path: "cursor.style", value: .string("arrow")))
+        #expect(try p.frame(atNs: 0).cursor_id == originalID)
+        for t: Int64 in [0, 700_000_000, 5_000_000_000] {
+            #expect(try p.frameExtras(atNs: t).cursor_style == 3)
+            #expect(try p.renderOptions(atNs: t).cursorStyle == .arrow)
+            #expect(try p.effects(atNs: t).renderOptions.cursorStyle == .arrow)
+        }
+        #expect(try p.renderOptions().cursorStyle == .arrow)
+        let frozen = try p.snapshot()
+        try p.apply(.set(path: "cursor.always_default", value: .bool(true)))
+        #expect(try p.frameExtras(atNs: 0).cursor_style == 1)
+        #expect(try p.renderOptions().cursorStyle == .pointer)
+        #expect(try p.frame(atNs: 0).cursor_id == 0)
+        #expect(try frozen.renderOptions().cursorStyle == .arrow)
+        try p.undo()
+        try p.save()
+        #expect(try Project.open(package: package).renderOptions().cursorStyle == .arrow)
+        try p.undo()
+        #expect(try p.renderOptions().cursorStyle == .recorded)
+        try p.redo()
+        #expect(try p.frameExtras(atNs: 0).cursor_style == 3)
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "cursor.style", value: .string("unknown"))) }
+        #expect(try p.renderOptions().cursorStyle == .arrow)
+        #expect(MemoryLayout<YcFrameExtras>.size == 2600 && yc_abi_version() == 3)
+    }
+}

@@ -263,7 +263,10 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         || cur.idle_timeout_ns < 0
         || cur.click_duration_ns <= 0
         || !matches!(cur.click_effect.as_str(), "none" | "ring" | "highlight")
-        || !matches!(cur.style.as_str(), "recorded" | "pointer" | "touch")
+        || !matches!(
+            cur.style.as_str(),
+            "recorded" | "pointer" | "touch" | "arrow"
+        )
         || !(0.0..=1.0).contains(&cur.motion_blur)
         || !(0.0..=16384.0).contains(&cur.spotlight_radius)
     {
@@ -313,6 +316,17 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             .is_some_and(|v| !(0.0..=1.0).contains(&v))
     {
         return invalid("Invalid screen animation or per-kind blur");
+    }
+    let speech = &p.audio.speech_enhancement_settings;
+    if !(20.0..=300.0).contains(&speech.high_pass_hz)
+        || !(-70.0..=-15.0).contains(&speech.noise_threshold_db)
+        || !(0.0..=60.0).contains(&speech.noise_reduction_db)
+        || !(-60.0..=0.0).contains(&speech.compressor_threshold_db)
+        || !(1.0..=10.0).contains(&speech.compressor_ratio)
+        || !(-36.0..=-10.0).contains(&speech.target_lufs)
+        || !(-12.0..=0.0).contains(&speech.peak_ceiling_dbfs)
+    {
+        return invalid("Invalid offline speech enhancement settings");
     }
     let preset_ok = |p: &str| matches!(p, "custom" | "slow" | "mellow" | "quick" | "rapid");
     let spring_ok = |s: &Spring| {
