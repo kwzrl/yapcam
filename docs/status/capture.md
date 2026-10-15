@@ -16,11 +16,11 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Backlog recheck: 2026-10-15 15:49 UTC; status checkpoint is now ba2afd3.
-  Main remains 5328b45 and is already in HEAD. Capture source/tests match main;
-  brief, main feature rows and QA/UI handoffs contain no new capture assignment,
-  defect or native result. Local Next remains empty. Existing validation is
-  current; only this status refresh is modified. No app launch/tests rerun.
+- Backlog recheck: 2026-10-15 16:20 UTC; Lead checkpointed the previous status as
+  85f4628. Main remains 5328b45 and is already in HEAD. Capture source/tests
+  match main. Assignment/FEATURES/QA/UI documents have no changes from the last
+  review; local Next remains empty. Existing validation remains current. Only
+  this status refresh is modified; no app launch or unchanged tests repeated.
 - Ownership of follow-up work is explicit in Next versus External handoffs below:
   capture implementation is integrated, while app wiring/native acceptance stays
   open. Cross-team todo rows do not mean the capture module is unimplemented.
@@ -795,7 +795,7 @@ native acceptance when Lead posts results. Current APIs, regression tests and
 host commands are ready; validation limits remain explicit above.
 
 ## External handoffs / Lead requests
-1. Capture module changes are in main via 9b0cadc; status checkpoint ba2afd3 is
+1. Capture module changes are in main via 9b0cadc; status checkpoint 85f4628 is
    based on main 5328b45. Only this audit refresh needs checkpointing.
    UI: consume audio-selection/camera-cap/preflight APIs and forward EngineSession
    marker actions to capture; main's current UI-only marker sidecar is a distinct
