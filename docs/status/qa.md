@@ -1,4 +1,4 @@
-READY 1313502 qa: capture gap rows re-audited; live recheck pending (other instance running)
+READY 75fcedd qa: gap rows re-audited vs f611874; live recheck of ui H items waits for the running Yapcam instance
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -67,6 +67,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - Main 5328b45: gap rows UI-1..13 and ED-1..17 re-statused from the ui/editor status files (all 'not live-verified by qa'). Live re-verification of the new ui flow (hotkeys layout, countdown, widget, after-recording action) is pending: another Yapcam instance (/Users/larry/yapcam build, pid seen 16:20) is running; global hotkeys would collide and its toolbar would show in my recordings, so I did not launch. Please tell qa when that instance is closed. core/render/capture gap rows not yet re-audited.
 
 - Capture gap rows CAP-1..7 re-audited from capture status (APIs landed, wiring pending). Core and render report no reference-alignment work yet. Main unchanged at 5328b45; the other Yapcam instance (pid 39997) still runs, so live rechecks of ui H items are still pending.
+
+- Audit vs main f611874 (freeze lifted): all gap rows CORE-1..10, RND-1..9, ED-7/8/9/15, CAP-3 re-statused from core/render/editor status (source APIs landed; editor/ui wiring and native acceptance open); backlog table rewritten by team. Live re-verification of ui H items still blocked: another Yapcam instance (pid 74073 from /Users/larry/yapcam) is running.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
