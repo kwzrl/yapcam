@@ -41,23 +41,32 @@ extension Project {
             let data = try Data(contentsOf: packageURL.appendingPathComponent(media[Int(index)].path))
             settings["_background_image"] = .string(data.base64EncodedString())
         }
+        let camera = try snapshot.cameraStyle()
+        if camera.preset == "lut", let path = camera.lutPath {
+            settings["_camera_lut"] = .string(try snapshot.cameraLUTData(path: path).base64EncodedString())
+        }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(settings).write(to: url, options: .atomic)
     }
     @discardableResult public func importPreset(from url: URL) throws -> ChangeSet {
         let data = try Data(contentsOf: url)
         var preset = try JSONDecoder().decode([String: JSONValue].self, from: data)
-        var staged: String?
-        if let image = preset.removeValue(forKey: "_background_image") {
-            guard case .string(let encoded) = image, let data = Data(base64Encoded: encoded) else { throw CoreError.status(2, "Invalid embedded preset image") }
-            staged = try stageBackgroundImage(data: data)
-        }
+        var staged: [String] = []
         do {
-            var commands: [EditCommand] = [.applyPreset(preset)]
-            if let staged { commands.append(.addMedia(path: staged, asBackground: true)) }
+            var commands: [EditCommand] = [.applyPreset(preset.filter { $0.key != "_background_image" && $0.key != "_camera_lut" })]
+            if let image = preset.removeValue(forKey: "_background_image") {
+                guard case .string(let encoded) = image, let data = Data(base64Encoded: encoded) else { throw CoreError.status(2, "Invalid embedded preset image") }
+                let path = try stageBackgroundImage(data: data); staged.append(path)
+                commands.append(.addMedia(path: path, asBackground: true))
+            }
+            if let lut = preset.removeValue(forKey: "_camera_lut") {
+                guard case .string(let encoded) = lut, let data = Data(base64Encoded: encoded) else { throw CoreError.status(2, "Invalid embedded camera LUT") }
+                let path = try stageCameraLUT(data: data); staged.append(path)
+                commands.append(contentsOf: Self.cameraLUTCommands(path: path))
+            }
             return try apply(.batch(commands))
         } catch {
-            if let staged { try? FileManager.default.removeItem(at: packageURL.appendingPathComponent(staged)) }
+            for path in staged { try? FileManager.default.removeItem(at: packageURL.appendingPathComponent(path)) }
             throw error
         }
     }

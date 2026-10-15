@@ -37,6 +37,7 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public var cameraBackgroundRemoval: Bool
     public var cameraFaceFraming: Bool
     public var cameraShadowRadius: Double
+    public var cameraStyle: CameraStyle?
 }
 
 /// A rounded highlight, mask, or full-canvas fade, evaluated in canvas pixels by

@@ -346,6 +346,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     {
         return invalid("Invalid cursor settings");
     }
+    crate::camera_style::validate(p)?;
     let cam = &p.camera;
     if !(0.01..=1.0).contains(&cam.size)
         || cam.position.iter().any(|v| !(0.0..=1.0).contains(v))

@@ -25,6 +25,12 @@ fn schema() -> Value {
         .as_object_mut()
         .unwrap()
         .remove("asset");
+    for field in ["crop", "lut_path"] {
+        schema["camera"]["style"]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+    }
     schema
 }
 
@@ -75,6 +81,12 @@ pub(crate) fn apply(data: &mut ProjectData, input: &Value) -> Result<Vec<String>
             .as_object_mut()
             .unwrap()
             .remove("kind");
+    }
+    if patch["camera"]["style"]["preset"] == "lut" {
+        patch["camera"]["style"]
+            .as_object_mut()
+            .unwrap()
+            .remove("preset");
     }
     let changed = patch.as_object().unwrap().keys().cloned().collect();
     let mut next = serde_json::to_value(&*data)?;

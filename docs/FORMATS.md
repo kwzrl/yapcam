@@ -64,10 +64,30 @@ One JSON object per line, `t` = ns relative to the segment start, monotonic:
 {"t":130000000,"type":"cursor","id":3}
 {"t":200000000,"type":"key","key":"k","modifiers":["cmd"]}
 {"t":210000000,"type":"focus","app_bundle_id":"com.apple.Safari","window_rect":[0,25,1680,1025]}
+{"t":220000000,"type":"marker","marker_id":"capture-generated-uuid"}
 ```
 
 `key` events are only recorded when the user enables keystroke display.
 Coordinates outside the captured content are kept (cursor may leave the area).
+
+### Recording markers (CAP-3)
+
+Capture writes marker events in the same segment-local clock as input, even when
+keystroke recording is off. `{"q":"markers"}` returns timeline-ordered records:
+`{id, marker_id, segment, segment_ns, src_ns, tl_ns, clip_id}`. `marker_id` is
+capture identity; `id` identifies one retained occurrence (`marker:<segment>:<event
+ordinal>:<clip_id>`). Every repeated clip gets its own occurrence. Missing/empty
+legacy marker IDs get the stable fallback `marker:<segment>:<event ordinal>`.
+Non-marker events never appear. Source intervals are half-open: cuts omit removed
+markers, a split-boundary marker belongs only to the following clip, and the final
+source endpoint is omitted. Speed and cut changes map through the same exact
+rational clock as frames. Segment indices use the session's stored index.
+
+Markers remain immutable recording events, require no project schema migration,
+and are excluded from presets. Undo/redo and snapshots restore/query their
+retained occurrences through the clip list; save/reopen does not rewrite input.
+Swift `Project.markers()` returns `[TimelineMarker]`, with `markerID`, `clipID`,
+`segment`, `segmentNs`, `srcNs` and `tlNs`. Editor owns timeline presentation.
 
 ## seg-XXX/cursors.json
 
@@ -262,6 +282,7 @@ Queries are cold paths returning allocated UTF-8 JSON, freed with yc_string_free
 | duration | `{duration_ns}` |
 | clicks (cursor_clicks alias) | sorted mouse-down event array with edited tl_ns; example below |
 | events | all retained input events with the same source/timeline mapping |
+| markers | retained marker occurrences mapped through cuts, speeds and repeated clips; see CAP-3 contract |
 | audio_ranges | file intervals split at clip, segment, track-start and gain-range boundaries; track/path/segment/clip_id, source/file/timeline start/end ns, speed, gain/gain_start/gain_end, base_gain_db and muted |
 | audio_automation | persisted audio.ranges |
 | media (assets alias) | `{path,size,head_hash}` array |
@@ -887,3 +908,97 @@ and unregisters observation; call before closing a document. Errors remain expos
 in lastError and keep the project dirty. Existing Editor autosave must adopt this
 coordinator or align its own delay/revision guard; Core does not silently install
 a second timer on every Project. Snapshots have independent revision lifetimes.
+
+
+## Camera style (GAP-ED-8, Core/Render contract)
+
+Schema-1 `camera.style` is additive and defaults to original/no grading, intensity1,
+sharpen0, grain0, background_blur0 and full-frame crop, so old projects keep their
+appearance. No new C ABI fields are needed: `render_options` / time-specific
+`render_options_at` append `camera_style`; `{"q":"camera_style"}` returns the
+same persisted settings. Rendering applies camera crop before face framing, then
+grading/LUT at intensity, sharpen, grain and background blur. Core evaluates and
+validates settings; Render owns the pixel implementation and must advertise its
+availability in its UI integration.
+
+| Set path | Values / default |
+|---|---|
+| camera.style | complete or serde-defaulted CameraStyle object |
+| camera.style.preset | original / custom / lut / IDs from camera_style_library; default original |
+| camera.style.intensity | 0...1 / 1 |
+| camera.style.warmth | -1...1 / 0 |
+| camera.style.background_pop | 0...1 / 0.2 (inactive with original) |
+| camera.style.contrast | -1...1 / 0.25 (inactive with original) |
+| camera.style.color_intensity | -1...1 / 0.15 (inactive with original) |
+| camera.style.sharpen / grain / background_blur | 0...1 / 0 |
+| camera.style.crop | normalized [x,y,w,h], positive inside unit rect / [0,0,1,1] |
+| camera.style.lut_path | null or registered package-relative media path / null |
+
+`{"q":"camera_style_library"}` returns twelve original Yapcam recipes with
+`{id,name,warmth,background_pop,contrast,color_intensity}`. Their names/recipes are
+our own, not reference strings/assets. Selecting a built-in recipe sets its four
+parameters; selecting custom retains them. Original bypasses grading. Editing a
+recipe parameter selects custom. LUT selects registered local `.cube` data;
+intensity0 bypasses grading but retains choice. Mirror/face tracking use existing
+camera.mirrored / camera.face_framing paths and retain their legacy defaults.
+
+Swift `cameraStyle()` / `cameraStyleLibrary()` return typed records.
+`importCameraLUT(from:)` parses UTF-8 3D CUBE data (size2...64, exactly N^3 RGB rows,
+finite values and valid optional DOMAIN_MIN/MAX), copies it under assets, registers
+it as media and selects it in one atomic undoable batch. Limit32MiB. No external
+file path is retained. Invalid data/closed project/failed edit removes staged
+assets; original source files remain unchanged. Undo retains the copied asset as
+with background images. `CubeLUT(data:)` exposes parsed dimension/domains/values
+to consumers without a new dependency.
+
+Portable presets exclude camera crop and LUT path. Swift file presets carry LUT
+bytes in `_camera_lut` base64 and register a fresh destination path on import;
+raw lut preset choices without embedded data cannot select unrelated target
+media. Full project save/reopen retains camera crop and registered LUT reference.
+
+
+## Camera layout extensions (GAP-ED-9)
+
+Additive camera.layout_settings configures root mode overlay/cutout/split and is
+available in render_options as camera_layout. Existing layout segments accept
+new modes cutout/split; legacy side_by_side keeps its previous geometry. Optional
+segment `settings` replaces the root layout settings for that interval (omitted
+members in that object use documented defaults, not root inheritance). Mode is
+always the segment's mode when active. Missing fields retain legacy geometry.
+
+| Set path | Values / default |
+|---|---|
+| camera.layout_settings | full settings object with fields below |
+| camera.layout_settings.mode | overlay / cutout / split; overlay |
+| camera.layout_settings.aspect | null (source aspect) or 16/9,4/3,1,3/4,9/16; null |
+| camera.layout_settings.split_ratio | null (fit source/camera aspects, clamp .25...75), .5 or 2/3; null |
+| camera.layout_settings.split_flip | bool / false |
+| camera.layout_settings.split_padded | bool / false |
+| camera.layout_settings.cutout_position | normalized center [x,y] / [1,1] |
+| camera.layout_settings.cutout_size | .2...1 / .5 of canvas width |
+| camera.layout_settings.edge_softness | 0...1 / .2 |
+| camera.layout_settings.edge_inset | 0...8 output pixels / 0 |
+| camera.layout_settings.corner_ratio | null (legacy pixel radius) or0...5 times shorter camera edge; null |
+| camera.hide_during_silence | bool / false |
+| camera.min_silence_ns | 2...15s / 5s |
+| camera.silence_ranges | sorted, nonoverlapping `{tl_start_ns,tl_end_ns}` array / [] |
+| camera.layouts | existing layout rows plus optional settings object and mode cutout/split |
+
+Silence ranges come from decoded mic analysis, e.g. existing map_audio_ranges;
+Core never decodes media on the frame path. Ranges are half-open. Hide only when
+an interval's edited duration meets min_silence_ns; speed/cuts remap them with
+other effects. Silence ranges never enter presets. They do not invent intervals
+when no analysis exists. Hide-camera/fullscreen combinations fall back to screen.
+
+Overlay retains existing root position/size and camera.zoom_scale behavior. An
+explicit aspect chooses the fitted camera destination; crop remains a separate
+camera-style source rect. Cutout uses bottom position/size and turns on background
+removal (Render owns softness/inset pixel processing); corners are0. Split divides
+the canvas on its longer axis, uses optional padding and fits each source into its
+region. Flip swaps regions. Padded split honors legacy corner radius/optional
+corner_ratio; unpadded split uses0. Settings are evaluated identically for preview
+and export with no frame-path allocation. `{"q":"camera_layout_at","tl_ns":...}`
+returns `{mode,settings,visible}`; time-specific render options agree. Swift
+cameraLayout(atNs:) returns CoreCameraLayout, and CoreRenderOptions.cameraLayout
+is optional for older libraries. Root layout settings/hide preference/minimum are
+portable style; per-range records and silence ranges remain project-specific.

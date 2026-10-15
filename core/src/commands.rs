@@ -576,6 +576,10 @@ pub(crate) fn apply_inner(
                     cs.changed.push("insertion_styles.mask".into());
                 }
             }
+            crate::camera_style::did_set(p, path);
+            if path.starts_with("camera.style.") {
+                cs.changed.push("camera.style".into());
+            }
             match path {
                 "audio.mic_preset" => {
                     // Metadata defaults never reinterpret old DSP. Only an explicit

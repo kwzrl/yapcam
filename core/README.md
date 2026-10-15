@@ -137,6 +137,10 @@ Effects use normalized coordinates; canvas lengths use output pixels.
 - audio_automation: persisted automation ranges.
 - clicks (cursor_clicks alias): down events with segment, src_ns and tl_ns.
 - events: all retained events with the same mapping; removed events disappear.
+- markers: captured marker occurrences with id/marker_id/segment/segment_ns/
+  src_ns/tl_ns/clip_id, exact cut/speed/repeated-clip mapping, half-open bounds.
+  Swift Project.markers() returns [TimelineMarker]; markerID is capture identity,
+  id is occurrence identity. Immutable event logs survive save/history unchanged.
 - session / project: complete immutable session or current project data.
 - preset: portable style fields only; omits clips, zoom records, timed effects,
   source crop, recording IDs, notes and media references. Export and apply share
@@ -466,3 +470,13 @@ before the document's final save and close; replace the existing Editor timer
 rather than installing two coordinators. Deterministic virtual-clock tests cover
 reset/cancellation, stale revisions, disabled autosave and closed save failures.
 Full path/query/command contracts are in FORMATS.md. ABI3 and C layouts unchanged.
+
+
+Camera style (ED-8) persists under camera.style; q camera_style /
+camera_style_library returns settings and12 original scalar recipes. Render options
+append camera_style (Swift optional CameraStyle). LUT import validates 3D CUBE data,
+copies/registers package media and selects it atomically. CubeLUT exposes dimension,
+domains and RGB entries; Project.cameraLUT() resolves the selected local asset.
+Presets omit source crop/LUT path and carry `_camera_lut` bytes through Swift file
+export/import, which registers a fresh destination path. Native grading remains
+Render-owned; parameters are not a substitute for rendering acceptance.
