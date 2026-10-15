@@ -41,8 +41,10 @@ public struct RenderConfiguration: Sendable, Equatable {
     public var screenShadowOffsetX: Float = 0
     /// -1...1: positive x/y weights the inset toward the right/bottom edge.
     public var screenInsetOrigin: SIMD2<Float> = .zero
+    public var screenQuality: ScreenQualitySettings? = nil
     public var glassLoupe: GlassLoupeSettings? = nil
     public var cameraColor = CameraColorSettings()
+    public var cameraMatte: CameraMatteSettings? = nil
     public var cameraBackgroundRemoval = false
     public var cameraFaceFraming = false
     public var cameraShadowRadius: Float = 0

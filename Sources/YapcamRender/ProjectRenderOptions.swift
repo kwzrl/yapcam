@@ -8,13 +8,17 @@ struct ProjectRenderOptions: Decodable {
     let glassLoupe: GlassLoupeSettings?
     let cameraColor: CameraColorQuery?
     let insetOrigin: SIMD2<Float>?
-    private enum CodingKeys: String, CodingKey { case glassLoupe, cameraColor, insetOrigin }
+    let screenQuality: ScreenQualitySettings?
+    let cameraMatte: CameraMatteSettings?
+    private enum CodingKeys: String, CodingKey { case glassLoupe, cameraColor, insetOrigin, screenQuality, cameraMatte }
     init(from decoder: Decoder) throws {
         base = try CoreRenderOptions(from: decoder)
         let c = try decoder.container(keyedBy: CodingKeys.self)
         glassLoupe = try c.decodeIfPresent(GlassLoupeSettings.self,forKey: .glassLoupe)
         cameraColor = try c.decodeIfPresent(CameraColorQuery.self,forKey: .cameraColor)
         insetOrigin = try c.decodeIfPresent(SIMD2<Float>.self,forKey: .insetOrigin)
+        screenQuality = try c.decodeIfPresent(ScreenQualitySettings.self,forKey: .screenQuality)
+        cameraMatte = try c.decodeIfPresent(CameraMatteSettings.self,forKey: .cameraMatte)
     }
 }
 struct CameraColorQuery: Decodable {

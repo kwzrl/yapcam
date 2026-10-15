@@ -33,12 +33,15 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     public var speechEnhancement: SpeechEnhancementSettings?
     public var gifHighQuality: Bool
     public var gifDisableLoop: Bool
+    /// Experimental MP4/MOV mode: omit exact duplicate rendered frames, retaining
+    /// their timeline spacing and final endpoint. Evaluation remains on the fps grid.
+    public var variableFrameRate: Bool
 
     public init(format: Format = .mp4, codec: Codec = .h264, outputHeight: Int? = nil, fps: Int? = nil,
                 quality: Double? = nil, includeAudio: Bool = true, bitrate: Int? = nil,
                 rangeStartNs: Int64? = nil, rangeEndNs: Int64? = nil,
                 speechEnhancement: SpeechEnhancementSettings? = nil, compression: Compression? = nil,
-                gifHighQuality: Bool = true, gifDisableLoop: Bool = false) {
+                gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false) {
         self.format = format; self.codec = codec
         self.outputHeight = outputHeight ?? (format == .gif ? 480 : 720)
         self.fps = fps ?? (format == .gif ? 15 : 60)
@@ -48,6 +51,7 @@ public struct ExportSettings: Sendable, Codable, Equatable {
         self.bitrate = bitrate; self.rangeStartNs = rangeStartNs; self.rangeEndNs = rangeEndNs
         self.speechEnhancement = speechEnhancement
         self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop
+        self.variableFrameRate = format == .gif ? false : variableFrameRate
     }
     public static let primaryFormats: [Format] = [.mp4, .gif]
     public static func frameRates(for format: Format) -> [Int] {
@@ -76,6 +80,7 @@ public struct ExportSettings: Sendable, Codable, Equatable {
             result.codec = .h264 // GIF has no video codec, audio or microphone processing.
             result.includeAudio = false
             result.speechEnhancement = nil
+            result.variableFrameRate = false
         } else if target == .clipboard && codec == .both { result.codec = .h264 }
         return result
     }
@@ -123,7 +128,7 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     }
     private enum CodingKeys: String, CodingKey {
         case format, codec, outputHeight, fps, quality, compression, includeAudio, bitrate
-        case rangeStartNs, rangeEndNs, speechEnhancement, gifHighQuality, gifDisableLoop
+        case rangeStartNs, rangeEndNs, speechEnhancement, gifHighQuality, gifDisableLoop, variableFrameRate
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -139,7 +144,8 @@ public struct ExportSettings: Sendable, Codable, Equatable {
                   speechEnhancement: try c.decodeIfPresent(SpeechEnhancementSettings.self, forKey: .speechEnhancement),
                   compression: try c.decodeIfPresent(Compression.self, forKey: .compression),
                   gifHighQuality: try c.decodeIfPresent(Bool.self, forKey: .gifHighQuality) ?? true,
-                  gifDisableLoop: try c.decodeIfPresent(Bool.self, forKey: .gifDisableLoop) ?? false)
+                  gifDisableLoop: try c.decodeIfPresent(Bool.self, forKey: .gifDisableLoop) ?? false,
+                  variableFrameRate: try c.decodeIfPresent(Bool.self,forKey: .variableFrameRate) ?? false)
     }
 }
 public struct ExportMetrics: Sendable {

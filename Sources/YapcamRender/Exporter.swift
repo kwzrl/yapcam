@@ -15,6 +15,7 @@ public final class Exporter: @unchecked Sendable {
     private var running = false
     private var completedMetrics: ExportMetrics?
     private var completedOutputs: [URL] = []
+    private var completedEncodedVideoFrames: Int?
     private var speechReports: [SpeechEnhancementReport] = []
     public var speechEnhancementReports: [SpeechEnhancementReport] { lock.withLock { speechReports } }
     public var metrics: ExportMetrics? { lock.withLock { completedMetrics } }
@@ -22,6 +23,9 @@ public final class Exporter: @unchecked Sendable {
     public var outputURLs: [URL] { lock.withLock { completedOutputs } }
     /// Actual catalog settings, including normalization of older sheet/saved presets.
     public var effectiveSettings: ExportSettings { settings }
+    /// Actual submitted video samples; metrics.frames still counts rendered grid
+    /// evaluations. Both sums its two files; GIF has no encoded video track.
+    public var encodedVideoFrames: Int? { lock.withLock { completedEncodedVideoFrames } }
     public init(project: any RenderProjectSource, settings: ExportSettings, destination: URL) throws {
         self.project = try project.renderSnapshot()
         guard settings.fps > 0, settings.outputHeight > 0 else { throw RenderError.invalidSettings("Export dimensions and frame rate must be positive") }
@@ -35,7 +39,11 @@ public final class Exporter: @unchecked Sendable {
     /// Status callbacks may run off MainActor; waiting cancellation creates no file.
     public func run(progress: @Sendable @escaping (Double) -> Void,
                     status: @Sendable @escaping (ExportPhase) -> Void) async throws -> URL {
-        guard lock.withLock({ if running { return false }; running = true; return true }) else { throw RenderError.write("This exporter is already running") }
+        guard lock.withLock({
+            if running { return false }
+            running=true; completedMetrics=nil; completedOutputs=[]; completedEncodedVideoFrames=nil; speechReports=[]
+            return true
+        }) else { throw RenderError.write("This exporter is already running") }
         defer { lock.withLock { running = false } }
         do {
             let result = try await Self.scheduler.run(waiting: { status(.waiting) }) {
@@ -103,6 +111,7 @@ public final class Exporter: @unchecked Sendable {
         try ExportPublication.publish([(children[0].destination,destination),(children[1].destination,companion)])
         lock.withLock {
             completedOutputs = [destination,companion]
+            completedEncodedVideoFrames=children.reduce(0) { $0+($1.encodedVideoFrames ?? 0) }
             completedMetrics = ExportMetrics(frames: children.reduce(0) { $0+($1.metrics?.frames ?? 0) },elapsedSeconds: ProcessInfo.processInfo.systemUptime-startTime,mediaSeconds: Double(duration.count)/1e9)
         }
         progress(1); return destination
@@ -174,6 +183,7 @@ public final class Exporter: @unchecked Sendable {
             }
         }
         let cancellation=ExportCancellation(writer: writer,reader: audioReader?.0,pump: audioTask)
+        var deduplicator=ExactFrameDeduplicator(), encodedFrames=0
         try await withTaskCancellationHandler {
             do {
                 for index in 0..<count {
@@ -182,7 +192,13 @@ public final class Exporter: @unchecked Sendable {
                     try await ready(video, writer: writer)
                     let buffer = try autoreleasepool { try render(index: index, range: range, pool: pool, compositor: compositor, queue: queue, cache: cache) }
                     try Task.checkCancellation()
-                    guard adaptor.append(buffer, withPresentationTime: time) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append video") }
+                    let append: Bool
+                    if settings.variableFrameRate { append=try deduplicator.shouldAppend(buffer,isLast: index==count-1) }
+                    else { append=true }
+                    if append {
+                        guard adaptor.append(buffer, withPresentationTime: time) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append video") }
+                        encodedFrames += 1
+                    }
                     progress(preparationWeight+Double(index+1)/Double(count)*(0.95-preparationWeight))
                 }
                 video.markAsFinished()
@@ -207,6 +223,7 @@ public final class Exporter: @unchecked Sendable {
         guard videos.count == 1, audios.count == (audio == nil ? 0 : 1), abs(duration.seconds - Double(range.count)/1e9) <= 1 / Double(settings.fps) + 0.000_001 else { throw RenderError.verification("Export duration or track count differs from the requested timeline") }
         let size = try await videos[0].load(.naturalSize)
         guard Int(size.width) == width, Int(size.height) == height else { throw RenderError.verification("Export dimensions differ from settings") }
+        lock.withLock { completedEncodedVideoFrames=encodedFrames }
     }
     private func pumpAudio(_ context: AudioPumpContext) async throws {
         let pump=MediaInputPump<CMSampleBuffer>(

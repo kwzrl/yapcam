@@ -13,6 +13,7 @@ public final class FrameCompositor: @unchecked Sendable {
     private let layerRenderer: LayerRenderer
     private let backgroundBlur: BackgroundBlur
     private let cameraEffects: CameraEffects
+    private var cameraMatteProcessor: CameraMatteProcessor?
     private let lock = NSLock()
     private let invalidationLock = NSLock()
     private var needsInvalidation = false
@@ -89,6 +90,14 @@ public final class FrameCompositor: @unchecked Sendable {
         var matte: TextureFrame?
         var cameraCrop = SIMD4<Float>(0,0,1,1)
         if let camera { (matte,cameraCrop) = try cameraEffects.evaluate(camera,removeBackground: options.cameraBackgroundRemoval,faceFraming: options.cameraFaceFraming) }
+        var matteTexture=matte?.texture
+        if let matte, let camera, let settings=options.cameraMatte, frame.camera_dest.w>0, frame.camera_dest.h>0 {
+            if cameraMatteProcessor==nil { cameraMatteProcessor=try CameraMatteProcessor(device: device) }
+            let g=camera.geometry
+            let steps=CameraMatteProcessor.steps(displaySize: SIMD2(Float(g.displaySize.width),Float(g.displaySize.height)),rowX: g.rowX,rowY: g.rowY,
+                                                 crop: cameraCrop,destination: SIMD2(Float(frame.camera_dest.w),Float(frame.camera_dest.h)),mirrored: frame.camera_mirror != 0)
+            matteTexture=try cameraMatteProcessor!.encode(matte.texture,settings: settings,steps: steps,in: cb)
+        }
         let colorSettings = options.cameraColor
         var colorLUT = identityLUT
         if let url = colorSettings.lutURL, colorSettings.intensity > 0, camera != nil {
@@ -187,6 +196,8 @@ public final class FrameCompositor: @unchecked Sendable {
         uniforms.append(SIMD4(colorLUT.minimum, colorSettings.lutURL == nil ? 0 : 1))
         uniforms.append(SIMD4(colorLUT.maximum, colorSettings.isEnabled ? 1 : 0))
         uniforms.append(SIMD4(Float(frame.tl_ns % 1_000_000_000)/1e9,0,0,0))
+        uniforms.append(options.screenQuality?.uniforms ?? .zero) // 34: improve, upscale, enabled
+        uniforms.append(SIMD4(Float(target.width)/Float(frame.canvas_w),Float(target.height)/Float(frame.canvas_h),0,0))
         if cursorBlur > 0 && frame.tl_ns > 0 {
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
         }
@@ -196,13 +207,13 @@ public final class FrameCompositor: @unchecked Sendable {
         guard let encoder = cb.makeRenderCommandEncoder(descriptor: pass) else { throw RenderError.metal("Cannot create render encoder") }
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentBytes(&uniforms, length: uniforms.count * MemoryLayout<SIMD4<Float>>.stride, index: 0)
-        for (index, texture) in [screen?.texture ?? empty, camera?.texture ?? empty, cursorTexture, background, matte?.texture ?? empty].enumerated() { encoder.setFragmentTexture(texture, index: index) }
+        for (index, texture) in [screen?.texture ?? empty, camera?.texture ?? empty, cursorTexture, background, matteTexture ?? empty].enumerated() { encoder.setFragmentTexture(texture, index: index) }
         encoder.setFragmentTexture(colorLUT.texture, index: 5)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3); encoder.endEncoding()
         try layerRenderer.encode(effects.layers, canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)), project: project, target: target, cb: cb)
         // CVMetalTexture and its IOSurface must survive until GPU completion.
-        let retainedMatte = matte, retainedColorLUT = colorLUT
-        cb.addCompletedHandler { _ in _ = screen; _ = camera; _ = retainedMatte; _ = retainedColorLUT }
+        let retainedMatte = matte, retainedMatteTexture=matteTexture, retainedColorLUT = colorLUT
+        cb.addCompletedHandler { _ in _ = screen; _ = camera; _ = retainedMatte; _ = retainedMatteTexture; _ = retainedColorLUT }
     }
 
     private static let shader = """
@@ -224,6 +235,50 @@ public final class FrameCompositor: @unchecked Sendable {
         return (uv-.5) * (a > b ? float2(1,b/a) : float2(a/b,1)) + .5;
     }
     float2 sourceUV(float2 uv,float4 rowX,float4 rowY) { return float2(dot(uv,rowX.xy)+rowX.z,dot(uv,rowY.xy)+rowY.z); }
+    float cubicWeight(float value) {
+        float x=abs(value);
+        return x<=1 ? (1.5*x-2.5)*x*x+1 : x<2 ? ((-.5*x+2.5)*x-4)*x+2 : 0;
+    }
+    float4 screenSample(texture2d<float> tex,sampler s,float2 uv,float4 bounds,float2 dimensions,
+                        float4 rowX,float4 rowY,float4 quality,float scale) {
+        if(quality.z==0 || (quality.x==0 && (quality.y==0 || scale<=1))) return tex.sample(s,sourceUV(uv,rowX,rowY));
+        float2 inset=min(.5/dimensions,bounds.zw*.5);
+        float2 minimum=bounds.xy+inset, maximum=bounds.xy+bounds.zw-inset;
+        float2 centerUV=clamp(uv,minimum,maximum);
+        float4 center=tex.sample(s,sourceUV(centerUV,rowX,rowY)), color=center;
+        if(scale>1 && quality.y>1) {
+            float2 coordinate=centerUV*dimensions-.5, base=floor(coordinate), fraction=coordinate-base;
+            float4 sum=0; float weights=0;
+            for(int y=-1;y<=2;y++) for(int x=-1;x<=2;x++) {
+                float w=cubicWeight(fraction.x-x)*cubicWeight(fraction.y-y);
+                float2 point=clamp((base+float2(x,y)+.5)/dimensions,minimum,maximum);
+                sum+=tex.sample(s,sourceUV(point,rowX,rowY))*w; weights+=w;
+            }
+            color=clamp(sum/max(weights,.000001),0.0,1.0);
+        } else if(scale>1 && quality.y>0) {
+            float3 cross=0;
+            for(int i=0;i<4;i++) {
+                float2 d=i==0 ? float2(1,0) : i==1 ? float2(-1,0) : i==2 ? float2(0,1) : float2(0,-1);
+                cross+=tex.sample(s,sourceUV(clamp(centerUV+d/dimensions,minimum,maximum),rowX,rowY)).rgb*.25;
+            }
+            color.rgb=clamp(center.rgb+(center.rgb-cross)*.25,0.0,1.0);
+        }
+        if(quality.x>0) {
+            float3 sum=0; float weights=0;
+            for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {
+                float3 neighbor=tex.sample(s,sourceUV(clamp(centerUV+float2(x,y)/dimensions,minimum,maximum),rowX,rowY)).rgb;
+                float3 delta=neighbor-center.rgb;
+                float w=exp(-dot(delta,delta)*80)/(1+x*x+y*y);
+                sum+=neighbor*w; weights+=w;
+            }
+            color.rgb=mix(color.rgb,sum/max(weights,.000001),quality.x*.6);
+            // Stable, sub-LSB spatial noise reduces visible quantization steps;
+            // it never changes source files or introduces temporal flicker.
+            float dither=fract(sin(dot(floor(centerUV*dimensions),float2(37.19,71.43)))*21917.17)-.5;
+            color.rgb=clamp(color.rgb+dither*quality.x/2048,0.0,1.0);
+        }
+        return color;
+    }
     fragment float4 fragmentMain(Vertex v [[stage_in]], constant float4 *u [[buffer(0)]], texture2d<float> screen [[texture(0)]], texture2d<float> cam [[texture(1)]], texture2d<float> cursor [[texture(2)]], texture2d<float> bg [[texture(3)]], texture2d<float> matte [[texture(4)]], texture3d<float> cameraLUT [[texture(5)]]) {
         constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear);
         float2 p = v.uv * u[0].xy;
@@ -259,7 +314,8 @@ public final class FrameCompositor: @unchecked Sendable {
                 sampleResult=over(sampleResult,float4(0,0,0,shadow));
                 float mask=1-smoothstep(-.5,.5,rounded(p,dest,radius));
                 float2 uv=(p-dest.xy)/max(dest.zw,float2(.000001));
-                float4 tex=screen.sample(s,sourceUV(cropCenter-cropSize*.5+uv*cropSize,u[19],u[20]));
+                float scale=min(dest.z*u[35].x/(u[23].x*cropSize.x),dest.w*u[35].y/(u[23].y*cropSize.y));
+                float4 tex=screenSample(screen,s,cropCenter-cropSize*.5+uv*cropSize,float4(cropCenter-cropSize*.5,cropSize),u[23].xy,u[19],u[20],u[34],scale);
                 float inset=clamp(u[14].x,0.0,min(dest.z,dest.w)*.5);
                 float4 inner=float4(dest.xy+inset*(1-u[14].zw),dest.zw-2*inset);
                 float border=inset>0 ? smoothstep(-.5,.5,rounded(p,inner,max(0.0,radius-inset))) : 0;
@@ -291,9 +347,10 @@ public final class FrameCompositor: @unchecked Sendable {
             float2 fringe=delta/u[4].zw*u[25].w*.006*pow(radial,4.0);
             float2 inset=min(.5/u[23].xy,u[28].zw*.5);
             float2 cropMin=u[28].xy+inset, cropMax=u[28].xy+u[28].zw-inset;
-            float4 lens=screen.sample(s,sourceUV(clamp(uv,cropMin,cropMax),u[19],u[20]));
-            lens.r=screen.sample(s,sourceUV(clamp(uv+fringe,cropMin,cropMax),u[19],u[20])).r;
-            lens.b=screen.sample(s,sourceUV(clamp(uv-fringe,cropMin,cropMax),u[19],u[20])).b;
+            float scale=min(u[4].z*u[35].x/(u[23].x*u[27].z),u[4].w*u[35].y/(u[23].y*u[27].w));
+            float4 lens=screenSample(screen,s,clamp(uv,cropMin,cropMax),u[28],u[23].xy,u[19],u[20],u[34],scale);
+            lens.r=screenSample(screen,s,clamp(uv+fringe,cropMin,cropMax),u[28],u[23].xy,u[19],u[20],u[34],scale).r;
+            lens.b=screenSample(screen,s,clamp(uv-fringe,cropMin,cropMax),u[28],u[23].xy,u[19],u[20],u[34],scale).b;
             float rim=u[25].z*.25*pow(radial,12.0);
             lens.rgb=mix(lens.rgb,float3(1),rim);
             float mask=(1-smoothstep(-.5,.5,distance-radius))*u[26].w;

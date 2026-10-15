@@ -36,6 +36,8 @@ extension Project: RenderProjectSource {
         let options=evaluated.base
         configuration.screenShadowOffsetX=Float(options.screenShadow?.offsetX ?? 0)
         configuration.screenInsetOrigin=evaluated.insetOrigin ?? .zero
+        configuration.screenQuality=evaluated.screenQuality
+        configuration.cameraMatte=evaluated.cameraMatte
         configuration.glassLoupe=evaluated.glassLoupe
         configuration.cameraColor=try evaluated.cameraColor?.value(package: packageURL) ?? .init()
         configuration.cursorSetID=options.cursorSetId
