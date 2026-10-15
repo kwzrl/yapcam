@@ -99,14 +99,32 @@ import YapcamCore
         m.undo(); #expect(m.clips[1].speed == 2 && m.clips[0].speed == 1)             // all clips in one undo step
     }
 
-    @Test func volumeMenuMapsPercentToGainAndMute() {
+    @Test func volumeMenuSetsTheTargetClipsAmplitude() {
         let (m, _) = make()
+        m.seek(toNs: 10_000_000_000); m.splitAtPlayhead(); m.seek(toNs: 12_000_000_000)                     // playhead in the second clip
         #expect(m.handleShortcut("v") && m.volumeMenuVisible && !m.volumeMenuSystem)
         m.handleShortcut("v", .control); #expect(m.volumeMenuSystem)
         m.setVolume(percent: 50, system: false)
-        #expect(abs(m.number("audio.mic_gain_db") - (-6.0206)) < 0.01 && !m.bool("audio.mic_muted") && m.volumePercent(system: false) == 50)
-        m.setVolume(percent: 0, system: false); #expect(m.bool("audio.mic_muted") && m.volumePercent(system: false) == 0)
-        m.setVolume(percent: 100, system: true); #expect(m.number("audio.system_gain_db") == 0 && m.volumePercent(system: true) == 100)
+        #expect(m.clips[1].micGain == 0.5 && m.clips[0].micGain == 1 && m.volumePercent(system: false) == 50)
+        m.setVolume(percent: 0, system: true); #expect(m.clips[1].systemGain == 0 && m.volumePercent(system: true) == 0)
+        m.setVolume(percent: 250, system: false); #expect(m.clips[1].micGain == 1)                          // clamped to 100 %
+        m.undo(); #expect(m.clips[1].micGain == 0.5)
+        m.setClipCursor(hide: true, smoothingOff: true); #expect(m.clips[1].hideCursor && m.clips[1].disableSmoothing && !m.clips[0].hideCursor)
+    }
+
+    @Test func realCoreStoresClipSettingsAndSplitsInheritThem() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("cs2-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        m.setVolume(percent: 40, system: true); m.setClipCursor(hide: true)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(abs(m.clips[0].systemGain - 0.4) < 1e-9 && m.clips[0].hideCursor)
+        m.seek(toNs: 2_000_000_000); m.splitAtPlayhead()
+        #expect(m.clips.count == 2 && m.clips.allSatisfy { abs($0.systemGain - 0.4) < 1e-9 && $0.hideCursor })   // splits inherit settings
+        m.saveNow(); m.close()
+        let again = try EditorDocument(package: d).model
+        #expect(again.clips.allSatisfy { abs($0.systemGain - 0.4) < 1e-9 && $0.hideCursor })                     // saved and reopened
     }
 
     @Test func zoomKeysOnlyActOnASelectedZoom() {

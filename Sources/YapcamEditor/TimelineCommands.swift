@@ -30,18 +30,24 @@ extension EditorModel {
         perform(.batch(clips.map { .setSpeed(clipID: $0.id, speed: s) }))
     }
 
-    /// Microphone / system-audio volume in 0…100 % (0 mutes); stored as dB gain plus the mute flag.
+    /// Volume of the target clip's microphone or system audio in 0…100 % (0 mutes), stored as a linear amplitude on the clip.
     public func setVolume(percent: Int, system: Bool) {
+        guard let c = speedTargetClip else { return }
         let p = min(max(percent, 0), 100)
-        let prefix = system ? "audio.system" : "audio.mic"
-        var cmds: [EditorCommand] = [.set(path: "\(prefix)_muted", value: .bool(p == 0))]
-        if p > 0 { cmds.append(.set(path: "\(prefix)_gain_db", value: .number(20 * log10(Double(p) / 100)))) }
-        perform(.batch(cmds))
+        perform(.setClipSettings(clipID: c.id, patch: [system ? "system_gain" : "mic_gain": .number(Double(p) / 100)]))
     }
     public func volumePercent(system: Bool) -> Int {
-        let prefix = system ? "audio.system" : "audio.mic"
-        if bool("\(prefix)_muted") { return 0 }
-        return Int((pow(10, number("\(prefix)_gain_db") / 20) * 100).rounded())
+        guard let c = speedTargetClip else { return 100 }
+        return Int(((system ? c.systemGain : c.micGain) * 100).rounded())
+    }
+    /// "Hide cursor in this part" / "Disable smooth cursor movement" for the target clip.
+    public func setClipCursor(hide: Bool? = nil, smoothingOff: Bool? = nil) {
+        guard let c = speedTargetClip else { return }
+        var patch: [String: JSONValue] = [:]
+        if let hide { patch["hide_cursor"] = .bool(hide) }
+        if let smoothingOff { patch["disable_smoothing"] = .bool(smoothingOff) }
+        guard !patch.isEmpty else { return }
+        perform(.setClipSettings(clipID: c.id, patch: patch))
     }
 
     // MARK: split / ripple delete (C, X)

@@ -11,6 +11,9 @@ public struct TimelineClip: Equatable, Identifiable, Sendable {
     public var srcStartNs: Int64
     public var srcEndNs: Int64
     public var speed: Double
+    /// Per-clip settings (amplitudes 0…1, cursor flags); defaults mean "unchanged".
+    public var micGain = 1.0, systemGain = 1.0
+    public var hideCursor = false, disableSmoothing = false
     public init(id: String, srcStartNs: Int64, srcEndNs: Int64, speed: Double = 1) {
         self.id = id; self.srcStartNs = srcStartNs; self.srcEndNs = srcEndNs; self.speed = speed
     }
@@ -60,6 +63,7 @@ public enum EditorCommand: Equatable, Sendable {
     case split(atNs: Int64)
     case deleteRange(startNs: Int64, endNs: Int64)
     case setSpeed(clipID: String, speed: Double)
+    case setClipSettings(clipID: String, patch: [String: JSONValue])
     case addZoom(startNs: Int64, endNs: Int64, scale: Double, focusX: Double, focusY: Double)
     case updateZoom(id: String, startNs: Int64?, endNs: Int64?, scale: Double?, focusX: Double?, focusY: Double?,
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)

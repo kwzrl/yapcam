@@ -86,6 +86,17 @@ public final class FakeProject: EditingProject {
                 z.startNs = map(z.startNs); z.endNs = map(z.endNs)
                 return z.endNs > z.startNs ? z : nil
             }
+        case .setClipSettings(let id, let patch):
+            guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
+            for (k, v) in patch {
+                switch (k, v) {
+                case ("mic_gain", .number(let x)): clips[i].micGain = x
+                case ("system_gain", .number(let x)): clips[i].systemGain = x
+                case ("hide_cursor", .bool(let x)): clips[i].hideCursor = x
+                case ("disable_smoothing", .bool(let x)): clips[i].disableSmoothing = x
+                default: throw NSError(domain: "Fake", code: 5, userInfo: [NSLocalizedDescriptionKey: "unknown clip setting \(k)"])
+                }
+            }
         case .setSpeed(let id, let speed):
             guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
             clips[i].speed = speed

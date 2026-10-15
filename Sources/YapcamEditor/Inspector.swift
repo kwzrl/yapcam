@@ -340,6 +340,10 @@ struct InspectorView: View {
                 if !clipSpeedOptions.contains(c.speed) { Text(speedText(c.speed)).tag(c.speed) }
             }
             Button("Apply this speed to all clips") { model.applySpeedToAll(c.speed) }.disabled(model.clips.count < 2)
+            if model.hasMic { ClipVolumeRow(model: model, title: "Microphone volume", system: false, clip: c) }
+            ClipVolumeRow(model: model, title: "System audio volume", system: true, clip: c)
+            Toggle("Hide the cursor in this part", isOn: Binding(get: { c.hideCursor }, set: { model.setClipCursor(hide: $0) }))
+            Toggle("Smooth cursor movement off", isOn: Binding(get: { c.disableSmoothing }, set: { model.setClipCursor(smoothingOff: $0) }))
             LabeledContent("Length") { Text(formatTimecode(c.timelineDurationNs)).monospacedDigit() }
             Button("Delete clip", role: .destructive) { model.deleteSelection() }
         }
@@ -839,3 +843,25 @@ let cursorShapes: [(label: String, value: String)] = [
     ("Resize vertical", "resize_vertical"), ("Resize diagonal ↘", "resize_diagonal_nwse"), ("Resize diagonal ↗", "resize_diagonal_nesw"),
     ("Open hand", "open_hand"), ("Closed hand", "closed_hand")]
 let cursorSizes: [(label: String, value: String)] = [("Small", "small"), ("Regular", "regular"), ("Large", "large"), ("Extra large", "extra_large")]
+
+struct ClipVolumeRow: View {
+    @ObservedObject var model: EditorModel
+    let title: String
+    let system: Bool
+    let clip: TimelineClip
+    @State private var value = 100.0
+    @State private var editing = false
+    var body: some View {
+        LabeledContent(title) {
+            HStack {
+                Slider(value: $value, in: 0...100, step: 5) { e in editing = e; if !e { model.setVolume(percent: Int(value), system: system) } }
+                    .accessibilityLabel(title).accessibilityValue("\(Int(value)) percent")
+                Text(value == 0 ? "Muted" : "\(Int(value))%").monospacedDigit().frame(width: 52, alignment: .trailing)
+            }
+        }
+        .onAppear { value = (system ? clip.systemGain : clip.micGain) * 100 }
+        .onChange(of: clip.systemGain) { _, v in if !editing && system { value = v * 100 } }
+        .onChange(of: clip.micGain) { _, v in if !editing && !system { value = v * 100 } }
+        .onChange(of: clip.id) { _, _ in value = (system ? clip.systemGain : clip.micGain) * 100 }
+    }
+}

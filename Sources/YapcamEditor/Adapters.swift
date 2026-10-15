@@ -117,7 +117,12 @@ public final class CoreEditingProject: EditingProject {
         let rows = ((object["timeline"] as? [String: Any])?["clips"] as? [[String: Any]]) ?? []
         clips = rows.compactMap { r in
             guard let id = r["id"] as? String, let a = (r["src_start_ns"] as? NSNumber)?.int64Value, let b = (r["src_end_ns"] as? NSNumber)?.int64Value else { return nil }
-            return TimelineClip(id: id, srcStartNs: a, srcEndNs: b, speed: (r["speed"] as? NSNumber)?.doubleValue ?? 1)
+            var c = TimelineClip(id: id, srcStartNs: a, srcEndNs: b, speed: (r["speed"] as? NSNumber)?.doubleValue ?? 1)
+            if let st = r["settings"] as? [String: Any] {          // omitted settings mean the defaults
+                c.micGain = (st["mic_gain"] as? NSNumber)?.doubleValue ?? 1; c.systemGain = (st["system_gain"] as? NSNumber)?.doubleValue ?? 1
+                c.hideCursor = (st["hide_cursor"] as? Bool) ?? false; c.disableSmoothing = (st["disable_smoothing"] as? Bool) ?? false
+            }
+            return c
         }
         zooms = ((object["zooms"] as? [[String: Any]]) ?? []).compactMap { z in
             guard let id = z["id"] as? String, let a = (z["tl_start_ns"] as? NSNumber)?.int64Value, let b = (z["tl_end_ns"] as? NSNumber)?.int64Value else { return nil }
@@ -134,6 +139,7 @@ public final class CoreEditingProject: EditingProject {
         case .split(let at): return .split(atNs: at)
         case .deleteRange(let a, let b): return .deleteRange(startNs: a, endNs: b)
         case .setSpeed(let id, let s): return .setSpeed(clipID: id, speed: s)
+        case .setClipSettings(let id, let patch): return .setClipSettings(clipID: id, patch: patch)
         case .addZoom(let s, let e, let scale, let fx, let fy):
             return .addZoom(ZoomSpec(startNs: s, endNs: e, target: [fx, fy], scale: scale))
         case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en, let mode):
