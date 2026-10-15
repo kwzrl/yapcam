@@ -34,7 +34,9 @@ Recording grants, so no UI driving or screenshots). Analysis with `scripts/qa/ve
 | Interrupted recording tail readable (earlier 7.5-min runs killed externally) | PASS (indirect) | two runs killed by other processes (7.5 min); the partial fragmented MOV was still analyzable: 223/223 pairs, drift 1.3 ms; session stays status=recording (needs RecordingSession.recover, not run) |
 | Open real package in core, cut/zoom/padding edits, undo/redo, save/reopen | PASS | testOpenRealRecording (duration 600.083 s == recorded) |
 | Export vs preview frame diff (real recording, 720p, t=2 s) | PASS | mean abs luma diff 0.50/255 (threshold 6) |
-| Export 1080p of real recording with edits and audio | **FAIL (F6)** | decode error after 137 s when the range includes the final ~100 ms with audio; last 15 s with tail-100ms OK; full tail without audio OK |
+| Export 1080p of real recording with edits and audio | **PASS after F6 fix** (was FAIL) | main 529f208: 10-min package, cut + zoom + padding + undo/redo + save, export 599.1 s (expected 599.08), 1080p video + audio, 4.3x realtime; reopened project keeps edits; tail diagnostics all OK |
+| Window capture via `--capture-selftest --target window:<id>` (200x200 marker window) | PASS | video exactly 200x200, 13 frames/8.2 s (VFR, changes only on flash), luma 16..235 = only that window |
+| Area capture via `--capture-selftest --target area:100,100,640,360` | PASS | video exactly 640x360, 350 frames, complete |
 | Area capture (`--live-e2e area`) | PASS | 800x500 selection -> video 800x500, 241 frames, complete |
 | Window capture (`--live-e2e window`) | PASS (minor F8) | Terminal 1627x1015 pt -> video 1626x1014 (even-size rounding); session.json pixel_size says 1627x1015 |
 | Pause/resume (`--live-e2e pause`) | PASS | 2 segments 2.15 s + 1.93 s, pause excluded |
@@ -72,5 +74,6 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | Date | Main | What changed in this report |
 |---|---|---|
 | 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
+| 2026-10-15 12:00 | 529f208 | F6 fixed and re-verified (10-min export with audio); window/area via selftest targets PASS; pause A/V, toolbar exclusion PASS; scripted input BLOCKED on Accessibility |
 | 2026-10-15 11:10 | b5d1268 | Section 4 filled with live results (display, 4/10-min, A/V sync, export diff, F6 tail-export failure) |
 | 2026-10-15 | 7d545a1 | Editor export sheet now exposes MP4/MOV/GIF, 4K, 24 fps, quality (EXP-02/04 integrated); no new test results by qa |
