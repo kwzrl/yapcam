@@ -1,4 +1,4 @@
-READY 2368531 qa: audit vs c565a93
+READY HEAD qa: hotkeys + after-recording live checks done (F11/F12 low)
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -76,6 +76,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - Main c565a93: editor markers on the timeline (CAP-3) and glass-loupe zoom style (ED-5/RND-5) landed -> rows re-statused. Hotkey and after-recording hooks still absent; another Yapcam instance (pid 94705) is running.
 
+- Live hotkeys + after-recording choices run on main 97b9d82 (see TEST_REPORT section 4): start/stop/marker/pause/resume and create/widget/copy/save PASS; pick hotkeys + restart partial (F11), one intermittent save hang (F12).
+
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
 
@@ -101,12 +103,15 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - F10 FIXED (verified on 3dd0d3b: editorInFront=true). Original: [ui, LOW] After Stop the editor opens but `editorInFront=false` in the self-test (main c1bf553). Repro: `open -n -W build/Yapcam.app --args --drive-input-selftest 12 --source display`, read probe.log. May be a self-test activation artifact; ui please confirm with a manual run.
 
+- F11 [ui, LOW] Hotkey hook: after the restart hotkey the script logs nothing more (stalls; probably the restart confirmation dialog blocks the script's `return` step). Pick hotkeys Opt-Cmd-3/4/5 followed by the posted Return do not start recording from the overlay; Ctrl-Cmd-Return in window/area mode says "Choose a window / Select an area first". Repro: `open -n build/Yapcam.app --args --ui-record-selftest 10 --hotkey-script "startStop,wait:3,restart,wait:1,return,wait:3,startStop"` and `--hotkey-script "recordArea,wait:1.5,return,wait:3,startStop"`; read probe.log. May be hook limits (overlay not key for posted Return); ui please confirm manually.
+- F12 [ui, LOW] `--after-recording save --save-to <file>` hung once after the package line (process alive 9 min, no outcome); 4 retries fine. Intermittent.
+
 ## Live QA log (2026-10-15 morning, main b5d1268)
 - Shared machine: Lead's `live-e2e` harness and my live runs collide (one display, one mouse). My first 10-min run was killed ~1 s after start (package stuck at status "recording", no crash report) while live-e2e ran at the same time. Please tell qa when the machine is free, or serialize runs; I log start/end times here.
 - My shell has no Accessibility and no Screen Recording permission (AXIsProcessTrusted false), so I cannot drive the UI by CGEvent or screenshot. `scripts/qa/drive-input.swift` events from my shell are NOT delivered. Only code running inside the signed app has the grants.
 
 ## Requests (to Lead)
-- ui HOOKS for the remaining live rows (qa cannot edit Sources, shell has no Accessibility): (1) `--hotkey-selftest [--only start|display|window|area|pause|restart]`: register the REAL HotkeyManager table, post each default combo with its exact modifiers from inside the app, and log what each did (phase changes, source mode, overlay shown, restart confirm shown); the current `--live-e2e hotkey` uses the old API and hardcoded Option-Command flags. (2) `--after-recording create|copy|save [--quick-widget]` on `--ui-record-selftest`: set the choice, record 4 s, log the created project / clipboard file URL / saved path and quick-widget state. Also run when no other Yapcam instance is up (the main-checkout instance registers the same global hotkeys).
+- (done: hooks landed in 1e5746b) ui HOOKS for the remaining live rows (qa cannot edit Sources, shell has no Accessibility): (1) `--hotkey-selftest [--only start|display|window|area|pause|restart]`: register the REAL HotkeyManager table, post each default combo with its exact modifiers from inside the app, and log what each did (phase changes, source mode, overlay shown, restart confirm shown); the current `--live-e2e hotkey` uses the old API and hardcoded Option-Command flags. (2) `--after-recording create|copy|save [--quick-widget]` on `--ui-record-selftest`: set the choice, record 4 s, log the created project / clipboard file URL / saved path and quick-widget state. Also run when no other Yapcam instance is up (the main-checkout instance registers the same global hotkeys).
 - USER ACTION: grant Accessibility and Input Monitoring to build/Yapcam.app (System Settings > Privacy & Security), then qa reruns `--drive-input-selftest` (scripted clicks/moves vs events.jsonl, CUR-02) and the hotkey scenario.
 - Optional: add `YapcamCapture` to the E2E test target deps so recover checks can live in Tests/E2E (today scripts/qa/run-recover-check.sh uses a scratch copy with cleanup trap).
 - Live QA hooks in the signed app (ui/capture; I cannot edit Sources): extend `--capture-selftest` with options `--target display|window:<title>|area:x,y,w,h`, `--pause-after <s>`, `--no-audio`, `--out <dir>`, and add `--drive-input <script.json>` (post scripted moves/clicks from inside the app, which has Accessibility) so pause/resume, window/area capture and scripted-input timing can be tested without my shell having permissions.
