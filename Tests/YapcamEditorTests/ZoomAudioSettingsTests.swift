@@ -152,3 +152,13 @@ import YapcamCore
         m.undo(); #expect(m.zooms.first { $0.id == id }?.lens != nil)
     }
 }
+
+@MainActor @Suite struct MarkerTests {
+    @Test func markersAreSnapTargetsAndEditPoints() {
+        let p = FakeProject(durationNs: 30_000_000_000); p.markerTimesNs = [4_000_000_000, 9_000_000_000]
+        let m = EditorModel(project: p, player: FakePlayer())
+        #expect(m.snapTargets().filter { $0.kind == .marker }.map(\.ns) == [4_000_000_000, 9_000_000_000])
+        m.seek(toNs: 1_000_000_000); #expect(m.jumpToEditPoint(forward: true) && m.playheadNs == 4_000_000_000)
+        #expect(m.jumpToEditPoint(forward: true) && m.playheadNs == 9_000_000_000)
+    }
+}

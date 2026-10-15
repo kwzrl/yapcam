@@ -482,7 +482,7 @@ public final class EditorModel: ObservableObject {
 
     public func snapTargets(excludingZoom id: String? = nil, includePlayhead: Bool = true) -> [SnapTarget] {
         Snapping.targets(clips: clips, zooms: zooms, clicks: project.clickTimesNs,
-                         playheadNs: playheadNs, durationNs: durationNs, excludingZoom: id, includePlayhead: includePlayhead)
+                         playheadNs: playheadNs, durationNs: durationNs, markers: project.markerTimesNs, excludingZoom: id, includePlayhead: includePlayhead)
     }
 
     /// `includePlayhead: false` while scrubbing — the playhead must not snap to itself.

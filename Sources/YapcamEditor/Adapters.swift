@@ -75,6 +75,7 @@ public final class CoreEditingProject: EditingProject {
         if clicksStale {
             clickCache = ((try? project.query("{\"q\":\"clicks\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
             keyCache = ((try? project.query("{\"q\":\"key_events\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
+            markerCache = ((try? project.markers()) ?? []).map(\.tlNs).sorted()
             typingCache = ((try? project.typingSuggestions()) ?? []).flatMap { s in
                 s.ranges.map { TypingRecord(id: s.id, span: TimeSpan(startNs: $0.tlStartNs, endNs: $0.tlEndNs)) }
             }.sorted { $0.span.startNs < $1.span.startNs }
@@ -84,6 +85,8 @@ public final class CoreEditingProject: EditingProject {
     }
     private var keyCache: [Int64] = []
     public var keyTimesNs: [Int64] { _ = clickTimesNs; return keyCache }
+    private var markerCache: [Int64] = []
+    public var markerTimesNs: [Int64] { _ = clickTimesNs; return markerCache }
     private var typingCache: [TypingRecord] = []
     public var typingRecords: [TypingRecord] {
         _ = clickTimesNs

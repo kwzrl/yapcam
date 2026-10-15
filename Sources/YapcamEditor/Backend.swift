@@ -148,6 +148,8 @@ public protocol EditingProject: AnyObject {
     var clickTimesNs: [Int64] { get }
     /// Timeline times of recorded key presses (edited timeline; empty when no keystrokes were recorded).
     var keyTimesNs: [Int64] { get }
+    /// Timeline times of the markers dropped while recording (mapped through cuts, speed and repeated clips).
+    var markerTimesNs: [Int64] { get }
     /// Typing bursts on the edited timeline (one record per retained occurrence; occurrences of one burst share an id).
     var typingRecords: [TypingRecord] { get }
     func frameGeometry(atNs: Int64) -> FrameGeometry?
@@ -253,6 +255,8 @@ public protocol ExportEngine: Sendable {
     func estimate(for request: ExportRequest) -> ExportEstimateInfo?
 }
 public extension ExportEngine { func estimate(for request: ExportRequest) -> ExportEstimateInfo? { nil } }
+
+public extension EditingProject { var markerTimesNs: [Int64] { [] } }
 
 /// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.
 public struct TypingRecord: Equatable, Sendable { public var id: String; public var span: TimeSpan }

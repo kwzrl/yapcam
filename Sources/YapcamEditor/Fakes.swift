@@ -21,6 +21,7 @@ public final class FakeProject: EditingProject {
     public var silenceDelay: Duration = .zero
     public var clickTimesNs: [Int64] = []
     public var keyTimesNs: [Int64] = []
+    public var markerTimesNs: [Int64] = []
     public private(set) var dismissedTypingIDs = Set<String>()
     public private(set) var typingCommands: [String] = []
     public var typingRecords: [TypingRecord] {
