@@ -23,6 +23,7 @@ func renderPerformanceSource() -> TestSource {
 
 final class PreviewPerformanceTests: XCTestCase {
     @MainActor func testLivePreviewPerformance1080And4K() async throws {
+        try requireLivePreviewAccess()
         _ = try requireRenderDevice()
         let environment=ProcessInfo.processInfo.environment
         guard environment["YAPCAM_RENDER_LIVE_PREVIEW"]=="1" || environment["YAPCAM_REQUIRE_RENDER_HARDWARE"]=="1" else {
@@ -30,6 +31,7 @@ final class PreviewPerformanceTests: XCTestCase {
         }
         _ = NSApplication.shared
         for height in [1080,2160] {
+            try requireLivePreviewAccess()
             let player=try PreviewPlayer(project: renderPerformanceSource())
             let view=MTKView(frame: NSRect(x: 0,y: 0,width: 640,height: 360),device: player.compositor.device)
             let delegate=PreviewView.Coordinator(player: player)
