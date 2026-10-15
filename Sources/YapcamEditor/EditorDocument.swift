@@ -18,7 +18,7 @@ import UniformTypeIdentifiers
     /// Opens `package/project.json`, or creates a project when only a recording exists.
     /// A leftover autosave journal is applied by core; pass `restoreUnsavedChanges: false`
     /// to discard it first (see `EditorWindows` for the prompt).
-    public init(package: URL, restoreUnsavedChanges: Bool = true) throws {
+    public init(package: URL, restoreUnsavedChanges: Bool = true, presets: PresetStore = EditorPresets.currentStore) throws {
         if !restoreUnsavedChanges { Self.discardJournal(package) }
         let restored = restoreUnsavedChanges && Self.hasUnsavedJournal(package)
         let fm = FileManager.default
@@ -26,9 +26,9 @@ import UniformTypeIdentifiers
         let hasProject = ["project.json", "project.json.prev", "autosave/project.json"]
             .contains { fm.fileExists(atPath: package.appendingPathComponent($0).path) }
         project = hasProject ? try Project.open(package: package) : try Project.create(package: package)
-        if !hasProject, let name = EditorPresets.defaultName, FileManager.default.fileExists(atPath: EditorPresets.url(name).path) {
+        if !hasProject, let name = presets.defaultName, FileManager.default.fileExists(atPath: presets.url(name).path) {
             // New projects start from the preset marked "use as default for new projects", if there is one.
-            try? project.importPreset(from: EditorPresets.url(name))
+            try? project.importPreset(from: presets.url(name))
         }
         let source = ProjectRenderSource(project)
         player = try PreviewPlayer(project: source)
@@ -39,6 +39,7 @@ import UniformTypeIdentifiers
         title = package.deletingPathExtension().lastPathComponent
         if !hasProject { try? project.save() }
         if restored { model.markRecoveredUnsaved() }   // journal-only state must be written on close
+        model.presetStore = presets; model.defaults = presets.defaults
         model.fitTimeline(width: 900)
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
         let transcriptURL = package.appendingPathComponent("recording/transcript.json")

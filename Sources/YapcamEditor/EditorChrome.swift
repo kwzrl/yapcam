@@ -3,7 +3,6 @@ import AppKit
 
 // Window chrome of the editor: top bar, controls above the preview, mini rail, transport row.
 
-/// File-based look presets, shared with the app's Presets menu (same folder and file format).
 /// Per-task isolation for tests: each test runs with its own preset folder and defaults suite.
 /// (Task-locals carry Sendable values, so the defaults are given by suite name.)
 public enum PresetIsolation {
@@ -11,49 +10,27 @@ public enum PresetIsolation {
     @TaskLocal public static var defaultsSuiteName: String?
 }
 
+/// Where presets live, shared with the app's Presets menu. Resolution order: task-local override (tests), global override
+/// (app self-tests), then `EditorStorage` (env `YAPCAM_PRESETS_DIR`, isolated test/self-test processes, else the real folder).
 @MainActor public enum EditorPresets {
-    // Where presets and the default-preset choice live. Tests and self-tests must never touch the real
-    // locations (~/Library/Application Support/Yapcam/Presets, the app's UserDefaults): per-test isolation
-    // is a task-local override, per-process isolation is the global override or the test default below.
     public nonisolated(unsafe) static var globalDirectory: URL?
     public nonisolated(unsafe) static var globalDefaults: UserDefaults?
 
-    /// True inside `swift test` (XCTest or Swift Testing host processes).
-    public nonisolated static let isRunningUnderTests: Bool = {
-        let p = ProcessInfo.processInfo
-        return NSClassFromString("XCTestCase") != nil || p.processName.contains("xctest") || p.processName.contains("swiftpm-testing")
-            || (CommandLine.arguments.first ?? "").contains(".xctest")
-    }()
+    public nonisolated static var isRunningUnderTests: Bool { EditorStorage.isIsolatedProcess }
 
-    public static var directory: URL {
-        if let d = PresetIsolation.directory ?? globalDirectory { return d }
-        if let env = ProcessInfo.processInfo.environment["YAPCAM_PRESETS_DIR"], !env.isEmpty { return URL(filePath: env, directoryHint: .isDirectory) }
-        if isRunningUnderTests {
-            return FileManager.default.temporaryDirectory.appending(path: "yapcam-test-presets-\(ProcessInfo.processInfo.processIdentifier)", directoryHint: .isDirectory)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Yapcam/Presets", directoryHint: .isDirectory)
-    }
-
+    public static var directory: URL { PresetIsolation.directory ?? globalDirectory ?? EditorStorage.resolvedPresetsDirectory() }
     static var defaults: UserDefaults {
         if let n = PresetIsolation.defaultsSuiteName, let d = UserDefaults(suiteName: n) { return d }
-        if let d = globalDefaults { return d }
-        if isRunningUnderTests { return testDefaults }
-        return .standard
+        return globalDefaults ?? EditorStorage.sharedDefaults
     }
-    private static let testDefaults = UserDefaults(suiteName: "mov.yapcam.Yapcam.tests-\(ProcessInfo.processInfo.processIdentifier)") ?? .standard
-    static func names() -> [String] {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        return urls.filter { $0.pathExtension == "yapcampreset" }.map { $0.deletingPathExtension().lastPathComponent }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-    }
-    static func url(_ name: String) -> URL { directory.appending(path: "\(name).yapcampreset") }
-    static func clean(_ name: String) -> String { name.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-") }
-
-    static let defaultKey = "yapcam.defaultPreset"
-    /// The preset applied to every new project (nil = none).
+    /// The store for the current isolation context (new models and documents pick this up).
+    public static var currentStore: PresetStore { PresetStore(directory: directory, defaults: defaults) }
+    static func names() -> [String] { currentStore.names() }
+    static func url(_ name: String) -> URL { currentStore.url(name) }
+    static func clean(_ name: String) -> String { currentStore.clean(name) }
     static var defaultName: String? {
-        get { defaults.string(forKey: defaultKey) }
-        set { defaults.set(newValue, forKey: defaultKey) }
+        get { currentStore.defaultName }
+        set { currentStore.defaultName = newValue }
     }
 
     /// Asks for a name (AppKit alert with a text field). nil = cancelled.
@@ -70,11 +47,11 @@ public enum PresetIsolation {
 
 extension EditorModel {
     public func savePreset(named raw: String) {
-        let name = EditorPresets.clean(raw)
+        let name = presetStore.clean(raw)
         guard !name.isEmpty else { lastError = "The preset needs a name."; return }
         do {
-            try FileManager.default.createDirectory(at: EditorPresets.directory, withIntermediateDirectories: true)
-            try project.exportPreset(to: EditorPresets.url(name))
+            try FileManager.default.createDirectory(at: presetStore.directory, withIntermediateDirectories: true)
+            try project.exportPreset(to: presetStore.url(name))
         } catch { lastError = "Couldn't save the preset: \(error.localizedDescription)" }
     }
     /// True when the saved preset has exactly the settings of the project right now ("Matches project" badge).
@@ -83,27 +60,27 @@ extension EditorModel {
         defer { try? FileManager.default.removeItem(at: tmp) }
         guard (try? project.exportPreset(to: tmp)) != nil,
               let a = try? JSONSerialization.jsonObject(with: Data(contentsOf: tmp)) as? NSDictionary,
-              let b = try? JSONSerialization.jsonObject(with: Data(contentsOf: EditorPresets.url(name))) as? NSDictionary else { return false }
+              let b = try? JSONSerialization.jsonObject(with: Data(contentsOf: presetStore.url(name))) as? NSDictionary else { return false }
         return a.isEqual(b)
     }
     /// "Update to match the current project": overwrites the preset file atomically.
     public func updatePreset(named name: String) {
-        let tmp = EditorPresets.directory.appendingPathComponent(".update-\(UUID().uuidString)")
+        let tmp = presetStore.directory.appendingPathComponent(".update-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmp) }
-        do { try project.exportPreset(to: tmp); _ = try FileManager.default.replaceItemAt(EditorPresets.url(name), withItemAt: tmp) }
+        do { try project.exportPreset(to: tmp); _ = try FileManager.default.replaceItemAt(presetStore.url(name), withItemAt: tmp) }
         catch { lastError = "Couldn't update the preset: \(error.localizedDescription)" }
     }
     public func renamePreset(from old: String, to raw: String) {
-        let new = EditorPresets.clean(raw)
+        let new = presetStore.clean(raw)
         guard !new.isEmpty, new != old else { return }
-        guard !FileManager.default.fileExists(atPath: EditorPresets.url(new).path) else { lastError = "A preset named “\(new)” already exists."; return }
+        guard !FileManager.default.fileExists(atPath: presetStore.url(new).path) else { lastError = "A preset named “\(new)” already exists."; return }
         do {
-            try FileManager.default.moveItem(at: EditorPresets.url(old), to: EditorPresets.url(new))
-            if EditorPresets.defaultName == old { EditorPresets.defaultName = new }
+            try FileManager.default.moveItem(at: presetStore.url(old), to: presetStore.url(new))
+            if presetStore.defaultName == old { presetStore.defaultName = new }
         } catch { lastError = "Couldn't rename the preset: \(error.localizedDescription)" }
     }
     public func removePreset(named name: String) {
-        do { try FileManager.default.trashItem(at: EditorPresets.url(name), resultingItemURL: nil); if EditorPresets.defaultName == name { EditorPresets.defaultName = nil } }
+        do { try FileManager.default.trashItem(at: presetStore.url(name), resultingItemURL: nil); if presetStore.defaultName == name { presetStore.defaultName = nil } }
         catch { lastError = "Couldn't remove the preset: \(error.localizedDescription)" }
     }
     public func applyPreset(at url: URL) {
@@ -138,25 +115,25 @@ struct EditorTopBar: View {
             Button { model.paletteVisible = true } label: { Image(systemName: "command") }
                 .help("Command palette (⌘K)").accessibilityLabel("Commands")
             Menu {
-                Button("Create preset from this look…") { if let n = EditorPresets.promptName() { model.savePreset(named: n); presetNames = EditorPresets.names() } }
+                Button("Create preset from this look…") { if let n = EditorPresets.promptName() { model.savePreset(named: n); presetNames = model.presetStore.names() } }
                 Divider()
                 if presetNames.isEmpty { Text("No presets yet") }
                 ForEach(presetNames, id: \.self) { n in
-                    let badges = [model.presetMatchesProject(named: n) ? "Matches project" : nil, EditorPresets.defaultName == n ? "Default" : nil].compactMap { $0 }
+                    let badges = [model.presetMatchesProject(named: n) ? "Matches project" : nil, model.presetStore.defaultName == n ? "Default" : nil].compactMap { $0 }
                     Menu(badges.isEmpty ? n : "\(n)  ·  \(badges.joined(separator: ", "))") {
-                        Button("Apply") { model.applyPreset(at: EditorPresets.url(n)) }
-                        Button("Rename…") { if let new = EditorPresets.promptName(title: "Rename preset", initial: n, confirm: "Rename") { model.renamePreset(from: n, to: new); presetNames = EditorPresets.names() } }
+                        Button("Apply") { model.applyPreset(at: model.presetStore.url(n)) }
+                        Button("Rename…") { if let new = EditorPresets.promptName(title: "Rename preset", initial: n, confirm: "Rename") { model.renamePreset(from: n, to: new); presetNames = model.presetStore.names() } }
                         Button("Update to match current project") { model.updatePreset(named: n) }
-                        Button(EditorPresets.defaultName == n ? "Don't use as default" : "Use as default for new projects") {
-                            EditorPresets.defaultName = EditorPresets.defaultName == n ? nil : n
+                        Button(model.presetStore.defaultName == n ? "Don't use as default" : "Use as default for new projects") {
+                            model.presetStore.defaultName = model.presetStore.defaultName == n ? nil : n
                         }
                         Divider()
-                        Button("Remove", role: .destructive) { model.removePreset(named: n); presetNames = EditorPresets.names() }
+                        Button("Remove", role: .destructive) { model.removePreset(named: n); presetNames = model.presetStore.names() }
                     }
                 }
             } label: { Label("Presets", systemImage: "square.stack") }
                 .menuStyle(.borderlessButton).fixedSize()
-                .onAppear { presetNames = EditorPresets.names() }
+                .onAppear { presetNames = model.presetStore.names() }
                 .help("Apply or save a look")
             Button { showExport = true } label: { Text("Export").fontWeight(.semibold).padding(.horizontal, 10) }
                 .buttonStyle(.borderedProminent).controlSize(.regular)

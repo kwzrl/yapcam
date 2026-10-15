@@ -73,12 +73,20 @@ public final class CoreEditingProject: EditingProject {
         if clicksStale {
             clickCache = ((try? project.query("{\"q\":\"clicks\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
             keyCache = ((try? project.query("{\"q\":\"key_events\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
+            typingCache = ((try? project.typingSuggestions()) ?? []).flatMap { s in
+                s.ranges.map { TypingRecord(id: s.id, span: TimeSpan(startNs: $0.tlStartNs, endNs: $0.tlEndNs)) }
+            }.sorted { $0.span.startNs < $1.span.startNs }
             clicksStale = false
         }
         return clickCache
     }
     private var keyCache: [Int64] = []
     public var keyTimesNs: [Int64] { _ = clickTimesNs; return keyCache }
+    private var typingCache: [TypingRecord] = []
+    public var typingRecords: [TypingRecord] {
+        _ = clickTimesNs
+        return typingCache
+    }
 
     public init(project: Project) {
         self.project = project
@@ -117,7 +125,12 @@ public final class CoreEditingProject: EditingProject {
         let rows = ((object["timeline"] as? [String: Any])?["clips"] as? [[String: Any]]) ?? []
         clips = rows.compactMap { r in
             guard let id = r["id"] as? String, let a = (r["src_start_ns"] as? NSNumber)?.int64Value, let b = (r["src_end_ns"] as? NSNumber)?.int64Value else { return nil }
-            return TimelineClip(id: id, srcStartNs: a, srcEndNs: b, speed: (r["speed"] as? NSNumber)?.doubleValue ?? 1)
+            var c = TimelineClip(id: id, srcStartNs: a, srcEndNs: b, speed: (r["speed"] as? NSNumber)?.doubleValue ?? 1)
+            if let st = r["settings"] as? [String: Any] {          // omitted settings mean the defaults
+                c.micGain = (st["mic_gain"] as? NSNumber)?.doubleValue ?? 1; c.systemGain = (st["system_gain"] as? NSNumber)?.doubleValue ?? 1
+                c.hideCursor = (st["hide_cursor"] as? Bool) ?? false; c.disableSmoothing = (st["disable_smoothing"] as? Bool) ?? false
+            }
+            return c
         }
         zooms = ((object["zooms"] as? [[String: Any]]) ?? []).compactMap { z in
             guard let id = z["id"] as? String, let a = (z["tl_start_ns"] as? NSNumber)?.int64Value, let b = (z["tl_end_ns"] as? NSNumber)?.int64Value else { return nil }
@@ -134,6 +147,7 @@ public final class CoreEditingProject: EditingProject {
         case .split(let at): return .split(atNs: at)
         case .deleteRange(let a, let b): return .deleteRange(startNs: a, endNs: b)
         case .setSpeed(let id, let s): return .setSpeed(clipID: id, speed: s)
+        case .setClipSettings(let id, let patch): return .setClipSettings(clipID: id, patch: patch)
         case .addZoom(let s, let e, let scale, let fx, let fy):
             return .addZoom(ZoomSpec(startNs: s, endNs: e, target: [fx, fy], scale: scale))
         case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en, let mode):
@@ -156,6 +170,9 @@ public final class CoreEditingProject: EditingProject {
         case .autoSpeedTyping(let speed): return .autoSpeedTyping(speed: speed)
         case .processSilence(let spans, let speed):
             return .processSilence(ranges: spans.map { SilenceRange(startNs: $0.startNs, endNs: $0.endNs) }, speed: speed)
+        case .applyTypingSuggestion(let id, let speed): return .applyTypingSuggestion(id: id, speed: speed)
+        case .dismissTypingSuggestion(let id): return .dismissTypingSuggestion(id: id)
+        case .restoreTypingSuggestions: return .restoreTypingSuggestions
         case .batch(let cs): return .batch(cs.map(map))
         }
     }
@@ -176,6 +193,8 @@ public final class CoreEditingProject: EditingProject {
         guard let preset = BackgroundLibrary.preset(id: id) else { return nil }
         return await Task.detached(priority: .utility) { try? BackgroundLibrary.image(for: preset, width: 192, height: 108) }.value
     }
+    public var cameraRecipes: [CameraRecipe] { ((try? project.cameraStyleLibrary()) ?? []).map { CameraRecipe(id: $0.id, name: $0.name) } }
+    public func importCameraLUT(_ file: URL) throws { _ = try project.importCameraLUT(from: file); refresh() }
     public func importBackgroundImage(_ file: URL) throws { try project.importBackgroundImage(file); refresh() }
     public func exportPreset(to url: URL) throws { try project.exportPreset(to: url) }
     public func importPreset(from url: URL) throws { try project.importPreset(from: url); refresh() }

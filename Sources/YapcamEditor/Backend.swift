@@ -11,6 +11,9 @@ public struct TimelineClip: Equatable, Identifiable, Sendable {
     public var srcStartNs: Int64
     public var srcEndNs: Int64
     public var speed: Double
+    /// Per-clip settings (amplitudes 0…1, cursor flags); defaults mean "unchanged".
+    public var micGain = 1.0, systemGain = 1.0
+    public var hideCursor = false, disableSmoothing = false
     public init(id: String, srcStartNs: Int64, srcEndNs: Int64, speed: Double = 1) {
         self.id = id; self.srcStartNs = srcStartNs; self.srcEndNs = srcEndNs; self.speed = speed
     }
@@ -45,6 +48,11 @@ public struct WallpaperInfo: Equatable, Identifiable, Sendable {
     public init(id: String, title: String, category: String) { self.id = id; self.title = title; self.category = category }
 }
 
+public struct CameraRecipe: Equatable, Identifiable, Sendable {
+    public var id: String, name: String
+    public init(id: String, name: String) { self.id = id; self.name = name }
+}
+
 public struct TimeSpan: Equatable, Sendable { public var startNs: Int64; public var endNs: Int64
     public init(startNs: Int64, endNs: Int64) { self.startNs = startNs; self.endNs = endNs }
     public var durationNs: Int64 { endNs - startNs }
@@ -55,6 +63,7 @@ public enum EditorCommand: Equatable, Sendable {
     case split(atNs: Int64)
     case deleteRange(startNs: Int64, endNs: Int64)
     case setSpeed(clipID: String, speed: Double)
+    case setClipSettings(clipID: String, patch: [String: JSONValue])
     case addZoom(startNs: Int64, endNs: Int64, scale: Double, focusX: Double, focusY: Double)
     case updateZoom(id: String, startNs: Int64?, endNs: Int64?, scale: Double?, focusX: Double?, focusY: Double?,
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
@@ -63,6 +72,9 @@ public enum EditorCommand: Equatable, Sendable {
     case autoZooms
     case autoSpeedTyping(speed: Double)
     case processSilence(spans: [TimeSpan], speed: Double?)   // speed nil = cut
+    case applyTypingSuggestion(id: String, speed: Double)
+    case dismissTypingSuggestion(id: String)
+    case restoreTypingSuggestions
     case batch([EditorCommand])
 }
 
@@ -121,6 +133,8 @@ public protocol EditingProject: AnyObject {
     var clickTimesNs: [Int64] { get }
     /// Timeline times of recorded key presses (edited timeline; empty when no keystrokes were recorded).
     var keyTimesNs: [Int64] { get }
+    /// Typing bursts on the edited timeline (one record per retained occurrence; occurrences of one burst share an id).
+    var typingRecords: [TypingRecord] { get }
     func frameGeometry(atNs: Int64) -> FrameGeometry?
     var hasCamera: Bool { get }
     /// The recording has cursor movement data (not an external device) / typed keys were recorded.
@@ -141,6 +155,9 @@ public protocol EditingProject: AnyObject {
     var wallpapers: [WallpaperInfo] { get }
     func applyWallpaper(id: String) async throws
     func wallpaperThumbnail(id: String) async -> CGImage?
+    /// The twelve original camera color recipes of core and a `.cube` import (one undo step; core registers the file).
+    var cameraRecipes: [CameraRecipe] { get }
+    func importCameraLUT(_ file: URL) throws
     /// Copy an image into the package and use it as the background (one undo step).
     func importBackgroundImage(_ file: URL) throws
     /// Look presets: core's portable setting export/import (one undo step for import).
@@ -200,3 +217,6 @@ public protocol ExportEngine: Sendable {
     /// Cancel by cancelling the surrounding Task. Throws on failure; returns the verified file.
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL
 }
+
+/// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.
+public struct TypingRecord: Equatable, Sendable { public var id: String; public var span: TimeSpan }

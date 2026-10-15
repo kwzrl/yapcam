@@ -337,7 +337,7 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
     @Test func cropInsetsClampAndRoundTrip() {
         let m = EditorModel(project: FakeProject(), player: FakePlayer())
         m.setCrop(left: 0.1, top: 0.2, right: 0.95, bottom: 0.0)
-        let c = m.cropInsets
+        let c = m.cropInsets()
         #expect(abs(c.left - 0.1) < 1e-9 && abs(c.top - 0.2) < 1e-9 && abs(c.right - 0.8) < 1e-9)   // right clamped to 0.9 - left
         #expect(m.numbers("canvas.crop").count == 4)
     }

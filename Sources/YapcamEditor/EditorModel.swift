@@ -39,13 +39,16 @@ public final class EditorModel: ObservableObject {
     public let playhead = PlayheadState()
     public private(set) var playheadNs: Int64 { get { playhead.ns } set { if playhead.ns != newValue { playhead.ns = newValue } } }
     public private(set) var isPlaying: Bool { get { playhead.isPlaying } set { if playhead.isPlaying != newValue { playhead.isPlaying = newValue } } }
+    /// Where this document's presets and remembered settings live (injectable; isolated outside the real app).
+    public var presetStore: PresetStore = EditorPresets.currentStore
+    public var defaults: UserDefaults = EditorPresets.currentStore.defaults
     @Published public var paletteVisible = false
+    @Published public var silenceRangesState: SilenceRangesState = .idle
+    var silenceRangesTask: Task<Void, Never>?
     @Published public var speedMenuVisible = false
     var lastRegionStyle: HighlightRegion?
     /// Typing suggestion whose popover is open (start of its span), and the ones the user dismissed.
     @Published public var typingPopover: Int64?
-    var dismissedTyping = Set<Int64>()
-    var dismissedTypingRevision = 0
     @Published public var volumeMenuVisible = false
     public var volumeMenuSystem = false
     public var itemClipboard: ItemClipboard?
@@ -88,7 +91,7 @@ public final class EditorModel: ObservableObject {
         saveNow()
         isClosed = true
         autosaveTask?.cancel()
-        for t in [silenceTask, captionTask, wallpaperTask, musicTask, pendingInvalidate] { t?.cancel() }
+        for t in [silenceTask, captionTask, wallpaperTask, musicTask, pendingInvalidate, silenceRangesTask] { t?.cancel() }
         player.pause()
         project.close()      // core refuses any mutation from now on, even from work that was already past its last cancellation check
     }

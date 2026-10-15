@@ -238,6 +238,8 @@ struct InspectorView: View {
             PickerRow(model: model, title: "Transition speed", path: "zoom_settings.speed_preset", options: speedPresets)
             PickerRow(model: model, title: "Screen animation", path: "zoom_settings.animation_style",
                       options: [("Custom", "custom"), ("Focused (settles fast)", "focused"), ("Smooth (fluid)", "smooth")])
+            ToggleRow(model: model, title: "Start animation early", path: "zoom_settings.start_early")
+            NumberRow(model: model, title: "Default zoom level", path: "zoom_settings.default_scale", range: 1...4, unit: "×", format: "%.1f", defaultValue: 2)
             Button("Regenerate automatic zooms") { model.regenerateAutoZooms() }
         }
         Section("Motion blur") {
@@ -340,6 +342,10 @@ struct InspectorView: View {
                 if !clipSpeedOptions.contains(c.speed) { Text(speedText(c.speed)).tag(c.speed) }
             }
             Button("Apply this speed to all clips") { model.applySpeedToAll(c.speed) }.disabled(model.clips.count < 2)
+            if model.hasMic { ClipVolumeRow(model: model, title: "Microphone volume", system: false, clip: c) }
+            ClipVolumeRow(model: model, title: "System audio volume", system: true, clip: c)
+            Toggle("Hide the cursor in this part", isOn: Binding(get: { c.hideCursor }, set: { model.setClipCursor(hide: $0) }))
+            Toggle("Smooth cursor movement off", isOn: Binding(get: { c.disableSmoothing }, set: { model.setClipCursor(smoothingOff: $0) }))
             LabeledContent("Length") { Text(formatTimecode(c.timelineDurationNs)).monospacedDigit() }
             Button("Delete clip", role: .destructive) { model.deleteSelection() }
         }
@@ -389,16 +395,7 @@ struct InspectorView: View {
     }
 
     @ViewBuilder private var cameraLayout: some View {
-        Section("Camera") {
-            ToggleRow(model: model, title: "Show camera", path: "camera.visible", defaultValue: true)
-            NumberRow(model: model, title: "Size", path: "camera.size", range: 0.1...0.75, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.22)
-            Toggle("Make smaller during zoom", isOn: Binding(get: { model.number("camera.zoom_scale", default: 1) < 0.999 },
-                                                              set: { model.set("camera.zoom_scale", number: $0 ? 0.6 : 1) }))
-            if model.number("camera.zoom_scale", default: 1) < 0.999 {
-                NumberRow(model: model, title: "Size while zoomed", path: "camera.zoom_scale", range: 0.25...0.8, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.6)
-            }
-            CameraPositionRow(model: model)
-        }
+        CameraLayoutSettings(model: model)
         Section("Layout over time") {
             if case .layout(let id) = model.selection, let l = model.layouts.first(where: { $0.id == id }) {
                 Picker("Layout", selection: Binding(get: { l.mode }, set: { model.setLayoutMode(id: l.id, $0) })) {
@@ -412,18 +409,7 @@ struct InspectorView: View {
         }
     }
 
-    @ViewBuilder private var cameraStyle: some View {
-        Section("Camera style") {
-            PickerRow(model: model, title: "Shape", path: "camera.shape",
-                      options: [("Rounded rectangle", "rounded_rect"), ("Circle", "circle"), ("Squircle", "squircle")])
-            NumberRow(model: model, title: "Corner radius", path: "camera.radius", range: 0...64, unit: "pt", format: "%.0f", defaultValue: 24)
-            NumberRow(model: model, title: "Opacity", path: "camera.opacity", range: 0...1, defaultValue: 1)
-            ToggleRow(model: model, title: "Mirror", path: "camera.mirrored", defaultValue: true)
-            NumberRow(model: model, title: "Shadow", path: "camera.shadow_radius", range: 0...60, unit: "pt", format: "%.0f", defaultValue: 0)
-            ToggleRow(model: model, title: "Remove background", path: "camera.background_removal")
-            ToggleRow(model: model, title: "Frame face", path: "camera.face_framing")
-        }
-    }
+    @ViewBuilder private var cameraStyle: some View { CameraStylePanel(model: model) }
 
     @ViewBuilder private var audio: some View {
         Section("Automatic edits") {
@@ -535,25 +521,27 @@ struct CameraPositionRow: View {
 
 struct CropSection: View {
     @ObservedObject var model: EditorModel
+    var path = "canvas.crop"
+    var title = "Crop recording"
     @State private var l = 0.0
     @State private var t = 0.0
     @State private var r = 0.0
     @State private var b = 0.0
     @State private var editing = false
     var body: some View {
-        Section("Crop recording") {
+        Section(title) {
             row("Left", $l); row("Top", $t); row("Right", $r); row("Bottom", $b)
-            Button("Reset crop") { l = 0; t = 0; r = 0; b = 0; model.setCrop(left: 0, top: 0, right: 0, bottom: 0) }
+            Button("Reset crop") { l = 0; t = 0; r = 0; b = 0; model.setCrop(path: path, left: 0, top: 0, right: 0, bottom: 0) }
                 .disabled(l + t + r + b == 0)
         }
         .onAppear(perform: load)
         .onChange(of: model.revision) { _, _ in if !editing { load() } }
     }
-    private func load() { let c = model.cropInsets; l = c.left; t = c.top; r = c.right; b = c.bottom }
+    private func load() { let c = model.cropInsets(path: path); l = c.left; t = c.top; r = c.right; b = c.bottom }
     private func row(_ title: String, _ v: Binding<Double>) -> some View {
         LabeledContent(title) {
             HStack {
-                Slider(value: v, in: 0...0.9) { e in editing = e; if !e { model.setCrop(left: l, top: t, right: r, bottom: b) } }
+                Slider(value: v, in: 0...0.9) { e in editing = e; if !e { model.setCrop(path: path, left: l, top: t, right: r, bottom: b) } }
                     .accessibilityLabel("Crop \(title.lowercased())").accessibilityValue("\(Int(v.wrappedValue * 100)) percent")
                 Text("\(Int(v.wrappedValue * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
             }
@@ -819,6 +807,8 @@ struct VoiceCleanupSection: View {
     var body: some View {
         ToggleRow(model: model, title: "Clean up voice", path: "audio.speech_enhancement")
         if model.bool("audio.speech_enhancement") {
+            PickerRow(model: model, title: "Voice preset", path: "audio.mic_preset",
+                      options: [("Voice", "voice"), ("Noise reduction", "noise_reduction"), ("Podcast", "podcast")])
             NumberRow(model: model, title: "Noise reduction", path: p + "noise_reduction_db", range: 0...60, unit: "dB", format: "%.0f")
             NumberRow(model: model, title: "Noise gate", path: p + "noise_threshold_db", range: -70 ... -15, unit: "dB", format: "%.0f")
             NumberRow(model: model, title: "Low cut", path: p + "high_pass_hz", range: 20...300, unit: "Hz", format: "%.0f")
@@ -857,3 +847,25 @@ let cursorShapes: [(label: String, value: String)] = [
     ("Resize vertical", "resize_vertical"), ("Resize diagonal ↘", "resize_diagonal_nwse"), ("Resize diagonal ↗", "resize_diagonal_nesw"),
     ("Open hand", "open_hand"), ("Closed hand", "closed_hand")]
 let cursorSizes: [(label: String, value: String)] = [("Small", "small"), ("Regular", "regular"), ("Large", "large"), ("Extra large", "extra_large")]
+
+struct ClipVolumeRow: View {
+    @ObservedObject var model: EditorModel
+    let title: String
+    let system: Bool
+    let clip: TimelineClip
+    @State private var value = 100.0
+    @State private var editing = false
+    var body: some View {
+        LabeledContent(title) {
+            HStack {
+                Slider(value: $value, in: 0...100, step: 5) { e in editing = e; if !e { model.setVolume(percent: Int(value), system: system) } }
+                    .accessibilityLabel(title).accessibilityValue("\(Int(value)) percent")
+                Text(value == 0 ? "Muted" : "\(Int(value))%").monospacedDigit().frame(width: 52, alignment: .trailing)
+            }
+        }
+        .onAppear { value = (system ? clip.systemGain : clip.micGain) * 100 }
+        .onChange(of: clip.systemGain) { _, v in if !editing && system { value = v * 100 } }
+        .onChange(of: clip.micGain) { _, v in if !editing && !system { value = v * 100 } }
+        .onChange(of: clip.id) { _, _ in value = (system ? clip.systemGain : clip.micGain) * 100 }
+    }
+}
