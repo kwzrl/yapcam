@@ -1,6 +1,6 @@
 # editor status
 
-READY 108c6b8 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 6855810 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Typing suggestions now come from core (`typing_suggestions` query; apply/dismiss by source-stable id, `auto_speed_typing` for apply-all, `restore_typing_suggestions`); dismissals persist in the project; editor-side detection kept only for the fake backend. Not yet exercised against a real recording with a keystroke burst. 204 editor tests green.
