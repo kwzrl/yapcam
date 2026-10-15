@@ -457,7 +457,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 .as_str()
                 .unwrap_or("missing");
             let random = arbitrary_json(&mut seed, 4);
-            let mut command = match n % 17 {
+            let mut command = match n % 24 {
                 0 => random.clone(),
                 1 => json!({"op":"set","path":"canvas.padding","value":random}),
                 2 => json!({"op":"set","path":"notes","value":format!("fuzz-{n} ☕\0字幕")}),
@@ -484,9 +484,20 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 13 => json!({"op":"apply_typing_suggestion","id":random,"speed":3}),
                 14 => json!({"op":"dismiss_typing_suggestion","id":random}),
                 15 => json!({"op":"restore_typing_suggestions"}),
-                _ => {
+                16 => {
                     json!({"op":"set","path":(["audio.mic_preset","audio.stereo_mic","canvas.padding_ratio","cursor.size_points","zoom_settings.start_early","typing.speed","typing.dismissed"][n as usize%7]),"value":random})
                 }
+                17 => json!({"op":"timeline_edit","command":{"op":"split","at_tl_ns":random}}),
+                18 => {
+                    json!({"op":"coalesced_edit","key":format!("fuzz-{}",n%3),"command":{"op":"set","path":"notes","value":format!("group-{n}")}})
+                }
+                19 => {
+                    json!({"op":"insert_zoom","tl_start_ns":random,"duration_ns":arbitrary_json(&mut seed,2)})
+                }
+                20 => json!({"op":"insert_mask","patch":random}),
+                21 => json!({"op":"insert_layout","tl_start_ns":random}),
+                22 => json!({"op":"set_clip_settings","clip_id":clip_id,"patch":random}),
+                _ => json!({"op":"set","path":"canvas.device_frame","value":random}),
             };
             if step % 97 == 0 {
                 for _ in 0..40 {
@@ -542,7 +553,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
             }
             if step % 11 == 0 {
                 let query = if step % 33 == 0 {
-                    json!({"q":"typing_suggestions"})
+                    json!({"q":(["typing_suggestions","capabilities","history","insertion_styles","autosave_policy","timeline_constraints"][step as usize%6])})
                 } else if step % 22 == 0 {
                     json!({"q":"effects_at","tl_ns":arbitrary_json(&mut seed,2)})
                 } else {
