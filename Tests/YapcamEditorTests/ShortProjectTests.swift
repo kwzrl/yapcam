@@ -135,3 +135,26 @@ import YapcamCore
         }
     }
 }
+
+@MainActor @Suite struct ExportFallbackTests {
+    struct AudioBreaksEngine: ExportEngine {
+        func run(_ r: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+            if r.includeAudio { throw NSError(domain: "t", code: 1, userInfo: [NSLocalizedDescriptionKey: "audio decode failed"]) }
+            return r.destination
+        }
+    }
+    @Test func failedAudioExportCanBeRetriedWithoutAudioToTheSameFile() async {
+        let e = ExportModel(engine: AudioBreaksEngine()); let url = URL(fileURLWithPath: "/tmp/fb.mp4")
+        e.start(to: url); await e.waitUntilFinished()
+        #expect(e.state == .failed("audio decode failed") && e.failedWithAudio)
+        e.retryWithoutAudio(); await e.waitUntilFinished()
+        #expect(e.state == .done(url) && !e.includeAudio && !e.failedWithAudio)
+    }
+    @Test func noFallbackWhenAudioWasNotInvolved() async {
+        struct Fails: ExportEngine { func run(_ r: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL { throw NSError(domain: "t", code: 2, userInfo: [NSLocalizedDescriptionKey: "disk full"]) } }
+        let e = ExportModel(engine: Fails()); e.includeAudio = false
+        e.start(to: URL(fileURLWithPath: "/tmp/x.mp4")); await e.waitUntilFinished()
+        #expect(!e.failedWithAudio)
+        e.retryWithoutAudio(); #expect(e.state == .failed("disk full"))      // refused: nothing to retry
+    }
+}
