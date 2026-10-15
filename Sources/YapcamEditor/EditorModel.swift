@@ -77,6 +77,7 @@ public final class EditorModel: ObservableObject {
         autosaveTask?.cancel()
         for t in [silenceTask, captionTask, wallpaperTask, musicTask, pendingInvalidate] { t?.cancel() }
         player.pause()
+        project.close()      // core refuses any mutation from now on, even from work that was already past its last cancellation check
     }
     public var autosaveDelay: Duration = .seconds(2)
 

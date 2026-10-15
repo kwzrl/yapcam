@@ -126,6 +126,8 @@ public protocol EditingProject: AnyObject {
     func undo() throws
     func redo() throws
     func save() throws
+    /// Final step of closing a document: after this, apply/undo/redo/save throw (core `Project.close()`).
+    func close()
     /// Import RecordingTranscript JSON as captions (one undo step).
     func importTranscript(_ data: Data) throws
     /// Copy an audio file into the package and add it as a music track at `startNs` (one undo step).
