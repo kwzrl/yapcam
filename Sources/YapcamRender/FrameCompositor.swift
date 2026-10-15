@@ -157,10 +157,11 @@ public final class FrameCompositor: @unchecked Sendable {
             uniforms.append(SIMD4(1,g.radius,loupe.bevel,loupe.chromaticAberration))
             uniforms.append(SIMD4(g.focus.x,g.focus.y,g.scale,g.opacity))
             uniforms.append(crop)
-            uniforms[5] = SIMD4(0,0,1,1); uniforms[13] = SIMD4(0,0,1,1)
+            uniforms.append(loupe.baseCrop)
+            uniforms[5] = loupe.baseCrop; uniforms[13] = loupe.baseCrop
             uniforms[16].x = 0 // The underlying screen stays unzoomed.
         } else {
-            uniforms.append(.zero); uniforms.append(SIMD4(0.5,0.5,1,0)); uniforms.append(crop)
+            uniforms.append(.zero); uniforms.append(SIMD4(0.5,0.5,1,0)); uniforms.append(crop); uniforms.append(SIMD4(0,0,1,1))
         }
         if options.cursorMotionBlur > 0 && frame.tl_ns > 0 {
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
@@ -256,16 +257,18 @@ public final class FrameCompositor: @unchecked Sendable {
         }
         float2 cursorPoint=p;
         if (u[25].x>0 && u[3].z>0 && all(u[4].zw>0) && u[25].y>0) {
-            float2 center=u[4].xy+u[26].xy*u[4].zw;
+            float2 center=u[4].xy+(u[26].xy-u[28].xy)/u[28].zw*u[4].zw;
             float2 delta=p-center;
             float distance=length(delta), radius=u[25].y;
             float radial=clamp(distance/radius,0.0,1.0);
             float refraction=1-u[25].z*.15*pow(radial,4.0);
-            float2 uv=u[26].xy+delta/u[4].zw/u[26].z*refraction;
+            float2 uv=u[26].xy+delta/u[4].zw/u[26].z*u[28].zw*refraction;
             float2 fringe=delta/u[4].zw*u[25].w*.006*pow(radial,4.0);
-            float4 lens=screen.sample(s,sourceUV(uv,u[19],u[20]));
-            lens.r=screen.sample(s,sourceUV(uv+fringe,u[19],u[20])).r;
-            lens.b=screen.sample(s,sourceUV(uv-fringe,u[19],u[20])).b;
+            float2 inset=min(.5/u[23].xy,u[28].zw*.5);
+            float2 cropMin=u[28].xy+inset, cropMax=u[28].xy+u[28].zw-inset;
+            float4 lens=screen.sample(s,sourceUV(clamp(uv,cropMin,cropMax),u[19],u[20]));
+            lens.r=screen.sample(s,sourceUV(clamp(uv+fringe,cropMin,cropMax),u[19],u[20])).r;
+            lens.b=screen.sample(s,sourceUV(clamp(uv-fringe,cropMin,cropMax),u[19],u[20])).b;
             float rim=u[25].z*.25*pow(radial,12.0);
             lens.rgb=mix(lens.rgb,float3(1),rim);
             float mask=(1-smoothstep(-.5,.5,distance-radius))*u[26].w;
@@ -274,7 +277,7 @@ public final class FrameCompositor: @unchecked Sendable {
             lens.a*=mask; result=over(result,lens);
             // Reproject the evaluated classic cursor into the unzoomed base or
             // lens. It uses the same source position, scale and rotation there.
-            float2 baseUV=(p-u[4].xy)/u[4].zw;
+            float2 baseUV=u[28].xy+(p-u[4].xy)/u[4].zw*u[28].zw;
             cursorPoint=u[4].xy+(baseUV-u[27].xy)/u[27].zw*u[4].zw;
             if(distance<radius) cursorPoint=u[4].xy+u[4].zw*.5+delta*refraction;
         }
