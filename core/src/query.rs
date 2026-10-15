@@ -16,14 +16,12 @@ impl Project {
         let path = query
             .get("path")
             .and_then(Value::as_str)
-            .and_then(|s| s.strip_prefix("recording/"))
-            .ok_or_else(|| Error::new(1, "Audio path must be recording-relative"))?;
-        if !self
-            .session
-            .segments
-            .iter()
-            .any(|s| s.files.get(track).is_some_and(|p| p == path))
-        {
+            .ok_or_else(|| Error::new(1, "Audio path must be package-relative"))?;
+        if !self.session.segments.iter().any(|s| {
+            s.files
+                .get(track)
+                .is_some_and(|p| self.matches_audio_path(track, p, path))
+        }) {
             return Err(Error::new(1, "Audio path is not referenced by this track"));
         }
         let ranges = query
@@ -44,7 +42,10 @@ impl Project {
         let mut rows = Vec::new();
         for (i, c) in self.data.timeline.clips.iter().enumerate() {
             for s in &self.session.segments {
-                if s.files.get(track).is_none_or(|p| p != path) {
+                if s.files
+                    .get(track)
+                    .is_none_or(|p| !self.matches_audio_path(track, p, path))
+                {
                     continue;
                 }
                 let offset = s.track_start_ns.get(track).copied().unwrap_or(0);
@@ -85,44 +86,22 @@ impl Project {
             .into())
     }
     fn speech_enhancement_plan(&self) -> Result<Value> {
-        let mut files = std::collections::BTreeMap::new();
-        for segment in &self.session.segments {
-            let Some(path) = segment.files.get("mic") else {
-                continue;
-            };
-            let start =
-                segment.src_start_ns + segment.track_start_ns.get("mic").copied().unwrap_or(0);
-            let end = segment.src_start_ns + segment.duration_ns;
-            if start >= end {
-                continue;
-            }
-            if !self
-                .data
-                .timeline
-                .clips
-                .iter()
-                .any(|c| c.src_start_ns < end && c.src_end_ns > start)
-            {
-                continue;
-            }
-            let path = format!("recording/{path}");
-            let index = self
-                .data
-                .media
-                .iter()
-                .position(|m| m.path == path)
-                .ok_or_else(|| Error::new(5, serde_json::to_string(&vec![&path]).unwrap()))?;
-            let index = u32::try_from(index)
-                .map_err(|_| Error::new(1, "Microphone media index overflow"))?;
-            files.insert(path, index);
-        }
-        let media: Vec<_> = files
-            .into_iter()
-            .map(|(path, index)| json!({"path":path,"media_index":index}))
+        let rows = crate::microphone::query(self)?;
+        let mut seen = std::collections::HashSet::new();
+        let media: Vec<_> = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| seen.insert(row["path"].as_str().unwrap()))
             .collect();
         Ok(
             json!({"enabled":self.data.audio.speech_enhancement,"settings":self.data.audio.speech_enhancement_settings,"media":media,"mic_preset":self.data.audio.mic_preset,"stereo_mic":self.data.audio.stereo_mic}),
         )
+    }
+    fn matches_audio_path(&self, track: &str, file: &str, path: &str) -> bool {
+        let original = format!("recording/{file}");
+        original == path
+            || (track == "mic" && crate::microphone::effective(&self.data, &original).0 == path)
     }
     pub fn query(&self, query: &Value) -> Result<Value> {
         match query
@@ -171,6 +150,7 @@ impl Project {
             "markers" => Ok(crate::markers::query(self)),
             "typing_suggestions" => Ok(crate::auto::typing_suggestions(self)),
             "speech_enhancement" => self.speech_enhancement_plan(),
+            "microphone_media" => crate::microphone::query(self),
             "audio_automation" => Ok(serde_json::to_value(&self.data.audio.ranges)?),
             "map_audio_ranges" => self.map_audio_ranges(query),
             "annotations" => Ok(serde_json::to_value(&self.data.canvas.annotations)?),
@@ -243,6 +223,12 @@ impl Project {
                             let Some(path) = s.files.get(track) else {
                                 continue;
                             };
+                            let original_path = format!("recording/{path}");
+                            let path = if track == "mic" {
+                                crate::microphone::effective(&self.data, &original_path).0
+                            } else {
+                                &original_path
+                            };
                             let offset = s.track_start_ns.get(track).copied().unwrap_or(0);
                             let a = c.src_start_ns.max(s.src_start_ns + offset);
                             let b = c.src_end_ns.min(s.src_start_ns + s.duration_ns);
@@ -295,7 +281,7 @@ impl Project {
                                     };
                                     let gain_start = self.audio_gain(track, times[0]);
                                     let gain_end = self.audio_gain(track, times[1] - 1);
-                                    rows.push(json!({"clip_id":c.id,"track":track,"segment":i,"path":format!("recording/{path}"),"src_start_ns":x,"src_end_ns":y,"file_start_ns":x-s.src_start_ns-offset,"file_end_ns":y-s.src_start_ns-offset,"tl_start_ns":times[0],"tl_end_ns":times[1],"speed":c.speed,"gain":gain_start,"gain_start":gain_start,"gain_end":gain_end,"base_gain_db":gain_db,"muted":muted}));
+                                    rows.push(json!({"clip_id":c.id,"track":track,"segment":i,"path":path,"src_start_ns":x,"src_end_ns":y,"file_start_ns":x-s.src_start_ns-offset,"file_end_ns":y-s.src_start_ns-offset,"tl_start_ns":times[0],"tl_end_ns":times[1],"speed":c.speed,"gain":gain_start,"gain_start":gain_start,"gain_end":gain_end,"base_gain_db":gain_db,"muted":muted}));
                                 }
                             }
                         }

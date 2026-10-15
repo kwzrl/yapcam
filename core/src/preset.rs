@@ -15,7 +15,7 @@ fn schema() -> Value {
         ),
         ("cursor", &["ranges"][..]),
         ("camera", &["layouts", "silence_ranges"][..]),
-        ("audio", &["ranges", "music"][..]),
+        ("audio", &["ranges", "music", "mic_replacements"][..]),
     ] {
         for field in fields {
             schema[group].as_object_mut().unwrap().remove(*field);

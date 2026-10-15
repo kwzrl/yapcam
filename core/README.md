@@ -511,3 +511,26 @@ legacy strengths. Core Frame/FrameMotion/Extras/cold options already contain the
 multiplied strength, so Render must not multiply twice; actual fps/60 belongs in
 Render. UI should bind its single master control to this path. Existing per-kind
 amounts remain extras and are unchanged when switching the master off/on.
+
+### Explicit microphone isolation media (AUD-06)
+
+Capture the original identity before calling Capture's VoiceIsolationService:
+`let original = try project.microphoneIdentity(path: originalPackageRelativePath)`.
+Only after successful processing, call
+`try await project.importEnhancedMicrophone(report.output, forOriginal: original)`.
+The async import copies the output into package assets, validates 48k Float32 PCM
+channel count/duration, and atomically registers/selects it. Source identity
+comparison rejects stale processing results. Failed imports remove staged assets.
+`try project.useOriginalMicrophone(path:)` clears selection. Both commands undo;
+files remain for snapshots/history. No original recording/manifest is rewritten.
+
+`microphoneMedia()` exposes original identity, original/effective media paths and
+indices, `enhanced`, and `stale`. `audio_ranges` already emits the selected path,
+so Render's existing authoritative range consumer handles preview and export.
+No Render changes or ABI changes are needed for selection. Relinking either
+input or derivative invalidates the old binding and falls back to original media.
+Physical missing/changed assets retain normal missing-media errors on open.
+The optional `audio.mic_replacements` array is never included/applied in presets.
+Speech DSP mastering is independent; its plan uses the effective selected file.
+Native Apple isolation quality/latency, Editor toggle/progress and user-facing
+stale/error presentation remain Capture/Editor/Render acceptance work.

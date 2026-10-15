@@ -85,6 +85,92 @@ private func withSpeechFixture<T>(_ body: (URL, Project) async throws -> T) asyn
     }
 }
 
+@Test func enhancedMicrophoneSelectionPersistsWithoutChangingEditedAudioClocks() async throws {
+    try await withSpeechFixture { package, p in
+        let path = "recording/seg-000/mic.wav"
+        let identity = try p.microphoneIdentity(path: path)
+        let source = package.appendingPathComponent(path)
+        let bytes = try Data(contentsOf: source)
+        let manifest = try Data(contentsOf: package.appendingPathComponent("recording/session.json"))
+        try p.apply(.split(atNs: 90_000_000))
+        let first = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)[0]
+        try p.apply(.setSpeed(clipID: first.id, speed: 1.4))
+        try p.apply(.setClipSettings(clipID: first.id, patch: ["mic_gain":.number(0.5)]))
+        let query = "{\"q\":\"audio_ranges\"}"
+        let before = try p.query(query, as: [[String:JSONValue]].self)
+        let snapshot = try p.snapshot()
+        let undoSteps = try p.historyState().undoSteps
+        // Identity PCM tests the selection contract, not native isolation quality.
+        try await p.importEnhancedMicrophone(source, forOriginal: identity)
+        let selected = try #require(p.microphoneMedia().first)
+        #expect(selected.enhanced && !selected.stale && selected.original == identity)
+        #expect(selected.path.hasPrefix("assets/mic-") && selected.mediaIndex != selected.originalMediaIndex)
+        #expect(try p.historyState().undoSteps == undoSteps + 1)
+        var expected = before
+        for i in expected.indices where expected[i]["track"] == .string("mic") { expected[i]["path"] = .string(selected.path) }
+        #expect(try p.query(query, as: [[String:JSONValue]].self) == expected)
+        #expect(try snapshot.query(query, as: [[String:JSONValue]].self) == before)
+        #expect(try !snapshot.microphoneMedia()[0].enhanced)
+        #expect(try p.speechEnhancementPlan().media[0].path == selected.path)
+        let local = [SilenceRange(startNs: 0, endNs: 50_000_000)]
+        #expect(try p.mapAudioRanges(local, track: "mic", mediaPath: selected.path) == p.mapAudioRanges(local, track: "mic", mediaPath: path))
+        try p.undo(); #expect(try p.query(query, as: [[String:JSONValue]].self) == before)
+        try p.redo(); #expect(try p.query(query, as: [[String:JSONValue]].self) == expected)
+        try p.save()
+        #expect(try Project.open(package: package).microphoneMedia() == [selected])
+        try p.useOriginalMicrophone(path: path)
+        #expect(try !p.microphoneMedia()[0].enhanced)
+        #expect(try p.query(query, as: [[String:JSONValue]].self) == before)
+        #expect(FileManager.default.fileExists(atPath: package.appendingPathComponent(selected.path).path))
+        #expect(try Data(contentsOf: source) == bytes)
+        #expect(try Data(contentsOf: package.appendingPathComponent("recording/session.json")) == manifest)
+    }
+}
+
+@Test func enhancedMicrophoneImportRejectsInvalidStaleAndClosedResultsWithoutLeakingAssets() async throws {
+    try await withSpeechFixture { package, p in
+        let path = "recording/seg-000/mic.wav"
+        let source = package.appendingPathComponent(path)
+        let identity = try p.microphoneIdentity(path: path)
+        let before = try p.toJSON()
+        let assets = package.appendingPathComponent("assets")
+        func assetNames() throws -> [String] {
+            FileManager.default.fileExists(atPath: assets.path) ? try FileManager.default.contentsOfDirectory(atPath: assets.path) : []
+        }
+        let initialAssets = try assetNames()
+        let bad = package.appendingPathComponent("wrong-duration.caf")
+        defer { try? FileManager.default.removeItem(at: bad) }
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false)!
+        do {
+            let output = try AVAudioFile(forWriting: bad, settings: format.settings)
+            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48)!
+            buffer.frameLength = 48
+            buffer.floatChannelData![0].initialize(repeating: 0, count: 48)
+            try output.write(from: buffer)
+        }
+        do {
+            try await p.importEnhancedMicrophone(bad, forOriginal: identity)
+            Issue.record("Wrong-duration derivative was selected")
+        } catch {}
+        #expect(try p.toJSON() == before)
+        #expect(try assetNames() == initialAssets)
+        var stale = identity; stale.size += 1
+        do {
+            try await p.importEnhancedMicrophone(source, forOriginal: stale)
+            Issue.record("Stale processing identity was accepted")
+        } catch {}
+        #expect(try p.toJSON() == before)
+        #expect(try assetNames() == initialAssets)
+        p.close()
+        do {
+            try await p.importEnhancedMicrophone(source, forOriginal: identity)
+            Issue.record("Closed project accepted a derivative")
+        } catch {}
+        #expect(try p.toJSON() == before)
+        #expect(try assetNames() == initialAssets)
+    }
+}
+
 @Test func failedAndCancelledSpeechRunsCleanCacheAndPreserveOriginals() async throws {
     try await withSpeechFixture { package, p in
         try p.apply(.set(path: "audio.speech_enhancement", value: .bool(true)))

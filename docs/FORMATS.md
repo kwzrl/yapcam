@@ -625,6 +625,51 @@ Core preparation callback for custom sources, with timeline-owned temporary file
 Do not process the same microphone through both paths. Project persistence and
 source/time/gain contracts above are identical for either path.
 
+### AUD-06 explicit enhanced microphone selection
+
+Optional schema-1 `audio.mic_replacements` defaults to `[]`; existing projects
+continue using their original microphone files. It contains
+`{original:{path,size,head_hash},enhanced:{path,size,head_hash}}` records, at most
+one per original mic file. Both identities use the registered-media FNV fingerprint
+contract. The original must be a session microphone; the derivative must be a
+registered file under `assets/`. A replacement never changes session.json.
+The whole array is a set path. Nested array/identity fields are not set paths.
+Presets omit these recording-specific bindings on both save and apply.
+
+Command `{"op":"select_mic","original":{path,size,head_hash},"path":"assets/mic-….caf"}`
+registers and selects a completed derivative in one undo step. The supplied
+original identity must still match registered and on-disk media, rejecting a stale
+processing result. `path:null` clears that original's selection. Missing path is
+invalid. No processor runs inside this command. Swift's
+`Project.microphoneIdentity(path:)` captures the registered source identity
+before processing; `Project.importEnhancedMicrophone(_:forOriginal:)` takes that
+identity and copies a successful
+Capture VoiceIsolationService output into assets, verifies 48kHz Float32 mono/stereo,
+original channel count and duration within one 48kHz sample, and applies this
+command. It cleans staged output on failure/cancellation. Use this only after
+successful processing; no adjacent-file discovery or automatic preference change.
+`Project.useOriginalMicrophone(path:)` clears the binding. Original media remains
+registered and untouched; undo/redo retains copied files for existing snapshots.
+
+Cold query `{"q":"microphone_media"}` returns one row per distinct retained mic,
+sorted by original path:
+`{original:{path,size,head_hash},original_path,original_media_index,path,media_index,enhanced,stale}`.
+`path`/`media_index` identify the effective source. A stored binding with changed
+original or derivative identity becomes `stale:true,enhanced:false` and uses the
+original; relinking an original therefore invalidates its previous enhancement.
+Physical missing/changed media retains the normal missing-media error on open.
+The same fields are appended to `speech_enhancement.media`, so optional mastering
+uses the selected source. Selecting isolation and enabling mastering are separate
+explicit choices; no audio is processed twice automatically.
+
+`audio_ranges.path` uses the selected file while every source/file/timeline range,
+track offset, clip speed, gain and mute value keeps its original meaning.
+`map_audio_ranges` accepts either an original microphone path or its currently
+selected path. Render's existing audio-range consumer therefore uses the same
+selection for preview and export. Queries and frames perform no selection-related
+disk IO; no C ABI layout/version changes. Native isolation quality/latency and UI
+selection are separate acceptance work.
+
 
 ## CUR-06 authored palette, shape and logical-size selection
 

@@ -363,10 +363,17 @@ impl Shadow {
     }
 }
 settings!(Audio { mic_preset: String = "voice".into(), stereo_mic: bool = false, music_volume: f64 = 0.05, mic_gain_db: f64 = 0.0, system_gain_db: f64 = 0.0,
+    mic_replacements: Vec<MicrophoneReplacement> = vec![],
     mic_muted: bool = false, system_muted: bool = false, ranges: Vec<AudioRange> = vec![],
     music: Vec<MusicTrack> = vec![], click_sound: ClickSound = ClickSound::default(),
     speech_enhancement: bool = false,
     speech_enhancement_settings: SpeechEnhancementSettings = SpeechEnhancementSettings::default() });
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MicrophoneReplacement {
+    pub original: Media,
+    pub enhanced: Media,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct AudioRange {
     pub id: String,

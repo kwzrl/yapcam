@@ -49,6 +49,7 @@ impl Project {
         let mut changes = ChangeSet::default();
         apply_inner(&mut next, command, &mut changes, 0, self)?;
         validate_data(&next)?;
+        crate::microphone::validate(&next, &self.session)?;
         let end = self
             .session
             .segments
@@ -356,6 +357,7 @@ pub(crate) fn apply_inner(
             p.zooms.remove(i);
             cs.changed.push("zooms".into());
         }
+        "select_mic" => crate::microphone::select(p, v, cs, context)?,
         "add_media" => {
             let path = string(v, "path")?;
             let role = string(v, "role")?;
