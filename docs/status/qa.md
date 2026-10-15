@@ -1,4 +1,4 @@
-READY d92f065 qa: HANDOVER - TEST_REPORT/FEATURES/KNOWN_LIMITATIONS final on main 3b68bde; open: F9 window recordings (capture+core), F4
+READY HEAD qa: F9 retest on 511f831 still failing (code fix not on main)
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -57,6 +57,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - Main fc29d18 includes my live results. Deleted my 10-min test package (F6 verified). Remaining NOT RUN: scripted input (needs Accessibility/Input Monitoring grant), UI-driven undo/redo/autosave (no hook), hotkey-driven recording (Accessibility).
 
 - Permissions granted (launch rule: `open -n -W`): scripted input PASS (38/38, max 15.4 ms, 0.98 pt), auto-zoom from real clicks PASS. Remaining NOT RUN: hotkey-driven recording, UI-driven undo/redo/autosave (no hook).
+
+- F9 retest on main 511f831 (rebuilt app): STILL FAILS (`missing field display_name` for a completed window package). main only has the decision doc (display_name written always, read as optional); capture/core code for it is not on main yet. Retest command: `--capture-selftest 6 --target window:<id>` then `LiveRecordingTests/testOpenRealRecording`.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
