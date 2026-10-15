@@ -7,14 +7,40 @@ import YapcamRender
 /// Lets render read the core project (preview and export share one evaluator).
 final class ProjectRenderSource: RenderProjectSource, @unchecked Sendable {
     let project: Project
-    init(_ project: Project) { self.project = project }
+    private let lock = NSLock()
+    private var cachedCursor: CoreRenderOptions?
+    private var observer: NSObjectProtocol?
+    init(_ project: Project) {
+        self.project = project
+        // Cursor selections only change with edits, so one cold query serves every frame until the next change.
+        observer = NotificationCenter.default.addObserver(forName: Project.didChange, object: project, queue: nil) { [weak self] _ in
+            self?.lock.withLock { self?.cachedCursor = nil }
+        }
+    }
+    deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
+
+    private func cursorOptions(atNs ns: Int64) throws -> CoreRenderOptions {
+        if let c = lock.withLock({ cachedCursor }) { return c }
+        let o = try project.renderOptions(atNs: min(max(ns, 0), max(project.durationNs - 1, 0)))
+        lock.withLock { cachedCursor = o }
+        return o
+    }
     var packageURL: URL { project.packageURL }
     var durationNs: Int64 { project.durationNs }
     func frame(atNs: Int64) throws -> YcFrame { try project.frame(atNs: atNs) }
     func renderSnapshot() throws -> any RenderProjectSource { ProjectRenderSource(try project.snapshot()) }
     func renderBackgroundAsset(index: UInt32) throws -> URL { try project.mediaURL(atIndex: index) }
     // Core-driven effects (highlights, fades, cursor/camera options) and gain automation.
-    func renderEffects(atNs: Int64, canvasSize: CGSize) throws -> RenderFrameEffects { try project.renderEffects(atNs: atNs, canvasSize: canvasSize) }
+    func renderEffects(atNs: Int64, canvasSize: CGSize) throws -> RenderFrameEffects {
+        var fx = try project.renderEffects(atNs: atNs, canvasSize: canvasSize)
+        // Render's Project adapter does not apply the cursor palette/shape/size yet (docs/FORMATS.md CUR-06); the editor's
+        // source does, so the picker changes preview and export.
+        let o = try cursorOptions(atNs: atNs)
+        fx.configuration.cursorSetID = o.cursorSetId
+        fx.configuration.cursorSize = o.cursorLogicalSize.render
+        if let shape = o.cursorShape { fx.configuration.cursorStyle = shape.render }
+        return fx
+    }
     func renderAudioRanges() throws -> [RenderAudioRange]? { try project.renderAudioRanges() }
     /// Music tracks (built-in and files) and click sounds, evaluated by core (`audio_overlays`). Without this
     /// forward the protocol default returns [] and all added audio is silently missing from preview and export.
@@ -225,6 +251,22 @@ extension JSONValue {
         case let a as [Any]: self = .array(a.map { JSONValue(foundation: $0) })
         case let d as [String: Any]: self = .object(d.mapValues { JSONValue(foundation: $0) })
         default: self = .null
+        }
+    }
+}
+
+extension CoreRenderOptions.CursorLogicalSize {
+    var render: VectorCursorSize {
+        switch self { case .small: .small; case .regular: .regular; case .large: .large; case .extraLarge: .extraLarge }
+    }
+}
+extension CoreRenderOptions.CursorShape {
+    var render: RenderConfiguration.CursorStyle {
+        switch self {
+        case .arrow: .arrow; case .pointingHand: .pointer; case .touch: .touch; case .text: .text
+        case .resizeHorizontal: .resizeHorizontal; case .resizeVertical: .resizeVertical
+        case .resizeDiagonalNWSE: .resizeDiagonalNWSE; case .resizeDiagonalNESW: .resizeDiagonalNESW
+        case .openHand: .openHand; case .closedHand: .closedHand
         }
     }
 }
