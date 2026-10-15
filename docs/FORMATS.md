@@ -570,3 +570,39 @@ the same frozen configuration to preview/export. This is an alternative to the
 Core preparation callback for custom sources, with timeline-owned temporary files.
 Do not process the same microphone through both paths. Project persistence and
 source/time/gain contracts above are identical for either path.
+
+
+## CUR-06 authored palette, shape and logical-size selection
+
+Schema 1 / ABI 3 remain unchanged. Existing cursor.style values and extras codes
+0 recorded / 1 pointer / 2 touch / 3 arrow retain their meanings. New set paths
+use normal batch/history/journal/save/preset validation:
+
+| Path | Type / default / accepted values |
+|---|---|
+| `cursor.set_id` | nullable string, null; classic, paper, soft-slate, soft-cloud, lagoon, coral, sage, violet, gold, precision-dark, precision-light, signal |
+| `cursor.shape` | nullable string, null; arrow, pointing_hand, touch, text, resize_horizontal, resize_vertical, resize_diagonal_nwse, resize_diagonal_nesw, open_hand, closed_hand |
+| `cursor.logical_size` | string, regular; small, regular, large, extra_large |
+
+null palette/shape + regular size preserves the recorded/default rendering path.
+A selected palette or explicit shape opts into Render's original generated artwork.
+Shape is independent of the legacy cursor.style; explicit shape takes precedence
+unless cursor.always_default is true, which forces effective shape arrow and legacy
+style pointer/code 1. Selected palette and logical size remain effective. Legacy
+Core pointer still means the system-arrow shape; pointing_hand is an explicit new
+shape. Recorded cursor_id metadata remains unchanged except always_default's ID 0.
+
+Root and timed render_options/effects_at append cursor_set_id, cursor_shape,
+cursor_logical_size. Shape is effective (arrow when always_default); palette/size
+reflect the project selection. No new field or code is added to YcFrame/Extras.
+Renderer reads these cold options from the same immutable generation and maps them
+to RenderConfiguration.cursorSetID/cursorStyle/cursorSize. Logical sizes scale own
+artwork by 0.75/1/1.5/2 independently of raster density and existing cursor.size /
+animated frame.cursor_scale; do not multiply that frame scale again in Core.
+Recorded PNG dimensions/semantics stay unchanged.
+
+New query `{"q":"cursor_library"}` returns
+`{sets:[{id,name}],shapes:[string],logical_sizes:[{id,scale}]}` with the IDs above.
+These descriptors mirror Render's 12 authored palettes, 10 shapes and 4 sizes; no
+reference/system bitmap or palette data is copied. Renderer/Editor must connect
+these fields and picker before claiming selections change preview/export pixels.

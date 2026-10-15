@@ -241,16 +241,16 @@ pub unsafe extern "C" fn yc_apply(
             let prepared = project.prepare_apply(&command)?;
             let staged = prepared
                 .next
-                .map(|next| (project.journal_target(&next), next));
+                .map(|next| (project.journal_target(&next), next, prepared.keys));
             (staged, prepared.changes)
         };
-        if let Some((journal, next)) = staged {
+        if let Some((journal, next, keys)) = staged {
             journal.write(&next)?; // No state/read/frame lock is held during disk IO.
             let obsolete = h
                 .inner
                 .write()
                 .map_err(|_| Error::new(99, "Poisoned project"))?
-                .commit_apply(next);
+                .commit_apply(next, keys);
             drop(obsolete);
         }
         if !out.is_null() {
@@ -290,12 +290,12 @@ unsafe fn history(p: *mut YcProject, out: *mut u8, redo: bool) -> Result<()> {
             .read()
             .map_err(|_| Error::new(99, "Poisoned project"))?;
         let stack = if redo { &project.redo } else { &project.undo };
-        stack
-            .last()
-            .cloned()
-            .map(|next| (project.journal_target(&next), next))
+        stack.last().cloned().map(|next| {
+            let keys = project.key_overlay_index.for_clips(&next.timeline.clips);
+            (project.journal_target(&next), next, keys)
+        })
     };
-    let Some((journal, next)) = staged else {
+    let Some((journal, next, keys)) = staged else {
         return output(out, 0);
     };
     journal.write(&next)?;
@@ -305,9 +305,9 @@ unsafe fn history(p: *mut YcProject, out: *mut u8, redo: bool) -> Result<()> {
             .write()
             .map_err(|_| Error::new(99, "Poisoned project"))?;
         if redo {
-            project.commit_redo()
+            project.commit_redo(keys)
         } else {
-            project.commit_undo()
+            project.commit_undo(keys)
         }
     };
     output(out, did as u8)

@@ -153,6 +153,8 @@ settings!(Cursor {
     ranges: Vec<CursorRange> = vec![], loop_to_start: bool = false,
     loop_duration_ns: i64 = 400_000_000,
     style: String = "recorded".into(), motion_blur: f64 = 0.0,
+    set_id: Option<String> = None, shape: Option<String> = None,
+    logical_size: String = "regular".into(),
     spotlight_radius: f64 = 0.0, key_overlay: KeyOverlay = KeyOverlay::default(),
     always_default: bool = false, rotate_on_move: bool = false,
     stop_before_end_ns: i64 = 0, remove_shakes: bool = false, optimize_types: bool = false,

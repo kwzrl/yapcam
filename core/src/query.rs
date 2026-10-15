@@ -199,6 +199,7 @@ impl Project {
             "layouts" => Ok(serde_json::to_value(&self.data.camera.layouts)?),
             "session" => Ok(serde_json::to_value(&self.session)?),
             "project" => Ok(serde_json::to_value(&self.data)?),
+            "cursor_library" => Ok(crate::cursor_catalog::query()),
             "media" | "assets" => Ok(serde_json::to_value(&self.data.media)?),
             "audio_ranges" => {
                 let mut rows = Vec::new();
@@ -279,20 +280,24 @@ impl Project {
                 }
                 Ok(rows.into())
             }
-            "clicks" | "cursor_clicks" | "events" | "key_events" => {
+            "key_events" => {
+                let mut rows = Vec::new();
+                for (segment, event, src, tl) in self.key_overlay_index.events() {
+                    let mut row = serde_json::to_value(&self.events[segment][event])?;
+                    row["src_ns"] = src.into();
+                    row["tl_ns"] = tl.into();
+                    row["segment"] = (segment as u32).into();
+                    rows.push(row);
+                }
+                Ok(rows.into())
+            }
+            "clicks" | "cursor_clicks" | "events" => {
                 let all = query["q"] == "events";
                 let mut rows = Vec::new();
                 for (i, _) in self.data.timeline.clips.iter().enumerate() {
                     for (seg, events) in self.session.segments.iter().zip(&self.events) {
                         for e in events {
-                            if !all
-                                && e.kind
-                                    != if query["q"] == "key_events" {
-                                        "key"
-                                    } else {
-                                        "down"
-                                    }
-                            {
+                            if !all && e.kind != "down" {
                                 continue;
                             }
                             let src = seg.src_start_ns + e.t;

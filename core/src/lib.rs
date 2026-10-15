@@ -59,3 +59,7 @@ pub mod motion;
 
 #[cfg(test)]
 mod hardening;
+
+mod key_overlay;
+
+mod cursor_catalog;

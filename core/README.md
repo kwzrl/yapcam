@@ -330,3 +330,26 @@ journal writes/fsyncs when enabled. Save includes durable project/.prev publicat
 project.json size is measured from the file. Limits: frame p99 <=1ms and every
 sampled edit <=50ms. Times are host/load-specific; read docs/status/core.md for
 the workload, measured results, and before/after fixes.
+
+
+The review-2 key-overlay fix builds immutable source-key labels on project load,
+and edited key-time/shortcut indexes on timeline changes. Edits/history stage new
+indexes before durable publication; snapshots share them via Arc. The overlay does
+two binary searches at most and creates only the selected text layers. Settings
+(expiry, shortcuts-only, rect/style/enable) are read live, so unrelated settings
+reuse the index. Key query metadata shares the same edited map. Raw capture changes
+reload the project; unit fixtures explicitly rebuild the source index after direct
+event mutation. Stable duplicate-time ordering and empty-key suppression match the
+old full query. The scale harness now includes 36,000 keys (18,000 shortcuts) and
+reports real yc_query/layers_at p50/p99 alongside frame and edit limits.
+
+
+CUR-06 selection persists nullable cursor.set_id and cursor.shape plus
+cursor.logical_size (regular by default). cursor_library exposes the twelve own
+palette IDs, ten explicit shapes and four logical sizes. Root/timed options carry
+those selections; always_default forces effective arrow shape while preserving
+palette/size. Legacy style codes and frame layout/scale stay unchanged. Render
+reads the cold options to select its generated artwork; the logical size changes
+artwork dimensions, not Core's animated frame scale. FORMATS.md lists all values
+and SWIFT_API.md documents CoreCursorLibrary and typed Swift enums. Pixel/picker
+wiring belongs to Render/Editor, separately from the verified Core contract.

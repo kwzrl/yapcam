@@ -15,6 +15,7 @@ pub struct ChangeSet {
 pub(crate) struct PreparedApply {
     pub next: Option<ProjectData>,
     pub changes: ChangeSet,
+    pub keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
 }
 fn int(v: &Value, key: &str) -> Result<i64> {
     v.get(key)
@@ -36,7 +37,7 @@ impl Project {
         let prepared = self.prepare_apply(command)?;
         if let Some(next) = prepared.next {
             self.write_journal(&next)?;
-            drop(self.commit_apply(next));
+            drop(self.commit_apply(next, prepared.keys));
         }
         Ok(prepared.changes)
     }
@@ -65,9 +66,22 @@ impl Project {
         };
         changes.changed.sort();
         changes.changed.dedup();
-        Ok(PreparedApply { next, changes })
+        let keys = self.key_overlay_index.for_clips(
+            next.as_ref()
+                .map_or(&self.data.timeline.clips, |p| &p.timeline.clips),
+        );
+        Ok(PreparedApply {
+            next,
+            changes,
+            keys,
+        })
     }
-    pub(crate) fn commit_apply(&mut self, next: ProjectData) -> Vec<ProjectData> {
+    pub(crate) fn commit_apply(
+        &mut self,
+        next: ProjectData,
+        keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
+    ) -> Vec<ProjectData> {
+        self.key_overlay_index = keys;
         self.undo.push(std::mem::replace(&mut self.data, next));
         // Drop obsolete history after the FFI releases its write lock.
         std::mem::take(&mut self.redo)
@@ -78,7 +92,10 @@ impl Project {
         } else {
             return Ok(false);
         }
-        Ok(self.commit_undo())
+        let keys = self
+            .key_overlay_index
+            .for_clips(&self.undo.last().unwrap().timeline.clips);
+        Ok(self.commit_undo(keys))
     }
     pub fn redo(&mut self) -> Result<bool> {
         if let Some(next) = self.redo.last() {
@@ -86,9 +103,16 @@ impl Project {
         } else {
             return Ok(false);
         }
-        Ok(self.commit_redo())
+        let keys = self
+            .key_overlay_index
+            .for_clips(&self.redo.last().unwrap().timeline.clips);
+        Ok(self.commit_redo(keys))
     }
-    pub(crate) fn commit_undo(&mut self) -> bool {
+    pub(crate) fn commit_undo(
+        &mut self,
+        keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
+    ) -> bool {
+        self.key_overlay_index = keys;
         if let Some(previous) = self.undo.pop() {
             self.redo.push(std::mem::replace(&mut self.data, previous));
             true
@@ -96,7 +120,11 @@ impl Project {
             false
         }
     }
-    pub(crate) fn commit_redo(&mut self) -> bool {
+    pub(crate) fn commit_redo(
+        &mut self,
+        keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
+    ) -> bool {
+        self.key_overlay_index = keys;
         if let Some(next) = self.redo.pop() {
             self.undo.push(std::mem::replace(&mut self.data, next));
             true

@@ -500,7 +500,7 @@ impl Project {
             },
         };
         Ok(
-            json!({"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
+            json!({"cursor_set_id":p.cursor.set_id,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
         )
     }
 }
@@ -665,6 +665,7 @@ mod tests {
             ]),
         });
         p.events[0].sort_by_key(|e| e.t);
+        p.rebuild_key_overlay_index();
         p.apply(&json!({"op":"set","path":"cursor.key_overlay.enabled","value":true}))
             .unwrap();
         let at = p.layers_at(1_300_000_000).unwrap();

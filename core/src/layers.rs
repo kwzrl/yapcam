@@ -223,34 +223,13 @@ impl Project {
         }
         let key = &self.data.cursor.key_overlay;
         if key.enabled {
-            let events = self.query(&json!({"q":"key_events"}))?;
-            let event = events.as_array().unwrap().iter().rev().find(|e| {
-                let t = e["tl_ns"].as_i64().unwrap();
-                t <= tl_ns
-                    && tl_ns - t < key.duration_ns
-                    && (!key.shortcuts_only
-                        || e["modifiers"].as_array().is_some_and(|mods| {
-                            mods.iter()
-                                .any(|m| matches!(m.as_str(), Some("cmd" | "ctrl" | "alt")))
-                        }))
-            });
-            if let Some(e) = event {
-                let mut text = String::new();
-                for (name, glyph) in [("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("cmd", "⌘")]
-                {
-                    if e["modifiers"]
-                        .as_array()
-                        .is_some_and(|mods| mods.iter().any(|v| v.as_str() == Some(name)))
-                    {
-                        text.push_str(glyph);
-                    }
-                }
-                if let Some(k) = e["key"].as_str() {
-                    text.push_str(k);
-                }
+            if let Some(text) =
+                self.key_overlay_index
+                    .latest(tl_ns, key.duration_ns, key.shortcuts_only)
+            {
                 if !text.trim().is_empty() {
                     let record = TextRecord {
-                        text,
+                        text: text.to_owned(),
                         rect: key.rect,
                         style: key.style.clone(),
                         tl_start_ns: tl_ns,

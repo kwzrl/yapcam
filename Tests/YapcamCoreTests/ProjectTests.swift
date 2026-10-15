@@ -757,3 +757,86 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         #expect(MemoryLayout<YcFrameExtras>.size == 2600 && yc_abi_version() == 3)
     }
 }
+
+@Test func indexedKeyOverlayRemapsAcrossFFIHistoryAndKeepsSnapshots() throws {
+    try withFixture { package in
+        let events = package.appendingPathComponent("recording/seg-000/events.jsonl")
+        let keys = [
+            #"{"t":1200000000,"type":"key","key":"k","modifiers":["cmd","shift"]}"#,
+            #"{"t":1250000000,"type":"key","key":"x","modifiers":["shift"]}"#
+        ]
+        try Data((keys.joined(separator: "\n") + "\n").utf8).write(to: events)
+        try Data().write(to: package.appendingPathComponent("recording/seg-001/events.jsonl"))
+        let p = try Project.create(package: package)
+        try p.apply(.batch([
+            .set(path: "cursor.key_overlay.enabled", value: .bool(true)),
+            .set(path: "cursor.key_overlay.duration_ns", value: .integer(500_000_000))
+        ]))
+        #expect(try p.renderLayers(atNs: 1_300_000_000).last?.text == "⇧⌘k")
+        #expect(try p.renderLayers(atNs: 1_700_000_000).isEmpty)
+        let frozen = try p.snapshot()
+        try p.apply(.set(path: "cursor.key_overlay.shortcuts_only", value: .bool(false)))
+        #expect(try p.renderLayers(atNs: 1_300_000_000).last?.text == "⇧x")
+        #expect(try frozen.renderLayers(atNs: 1_300_000_000).last?.text == "⇧⌘k")
+        try p.undo()
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        try p.apply(.setSpeed(clipID: clips[0].id, speed: 2))
+        let mapped = try p.query("{\"q\":\"key_events\"}", as: [[String: JSONValue]].self)
+        #expect(mapped.map { $0["tl_ns"]?.integerValue } == [600_000_000, 625_000_000])
+        #expect(try p.renderLayers(atNs: 650_000_000).last?.text == "⇧⌘k")
+        try p.apply(.deleteRange(startNs: 500_000_000, endNs: 700_000_000))
+        #expect(try p.renderLayers(atNs: 650_000_000).isEmpty)
+        try p.undo()
+        #expect(try p.renderLayers(atNs: 650_000_000).last?.text == "⇧⌘k")
+        try p.undo()
+        #expect(try p.renderLayers(atNs: 1_300_000_000).last?.text == "⇧⌘k")
+        try p.redo(); try p.redo(); try p.save()
+        #expect(try Project.open(package: package).renderLayers(atNs: 650_000_000).isEmpty)
+        #expect(try frozen.renderLayers(atNs: 1_300_000_000).last?.text == "⇧⌘k")
+    }
+}
+
+@Test func authoredCursorPaletteShapeAndSizeDecodeAndPreserveLegacyFrames() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let catalog = try p.cursorLibrary()
+        #expect(catalog.sets.count == 12 && catalog.shapes.count == 10 && catalog.logicalSizes.count == 4)
+        #expect(catalog.sets.first?.id == "classic" && catalog.sets.last?.id == "signal")
+        #expect(catalog.shapes == CoreRenderOptions.CursorShape.allCases)
+        #expect(catalog.logicalSizes.map(\.scale) == [0.75, 1, 1.5, 2])
+        let original = try p.frame(atNs: 0)
+        #expect(try p.renderOptions().cursorSetId == nil && p.renderOptions().cursorShape == nil)
+        #expect(try p.renderOptions().cursorLogicalSize == .regular)
+        for shape in catalog.shapes {
+            try p.apply(.set(path: "cursor.shape", value: .string(shape.rawValue)))
+            #expect(try p.renderOptions().cursorShape == shape)
+        }
+        try p.apply(.batch([
+            .set(path: "cursor.set_id", value: .string("signal")),
+            .set(path: "cursor.shape", value: .string("pointing_hand")),
+            .set(path: "cursor.logical_size", value: .string("extra_large"))
+        ]))
+        #expect(try p.renderOptions().cursorSetId == "signal")
+        #expect(try p.renderOptions().cursorLogicalSize == .extraLarge)
+        #expect(try p.frame(atNs: 0).cursor_scale == original.cursor_scale)
+        #expect(try p.frameExtras(atNs: 0).cursor_style == 0)
+        let frozen = try p.snapshot()
+        try p.apply(.set(path: "cursor.always_default", value: .bool(true)))
+        for t: Int64 in [0, 2_500_000_000, 5_000_000_000] {
+            #expect(try p.renderOptions(atNs: t).cursorShape == .arrow)
+            #expect(try p.effects(atNs: t).renderOptions.cursorStyle == .pointer)
+            #expect(try p.renderOptions(atNs: t).cursorSetId == "signal")
+            #expect(try p.frameExtras(atNs: t).cursor_style == 1)
+        }
+        #expect(try frozen.renderOptions().cursorShape == .pointingHand)
+        try p.undo(); try p.save()
+        #expect(try Project.open(package: package).renderOptions() == p.renderOptions())
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "cursor.logical_size", value: .string("extraLarge"))) }
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "cursor.set_id", value: .string("unknown"))) }
+        try p.apply(.batch([.set(path: "cursor.set_id", value: .null), .set(path: "cursor.shape", value: .null)]))
+        #expect(try p.renderOptions().cursorSetId == nil && p.renderOptions().cursorShape == nil)
+        try p.undo()
+        #expect(try p.renderOptions().cursorShape == .pointingHand)
+        #expect(yc_abi_version() == 3 && MemoryLayout<YcFrameExtras>.size == 2600)
+    }
+}

@@ -48,6 +48,7 @@ pub struct Project {
     pub session: Session,
     pub events: Vec<Vec<Event>>,
     pub input: Vec<crate::input::InputCache>,
+    pub(crate) key_overlay_index: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
     pub package: PathBuf,
     pub undo: Vec<ProjectData>,
     pub redo: Vec<ProjectData>,
@@ -267,6 +268,18 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             cur.style.as_str(),
             "recorded" | "pointer" | "touch" | "arrow"
         )
+        || cur.set_id.as_deref().is_some_and(|id| {
+            !crate::cursor_catalog::SETS
+                .iter()
+                .any(|(key, _)| *key == id)
+        })
+        || cur
+            .shape
+            .as_deref()
+            .is_some_and(|shape| !crate::cursor_catalog::SHAPES.contains(&shape))
+        || !crate::cursor_catalog::SIZES
+            .iter()
+            .any(|(id, _)| *id == cur.logical_size)
         || !(0.0..=1.0).contains(&cur.motion_blur)
         || !(0.0..=16384.0).contains(&cur.spotlight_radius)
     {
@@ -564,16 +577,29 @@ impl Project {
             .iter()
             .map(|events| crate::input::InputCache::new(events))
             .collect();
+        let key_overlay_index =
+            crate::key_overlay::KeyOverlayIndex::new(&session, &events, &data.timeline.clips);
         Ok(Self {
             data,
             session,
             events,
             input,
+            key_overlay_index,
             package: package.into(),
             undo: vec![],
             redo: vec![],
             snapshot: false,
         })
+    }
+    /// Cold capture-fixture replacement hook; production events are immutable
+    /// after load. Rebuild before evaluating/querying directly mutated test data.
+    #[cfg(test)]
+    pub(crate) fn rebuild_key_overlay_index(&mut self) {
+        self.key_overlay_index = crate::key_overlay::KeyOverlayIndex::new(
+            &self.session,
+            &self.events,
+            &self.data.timeline.clips,
+        );
     }
     pub fn check_media(&self) -> Result<()> {
         self.check_media_for(&self.data)

@@ -56,15 +56,38 @@ fn scale_60_minutes() {
     let events: Vec<_> = (0..3_600_000)
         .map(|i| Event {
             t: i * 1_000_000,
-            kind: if i % 1000 == 0 { "down" } else { "move" }.into(),
+            kind: if i % 1000 == 0 {
+                "down"
+            } else if i % 100 == 1 {
+                "key"
+            } else {
+                "move"
+            }
+            .into(),
             x: Some(160.0 + 120.0 * (i as f64 / 1200.0).sin()),
             y: Some(100.0 + 80.0 * (i as f64 / 900.0).cos()),
             id: None,
-            details: BTreeMap::new(),
+            details: if i % 100 == 1 {
+                BTreeMap::from([
+                    ("key".into(), serde_json::json!("k")),
+                    (
+                        "modifiers".into(),
+                        if i % 200 == 1 {
+                            serde_json::json!(["cmd", "shift"])
+                        } else {
+                            serde_json::json!([])
+                        },
+                    ),
+                ])
+            } else {
+                BTreeMap::new()
+            },
         })
         .collect();
     p.input = vec![crate::input::InputCache::new(&events)];
     p.events = vec![events];
+    p.data.cursor.key_overlay.enabled = true;
+    p.rebuild_key_overlay_index();
     crate::project::validate_data(&p.data).unwrap();
     let path = CString::new(fixture.0.to_str().unwrap()).unwrap();
     let handle = Box::into_raw(Box::new(YcProject::new(p)));
@@ -101,6 +124,21 @@ fn scale_60_minutes() {
         }),
         0
     );
+    let mut overlay = Vec::new();
+    for _ in 0..1024 {
+        let t = (rng(&mut seed) % END as u64) as i64;
+        let query = CString::new(format!(r#"{{"q":"layers_at","tl_ns":{t}}}"#)).unwrap();
+        let mut output = std::ptr::null_mut();
+        let start = Instant::now();
+        assert_eq!(unsafe { yc_query(handle, query.as_ptr(), &mut output) }, 0);
+        std::hint::black_box(unsafe { std::ffi::CStr::from_ptr(output) });
+        unsafe {
+            yc_string_free(output);
+        }
+        overlay.push(start.elapsed().as_nanos() as u64);
+    }
+    let overlay_stats = percentiles(overlay);
+    println!("SCALE key_overlay enabled=true captured_keys=36000 shortcuts=18000 yc_query_layers_at n=1024 p50_ms={:.6} p99_ms={:.6} max_ms={:.6}",overlay_stats.0,overlay_stats.1,overlay_stats.2);
     let mut worst_edit: f64 = 0.0;
     for durable in [false, true] {
         unsafe {
@@ -206,6 +244,11 @@ fn scale_60_minutes() {
         frame_stats.1
     );
     assert!(worst_edit <= 50.0, "edit over 50ms: {worst_edit}");
+    assert!(
+        overlay_stats.1 <= 1.0,
+        "key overlay query p99 over 1ms: {}",
+        overlay_stats.1
+    );
 }
 
 fn assert_original_leaves(original: &serde_json::Value, migrated: &serde_json::Value, path: &str) {

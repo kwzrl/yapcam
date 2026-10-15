@@ -4,6 +4,18 @@ import Foundation
 /// change YcFrame or introduce a dependency from Core to Render.
 public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch, arrow }
+    public enum CursorShape: String, Codable, Sendable, CaseIterable, Hashable {
+        case arrow, pointingHand = "pointing_hand", touch, text
+        case resizeHorizontal = "resize_horizontal", resizeVertical = "resize_vertical"
+        case resizeDiagonalNWSE = "resize_diagonal_nwse", resizeDiagonalNESW = "resize_diagonal_nesw"
+        case openHand = "open_hand", closedHand = "closed_hand"
+    }
+    public enum CursorLogicalSize: String, Codable, Sendable, CaseIterable, Hashable {
+        case small, regular, large, extraLarge = "extra_large"
+    }
+    public var cursorSetId: String?
+    public var cursorShape: CursorShape?
+    public var cursorLogicalSize: CursorLogicalSize
     public var cursorStyle: CursorStyle
     public var cursorRotationRad: Double
     public var zoomMotionBlur: Double
@@ -78,5 +90,25 @@ extension Project {
     }
     public func musicLibrary() throws -> [CoreMusicSource] {
         try query("{\"q\":\"music_library\"}", as: [CoreMusicSource].self)
+    }
+}
+
+
+public struct CoreCursorLibrary: Decodable, Sendable, Equatable {
+    public struct Palette: Decodable, Sendable, Equatable, Identifiable {
+        public var id: String
+        public var name: String
+    }
+    public struct LogicalSize: Decodable, Sendable, Equatable, Identifiable {
+        public var id: CoreRenderOptions.CursorLogicalSize
+        public var scale: Double
+    }
+    public var sets: [Palette]
+    public var shapes: [CoreRenderOptions.CursorShape]
+    public var logicalSizes: [LogicalSize]
+}
+extension Project {
+    public func cursorLibrary() throws -> CoreCursorLibrary {
+        try query("{\"q\":\"cursor_library\"}", as: CoreCursorLibrary.self)
     }
 }

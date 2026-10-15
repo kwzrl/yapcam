@@ -350,3 +350,22 @@ once and owns their cache lifetime. Use Core's preparation bridge for custom URL
 resolution, or the native Render path; never enable native enhancement on URLs
 that were already processed by the bridge. Editor must wire the same persisted
 configuration into preview and export and cancel/discard stale preview work.
+
+
+CUR-06 palette/shape/size selection appends optional `cursorSetId: String?`,
+`cursorShape: CoreRenderOptions.CursorShape?`, and
+`cursorLogicalSize: CoreRenderOptions.CursorLogicalSize` to root/timed options.
+CursorShape raw strings are FORMATS.md's ten names; CursorLogicalSize is
+small/regular/large/extraLarge (raw extra_large). `Project.cursorLibrary()` returns
+CoreCursorLibrary {sets:[{id,name}], shapes:[CursorShape], logicalSizes:[{id,scale}]}.
+Set cursor.set_id/shape with .string(id) or .null; set cursor.logical_size with
+.string(sizeID). Defaults null/null/regular keep prior behavior.
+
+Render adapter mapping: effective shape overrides the legacy style mapping;
+pointing_hand -> RenderConfiguration.CursorStyle.pointer, text -> .text, resize
+names -> their camel-case enum values, open_hand/closed_hand -> .openHand/.closedHand.
+Map logical size extra_large -> VectorCursorSize.extraLarge, and palette ->
+configuration.cursorSetID. Always-default already produces effective shape arrow.
+If shape is nil, retain the existing extras style mapping. Do not change frame scale
+for logical size; Render's generated artwork owns that multiplier. Native/Core
+imports remain acyclic; these are additive JSON options, not ABI struct changes.
