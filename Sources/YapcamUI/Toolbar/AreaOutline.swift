@@ -34,8 +34,8 @@ import Combine
             window = w
         }
         // Stored top-left origin, display-local → AppKit global (bottom-left origin).
-        let f = screen.frame
-        let frame = CGRect(x: f.minX + r.minX, y: f.maxY - r.maxY, width: r.width, height: r.height).insetBy(dx: -2, dy: -2)
+        guard let fitted = AreaGeometry.fit(r, in: screen.frame.size) else { window?.orderOut(nil); return }
+        let frame = AreaGeometry.globalRect(fromLocal: fitted, screenFrame: screen.frame).insetBy(dx: -2, dy: -2)
         window?.setFrame(frame, display: true)
         window?.orderFrontRegardless()
     }

@@ -15,7 +15,17 @@ enum RecordingPhase: Equatable {
 @MainActor final class RecordingController: ObservableObject {
     static let shared = RecordingController()
 
-    @Published private(set) var phase: RecordingPhase = .idle
+    @Published private(set) var phase: RecordingPhase = .idle {
+        didSet {
+            switch (oldValue, phase) {
+            case (_, .recording) where oldValue != .paused: Announcer.say("Recording started")
+            case (_, .paused): Announcer.say("Recording paused")
+            case (.paused, .recording): Announcer.say("Recording resumed")
+            case (_, .idle) where oldValue == .finishing: Announcer.say("Recording stopped")
+            default: break
+            }
+        }
+    }
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var warnings: [String] = []
@@ -68,7 +78,7 @@ enum RecordingPhase: Equatable {
         }
         let options: UIRecordingOptions
         do { options = try makeOptions() } catch {
-            alert = AppAlert(title: "Can't start recording", message: error.localizedDescription)
+            alert = AppAlert(title: "Can't start recording", error: error)
             return
         }
         lastOptions = options
@@ -89,11 +99,14 @@ enum RecordingPhase: Equatable {
             guard alive else { throw EngineError.failed("The selected window is no longer available. Choose another window.") }
             target = .window(settings.windowID)
         case .area:
-            guard let rect = settings.areaRect, rect.width >= 16, rect.height >= 16,
-                  Displays.info(for: settings.areaDisplayID) != nil else {
-                throw EngineError.failed("Select an area to record first.")
+            guard let saved = settings.areaRect, let display = Displays.info(for: settings.areaDisplayID) else {
+                throw EngineError.failed("Select an area to record first, or pick Display instead.")
             }
-            target = .area(display: settings.areaDisplayID, rect: rect)
+            // The display may have changed resolution or arrangement since the area was chosen.
+            guard let rect = AreaGeometry.fit(saved, in: display.frame.size) else {
+                throw EngineError.failed("The saved area no longer fits on “\(display.name)”. Choose the area again.")
+            }
+            target = .area(display: display.id, rect: rect)
         }
         try FileManager.default.createDirectory(at: settings.storageDirectory, withIntermediateDirectories: true)
         if let free = try? settings.storageDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -163,7 +176,7 @@ enum RecordingPhase: Equatable {
                 session = nil
                 phase = .idle
                 DesktopIcons.restoreIfNeeded()
-                alert = AppAlert(title: "Recording could not start", message: error.localizedDescription)
+                alert = AppAlert(title: "Recording could not start", error: error)
             }
         }
     }
@@ -208,13 +221,13 @@ enum RecordingPhase: Equatable {
                 finish()
                 if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     do { try ProjectActions.attachNotes(notes, to: url); notes = "" }
-                    catch { alert = AppAlert(title: "Notes were not saved", message: "The recording is fine, but its speaker notes could not be stored: \(error.localizedDescription)") }
+                    catch { alert = AppAlert(title: "Notes were not saved", message: "The recording is fine, but its speaker notes could not be stored: \(UserMessage.describe(error))") }
                 }
                 if settings.openEditorAfterRecording { engine.openEditor(package: url) }
                 else { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             } catch {
                 finish()
-                alert = AppAlert(title: "Recording could not be saved", message: error.localizedDescription)
+                alert = AppAlert(title: "Recording could not be saved", error: error)
             }
         }
     }
@@ -257,7 +270,7 @@ enum RecordingPhase: Equatable {
     }
 
     private func fail(_ error: Error) {
-        alert = AppAlert(title: "Recording problem", message: error.localizedDescription)
+        alert = AppAlert(title: "Recording problem", error: error)
     }
 
     // MARK: Ticker
@@ -286,7 +299,7 @@ enum RecordingPhase: Equatable {
             // interrupted recording; never cancel() it (that deletes the package).
             stopTicker()
             finish()
-            alert = AppAlert(title: "Recording stopped", message: f.localizedDescription + " What was written to disk can be recovered from the Recordings window.")
+            alert = AppAlert(title: "Recording stopped", message: UserMessage.describe(f) + " What was written to disk can be recovered from the Recordings window.")
             RecentProjectsWindow.shared.show()
         }
     }
@@ -296,6 +309,8 @@ struct AppAlert: Identifiable {
     let id = UUID()
     var title: String
     var message: String
+    /// When set, the alert offers a button that opens this permission's System Settings pane.
+    var permission: AppPermission?
 }
 
 // MARK: - Countdown overlay
@@ -335,8 +350,8 @@ private struct CountdownView: View {
             .font(.system(size: 84, weight: .semibold, design: .rounded).monospacedDigit())
             .foregroundStyle(.primary)
             .frame(width: 148, height: 148)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(.separator))
+            .panelSurface(cornerRadius: 28)
             .frame(width: 160, height: 160)
+            .accessibilityLabel("Recording starts in \(model.value) seconds")
     }
 }

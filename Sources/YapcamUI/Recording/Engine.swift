@@ -24,15 +24,7 @@ enum EngineError: LocalizedError {
     case diskFull(availableBytes: Int64)
     case failed(String)
 
-    var errorDescription: String? {
-        switch self {
-        case .unavailable(let m): return m
-        case .permissionDenied(let p): return "Yapcam needs \(p) access to record."
-        case .diskFull(let b):
-            return "Not enough free disk space (\(ByteCountFormatter.string(fromByteCount: b, countStyle: .file)) left)."
-        case .failed(let m): return m
-        }
-    }
+    var errorDescription: String? { UserMessage.describe(self) }
 }
 
 /// One recording in flight. The only place the app talks to the capture layer.

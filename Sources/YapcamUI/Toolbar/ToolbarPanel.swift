@@ -40,6 +40,12 @@ import SwiftUI
         p.contentView = hosting
 
         RecordingController.shared.engine.registerExcluded(p)
+        layout.move = { [weak self] dx, dy in
+            guard let self else { return }
+            panel.setFrameOrigin(CGPoint(x: panel.frame.minX + dx, y: panel.frame.minY + dy))
+            clampToScreen()
+            windowDidMove(Notification(name: NSWindow.didMoveNotification))
+        }
 
         RecordingController.shared.$phase.removeDuplicates()
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refit() } }.store(in: &bag)
@@ -65,8 +71,7 @@ import SwiftUI
         isAdjusting = true
         defer { isAdjusting = false }
         if initial && !panel.isVisible {
-            let frame = CGRect(origin: .zero, size: size)
-            panel.setFrame(frame, display: false)
+            panel.setFrame(CGRect(origin: .zero, size: size), display: false)
             panel.setFrameOrigin(initialOrigin(for: size))
         } else {
             var f = panel.frame
@@ -79,69 +84,71 @@ import SwiftUI
         updateSide()
     }
 
-    // MARK: Position
+    // MARK: Position (rules live in ToolbarGeometry)
 
-    private func key(_ id: CGDirectDisplayID) -> String { "toolbarPos.\(id)" }
+    private func key(_ id: UInt32) -> String { "toolbarPos.\(id)" }
 
-    private func initialOrigin(for size: CGSize) -> CGPoint {
-        let lastID = UInt32(defaults.integer(forKey: "toolbarLastDisplay"))
-        let screen = Displays.screen(for: lastID) ?? NSScreen.main ?? NSScreen.screens[0]
-        let id = screen.displayID ?? 0
-        let vis = screen.visibleFrame
-        if let a = defaults.array(forKey: key(id)) as? [Double], a.count == 2 {
-            // Stored as fraction of the screen frame for the toolbar's top-left corner.
-            let f = screen.frame
-            return CGPoint(x: f.minX + a[0] * f.width, y: f.minY + a[1] * f.height - size.height)
+    private var screens: [ScreenInfo] {
+        NSScreen.screens.compactMap { s in
+            s.displayID.map { ScreenInfo(id: $0, frame: s.frame, visibleFrame: s.visibleFrame, scale: s.backingScaleFactor) }
         }
-        // Default: right edge, vertically centered, 24 pt inset.
-        return CGPoint(x: vis.maxX - size.width - 24, y: vis.midY - size.height / 2)
     }
 
-    private func currentScreen() -> NSScreen? {
-        let c = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
-        return NSScreen.screens.first { $0.frame.contains(c) } ?? panel.screen ?? NSScreen.main
+    private func savedFraction(_ id: UInt32) -> ToolbarGeometry.Fraction? {
+        guard let a = defaults.array(forKey: key(id)) as? [Double], a.count == 2 else { return nil }
+        return .init(x: a[0], y: a[1])
+    }
+
+    private var lastDisplay: UInt32? {
+        let v = UInt32(defaults.integer(forKey: "toolbarLastDisplay")); return v == 0 ? nil : v
+    }
+
+    private func initialOrigin(for size: CGSize) -> CGPoint {
+        let all = screens
+        let mainID = NSScreen.main?.displayID
+        guard let s = ToolbarGeometry.fallbackScreen(lastID: lastDisplay, mainID: mainID, in: all) else { return .zero }
+        return ToolbarGeometry.origin(size: size, on: s, saved: savedFraction(s.id))
+    }
+
+    private func currentScreen() -> ScreenInfo? {
+        ToolbarGeometry.screen(containing: panel.frame, in: screens)
+            ?? ToolbarGeometry.fallbackScreen(lastID: lastDisplay, mainID: NSScreen.main?.displayID, in: screens)
     }
 
     func windowDidMove(_ notification: Notification) {
-        guard !isAdjusting, let screen = currentScreen(), let id = screen.displayID else { return }
-        let f = screen.frame
-        let topLeft = CGPoint(x: panel.frame.minX, y: panel.frame.maxY)
-        defaults.set([(topLeft.x - f.minX) / f.width, (topLeft.y - f.minY) / f.height], forKey: key(id))
-        defaults.set(Int(id), forKey: "toolbarLastDisplay")
+        guard !isAdjusting, let screen = ToolbarGeometry.screen(containing: panel.frame, in: screens) else { return }
+        let f = ToolbarGeometry.fraction(frame: panel.frame, on: screen)
+        defaults.set([f.x, f.y], forKey: key(screen.id))
+        defaults.set(Int(screen.id), forKey: "toolbarLastDisplay")
         updateSide()
     }
 
     private func clampToScreen() {
         guard let screen = currentScreen() else { return }
-        let vis = screen.visibleFrame
-        var f = panel.frame
-        f.origin.x = min(max(f.origin.x, vis.minX + 4), vis.maxX - f.width - 4)
-        f.origin.y = min(max(f.origin.y, vis.minY + 4), vis.maxY - f.height - 4)
+        let f = ToolbarGeometry.clamp(panel.frame, to: screen.visibleFrame)
         if f != panel.frame { panel.setFrame(f, display: true) }
     }
 
     @objc private func screensChanged() {
         guard panel.isVisible else { return }
-        // If the display we were on is gone, move to the saved spot on the main display.
-        let c = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
         isAdjusting = true
         defer { isAdjusting = false }
-        if !NSScreen.screens.contains(where: { $0.frame.contains(c) }) {
-            panel.setFrameOrigin(initialOrigin(for: panel.frame.size))
-        }
-        clampToScreen()
+        if let f = ToolbarGeometry.relocate(frame: panel.frame, screens: screens, lastID: lastDisplay,
+                                            mainID: NSScreen.main?.displayID, saved: { self.savedFraction($0) }),
+           f != panel.frame { panel.setFrame(f, display: true) }
         updateSide()
     }
 
-    /// Popovers open toward the screen's center: right of the toolbar when it is on the left half.
     private func updateSide() {
         guard let screen = currentScreen() else { return }
-        layout.onLeftHalf = panel.frame.midX < screen.frame.midX
+        layout.onLeftHalf = ToolbarGeometry.onLeftHalf(frame: panel.frame, of: screen)
     }
 }
 
 @MainActor final class ToolbarLayoutModel: ObservableObject {
     @Published var onLeftHalf = false
+    /// Moves the toolbar by (dx, dy) points; used by VoiceOver actions and keyboard users.
+    var move: (CGFloat, CGFloat) -> Void = { _, _ in }
 }
 
 final class ToolbarPanel: NSPanel {

@@ -57,18 +57,18 @@ struct ProjectEntry: Identifiable, Equatable {
 
     func rename(_ p: ProjectEntry) {
         guard let name = Prompt.text(title: "Rename Recording", message: "New name for “\(p.name)”", initial: p.name) else { return }
-        do { _ = try ProjectActions.rename(p.url, to: name) } catch { RecordingController.shared.alert = AppAlert(title: "Could not rename", message: error.localizedDescription) }
+        do { _ = try ProjectActions.rename(p.url, to: name) } catch { RecordingController.shared.alert = AppAlert(title: "Could not rename", error: error) }
         reload()
     }
 
     func duplicate(_ p: ProjectEntry) {
-        do { _ = try ProjectActions.duplicate(p.url) } catch { RecordingController.shared.alert = AppAlert(title: "Could not duplicate", message: error.localizedDescription) }
+        do { _ = try ProjectActions.duplicate(p.url) } catch { RecordingController.shared.alert = AppAlert(title: "Could not duplicate", error: error) }
         reload()
     }
 
     func extractRaw(_ p: ProjectEntry) {
         do { if let dest = try ProjectActions.extractRaw(p.url) { NSWorkspace.shared.activateFileViewerSelecting([dest]) } }
-        catch { RecordingController.shared.alert = AppAlert(title: "Could not extract files", message: error.localizedDescription) }
+        catch { RecordingController.shared.alert = AppAlert(title: "Could not extract files", error: error) }
     }
 
     func trash(_ p: ProjectEntry) {
@@ -159,7 +159,7 @@ struct RecentProjectsView: View {
             let url = try RecordingController.shared.engine.recover(u)
             model.reload()
             RecordingController.shared.engine.openEditor(package: url)
-        } catch { message = "Could not recover \(u.lastPathComponent): \(error.localizedDescription)" }
+        } catch { message = "Could not recover “\(u.deletingPathExtension().lastPathComponent)”. \(UserMessage.describe(error))" }
     }
 
     private struct Row: View {

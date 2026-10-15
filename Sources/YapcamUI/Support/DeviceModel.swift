@@ -57,7 +57,7 @@ struct DeviceInfo: Identifiable, Equatable { let id: String; let name: String }
             out.setSampleBufferDelegate(self, queue: queue)
             guard s.canAddOutput(out) else { return }
             s.addOutput(out)
-        } catch { meterError = error.localizedDescription; return }
+        } catch { meterError = "Could not read the microphone. \(UserMessage.describe(error))"; return }
         meterSession = s
         queue.async { s.startRunning() }
     }
@@ -117,15 +117,18 @@ struct CameraPreview: NSViewRepresentable {
 
 struct LevelMeter: View {
     let level: Float
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { g in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.12))
                 Capsule().fill(level > 0.9 ? Color.red : Color.green).frame(width: g.size.width * CGFloat(level))
-                    .animation(.linear(duration: 0.08), value: level)
+                    .animation(reduceMotion ? nil : .linear(duration: 0.08), value: level)
             }
         }
         .frame(height: 6)
+        .accessibilityElement()
         .accessibilityLabel("Input level")
+        .accessibilityValue("\(Int(level * 100)) percent")
     }
 }

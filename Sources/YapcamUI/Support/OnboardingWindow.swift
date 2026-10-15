@@ -36,6 +36,7 @@ struct OnboardingView: View {
     @ObservedObject var model: OnboardingWindow.OnboardingModel
     var close: () -> Void
     @EnvironmentObject var perms: PermissionsModel
+    @Environment(\.contrastOpacity) private var contrast
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -50,7 +51,7 @@ struct OnboardingView: View {
                     if p != AppPermission.allCases.last { Divider() }
                 }
             }
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color.primary.opacity(contrast.subtleFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             Text("After changing a permission in System Settings, macOS may ask you to quit and reopen Yapcam. Screen recording changes only apply after a restart.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
@@ -72,7 +73,7 @@ private struct PermissionRow: View {
     var body: some View {
         let state = perms.state(permission)
         HStack(spacing: 12) {
-            Image(systemName: permission.symbol).frame(width: 24).foregroundStyle(.secondary)
+            Image(systemName: permission.symbol).frame(width: 24).foregroundStyle(.secondary).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(permission.title).font(.system(size: 13, weight: .medium))
@@ -84,10 +85,12 @@ private struct PermissionRow: View {
             if state == .granted {
                 Label("Granted", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
                     .labelStyle(.titleAndIcon)
+                    .accessibilityLabel("\(permission.title): granted")
             } else {
                 Button(state == .notDetermined || !perms.hasRequested(permission) ? "Allow" : "Open Settings") {
                     perms.act(permission)
                 }
+                .accessibilityLabel("\(state == .notDetermined || !perms.hasRequested(permission) ? "Allow" : "Open Settings") for \(permission.title)")
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)

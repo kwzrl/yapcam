@@ -100,7 +100,7 @@ import YapcamEditor
     }
 
     private func fail(_ title: String, _ e: Error) {
-        RecordingController.shared.alert = AppAlert(title: title, message: e.localizedDescription)
+        RecordingController.shared.alert = AppAlert(title: title, error: e)
     }
 
     @objc private func saveCurrent() {

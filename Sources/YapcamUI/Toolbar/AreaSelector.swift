@@ -224,8 +224,35 @@ private final class AreaOverlayView: NSView {
         switch event.keyCode {
         case 53: onFinish?(nil)                                  // esc
         case 36, 76: if let r = rect { onFinish?(r.integral) }   // return / enter
+        case 123, 124, 125, 126: nudge(event)                    // arrows: move; ⇧ resizes; ⌥ moves by 10
         default: super.keyDown(with: event)
         }
+    }
+
+    /// Keyboard control for people who can't drag: arrows move the area, ⇧+arrows resize it.
+    private func nudge(_ event: NSEvent) {
+        let step: CGFloat = event.modifierFlags.contains(.option) ? 10 : 1
+        let dx: CGFloat = event.keyCode == 123 ? -step : event.keyCode == 124 ? step : 0
+        let dy: CGFloat = event.keyCode == 126 ? -step : event.keyCode == 125 ? step : 0
+        var r = rect ?? CGRect(x: bounds.midX - 200, y: bounds.midY - 120, width: 400, height: 240)
+        if event.modifierFlags.contains(.shift) { r.size.width += dx; r.size.height += dy }
+        else { r.origin.x += dx; r.origin.y += dy }
+        r.size.width = max(AreaGeometry.minSide, r.size.width); r.size.height = max(AreaGeometry.minSide, r.size.height)
+        r.origin.x = min(max(0, r.origin.x), bounds.width - r.width)
+        r.origin.y = min(max(0, r.origin.y), bounds.height - r.height)
+        rect = r
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+    override func accessibilityLabel() -> String? { "Recording area selector" }
+    override func accessibilityChildren() -> [Any]? { bar.map { [$0] } }
+    override func accessibilityValue() -> Any? {
+        guard let r = rect else { return "No area selected. Press an arrow key to start one, or drag with the pointer." }
+        return "\(Int(r.width)) by \(Int(r.height)) points at \(Int(r.minX)), \(Int(r.minY))"
+    }
+    override func accessibilityHelp() -> String? {
+        "Arrow keys move the area, Shift plus arrow resizes it, Option moves by ten points, Return confirms, Escape cancels."
     }
 
     // MARK: Bottom bar
@@ -261,14 +288,13 @@ private struct AreaBar: View {
             Picker("Aspect", selection: Binding(get: { preset }, set: choose)) {
                 ForEach(AspectPreset.all, id: \.name) { Text($0.name).tag($0.name) }
             }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 260)
+            .pickerStyle(.segmented).labelsHidden().frame(width: 260).accessibilityLabel("Aspect ratio")
             Divider().frame(height: 18)
             Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
             Button("Use Area", action: confirm).keyboardShortcut(.defaultAction).disabled(!hasRect)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+        .panelSurface(cornerRadius: 12)
         .padding(4)
     }
 }

@@ -39,6 +39,8 @@ struct TeleprompterView: View {
     @AppStorage("teleprompterSpeed") private var speed = 0.0     // points per second, 0 = manual
     @State private var position = ScrollPosition()
     @State private var offset = 0.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var tickCount = 0
     private let tick = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -48,12 +50,13 @@ struct TeleprompterView: View {
                 Text("Teleprompter").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Image(systemName: "textformat.size.smaller").foregroundStyle(.secondary)
-                Slider(value: $size, in: 16...64).frame(width: 90)
+                Slider(value: $size, in: 16...64).frame(width: 90).accessibilityLabel("Text size")
                 Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
                 Image(systemName: "tortoise").foregroundStyle(.secondary)
                 Slider(value: $speed, in: 0...120).frame(width: 80).help(speed == 0 ? "Auto-scroll off" : "Auto-scroll speed")
+                    .accessibilityLabel("Auto-scroll speed").accessibilityValue(speed == 0 ? "Off" : "\(Int(speed)) points per second")
                 Image(systemName: "hare").foregroundStyle(.secondary)
-                Button { offset = 0; position.scrollTo(y: 0) } label: { Image(systemName: "arrow.up.to.line") }.help("Back to top")
+                Button { offset = 0; position.scrollTo(y: 0) } label: { Image(systemName: "arrow.up.to.line") }.help("Back to top").accessibilityLabel("Back to top")
                 Button(action: close) { Image(systemName: "xmark") }.help("Close")
             }
             .buttonStyle(.borderless).padding(.horizontal, 12).padding(.vertical, 8)
@@ -68,12 +71,13 @@ struct TeleprompterView: View {
             .scrollPosition($position)
             .onScrollGeometryChange(for: Double.self, of: { $0.contentOffset.y }) { _, new in offset = new }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+        .panelSurface(cornerRadius: 14)
         .onReceive(tick) { _ in
             guard speed > 0, rec.phase == .recording else { return }
             offset += speed * 0.05
-            position.scrollTo(y: offset)
+            // Reduce Motion: move in one step per second instead of continuously.
+            tickCount += 1
+            if !reduceMotion || tickCount % 20 == 0 { position.scrollTo(y: offset) }
         }
     }
 }
