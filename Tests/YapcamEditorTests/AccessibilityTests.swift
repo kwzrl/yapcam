@@ -104,8 +104,8 @@ import AppKit
 
 @Suite struct InspectorSectionTests {
     @Test func everySectionHasATitleAndIcon() {
-        #expect(InspectorSection.allCases.count == 7)
-        #expect(Set(InspectorSection.allCases.map(\.title)).count == 7 && Set(InspectorSection.allCases.map(\.symbol)).count == 7)
-        #expect(InspectorSection.allCases.map(\.title).contains("Keyboard shortcuts") && InspectorSection.allCases.map(\.title).contains("Zoom & motion"))
+        #expect(InspectorSection.allCases.count == 10)
+        #expect(Set(InspectorSection.allCases.map(\.title)).count == 10 && Set(InspectorSection.allCases.map(\.symbol)).count == 10)
+        #expect(InspectorSection.allCases.map(\.title).contains("Keyboard shortcuts") && InspectorSection.allCases.map(\.title).contains("Animations"))
     }
 }

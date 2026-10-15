@@ -53,7 +53,7 @@ import AppKit
         m.seek(toNs: 4_000_000_000); m.addText(.annotation, text: "Click here")
         m.addText(.caption, text: "Hello world"); m.addBuiltInMusic(builtInMusic[0])
         _ = NSApplication.shared
-        let host = NSHostingView(rootView: InspectorView(model: m, initialSection: .overlays).frame(width: 300, height: 1500).background(Color(nsColor: .windowBackgroundColor)))
+        let host = NSHostingView(rootView: InspectorView(model: m, initialSection: .extras).frame(width: 300, height: 1500).background(Color(nsColor: .windowBackgroundColor)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 1500), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host; window.orderBack(nil)
         RunLoop.current.run(until: Date().addingTimeInterval(0.4)); host.layoutSubtreeIfNeeded()

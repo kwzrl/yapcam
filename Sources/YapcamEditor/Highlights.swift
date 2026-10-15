@@ -66,6 +66,7 @@ extension EditorModel {
                         "dim_opacity": .number(h.dimOpacity), "fill": arr(h.fill), "stroke": arr(h.stroke), "stroke_width": .number(h.strokeWidth)])
     }
     private func writeHighlights(_ hs: [HighlightRegion]) { set("canvas.highlights", .array(hs.map(json))) }
+    func writeHighlightList(_ hs: [HighlightRegion]) { writeHighlights(hs) }
 
     public func addHighlightAtPlayhead(kind: HighlightRegion.Kind = .highlight) {
         let start = playheadNs, end = min(start + 3_000_000_000, durationNs)

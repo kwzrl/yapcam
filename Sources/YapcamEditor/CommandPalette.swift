@@ -14,7 +14,13 @@ extension EditorModel {
         let hasSel = selection != .none
         return [
             PaletteCommand(title: isPlaying ? "Pause" : "Play", shortcut: "Space", enabled: true) { [self] in togglePlay() },
-            PaletteCommand(title: "Split at playhead", shortcut: "S", enabled: true) { [self] in splitAtPlayhead() },
+            PaletteCommand(title: "Split at playhead", shortcut: "C", enabled: true) { [self] in splitContextAware() },
+            PaletteCommand(title: "Ripple delete to previous cut", shortcut: "X", enabled: true) { [self] in rippleDeleteToPreviousCut() },
+            PaletteCommand(title: "Set clip speed…", shortcut: "S", enabled: true) { [self] in speedMenuVisible = true },
+            PaletteCommand(title: "Set volume…", shortcut: "V", enabled: true) { [self] in volumeMenuSystem = false; volumeMenuVisible = true },
+            PaletteCommand(title: "Duplicate zoom", shortcut: "⌘D", enabled: selectedZoom != nil) { [self] in duplicateSelectedZoom() },
+            PaletteCommand(title: "Copy item settings", shortcut: "⌘C", enabled: hasSel) { [self] in copySelectedSettings() },
+            PaletteCommand(title: "Paste item settings", shortcut: "⌘V", enabled: itemClipboard != nil && hasSel) { [self] in pasteSettings() },
             PaletteCommand(title: "Delete selection", shortcut: "⌫", enabled: hasSel) { [self] in deleteSelection() },
             PaletteCommand(title: "Trim start to playhead", shortcut: "[", enabled: true) { [self] in trim(keepAfter: true) },
             PaletteCommand(title: "Trim end to playhead", shortcut: "]", enabled: true) { [self] in trim(keepAfter: false) },
@@ -39,8 +45,8 @@ extension EditorModel {
             PaletteCommand(title: "Copy current frame", shortcut: "⇧⌘C", enabled: copyFrameHandler != nil) { [self] in copyFrameHandler?() },
             PaletteCommand(title: "Undo", shortcut: "⌘Z", enabled: canUndo) { [self] in undo() },
             PaletteCommand(title: "Redo", shortcut: "⇧⌘Z", enabled: canRedo) { [self] in redo() },
-            PaletteCommand(title: "Zoom timeline in", shortcut: "+", enabled: true) { [self] in zoomTimeline(by: 1.25) },
-            PaletteCommand(title: "Zoom timeline out", shortcut: "−", enabled: true) { [self] in zoomTimeline(by: 0.8) },
+            PaletteCommand(title: "Zoom timeline in", shortcut: "⌘=", enabled: true) { [self] in zoomTimeline(by: 1.25) },
+            PaletteCommand(title: "Zoom timeline out", shortcut: "⌘-", enabled: true) { [self] in zoomTimeline(by: 0.8) },
             PaletteCommand(title: "Fit timeline to window", shortcut: "⇧Z", enabled: true) { [self] in fitTimeline(width: 900) },
             PaletteCommand(title: "Toggle snapping", shortcut: "", enabled: true) { [self] in snappingEnabled.toggle() },
         ]

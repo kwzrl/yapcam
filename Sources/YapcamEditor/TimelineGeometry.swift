@@ -4,7 +4,7 @@ import Foundation
 public struct TimelineGeometry: Equatable, Sendable {
     public var pixelsPerSecond: Double
     public var scrollOffsetPx: Double = 0
-    public static let minPPS = 2.0
+    public static let minPPS = 0.1
     public static let maxPPS = 2000.0
 
     public init(pixelsPerSecond: Double, scrollOffsetPx: Double = 0) {

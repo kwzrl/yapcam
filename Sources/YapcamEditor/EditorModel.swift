@@ -40,6 +40,14 @@ public final class EditorModel: ObservableObject {
     public private(set) var playheadNs: Int64 { get { playhead.ns } set { if playhead.ns != newValue { playhead.ns = newValue } } }
     public private(set) var isPlaying: Bool { get { playhead.isPlaying } set { if playhead.isPlaying != newValue { playhead.isPlaying = newValue } } }
     @Published public var paletteVisible = false
+    @Published public var speedMenuVisible = false
+    @Published public var volumeMenuVisible = false
+    public var volumeMenuSystem = false
+    public var itemClipboard: ItemClipboard?
+    /// Visible width of the timeline in points (set by the view); bounds the timeline zoom window to 2 s…10 min.
+    public var timelineViewportWidth: Double = 900
+    /// Inspector section chosen in the icon rail (⌘1…⌘0 select by position).
+    @Published public var inspectorSection: InspectorSection = .background
     @Published public var textRectPreview: (key: String, rect: [Double])?
     public enum CaptionState: Equatable { case idle, working, failed(String) }
     @Published public var captionState: CaptionState = .idle
@@ -128,6 +136,8 @@ public final class EditorModel: ObservableObject {
     public func set(_ path: String, color c: [Double]) { set(path, .array(c.map { .number($0) })) }
     public var hasCamera: Bool { project.hasCamera }
     public var hasMic: Bool { project.hasMic }
+    public var hasMouseData: Bool { project.hasMouseData }
+    public var hasKeystrokes: Bool { project.hasKeystrokes }
 
     public var previewAspect: Double { project.frameGeometry(atNs: playheadNs)?.aspect ?? 16.0 / 9 }
 
@@ -512,6 +522,12 @@ public final class EditorModel: ObservableObject {
     // MARK: timeline zoom
 
     /// Native horizontal scrolling owns the offset, so the model only changes the scale.
-    public func zoomTimeline(by factor: Double, anchorX: Double = 0) { geometry = TimelineGeometry(pixelsPerSecond: geometry.pixelsPerSecond * factor) }
+    public func zoomTimeline(by factor: Double, anchorX: Double = 0) {
+        // The visible window stays between 2 s and min(project length, 10 min).
+        let maxPPS = timelineViewportWidth / 2
+        let minPPS = timelineViewportWidth / max(min(Double(durationNs) / 1e9, 600), 2)
+        let target = min(max(geometry.pixelsPerSecond * factor, min(minPPS, maxPPS)), maxPPS)
+        geometry = TimelineGeometry(pixelsPerSecond: target)
+    }
     public func fitTimeline(width: Double) { geometry = .fitting(durationNs: durationNs, width: width) }
 }

@@ -107,6 +107,7 @@ struct PreviewControlsBar: View {
                     Button { model.setAspect(a) } label: {
                         if model.string("canvas.aspect") == a.rawValue { Label(a.label, systemImage: "checkmark") } else { Text(a.label) }
                     }
+                    .help(a.hint)
                 }
             } label: { Label(aspectTitle, systemImage: "rectangle.dashed") }
                 .menuStyle(.borderlessButton).fixedSize().help("Aspect ratio of the output")
@@ -119,7 +120,7 @@ struct PreviewControlsBar: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
     private var aspectTitle: String {
-        let a = model.string("canvas.aspect", default: "16:9")
+        let a = model.string("canvas.aspect", default: "source")
         return AspectPreset(rawValue: a)?.label ?? a
     }
 }
@@ -179,13 +180,14 @@ struct TransportBar: View {
                 .disabled(model.selection == .none).help("Delete selection (⌫)").accessibilityLabel("Delete selection")
             Toggle(isOn: $model.snappingEnabled) { Image(systemName: "magnet") }.toggleStyle(.button).help("Snapping").accessibilityLabel("Snapping")
             Divider().frame(height: 16)
-            Menu {
-                ForEach([0.25, 0.5, 1, 1.5, 2, 4, 8], id: \.self) { v in
-                    Button(v == 1 ? "1x (normal)" : "\(v.formatted())x") { if let c = selectedClip { model.setSpeed(clipID: c.id, v) } }
-                }
-            } label: { Text(selectedClip.map { $0.speed == 1 ? "1x" : "\($0.speed.formatted())x" } ?? "1x").monospacedDigit() }
-                .menuStyle(.borderlessButton).fixedSize().disabled(selectedClip == nil)
-                .help(selectedClip == nil ? "Select a clip to change its speed" : "Clip speed").accessibilityLabel("Clip speed")
+            Button { model.volumeMenuSystem = false; model.volumeMenuVisible = true } label: { Image(systemName: "speaker.wave.2") }
+                .popover(isPresented: $model.volumeMenuVisible) { VolumeMenu(model: model) }
+                .help("Volume (V; ⌃V for system audio)").accessibilityLabel("Volume")
+            Button { model.speedMenuVisible = true } label: {
+                Text(model.speedTargetClip.map { speedText($0.speed) } ?? "1x").monospacedDigit()
+            }
+            .popover(isPresented: $model.speedMenuVisible) { SpeedMenu(model: model) }
+            .help("Clip speed (S)").accessibilityLabel("Clip speed")
             HStack(spacing: 6) {
                 Image(systemName: "minus.magnifyingglass").foregroundStyle(.secondary)
                 Slider(value: Binding(get: { log2(model.geometry.pixelsPerSecond) },
@@ -198,5 +200,47 @@ struct TransportBar: View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 14).padding(.vertical, 6)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+func speedText(_ v: Double) -> String { v == v.rounded() ? "\(Int(v))x" : String(format: "%gx", v) }
+
+/// S: the reference's fixed speed list for the clip under the playhead (or the selected clip), plus "apply to all".
+struct SpeedMenu: View {
+    @ObservedObject var model: EditorModel
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        let current = model.speedTargetClip?.speed
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Clip speed").font(.headline).padding(.bottom, 4)
+            ForEach(clipSpeedOptions, id: \.self) { v in
+                Button { model.setSpeedOfTarget(v); dismiss() } label: {
+                    HStack { Text(speedText(v)); Spacer(); if current == v { Image(systemName: "checkmark") } }.contentShape(Rectangle())
+                }.buttonStyle(.plain).padding(.vertical, 2)
+            }
+            Divider().padding(.vertical, 4)
+            Button("Apply speed to all clips") { if let c = current { model.applySpeedToAll(c) }; dismiss() }.disabled(current == nil)
+        }
+        .padding(14).frame(width: 190)
+    }
+}
+
+/// V / ⌃V: microphone or system-audio volume in 10 % steps (0 mutes).
+struct VolumeMenu: View {
+    @ObservedObject var model: EditorModel
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        let system = model.volumeMenuSystem
+        let current = model.volumePercent(system: system)
+        VStack(alignment: .leading, spacing: 2) {
+            Picker("", selection: $model.volumeMenuSystem) { Text("Microphone").tag(false); Text("System audio").tag(true) }
+                .pickerStyle(.segmented).labelsHidden().padding(.bottom, 4)
+            ForEach(Array(stride(from: 100, through: 0, by: -10)), id: \.self) { p in
+                Button { model.setVolume(percent: p, system: system); dismiss() } label: {
+                    HStack { Text(p == 0 ? "Muted" : "\(p)%"); Spacer(); if abs(current - p) < 5 { Image(systemName: "checkmark") } }.contentShape(Rectangle())
+                }.buttonStyle(.plain).padding(.vertical, 2)
+            }
+        }
+        .padding(14).frame(width: 210)
     }
 }

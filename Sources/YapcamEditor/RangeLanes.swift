@@ -46,6 +46,7 @@ extension EditorModel {
         return .object(o)
     }
     private func writeLayouts(_ ls: [LayoutSegment]) { set("camera.layouts", .array(ls.sorted { $0.startNs < $1.startNs }.map(layoutJSON))) }
+    func writeLayoutList(_ ls: [LayoutSegment]) { writeLayouts(ls) }
 
     public func addLayoutAtPlayhead(mode: String = "camera") {
         guard hasCamera else { lastError = "This recording has no camera track."; return }

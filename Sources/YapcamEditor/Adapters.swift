@@ -89,6 +89,14 @@ public final class CoreEditingProject: EditingProject {
                              crop: CGRect(x: f.screen_crop.x, y: f.screen_crop.y, width: f.screen_crop.w, height: f.screen_crop.h))
     }
     public var hasCamera: Bool { project.session.tracks.camera != nil }
+    private lazy var mouseData: Bool = project.session.segments.contains { seg in
+        guard let rel = seg.files["events"] else { return false }
+        let url = project.packageURL.appendingPathComponent("recording").appendingPathComponent(rel)
+        return ((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0
+    }
+    public var hasMouseData: Bool { mouseData }
+    private lazy var keystrokes: Bool = ((try? project.query("{\"q\":\"key_events\"}", as: [JSONValue].self)) ?? []).isEmpty == false
+    public var hasKeystrokes: Bool { keystrokes }
     public var hasMic: Bool { project.session.tracks.mic != nil }
     public var durationNs: Int64 { project.durationNs }
     public var canUndo: Bool { project.canUndo }
