@@ -50,7 +50,7 @@ extension EditorModel {
     public func addLayoutAtPlayhead(mode: String = "camera") {
         guard hasCamera else { lastError = "This recording has no camera track."; return }
         let start = playheadNs, end = min(start + 3_000_000_000, durationNs)
-        guard end - start >= minZoomDurationNs else { lastError = "Not enough room for a layout here."; return }
+        guard end - start >= minItemNs else { lastError = "Not enough room for a layout here."; return }
         // Overlapping segments are rejected rather than silently reordered.
         if layouts.contains(where: { $0.startNs < end && $0.endNs > start }) { lastError = "A camera layout already covers this time."; return }
         let l = LayoutSegment(id: "layout-" + UUID().uuidString.prefix(8).lowercased(), startNs: start, endNs: end, mode: mode)
@@ -63,7 +63,7 @@ extension EditorModel {
 
     public func addCursorHideAtPlayhead() {
         let start = playheadNs, end = min(start + 2_000_000_000, durationNs)
-        guard end - start >= minZoomDurationNs else { lastError = "Not enough room here."; return }
+        guard end - start >= minItemNs else { lastError = "Not enough room here."; return }
         guard case .array(let rows)? = value("cursor.ranges") ?? .array([]) else { return }
         let row: JSONValue = .object(["tl_start_ns": .number(Double(start)), "tl_end_ns": .number(Double(end)), "visible": .bool(false)])
         set("cursor.ranges", .array(rows + [row])); selection = .cursorHide(rows.count)
@@ -82,7 +82,7 @@ extension EditorModel {
     public func minDurationNs(forKey key: String) -> Int64 {
         if let t = textItem(key: key) { return t.kind == .caption ? 20_000_000 : 100_000_000 }
         if music.contains(where: { $0.id == key }) { return 100_000_000 }
-        return minZoomDurationNs
+        return min(minZoomDurationNs, max(durationNs, 1))
     }
 
     public func previewRange(key: String, current: TimeSpan, startNs: Int64? = nil, endNs: Int64? = nil, moveToStartNs: Int64? = nil) {
@@ -140,7 +140,7 @@ extension EditorModel {
     }
     public func addAudioRangeAtPlayhead(track: String, gainDb: Double = -12) {
         let end = min(playheadNs + 3_000_000_000, durationNs)
-        guard end - playheadNs >= minZoomDurationNs else { lastError = "Not enough room here."; return }
+        guard end - playheadNs >= minItemNs else { lastError = "Not enough room here."; return }
         let r = AudioRangeRow(id: "audio-" + UUID().uuidString.prefix(8).lowercased(), track: track,
                               span: TimeSpan(startNs: playheadNs, endNs: end), startGainDb: gainDb, endGainDb: gainDb)
         write(audioRanges + [r])
@@ -150,7 +150,7 @@ extension EditorModel {
             if r.id == id {
                 if let startGainDb { r.startGainDb = min(max(startGainDb, -96), 24) }
                 if let endGainDb { r.endGainDb = min(max(endGainDb, -96), 24) }
-                if let span, span.durationNs >= minZoomDurationNs { r.span = span }
+                if let span, span.durationNs >= minItemNs { r.span = span }
             }
             return r })
     }

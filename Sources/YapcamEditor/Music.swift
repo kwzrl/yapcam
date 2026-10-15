@@ -54,7 +54,7 @@ extension EditorModel {
     @discardableResult
     public func addBuiltInMusic(_ source: MusicSourceInfo) -> String? {
         let end = durationNs
-        guard end - playheadNs >= minZoomDurationNs else { lastError = "Not enough room here."; return nil }
+        guard end - playheadNs >= minItemNs else { lastError = "Not enough room here."; return nil }
         let id = "music-" + UUID().uuidString.prefix(8).lowercased()
         let row: JSONValue = .object(["id": .string(id), "tl_start_ns": .number(Double(playheadNs)), "tl_end_ns": .number(Double(end)),
                                       "source": .string(source.id), "file_duration_ns": .number(Double(source.durationNs)),

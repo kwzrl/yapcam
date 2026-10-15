@@ -55,7 +55,7 @@ struct TimelineView: View {
                     Rectangle().fill(Color.yellow.opacity(0.9)).frame(width: 1, height: layout.totalHeight)
                         .offset(x: g.x(forNs: snap) + g.scrollOffsetPx)
                 }
-                playhead(g)
+                PlayheadMarker(playhead: model.playhead, model: model, geometry: g, height: layout.totalHeight)
             }
             .frame(width: contentW, height: layout.totalHeight, alignment: .topLeading)
             .contentShape(Rectangle())
@@ -86,8 +86,11 @@ struct TimelineView: View {
                 }
                 .frame(width: max(w - 1, 1), height: TimelineLayout.clipTrackHeight)
                 .offset(x: x, y: layout.clipTop)
-                .accessibilityLabel("Clip \(idx + 1)")
-                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Clip \(idx + 1)\(entry.clip.speed == 1 ? "" : String(format: ", %.2g× speed", entry.clip.speed)), \(formatTimecode(entry.startNs)) to \(formatTimecode(entry.startNs + entry.clip.timelineDurationNs))")
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                .accessibilityAction(named: "Select") { model.selection = .clip(entry.clip.id); model.seek(toNs: entry.startNs) }
+                .accessibilityAction(named: "Delete") { model.selection = .clip(entry.clip.id); model.deleteSelection() }
         }
     }
 
@@ -111,8 +114,10 @@ struct TimelineView: View {
                     .overlay(alignment: .trailing) { Capsule().fill(tint).frame(width: 3, height: 16).padding(.trailing, 2).opacity(selected ? 1 : 0) }
                     .frame(width: w, height: TimelineLayout.zoomTrackHeight - 4)
                     .offset(x: g.x(forNs: r.start), y: 2)
-                    .accessibilityLabel("Zoom \(String(format: "%.1f", z.scale))×, \(formatTimecode(z.startNs)) to \(formatTimecode(z.endNs))")
-                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(String(format: "Zoom %.1f×", z.scale) + (z.mode == .auto ? ", automatic" : "") + ", \(formatTimecode(r.start)) to \(formatTimecode(r.end))")
+                    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+                    .modifier(ItemActions(model: model, selection: .zoom(z.id)))
             }
         }
         .offset(y: layout.zoomTop)
@@ -125,7 +130,8 @@ struct TimelineView: View {
             .offset(y: top)
     }
 
-    private func rangeChip(_ g: TimelineGeometry, key: String, span: TimeSpan, top: CGFloat, tint: Color, title: String, selected: Bool) -> some View {
+    private func rangeChip(_ g: TimelineGeometry, key: String, span: TimeSpan, top: CGFloat, tint: Color, title: String, sel: EditorSelection) -> some View {
+        let selected = model.selection == sel
         let r = model.zoomPreview[key] ?? (span.startNs, span.endNs)
         return RoundedRectangle(cornerRadius: 5)
             .fill(tint.opacity(selected ? 0.6 : 0.32))
@@ -133,8 +139,10 @@ struct TimelineView: View {
             .overlay(alignment: .leading) { Text(title).font(.caption2.weight(.medium)).lineLimit(1).padding(.leading, 8) }
             .frame(width: max(g.contentWidth(durationNs: r.1 - r.0), 6), height: TimelineLayout.laneHeight - 4)
             .offset(x: g.x(forNs: r.0), y: top + 2)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(title), \(formatTimecode(r.0)) to \(formatTimecode(r.1))")
-            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .modifier(ItemActions(model: model, selection: sel))
     }
 
     private func cameraLane(_ g: TimelineGeometry) -> some View {
@@ -142,7 +150,7 @@ struct TimelineView: View {
             laneBackground(g, top: layout.cameraTop, label: "")
             ForEach(model.layouts) { l in
                 rangeChip(g, key: l.id, span: TimeSpan(startNs: l.startNs, endNs: l.endNs), top: layout.cameraTop, tint: .teal,
-                          title: layoutModes.first { $0.value == l.mode }?.label ?? l.mode, selected: model.selection == .layout(l.id))
+                          title: layoutModes.first { $0.value == l.mode }?.label ?? l.mode, sel: .layout(l.id))
             }
         }
     }
@@ -152,7 +160,7 @@ struct TimelineView: View {
             laneBackground(g, top: layout.highlightTop, label: "")
             ForEach(model.highlights) { h in
                 rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, tint: .yellow,
-                          title: h.kind.label, selected: model.selection == .highlight(h.id))
+                          title: h.kind.label, sel: .highlight(h.id))
             }
         }
     }
@@ -162,7 +170,7 @@ struct TimelineView: View {
             laneBackground(g, top: top, label: "")
             ForEach(kinds.flatMap { model.textItems($0) }) { t in
                 rangeChip(g, key: EditorModel.textKey(t), span: t.span, top: top, tint: t.kind == .caption ? .indigo : t.kind == .reaction ? .pink : .mint,
-                          title: t.text.replacingOccurrences(of: "\n", with: " "), selected: model.selection == .text(t.kind, t.id))
+                          title: t.text.replacingOccurrences(of: "\n", with: " "), sel: .text(t.kind, t.id))
             }
         }
     }
@@ -171,7 +179,7 @@ struct TimelineView: View {
         ZStack(alignment: .topLeading) {
             laneBackground(g, top: layout.musicTop, label: "")
             ForEach(model.music) { m in
-                rangeChip(g, key: m.id, span: m.span, top: layout.musicTop, tint: .green, title: "♪ " + m.title, selected: model.selection == .music(m.id))
+                rangeChip(g, key: m.id, span: m.span, top: layout.musicTop, tint: .green, title: "♪ " + m.title, sel: .music(m.id))
             }
         }
     }
@@ -181,21 +189,11 @@ struct TimelineView: View {
             laneBackground(g, top: layout.cursorTop, label: "")
             ForEach(model.cursorHides, id: \.index) { h in
                 rangeChip(g, key: EditorModel.cursorKey(h.index), span: h.span, top: layout.cursorTop, tint: .gray,
-                          title: "Cursor hidden", selected: model.selection == .cursorHide(h.index))
+                          title: "Cursor hidden", sel: .cursorHide(h.index))
             }
         }
     }
 
-    private func playhead(_ g: TimelineGeometry) -> some View {
-        let x = g.x(forNs: model.playheadNs)
-        return ZStack(alignment: .top) {
-            Rectangle().fill(Color.red).frame(width: 1.5, height: layout.totalHeight)
-            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 10)).foregroundStyle(.red).offset(y: -1)
-        }
-        .frame(width: 12, height: layout.totalHeight, alignment: .top)
-        .offset(x: x - 6)
-        .allowsHitTesting(false)
-    }
 
     // MARK: gestures
 
@@ -351,5 +349,42 @@ enum LaneHitTest {
             return Hit(key: it.key, tag: it.tag, part: .body(grabOffsetNs: g.ns(forX: x) - r.0))
         }
         return nil
+    }
+}
+
+/// Only this view observes the playhead, so scrubbing never re-evaluates the tracks.
+struct PlayheadMarker: View {
+    @ObservedObject var playhead: PlayheadState
+    let model: EditorModel
+    let geometry: TimelineGeometry
+    let height: CGFloat
+    var body: some View {
+        ZStack(alignment: .top) {
+            Rectangle().fill(Color.red).frame(width: 1.5, height: height)
+            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 10)).foregroundStyle(.red).offset(y: -1)
+        }
+        .frame(width: 12, height: height, alignment: .top)
+        .offset(x: geometry.x(forNs: playhead.ns) - 6)
+        .allowsHitTesting(false)
+        // VoiceOver: an adjustable "playhead" (up/down = ±1 s) with jump-to-edit-point actions.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playhead")
+        .accessibilityValue("\(formatTimecode(playhead.ns)) of \(formatTimecode(model.durationNs))")
+        .accessibilityAdjustableAction { dir in model.step(bySeconds: dir == .increment ? 1 : -1) }
+        .accessibilityAction(named: "Previous edit point") { model.jumpToEditPoint(forward: false) }
+        .accessibilityAction(named: "Next edit point") { model.jumpToEditPoint(forward: true) }
+    }
+}
+
+/// VoiceOver actions shared by all timeline items.
+struct ItemActions: ViewModifier {
+    let model: EditorModel
+    let selection: EditorSelection
+    func body(content: Content) -> some View {
+        content
+            .accessibilityAction(named: "Select") { model.selection = selection; if let i = model.selectableItems.first(where: { $0.selection == selection }) { model.seek(toNs: i.startNs) } }
+            .accessibilityAction(named: "Delete") { model.selection = selection; model.deleteSelection() }
+            .accessibilityAction(named: "Move earlier by 0.1 seconds") { model.selection = selection; model.nudgeSelection(byNs: -100_000_000) }
+            .accessibilityAction(named: "Move later by 0.1 seconds") { model.selection = selection; model.nudgeSelection(byNs: 100_000_000) }
     }
 }
