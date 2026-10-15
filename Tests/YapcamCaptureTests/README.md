@@ -147,6 +147,16 @@ the configured/manifest pixel size across window resize, scale change and resume
 For QA F8, rerun the guarded window command on an odd-sized window and compare
 `tracks.screen.pixel_size` against ffprobe dimensions for every screen segment.
 
+Every source kind writes `source.display_name`: display/area use the selected
+display's localized name; window uses the display with the greatest intersection
+with its frame. The shared metadata builder looks up that display's ID, retaining
+the original logical rect/scale and window descriptors. If the display has no
+available name, encoding writes `"Display"`. Missing names in older recordings
+remain decodable and acquire that fallback on the next manifest write. Serialization
+regressions cover display/window/area, selecting a non-primary display's name, and
+legacy missing-name input. This is capture's side of Lead's F9 write-always/read-optional
+decision; core's legacy-reader fallback and a new real window open need host validation.
+
 ## On-device transcription
 
 `TranscriptionService().transcribe(package:localeIdentifier:track:)` writes

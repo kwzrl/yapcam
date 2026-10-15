@@ -67,6 +67,37 @@ private func manifest() -> SessionManifest {
     #expect(decoded.segments.first?.trackStartNs["screen"] == 42)
 }
 
+@Test(arguments: ["display", "window", "area"]) func everyCapturedSourceKindSerializesContainingDisplayName(kind: String) throws {
+    let geometry = try CaptureGeometry(rect: CGRect(x: -1200, y: -40, width: 811, height: 613), scale: 2)
+    let source = geometry.sourceMetadata(kind: kind, displayID: 3,
+        displayNames: [2: "Primary display", 3: "Left display"],
+        windowTitle: kind == "window" ? "Document" : nil,
+        appBundleID: kind == "window" ? "com.apple.TextEdit" : nil)
+    var value = manifest()
+    value.source = source
+    let data = try PackageIO.encoder.encode(value)
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let encoded = try #require(object["source"] as? [String: Any])
+    #expect(encoded["kind"] as? String == kind)
+    #expect(encoded["display_id"] as? UInt32 == 3)
+    #expect(encoded["display_name"] as? String == "Left display")
+    #expect(encoded["content_rect_points"] as? [Double] == [-1200, -40, 811, 613])
+    #expect(encoded["scale"] as? Double == 2)
+    #expect(try JSONDecoder().decode(SessionManifest.self, from: data).source.displayName == "Left display")
+}
+
+@Test(arguments: ["display", "window", "area"]) func legacyOrUnknownDisplayNameIsAlwaysWrittenOnNextSave(kind: String) throws {
+    let data = try JSONSerialization.data(withJSONObject: [
+        "kind": kind, "content_rect_points": [0, 0, 64, 64], "scale": 1
+    ])
+    let source = try JSONDecoder().decode(SourceMetadata.self, from: data)
+    #expect(source.displayName == nil) // Missing remains readable for old recordings.
+    let encoded = try #require(JSONSerialization.jsonObject(with: PackageIO.encoder.encode(source)) as? [String: Any])
+    #expect(encoded["display_name"] as? String == "Display")
+    let geometry = try CaptureGeometry(rect: CGRect(x: 0, y: 0, width: 64, height: 64), scale: 1)
+    #expect(geometry.sourceMetadata(kind: kind, displayID: 99, displayNames: [:]).displayName == "Display")
+}
+
 @Test func atomicManifestWritePreservesPreviousVersion() throws {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

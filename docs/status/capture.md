@@ -1,4 +1,5 @@
-READY f400c3e QA F8 even-size pixel metadata; signed build/unit verified, host readback pending
+READY 56f3ca5 + WORKTREE F9 always-write containing display_name; signed build/108 capture tests pass
+READY f400c3e QA F8 even-size pixel metadata; unit verified + QA native pass on 3b68bde
 READY a3a51ad clean-finish lock cleanup / signed-app live variants; host checks pending
 READY 7383d08 M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
 READY 4c5420b round-2 C1 no-speech window recovery/warnings; native say host gate pending
@@ -10,12 +11,22 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 12:38 CEST: main remains 3b68bde; capture source/tests
-  unchanged. QA .app-lock absent; no app launch, rebuild or temp copy. F8 native
-  readback/hour/Speech results still pending; no new capture defect.
+- Backlog audit 2026-10-15 12:49 CEST: main remains 511f831; F9's five files are
+  READY and await checkpoint/native window-open verification. No newer capture
+  finding or host result. QA .app-lock absent; no app launched, repeat test run,
+  or temporary repo/harness created.
+- Top-priority F9 handled 2026-10-15 12:47 CEST. Main 511f831 documents Lead's
+  always-write/read-optional decision; capture implementation/unit validation is
+  READY in this worktree. Five owned files pending: CaptureGeometry.swift,
+  RecordingPackage.swift, CaptureTests.swift, tests README and this status.
+  Lead checkpoint/rebase/push and real window->core open still needed. No app launched.
+- New QA handover confirms F8 fixed/native verified on 3b68bde and clean lock
+  removal verified. Native hour/Speech/voice-isolation remain open. Old F8/lock host
+  acceptance requests below are superseded by that QA evidence.
 - New QA input evidence on main: 38/38 scripted input events match, maximum timing
   error 15.4 ms and position error 0.98 point; real clicks also drive auto-zoom.
-  Older no-Accessibility notes are superseded. Hotkey-driven recording remains open.
+  Older no-Accessibility notes are superseded. QA's latest handover also reports
+  hotkeys PASS; this is host evidence from QA, not a capture test rerun.
 - Lead update 2026-10-15 12:12: ALL app permissions granted (screen/system audio,
   Accessibility, Input Monitoring, mic, camera). LaunchServices --drive-input-selftest 6
   reports accessibility=true/inputMonitoring=true; scripted moves and both clicks
@@ -31,7 +42,7 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   1626x1014 encoded pixels while source.content_rect_points retains 1627x1015.
   Scale-1/2 geometry and coordinator resume tests pass; prior signed build/106-test
   verification remains applicable. Native odd-window file readback is still pending.
-  Only this status is pending; no duplicate code change, build copy or app launch.
+  This is historical F8 verification; current pending source changes are F9 only.
 - Fleet app rule acknowledged 2026-10-15 10:54 CEST; QA .app-lock existed then.
   NO Yapcam launch performed. Check it before every launch, and do non-live work
   while it exists. Never quit another instance or kill by process name; only stop
@@ -45,8 +56,8 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   352 frames / 6.09 s, AAC system audio offset 1 ms, 95 events. This supersedes
   historical TCC-denial notes; it is a display baseline, not window/area/pause or
   speech/model acceptance. Lead will run native/live checks outside the sandbox.
-- Local HEAD d2ee4b1; main 3b68bde contains the capture changes. Clean-tree rebase
-  attempted at 12:28 CEST: creating rebase-merge still denied.
+- Local HEAD 56f3ca5; main 511f831 contains prior capture changes. Clean-tree rebase
+  attempted before F9 edits: creating rebase-merge still denied.
   Lead handles Git checkpoint/rebase/push; no recordings committed.
 - Fixed clean-finish .capture.lock residue: every normal lease release unlinks its
   own inode while still holding flock. This includes recording stop, recovery and
@@ -82,7 +93,36 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   not established by simulation or the separate renderer Metal hardware results;
   the confirmed short display capture above is additional host evidence.
 
-## QA F8 — even-size metadata / implementation verified
+## QA F9 — always-write display_name / implementation verified
+- Root cause: the window constructor omitted displayName, so synthesized optional
+  encoding dropped display_name and the older strict core reader rejected the package.
+  Display/area/window constructors now share CaptureGeometry.sourceMetadata and one
+  NSScreen ID->localized-name map. Windows use the existing greatest-overlap display;
+  area/display use the selected display. Logical point rect/scale remain separate.
+- SourceMetadata.encode ALWAYS writes display_name, falling back to "Display" if
+  an old package or unavailable screen has no name. Decoding remains optional for
+  old missing-field packages. Recovery and every other manifest write also satisfy
+  the always-write contract. Window title/bundle ID and other optional keys retain
+  their existing serialization behavior. No schema bump or existing-media rewrite.
+- Two parameterized regressions cover ALL three kinds: nested manifest JSON must
+  name the selected non-primary display (not a different screen), preserve the point
+  rect/scale and round-trip; legacy missing-name JSON stays readable and writes a
+  fallback on save. Unknown display ID also uses the fallback.
+- Validation: capture 108 tests / 6 explicit media skips / zero failures (16.7 s,
+  including hour/100-crash simulation); Rust 68 pass / 1 ignored. Canonical app build
+  and strict codesign pass: Yapcam Dev Signing / mov.yapcam.Yapcam. Logs:
+  /tmp/yapcam-capture-f9-{tests,rust,app}.log. Temporary flag-wrapper directory was
+  listed/removed by EXIT trap; no repo copy, live app launch or recording generated.
+  Source/test/status gitleaks scans and git diff --check pass.
+- Lead: checkpoint these five files; suggested commit:
+  fix(capture): always name the containing display in source metadata.
+  After the normal app-lock/process checks, use the guarded helper below:
+  capture_selftest window:com.apple.Terminal 60
+  Confirm session.json source.display_name equals the containing display's localized
+  name, then YAPCAM_LIVE_PACKAGE=<new-window-package> swift test -j 4 --filter
+  LiveRecordingTests/testOpenRealRecording. Core owns the legacy-reader fallback.
+
+## QA F8 — even-size metadata / implementation and native verified
 - Previously a 1627x1015-point scale-1 window requested/stored 1627x1015 pixels but
   produced 1626x1014 NV12/HEVC. CaptureGeometry now rounds positive pixel dimensions
   DOWN to even values (minimum 2) before BOTH SCStream configuration and manifest
@@ -104,7 +144,8 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 - Lead: after building main with f400c3e, run the guarded capture_selftest function below against an
   odd-sized window, e.g. capture_selftest window:com.apple.Terminal 60.
   Verify session.json tracks.screen.pixel_size equals ffprobe width/height in EVERY
-  screen segment, including pause/resume after resize. Native F8 readback is pending.
+  screen segment, including pause/resume after resize. UPDATE: QA confirms F8 fixed
+  on main 3b68bde; the original manifest/file mismatch is closed.
   Suggested commit: fix(capture): align manifest pixels with even NV12 capture dimensions.
 
 ## New host evidence — main 529f208 / QA and UI reports
@@ -504,9 +545,9 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. F8 is checkpointed/integrated as f400c3e; checkpoint this status/rebase under the
-   agreed read-only Git workflow and validate odd-window manifest/file pixel equality
-   on the host. Fleet-rule/lock cleanup/self-test changes are integrated. Run host
+1. F9's five owned files are READY; checkpoint/rebase/push under the agreed read-only
+   Git workflow and validate a new window package's display_name/core open on the
+   host. F8/lock cleanup are QA-verified. Run host
    commands only when QA releases .app-lock and no other Yapcam instance runs.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
