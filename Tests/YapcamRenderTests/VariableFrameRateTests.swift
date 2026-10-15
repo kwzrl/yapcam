@@ -32,6 +32,30 @@ final class VariableFrameRateTests: XCTestCase {
         var gif=vfr; gif.format = .gif
         XCTAssertFalse(gif.closestValidPreset().variableFrameRate)
     }
+    func testCompressedSampleReaderCountsMediaRatherThanMarkersOrContainers() throws {
+        func sample(_ times: [Int64], markerTime: Int64 = 0) throws -> CMSampleBuffer {
+            var format: CMVideoFormatDescription?
+            XCTAssertEqual(CMVideoFormatDescriptionCreate(allocator: nil,codecType: kCMVideoCodecType_JPEG,width: 64,height: 40,extensions: nil,formatDescriptionOut: &format),noErr)
+            let pts=times.isEmpty ? [markerTime] : times
+            var timing=pts.map { CMSampleTimingInfo(duration: CMTime(value: 1,timescale: 30),presentationTimeStamp: CMTime(value: $0,timescale: 30),decodeTimeStamp: .invalid) }
+            var sizes=times.map { _ in 1 }, buffer: CMSampleBuffer?
+            var data: CMBlockBuffer?
+            if !times.isEmpty {
+                XCTAssertEqual(CMBlockBufferCreateWithMemoryBlock(allocator: nil,memoryBlock: nil,blockLength: times.count,blockAllocator: nil,customBlockSource: nil,offsetToData: 0,dataLength: times.count,flags: 0,blockBufferOut: &data),kCMBlockBufferNoErr)
+            }
+            let status=CMSampleBufferCreateReady(allocator: nil,dataBuffer: data,formatDescription: format,sampleCount: times.count,
+                sampleTimingEntryCount: timing.count,sampleTimingArray: &timing,sampleSizeEntryCount: sizes.count,sampleSizeArray: &sizes,sampleBufferOut: &buffer)
+            XCTAssertEqual(status,noErr)
+            return try XCTUnwrap(buffer)
+        }
+        // Seven returned buffers, but only three media frames at the requested PTS.
+        let buffers=try [sample([],markerTime: 0),sample([0]),sample([],markerTime: 30),sample([30]),sample([],markerTime: 59),sample([59]),sample([],markerTime: 60)]
+        XCTAssertEqual(buffers.count,7)
+        let times=try buffers.flatMap(mediaSampleTimings).map { $0.presentationTimeStamp.seconds }
+        XCTAssertEqual(times.count,3)
+        for (actual,expected) in zip(times,[0,1,59.0/30]) { XCTAssertEqual(actual,expected,accuracy: 0.000001) }
+        XCTAssertEqual(try mediaSampleTimings(sample([0,30,59])).map { $0.presentationTimeStamp.seconds },times,"Multiple samples in one buffer must retain every PTS")
+    }
     func testExperimentalVFRRetainsChangedFramePTSFinalDurationAndAudioOnHost() async throws {
         // Packet count/PTS behavior is still under investigation on the host.
         // Keep this strict regression available without blocking the default suite.
@@ -66,12 +90,34 @@ final class VariableFrameRateTests: XCTestCase {
                 let track=try XCTUnwrap(videos.first)
                 let reader=try AVAssetReader(asset: asset), output=AVAssetReaderTrackOutput(track: track,outputSettings: nil)
                 reader.add(output); XCTAssertTrue(reader.startReading())
-                var times: [Double]=[]
-                while let sample=output.copyNextSampleBuffer() { times.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds) }
+                var timing: [CMSampleTimingInfo]=[], markers=0
+                while let sample=output.copyNextSampleBuffer() {
+                    if CMSampleBufferGetNumSamples(sample)==0 { markers += 1 }
+                    timing += try mediaSampleTimings(sample)
+                }
+                let times=timing.map { $0.presentationTimeStamp.seconds }, durations=timing.map { $0.duration.seconds }
+                print("RENDER_VFR format=\(format.rawValue) codec=\(codec.rawValue) media_samples=\(times.count) marker_buffers=\(markers) pts=\(times) durations=\(durations)")
                 XCTAssertEqual(reader.status,.completed)
                 XCTAssertEqual(times.count,3)
                 for (actual,expected) in zip(times,[0,1,59.0/30]) { XCTAssertEqual(actual,expected,accuracy: 0.000001) }
+                // Ignoring markers must not hide empty edits or a shortened static tail.
+                // Every image must cover the interval up to the next changed image/end.
+                for (actual,expected) in zip(durations,[1,29.0/30,1.0/30]) { XCTAssertEqual(actual,expected,accuracy: 0.000001) }
             }
         }
+    }
+}
+
+// AVAssetReaderOutput.h explicitly permits marker-only buffers when outputSettings
+// is nil. They are not frames. A media-bearing buffer may also hold several samples.
+private func mediaSampleTimings(_ sample: CMSampleBuffer) throws -> [CMSampleTimingInfo] {
+    try (0..<CMSampleBufferGetNumSamples(sample)).map { index in
+        var timing=CMSampleTimingInfo()
+        let status=CMSampleBufferGetSampleTimingInfo(sample,at: index,timingInfoOut: &timing)
+        guard status==noErr,timing.presentationTimeStamp.isNumeric,timing.duration.isNumeric,
+              CMTimeCompare(timing.duration,.zero)>0 else {
+            throw RenderError.verification("Cannot read encoded sample timing: \(status)")
+        }
+        return timing
     }
 }
