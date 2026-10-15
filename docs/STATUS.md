@@ -2,6 +2,31 @@
 
 Maintained by Lead. Team detail: `docs/status/<team>.md`. Feature state: `docs/FEATURES.md`.
 
+## Morning handover (2026-10-15 06:55)
+
+State: main 64645c3 — 316 Swift + 114 XCTest (4 skipped) + 68 Rust tests green; render
+86/86 on Metal; fresh clone builds. FEATURES.md: 119 rows — 24 verified, 48 integrated,
+24 implemented, 23 limited, none todo. App: `~/yapcam/build/Yapcam.app`.
+
+Not done / not verified (honest list):
+- No live screen/window/area recording has been verified with the integrated app: the
+  screen-recording grant was lost when signing moved to `Yapcam Dev Signing` (23:30) and
+  was not re-granted. All REC rows are implemented/limited only; capture is tested with
+  injected sample buffers and synthetic packages, the setup probe recorded once before
+  the switch.
+- Toolbar exclusion from the exported video, cursor/zoom from real input, real-recording
+  A/V sync and performance on real 1080p/4K captures: not verified.
+- Camera, microphone, multi-display, Retina: no hardware; math/unit tests only.
+- Screen Studio [observed] rows: need a session with screen access.
+- VoiceOver: labels implemented, not exercised.
+
+Needs the user (≈10 min):
+1. System Settings → Privacy & Security → remove + re-add `~/yapcam/build/Yapcam.app` in
+   Screen & System Audio Recording, Accessibility, Input Monitoring.
+2. Then Lead/QA run the live DoD list (docs/TESTING.md): record, pause/resume, cursor/zoom,
+   edit, export vs preview, 10-min A/V sync, window exclusion.
+3. Observation of Screen Studio 4.0.4 for the [observed] rows.
+
 ## Reference
 Screen Studio **4.0.4-4926** (installed 2026-10-14) is the fixed reference for this build-out.
 
