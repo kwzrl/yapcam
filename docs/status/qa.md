@@ -1,4 +1,4 @@
-READY 6c2de95 qa: audit vs 7d545a1
+READY HEAD qa: live QA in progress (see Live QA log)
 
 # qa status
 
@@ -62,7 +62,12 @@ READY 6c2de95 qa: audit vs 7d545a1
 - Screen Studio observation STILL blocked after Lead relayed user authorization: classifier denied `rea open_binary`/`analyze_javascript_application` (integrity mismatch needs record-and-continue) and shell screencapture lacks permission ("could not create image from display"). Needs the user to add Bash/mcp__rea__* allow rules or run the observation themselves. Earlier note: denied by the permission classifier (bundle string search and `rea analyze_javascript_application`). So no [observed] rows and no exact option values/defaults. Needs user decision: allow REA/observation of /Applications/Screen Studio.app. Workaround used: guide pages, asset inventory, own assumptions (marked).
 - Bundle strings are obfuscated anyway; REA/observation is the only practical route.
 
+## Live QA log (2026-10-15 morning, main b5d1268)
+- Shared machine: Lead's `live-e2e` harness and my live runs collide (one display, one mouse). My first 10-min run was killed ~1 s after start (package stuck at status "recording", no crash report) while live-e2e ran at the same time. Please tell qa when the machine is free, or serialize runs; I log start/end times here.
+- My shell has no Accessibility and no Screen Recording permission (AXIsProcessTrusted false), so I cannot drive the UI by CGEvent or screenshot. `scripts/qa/drive-input.swift` events from my shell are NOT delivered. Only code running inside the signed app has the grants.
+
 ## Requests (to Lead)
+- Live QA hooks in the signed app (ui/capture; I cannot edit Sources): extend `--capture-selftest` with options `--target display|window:<title>|area:x,y,w,h`, `--pause-after <s>`, `--no-audio`, `--out <dir>`, and add `--drive-input <script.json>` (post scripted moves/clicks from inside the app, which has Accessibility) so pause/resume, window/area capture and scripted-input timing can be tested without my shell having permissions.
 - Push: after `git rebase main` my local team/qa (head: see git log) diverged from origin/team/qa; plain push is non-fast-forward and the classifier denied force-push and an ours-merge. Please fetch from ~/yapcam-team/qa directly (worktrees share the repo) or push it yourself; content is identical apart from the rebase.
 - Package.swift: add `.testTarget(name: "E2E", dependencies: ["YapcamRender","YapcamCore"], path: "Tests/E2E")`.
 - Re-grant Screen Recording (and system audio) for the current signed build, or tell me how the grant is keyed (F2).
