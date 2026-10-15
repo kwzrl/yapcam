@@ -14,6 +14,7 @@ struct CoreDrawingLayer: Decodable {
     let strokeWidth: Float
     let text: String?
     let fontSize: Double?
+    let fontFamily: RenderTextFontFamily?
     let color: [Float]?
     func drawingLayer() throws -> RenderLayer {
         guard rect.count==4,rect.allSatisfy({ $0.isFinite }),rect[2]>0,rect[3]>0 else { throw RenderError.invalidSettings("Core drawing layer has invalid geometry") }
@@ -29,6 +30,7 @@ struct CoreDrawingLayer: Decodable {
             content = .text(text,fontSize: fontSize,color: try rgba(color))
         default: throw RenderError.unavailable("Unsupported Core drawing layer kind: \(kind)")
         }
-        return RenderLayer(content: content,rect: CGRect(x: rect[0],y: rect[1],width: rect[2],height: rect[3]),cornerRadius: cornerRadius,opacity: opacity)
+        return RenderLayer(content: content,rect: CGRect(x: rect[0],y: rect[1],width: rect[2],height: rect[3]),cornerRadius: cornerRadius,opacity: opacity,
+                           textFontFamily: fontFamily ?? .sans)
     }
 }
