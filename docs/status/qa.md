@@ -1,4 +1,4 @@
-READY HEAD qa: 30 s autosave checked (journal recovery PASS, hook wait too short F13)
+READY 4853267 qa: 30 s autosave checked (journal recovery PASS, hook wait too short F13)
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
