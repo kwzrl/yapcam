@@ -37,6 +37,17 @@ public struct RenderConfiguration: Sendable, Equatable {
     public var cursorSpotlightRadius: Float = 0
     public var backgroundNoise: Float = 0
     public var windowChrome = false
+    /// Core evaluates shadow radius/opacity/y in YcFrame; cold options supply x.
+    public var screenShadowOffsetX: Float = 0
+    /// -1...1: positive x/y weights the inset toward the right/bottom edge.
+    public var screenInsetOrigin: SIMD2<Float> = .zero
+    public var screenQuality: ScreenQualitySettings? = nil
+    public var glassLoupe: GlassLoupeSettings? = nil
+    public var cameraColor = CameraColorSettings()
+    public var cameraCrop = SIMD4<Float>(0,0,1,1)
+    public var cameraBackgroundPop: Float = 0
+    public var cameraBackgroundBlur: Float = 0
+    public var cameraMatte: CameraMatteSettings? = nil
     public var cameraBackgroundRemoval = false
     public var cameraFaceFraming = false
     public var cameraShadowRadius: Float = 0

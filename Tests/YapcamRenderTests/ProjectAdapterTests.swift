@@ -12,6 +12,67 @@ final class ProjectAdapterTests: XCTestCase {
         try FileManager.default.copyItem(at: fixture,to: package)
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: package) }
+    func testFactoryDefaultsMapRatioPaddingSourceAspectAndOriginalPalette() throws {
+        let project=try Project.create(package: package)
+        let frame=try project.frame(atNs: 0)
+        // Core's published revision-1 contract for this 320x200 recording.
+        XCTAssertEqual(frame.canvas_w,1728); XCTAssertEqual(frame.canvas_h,1080)
+        XCTAssertEqual(frame.screen_dest.x,172.8,accuracy: 0.000001)
+        XCTAssertEqual(frame.screen_dest.y,108,accuracy: 0.000001)
+        XCTAssertEqual(frame.screen_dest.w,1382.4,accuracy: 0.000001)
+        XCTAssertEqual(frame.screen_dest.h,864,accuracy: 0.000001)
+        let canvas=CGSize(width: Int(frame.canvas_w),height: Int(frame.canvas_h))
+        let factory=try project.renderEffects(atNs: 0,canvasSize: canvas).configuration
+        XCTAssertEqual(factory.cursorSetID,"classic")
+        XCTAssertEqual(factory.cursorStyle,.recorded)
+        XCTAssertEqual(factory.cursorSize,.regular)
+        let frozen=try project.renderSnapshot()
+        try project.apply(.set(path: "cursor.set_id",value: .null))
+        XCTAssertNil(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration.cursorSetID)
+        XCTAssertEqual(try frozen.renderEffects(atNs: 0,canvasSize: canvas).configuration,factory)
+    }
+    func testFrozenLegacyDefaultsRetainGeometryRecordedCursorAndLayerRectsAfterSave() throws {
+        let fixtures=URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/schema")
+        for name in ["v0-prerelease","v1-minimal"] {
+            // Use frozen legacy JSON, never serialize the new factory as a fake
+            // old project. Only the disposable package copy is written.
+            let bytes=try Data(contentsOf: fixtures.appendingPathComponent(name+".json"))
+            try bytes.write(to: package.appendingPathComponent("project.json"),options: .atomic)
+            let project=try Project.open(package: package)
+            XCTAssertEqual(try Data(contentsOf: package.appendingPathComponent("project.json")),bytes,"Open must not rewrite a legacy project")
+            try project.apply(.batch([
+                .set(path: "canvas.highlights",value: .array([.object([
+                    "id": .string("legacy-region"),"tl_start_ns": .integer(0),"tl_end_ns": .integer(2_000_000_000),
+                    "space": .string("canvas"),"rect": .array([0.25,0.25,0.5,0.5].map(JSONValue.number))
+                ])])),
+                .set(path: "canvas.animation.entrance",value: .string("fade")),
+                .set(path: "canvas.animation.entrance_duration_ns",value: .integer(1_000_000_000))
+            ]))
+            let options=try project.renderOptions()
+            XCTAssertNil(options.paddingRatio); XCTAssertNil(options.cursorSizePoints); XCTAssertNil(options.cursorSetId)
+            let snapshot=try project.renderSnapshot()
+            try project.save()
+            let reopened=try Project.open(package: package)
+            for source in [project as any RenderProjectSource,snapshot,reopened] {
+                let frame=try source.frame(atNs: 500_000_000)
+                XCTAssertEqual(frame.canvas_w,1920,name); XCTAssertEqual(frame.canvas_h,1080,name)
+                XCTAssertEqual(frame.screen_dest.x,172.8,accuracy: 0.000001,name)
+                XCTAssertEqual(frame.screen_dest.y,48,accuracy: 0.000001,name)
+                XCTAssertEqual(frame.screen_dest.w,1574.4,accuracy: 0.000001,name)
+                XCTAssertEqual(frame.screen_dest.h,984,accuracy: 0.000001,name)
+                XCTAssertEqual(frame.screen_corner_radius,18,name)
+                XCTAssertEqual(frame.shadow_radius,24,name); XCTAssertEqual(frame.shadow_offset_y,8,name)
+                let effects=try source.renderEffects(atNs: frame.tl_ns,canvasSize: CGSize(width: 1920,height: 1080))
+                XCTAssertNil(effects.configuration.cursorSetID,name)
+                XCTAssertEqual(effects.configuration.cursorStyle,.recorded,name)
+                XCTAssertEqual(effects.configuration.cursorSize,.regular,name)
+                XCTAssertEqual(effects.layers.count,2,name)
+                XCTAssertEqual(effects.layers.first?.rect,CGRect(x: 480,y: 270,width: 960,height: 540),name)
+                XCTAssertEqual(effects.layers.last?.rect,CGRect(x: 0,y: 0,width: 1920,height: 1080),name)
+                XCTAssertEqual(effects.layers.last?.opacity,0.5,name)
+            }
+        }
+    }
     func testRealProjectClipsSnapshotAndAudioCompositionAgreeAfterCutAndSpeed() throws {
         let project=try Project.create(package: package)
         try project.apply(.deleteRange(startNs: 1_000_000_000,endNs: 2_000_000_000))
@@ -24,7 +85,8 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertEqual(snapshot.durationNs,3_500_000_000)
         let timeline=try AudioTimeline(project: snapshot,range: 0..<snapshot.durationNs)
         XCTAssertEqual(timeline.composition.duration.seconds,3.5,accuracy: 0.001)
-        try project.apply(.set(path: "canvas.padding",value: .number(100)))
+        // Pixel padding is inactive with Core's new factory padding_ratio.
+        try project.apply(.set(path: "canvas.aspect",value: .string("1:1")))
         XCTAssertNotEqual(try project.frame(atNs: 0).screen_dest.x,try snapshot.frame(atNs: 0).screen_dest.x)
         XCTAssertEqual(try snapshot.frame(atNs: 500_000_000).screen.src_ns,2_000_000_000)
     }
@@ -126,7 +188,7 @@ final class ProjectAdapterTests: XCTestCase {
         let project=try Project.create(package: package)
         let canvas=CGSize(width: 1920,height: 1080)
         let defaults=try project.renderEffects(atNs: 0,canvasSize: canvas).configuration
-        XCTAssertNil(defaults.cursorSetID)
+        XCTAssertEqual(defaults.cursorSetID,try project.renderOptions().cursorSetId,"Adapter preserves Core's factory palette (classic for revision 1)")
         XCTAssertEqual(defaults.cursorStyle,.recorded)
         XCTAssertEqual(defaults.cursorSize,.regular)
         try project.apply(.batch([
@@ -158,6 +220,9 @@ final class ProjectAdapterTests: XCTestCase {
             .set(path: "cursor.set_id",value: .null),
             .set(path: "cursor.logical_size",value: .string("regular"))
         ]))
+        var recorded=defaults; recorded.cursorSetID=nil
+        XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,recorded,"Explicit null requests recorded artwork, independently of factory palette")
+        try project.apply(.set(path: "cursor.set_id",value: defaults.cursorSetID.map(JSONValue.string) ?? .null))
         XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,defaults)
     }
     func testPersistedCursorSelectionsChangeRealProjectPixelsThroughOneCompositor() throws {
@@ -165,6 +230,7 @@ final class ProjectAdapterTests: XCTestCase {
         let project=try Project.create(package: package)
         try project.apply(.batch([
             .set(path: "cursor.size",value: .number(4)),
+            .set(path: "cursor.set_id",value: .null),
             .set(path: "cursor.click_effect",value: .string("none"))
         ]))
         let compositor=try FrameCompositor(device: device,project: project)
@@ -239,8 +305,9 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertTrue(configuration.cameraFaceFraming)
         XCTAssertEqual(configuration.cameraShadowRadius,32)
         XCTAssertEqual(effects.layers.count,2,"One highlight followed by one fade; no duplicate cold layers")
-        XCTAssertEqual(effects.layers[0].rect,CGRect(x: 480,y: 270,width: 960,height: 540))
-        XCTAssertEqual(effects.layers[1].rect,CGRect(x: 0,y: 0,width: 1920,height: 1080))
+        let width=CGFloat(frame.canvas_w), height=CGFloat(frame.canvas_h)
+        XCTAssertEqual(effects.layers[0].rect,CGRect(x: width*0.25,y: height*0.25,width: width*0.5,height: height*0.5))
+        XCTAssertEqual(effects.layers[1].rect,CGRect(x: 0,y: 0,width: width,height: height))
         XCTAssertEqual(effects.layers[1].opacity,0.5)
         try project.apply(.set(path: "cursor.style",value: .string("pointer")))
         XCTAssertEqual(try source.renderEffects(atNs: 500_000_000,canvasSize: CGSize(width: 1920,height: 1080)).configuration.cursorStyle,.touch)
@@ -251,7 +318,7 @@ final class ProjectAdapterTests: XCTestCase {
         let project=try Project.create(package: package)
         let preview=try PreviewPlayer(project: project)
         let old=try preview.renderProject.frame(atNs: 0)
-        try project.apply(.set(path: "canvas.padding",value: .number(150)))
+        try project.apply(.set(path: "canvas.aspect",value: .string("1:1")))
         XCTAssertEqual(try preview.renderProject.frame(atNs: 0).screen_dest.x,old.screen_dest.x)
         preview.invalidate()
         XCTAssertEqual(try preview.renderProject.frame(atNs: 0).screen_dest.x,try project.frame(atNs: 0).screen_dest.x)

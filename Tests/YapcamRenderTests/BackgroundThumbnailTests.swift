@@ -6,6 +6,7 @@ final class BackgroundThumbnailTests: XCTestCase {
     func testCatalogIsStableFilterableAndEncodesPickerMetadata() throws {
         let entries = BackgroundLibrary.catalog()
         XCTAssertEqual(entries.count, 12)
+        XCTAssertEqual(BackgroundLibrary.defaultPreset.id, "deep-slate")
         XCTAssertEqual(Set(entries.map(\.id)).count, entries.count)
         for entry in entries {
             let preset = try XCTUnwrap(BackgroundLibrary.preset(id: entry.id))

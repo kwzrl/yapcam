@@ -16,14 +16,14 @@ final class ExportAcceptanceTests: XCTestCase {
         let frame=try project.frame(atNs: 200_000_000)
         var lowRate: Float=0,highRate: Float=0
         let cases: [(String,ExportSettings)] = [
-            ("1440",.init(outputHeight: 1440,fps: 24,includeAudio: false)),
+            ("1440",.init(format: .mov,outputHeight: 1440,fps: 24,includeAudio: false)),
             ("4k",.init(codec: .hevc,outputHeight: 2160,fps: 60,includeAudio: false)),
             ("quality-low",.init(outputHeight: 720,fps: 30,quality: 0.1,includeAudio: false)),
             ("quality-high",.init(outputHeight: 720,fps: 30,quality: 0.9,includeAudio: false))
         ]
         for (name,var settings) in cases {
             settings.rangeStartNs=200_000_000; settings.rangeEndNs=700_000_000
-            let destination=root.appendingPathComponent("\(name).mp4")
+            let destination=root.appendingPathComponent("\(name).\(settings.format.rawValue)")
             _ = try await Exporter(project: project,settings: settings,destination: destination).run { _ in }
             let asset=AVURLAsset(url: destination)
             let videos=try await asset.loadTracks(withMediaType: .video)

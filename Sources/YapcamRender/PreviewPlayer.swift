@@ -22,6 +22,8 @@ struct PreviewSubmissionMetrics {
     @Published public private(set) var error: String?
     @Published public private(set) var metrics = PreviewMetrics()
     @Published public private(set) var speechEnhancementSettings: SpeechEnhancementSettings?
+    @Published public private(set) var motionBlurEnabled = true
+    @Published public private(set) var previewSettings = PreviewSettings()
     public var speechEnhancementReports: [SpeechEnhancementReport] { audioTimeline?.speechReports ?? [] }
     let project: any RenderProjectSource
     private(set) var renderProject: any RenderProjectSource
@@ -31,7 +33,7 @@ struct PreviewSubmissionMetrics {
     private var player: AVPlayer?
     private var audioTimeline: AudioTimeline?
     private var audioTask: Task<Void, Never>?
-    private var audioGeneration = 0
+    private(set) var audioGeneration = 0
     private var audioLoading = false
     private var audioPreparationFailed = false
     private var seekGeneration = 0
@@ -105,6 +107,46 @@ struct PreviewSubmissionMetrics {
         speechEnhancementSettings=settings
         invalidate()
     }
+    public func setMotionBlurEnabled(_ enabled: Bool) {
+        guard enabled != motionBlurEnabled else { return }
+        motionBlurEnabled=enabled; compositor.setMotionBlurEnabled(enabled)
+        redrawRevision += 1; view?.needsDisplay=true
+    }
+    public func setPreviewSettings(_ settings: PreviewSettings) throws {
+        try settings.validate()
+        guard settings != previewSettings else { return }
+        let rateChanged=settings.playbackRate != previewSettings.playbackRate
+        if rateChanged {
+            updateClock() // Finish the old rate before changing the host-clock anchor.
+            anchorNs=currentNs; anchorHost=ProcessInfo.processInfo.systemUptime
+        }
+        previewSettings=settings
+        if rateChanged {
+            player?.defaultRate=Float(settings.playbackRate)
+            if isPlaying && !audioLoading && !seeking { player?.play() }
+        }
+        if let view { applyPreviewSize(to: view); view.needsDisplay=true }
+        redrawRevision += 1
+    }
+    func applyPreviewSize(to view: MTKView) {
+        let automatic=previewSettings.maximumHeight == nil && previewSettings.resolution == .full
+        view.autoResizeDrawable=automatic
+        let backing=view.convertToBacking(view.bounds).size
+        guard let size=try? previewSettings.drawableSize(forBackingSize: backing), size != view.drawableSize else { return }
+        view.drawableSize=size
+    }
+    /// Refresh after an appearance-only edit. The caller must know that clip
+    /// mapping, audio, source files and speech settings are unchanged; otherwise
+    /// use invalidate(). Snapshot failure leaves the current generation intact.
+    public func invalidateVisuals() throws {
+        let snapshot=try project.renderSnapshot()
+        guard snapshot.durationNs == renderProject.durationNs, !audioPreparationFailed else {
+            invalidate(); return
+        }
+        renderProject=snapshot
+        compositor.invalidateVisualAssets()
+        redrawRevision += 1; view?.needsDisplay=true
+    }
     public func invalidate() {
         // Rebuild the same clip mapping after edits; keep the current timeline location.
         let playing = isPlaying
@@ -130,7 +172,8 @@ struct PreviewSubmissionMetrics {
                 self.audioTimeline = timeline; self.error = nil
                 if timeline.hasAudio {
                     let item = AVPlayerItem(asset: timeline.composition); item.audioMix = timeline.mix; item.audioTimePitchAlgorithm = .spectral
-                    let player = AVPlayer(playerItem: item); self.player = player
+                    let player = AVPlayer(playerItem: item)
+                    player.defaultRate=Float(self.previewSettings.playbackRate); self.player = player
                     let time = CMTime(value: self.currentNs, timescale: 1_000_000_000)
                     await player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero)
                     guard !Task.isCancelled, self.audioGeneration == generation else { return }
@@ -155,7 +198,7 @@ struct PreviewSubmissionMetrics {
             let seconds = player.currentTime().seconds
             time = seconds.isFinite ? Int64((seconds * 1e9).rounded()) : currentNs
         } else if audioLoading { return }
-        else { time = anchorNs + Int64((ProcessInfo.processInfo.systemUptime - anchorHost) * 1e9) }
+        else { time = PreviewClock.time(anchorNs: anchorNs,elapsed: ProcessInfo.processInfo.systemUptime-anchorHost,rate: previewSettings.playbackRate,durationNs: project.durationNs) }
         if time >= project.durationNs {
             currentNs = max(0, project.durationNs - 1); atEnd = true; isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
             finishMetrics()
@@ -224,13 +267,14 @@ public struct PreviewView: NSViewRepresentable {
     public init(player: PreviewPlayer) { self.player = player }
     public func makeCoordinator() -> Coordinator { Coordinator(player: player) }
     public func makeNSView(context: Context) -> MTKView {
-        let view = MTKView(frame: .zero, device: player.compositor.device)
+        let view = PreviewMetalView(frame: .zero, device: player.compositor.device)
+        view.player=player
         view.colorPixelFormat = .bgra8Unorm_srgb; view.framebufferOnly = true
         view.enableSetNeedsDisplay = !player.isPlaying; view.isPaused = !player.isPlaying; view.preferredFramesPerSecond = 60
-        view.delegate = context.coordinator; player.view = view
+        view.delegate = context.coordinator; player.view = view; player.applyPreviewSize(to: view)
         return view
     }
-    public func updateNSView(_ view: MTKView, context: Context) { view.needsDisplay = true }
+    public func updateNSView(_ view: MTKView, context: Context) { player.applyPreviewSize(to: view); view.needsDisplay = true }
     public static func dismantleNSView(_ view: MTKView, coordinator: Coordinator) { coordinator.player.pause(); view.delegate = nil }
     @MainActor public final class Coordinator: NSObject, MTKViewDelegate {
         let player: PreviewPlayer
@@ -243,6 +287,20 @@ public struct PreviewView: NSViewRepresentable {
                 Task { @MainActor [weak self] in if let view=reference.view { self?.player.draw(in: view) } }
             }
         }
+    }
+}
+
+/// Resize notifications remain necessary when MTKView automatic sizing is disabled.
+@MainActor final class PreviewMetalView: MTKView {
+    weak var player: PreviewPlayer?
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize); player?.applyPreviewSize(to: self)
+    }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties(); player?.applyPreviewSize(to: self)
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow(); player?.applyPreviewSize(to: self)
     }
 }
 

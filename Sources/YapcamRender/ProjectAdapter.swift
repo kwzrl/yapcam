@@ -13,6 +13,7 @@ extension Project: RenderProjectSource {
     public func renderAudioRanges() throws -> [RenderAudioRange]? {
         try query("{\"q\":\"audio_ranges\"}",as: [RenderAudioRange].self)
     }
+    public func renderStereoMicrophone() throws -> Bool { try speechEnhancementPlan().stereoMic ?? true }
     public func renderAudioOverlays() throws -> [AudioOverlay] {
         try query("{\"q\":\"audio_overlays\"}",as: [EvaluatedAudioOverlay].self).map { try $0.overlay() }
     }
@@ -32,7 +33,26 @@ extension Project: RenderProjectSource {
         }
         // These selections are root settings. Read Core's effective shape so
         // always_default wins over a stored shape, without changing frame scale.
-        let options=try renderOptions()
+        let evaluated=try query("{\"q\":\"render_options_at\",\"tl_ns\":\(atNs)}",as: ProjectRenderOptions.self)
+        let options=evaluated.base
+        configuration.screenShadowOffsetX=Float(options.screenShadow?.offsetX ?? 0)
+        configuration.screenInsetOrigin=evaluated.insetOrigin ?? .zero
+        configuration.screenQuality=evaluated.screenQuality
+        configuration.cameraMatte=evaluated.cameraMatte
+        configuration.glassLoupe=evaluated.glassLoupe
+        if let style=options.cameraStyle { try configuration.applyCameraStyle(style,package: packageURL) }
+        if let layout=options.cameraLayout, layout.mode=="cutout" {
+            configuration.cameraMatte=CameraMatteSettings(edgeSoftness: Float(layout.settings.edgeSoftness),edgeInsetPixels: Float(layout.settings.edgeInset))
+        }
+        if let lens=options.zoomLens {
+            guard lens.center.count==2,lens.sourceCenter.count==2 else { throw RenderError.invalidSettings("Core returned invalid lens centers") }
+            configuration.glassLoupe=GlassLoupeSettings(bevel: Float(lens.bevel),chromaticAberration: Float(lens.chromaticAberration),
+                instruction: .init(center: SIMD2(Float(lens.center[0]),Float(lens.center[1])),sourceCenter: SIMD2(Float(lens.sourceCenter[0]),Float(lens.sourceCenter[1])),
+                                   scale: Float(lens.scale),radiusPixels: Float(lens.radiusPx),opacity: Float(lens.opacity)))
+            try configuration.glassLoupe?.validate()
+        }
+        // Optional direct-source contract remains compatible; real Core uses camera_style.
+        if let color=evaluated.cameraColor { configuration.cameraColor=try color.value(package: packageURL) }
         configuration.cursorSetID=options.cursorSetId
         if let shape=options.cursorShape {
             switch shape {

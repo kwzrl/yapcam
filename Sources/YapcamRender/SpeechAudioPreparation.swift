@@ -10,14 +10,15 @@ final class SpeechAudioPreparation: @unchecked Sendable {
         try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: true)
     }
     deinit { try? FileManager.default.removeItem(at: directory) }
-    func process(_ sources: [URL],settings: SpeechEnhancementSettings,progress: @escaping @Sendable (Double) -> Void) async throws {
+    func process(_ sources: [URL],settings: SpeechEnhancementSettings?,mono: Bool,progress: @escaping @Sendable (Double) -> Void) async throws {
         for (index,source) in sources.enumerated() {
             try Task.checkCancellation()
             let destination=directory.appendingPathComponent("mic-\(index).caf")
-            let report=try await SpeechEnhancer.processFile(source,to: destination,settings: settings) { value in
+            let report=try await SpeechEnhancer.prepareMicrophoneFile(source,to: destination,settings: settings,mono: mono) { value in
                 progress((Double(index)+value)/Double(sources.count))
             }
-            files[source]=destination; reports.append(report)
+            if FileManager.default.fileExists(atPath: destination.path) { files[source]=destination }
+            if let report { reports.append(report) }
         }
     }
 }
@@ -28,13 +29,14 @@ extension AudioTimeline {
         try Task.checkCancellation()
         try speechEnhancement?.validate()
         let preparation: SpeechAudioPreparation?
-        if let settings=speechEnhancement {
+        let mono=try await worker { try !project.renderStereoMicrophone() }
+        if speechEnhancement != nil || mono {
             let sources=try await worker { try microphoneSources(project: project,range: range) }
             if sources.isEmpty { preparation=nil }
             else {
                 let value=try SpeechAudioPreparation(root: cacheRoot ?? FileManager.default.temporaryDirectory)
-                try await value.process(sources,settings: settings,progress: progress)
-                preparation=value
+                try await value.process(sources,settings: speechEnhancement,mono: mono,progress: progress)
+                preparation=value.files.isEmpty ? nil : value
             }
         } else { preparation=nil }
         try Task.checkCancellation()

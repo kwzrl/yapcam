@@ -93,7 +93,7 @@ final class ExportSyncTests: XCTestCase {
             f.screen_crop = .init(x: 0,y: 0,w: 1,h: 1); f.screen_dest = .init(x: 0,y: 0,w: 320,h: 200); f.system_gain=1; return f
         }
         for (name, start, end) in [("full",Int64(0),Int64(5_000_000_000)),("boundary",2_500_000_000,3_500_000_000)] {
-            let exporter=try Exporter(project: source,settings: .init(outputHeight: 720,includeAudio: true,rangeStartNs: start,rangeEndNs: end),destination: root.appendingPathComponent("\(name).mp4"))
+            let exporter=try Exporter(project: source,settings: .init(outputHeight: 720,fps: 30,includeAudio: true,rangeStartNs: start,rangeEndNs: end),destination: root.appendingPathComponent("\(name).mp4"))
             let task=Task { try await exporter.run { _ in } }
             let timeout=Task { try await Task.sleep(for: .seconds(20)); task.cancel() }
             defer { timeout.cancel() }
