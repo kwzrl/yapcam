@@ -34,8 +34,10 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   mid-segment, warnings are once per failed track, and other tracks remain usable.
 - Follow-up validation: capture 136 tests / 7 explicit opt-in skips / zero failures
   (20.1 s including hour/100-crash simulation). Rust 69 pass / 1 ignored. Canonical
-  signed app + strict codesign pass (Yapcam Dev Signing). After Lead rebased onto
-  the icon integration, the canonical app is being rebuilt to verify resource copy. Source/test/status privacy scans and shell syntax
+  signed app + strict codesign pass (Yapcam Dev Signing). Rebuilt again AFTER Lead
+  rebased onto the icon integration: bundled AppIcon.icns equals Resources source,
+  CFBundleIconFile=AppIcon (extension omitted) and strict codesign passes. Icon not
+  regenerated or edited; the canonical script copied Lead's integrated resource. Source/test/status privacy scans and shell syntax
   checks pass, as does git diff --check. Full Swift host gate from the earlier attempt remains:
   six E2E Metal-unavailable failures plus mixed-runner signal 6, not rerun unchanged.
   Logs: /tmp/yapcam-capture-auxiliary-{focused,tests,rust,app,privacy}.log.
@@ -49,12 +51,10 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   sandbox remains. New cleanup plan /tmp/yapcam-capture-auxiliary-cleanup.json is
   empty because neither old root is safe to delete while in use.
 - Lead icon integration acknowledged: main badc4e4 owns AppIcon.icns,
-  CFBundleIconFile and the build-script copy. Capture will not modify/regenerate
-  the icon. At this stopping point, 16 owned files remain ready but uncommitted;
-  git add failed creating worktrees/capture/index.lock (Operation not permitted).
-  Lead must checkpoint these edits, then rebase this worktree onto main. No stash,
-  icon edits or Git permission workaround used; capture source/tests on main have
-  no delta from our base. Prior signed validation predates the icon integration.
+  CFBundleIconFile and the build-script copy. Capture did not modify/regenerate
+  the icon. Earlier staging/rebase failures were Git sandbox denials; Lead resolved
+  the pending checkpoint/rebase as 9b0cadc. Current post-rebase build/resource
+  verification above supersedes the earlier pre-icon build evidence.
 - CAP-1 implemented: `SystemAudioSelection.off / .allApplications /
   .applications(bundleIDs: [String])`; `RecordingOptions.systemAudioSelection`,
   `CaptureSources.applications: [CaptureApplication]` (bundleID/name/id). New
