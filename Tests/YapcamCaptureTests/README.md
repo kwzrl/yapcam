@@ -71,11 +71,13 @@ window. Numeric window IDs let the host choose a specific window.
 All builds share `mov.yapcam.Yapcam`. Before every launch, check
 `~/Movies/Yapcam/QA/.app-lock`: when present, QA owns the app; do non-live work until
 it is gone. Never quit another Yapcam instance or use process-name kill commands.
-Terminate only a PID you personally started. Do not use LaunchServices `open` for
-these tests; it can reuse/activate another instance. The helper below also refuses
-to launch while any Yapcam process is running, or when process inspection fails.
+Terminate only a PID you personally started. Launch through `open -n -W` so TCC
+attributes access to the signed app; direct executable launch attributes it to the
+shell. The helper below refuses to launch while any Yapcam process is running, or
+when process inspection fails. Never use `open` while another instance runs.
 Run from a regular host terminal after building the signed app, one command at a
-time; direct execution waits for that self-test process to exit:
+time. Helper arguments are target, fps, and optional pause-after seconds; `-W`
+waits for the self-test app to exit:
 
 ```sh
 capture_selftest() (
@@ -90,14 +92,21 @@ capture_selftest() (
             printf 'Cannot inspect running apps; skipping live test.\n' >&2; exit 1
         fi
     fi
-    exec env "$@" build/Yapcam.app/Contents/MacOS/Yapcam --capture-selftest 8
+    capture_target="${1:-display}"
+    capture_fps="${2:-60}"
+    capture_pause="${3:-}"
+    set -- -n -W --env "YAPCAM_CAPTURE_SELFTEST_TARGET=$capture_target" --env "YAPCAM_CAPTURE_SELFTEST_FPS=$capture_fps"
+    if [ -n "$capture_pause" ]; then
+        set -- "$@" --env "YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=$capture_pause"
+    fi
+    exec /usr/bin/open "$@" build/Yapcam.app --args --capture-selftest 8
 )
-capture_selftest YAPCAM_CAPTURE_SELFTEST_FPS=30
-capture_selftest YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
-capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600
-capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 YAPCAM_CAPTURE_SELFTEST_FPS=30 YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
-capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit
-capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit YAPCAM_CAPTURE_SELFTEST_FPS=30 YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
+capture_selftest display 30
+capture_selftest display 60 3
+capture_selftest area:100,100,800,600 60
+capture_selftest area:100,100,800,600 30 3
+capture_selftest window:com.apple.TextEdit 60
+capture_selftest window:com.apple.TextEdit 30 3
 ```
 
 Results/package paths are in `~/Library/Logs/Yapcam/probe.log`. Check complete status,
@@ -128,6 +137,15 @@ delivery uses that clock directly instead of assuming units for CGEvent.timestam
 
 Retina and multiple-display hardware are still needed to verify the tested point/
 pixel and global-coordinate math against actual ScreenCaptureKit output.
+
+NV12/HEVC capture dimensions are rounded down to even pixels (minimum 2 per
+dimension) before both stream configuration and manifest publication. For example,
+a 1627×1015-point window at scale 1 uses 1626×1014 pixels; at scale 2 it uses
+3254×2030. Logical content rectangles and cursor coordinates retain their original
+points. Regression tests cover odd/fractional window/area sizes at scales 1/2 and
+the configured/manifest pixel size across window resize, scale change and resume.
+For QA F8, rerun the guarded window command on an odd-sized window and compare
+`tracks.screen.pixel_size` against ffprobe dimensions for every screen segment.
 
 ## On-device transcription
 

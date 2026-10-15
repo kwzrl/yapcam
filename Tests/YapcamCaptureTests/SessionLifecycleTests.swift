@@ -209,6 +209,27 @@ private func readSession(_ package: URL) throws -> SessionManifest {
     #expect(try readSession(package).status == "complete")
 }
 
+@Test(arguments: [1.0, 2.0]) @MainActor func oddWindowManifestMatchesConfiguredPixelsAcrossResume(scale: Double) async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.rect = CGRect(x: -1500, y: -20, width: 1627, height: 1015)
+    harness.scale = scale
+    let session = harness.session(target: .window(9))
+    try await session.start()
+    let package = try #require(session.packageURL)
+    let expected = scale == 1 ? [1626, 1014] : [3254, 2030]
+    let initial = try readSession(package)
+    #expect(initial.tracks.screen.pixelSize == expected)
+    #expect(initial.source.contentRectPoints == [-1500, -20, 1627, 1015])
+    #expect(harness.streams[0].pixels == expected)
+    try await session.pause()
+    harness.rect = CGRect(x: 100, y: 40, width: 811, height: 613)
+    harness.scale = scale == 1 ? 2 : 1
+    try await session.resume()
+    _ = try await session.stop()
+    #expect(try readSession(package).tracks.screen.pixelSize == expected)
+    #expect(harness.streams.map(\.pixels) == [expected, expected])
+}
+
 @Test @MainActor func lifecycleLowDiskFinalizesAndPreservesInterruptedPackage() async throws {
     let harness = try LifecycleHarness(); defer { harness.cleanup() }
     let session = harness.session()

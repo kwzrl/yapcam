@@ -67,3 +67,20 @@ import Testing
         try CaptureGeometry.area(displayBounds: .zero, localRect: CGRect(x: 0, y: 0, width: 10, height: 10), scale: 1)
     }
 }
+
+@Test(arguments: [1.0, 2.0]) func oddWindowAndAreaSizesChooseEvenPixelsWithoutChangingPoints(scale: Double) throws {
+    let frame = CGRect(x: -1500, y: -20, width: 1627, height: 1015)
+    let window = try CaptureGeometry(rect: frame, scale: scale)
+    let expected = scale == 1 ? [1626, 1014] : [3254, 2030]
+    #expect([window.pixelWidth, window.pixelHeight] == expected)
+    #expect(window.rect == frame)
+    #expect(window.local(CGPoint(x: frame.midX, y: frame.midY)) == CGPoint(x: 813.5, y: 507.5))
+
+    let local = CGRect(x: 10, y: 12, width: 813.5, height: 507.5)
+    let area = try CaptureGeometry.area(displayBounds: CGRect(x: -1680, y: -1050, width: 1680, height: 1050),
+                                        localRect: local, scale: scale)
+    #expect([area.pixelWidth, area.pixelHeight] == (scale == 1 ? [812, 506] : [1626, 1014]))
+    #expect(area.rect == local.offsetBy(dx: -1680, dy: -1050))
+    let smallest = try CaptureGeometry(rect: CGRect(x: 0, y: 0, width: 2, height: 3), scale: scale)
+    #expect([smallest.pixelWidth, smallest.pixelHeight] == (scale == 1 ? [2, 2] : [4, 6]))
+}
