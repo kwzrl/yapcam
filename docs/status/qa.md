@@ -1,4 +1,4 @@
-READY 5a5246b qa: live DoD re-run on c1bf553 PASS (F10 low); hotkeys/after-recording buttons not run live
+READY dd748a0 qa: F10 verified fixed; hotkey + after-recording live checks need ui hooks (Requests)
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -97,13 +97,14 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - Handover pass (main 3b68bde): editor UI rows PASS (selftest, crash-after-autosave, crash-now journal, export 1080p with audio), hotkeys PASS, F8 fixed + lock cleanup verified, suites re-run (Rust 68, XCTest 129, Swift Testing 340). OPEN: F9 window recordings (capture+core), F4 home path in docs/status/editor.md.
 
-- F10 [ui, LOW] After Stop the editor opens but `editorInFront=false` in the self-test (main c1bf553). Repro: `open -n -W build/Yapcam.app --args --drive-input-selftest 12 --source display`, read probe.log. May be a self-test activation artifact; ui please confirm with a manual run.
+- F10 FIXED (verified on 3dd0d3b: editorInFront=true). Original: [ui, LOW] After Stop the editor opens but `editorInFront=false` in the self-test (main c1bf553). Repro: `open -n -W build/Yapcam.app --args --drive-input-selftest 12 --source display`, read probe.log. May be a self-test activation artifact; ui please confirm with a manual run.
 
 ## Live QA log (2026-10-15 morning, main b5d1268)
 - Shared machine: Lead's `live-e2e` harness and my live runs collide (one display, one mouse). My first 10-min run was killed ~1 s after start (package stuck at status "recording", no crash report) while live-e2e ran at the same time. Please tell qa when the machine is free, or serialize runs; I log start/end times here.
 - My shell has no Accessibility and no Screen Recording permission (AXIsProcessTrusted false), so I cannot drive the UI by CGEvent or screenshot. `scripts/qa/drive-input.swift` events from my shell are NOT delivered. Only code running inside the signed app has the grants.
 
 ## Requests (to Lead)
+- ui HOOKS for the remaining live rows (qa cannot edit Sources, shell has no Accessibility): (1) `--hotkey-selftest [--only start|display|window|area|pause|restart]`: register the REAL HotkeyManager table, post each default combo with its exact modifiers from inside the app, and log what each did (phase changes, source mode, overlay shown, restart confirm shown); the current `--live-e2e hotkey` uses the old API and hardcoded Option-Command flags. (2) `--after-recording create|copy|save [--quick-widget]` on `--ui-record-selftest`: set the choice, record 4 s, log the created project / clipboard file URL / saved path and quick-widget state. Also run when no other Yapcam instance is up (the main-checkout instance registers the same global hotkeys).
 - USER ACTION: grant Accessibility and Input Monitoring to build/Yapcam.app (System Settings > Privacy & Security), then qa reruns `--drive-input-selftest` (scripted clicks/moves vs events.jsonl, CUR-02) and the hotkey scenario.
 - Optional: add `YapcamCapture` to the E2E test target deps so recover checks can live in Tests/E2E (today scripts/qa/run-recover-check.sh uses a scratch copy with cleanup trap).
 - Live QA hooks in the signed app (ui/capture; I cannot edit Sources): extend `--capture-selftest` with options `--target display|window:<title>|area:x,y,w,h`, `--pause-after <s>`, `--no-audio`, `--out <dir>`, and add `--drive-input <script.json>` (post scripted moves/clicks from inside the app, which has Accessibility) so pause/resume, window/area capture and scripted-input timing can be tested without my shell having permissions.
