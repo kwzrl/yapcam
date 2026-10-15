@@ -559,3 +559,10 @@ No recording/manifest/sidecar is rewritten, no query/frame does file IO, and
 snapshots retain the flags they loaded. Malformed sidecars fail explicitly.
 UI should forward new flags to Capture's durable marker API when wired; this
 compatibility reader supports packages already saved by the toolbar.
+
+`canvas.inset_origin` additionally accepts [x,y] in[-1,1], with centered[0,0]
+for fresh/legacy projects. render_options[_at]/effects_at and the optional typed
+CoreRenderOptions.insetOrigin expose it. Render's existing screenInsetOrigin
+consumer weights the inner border while retaining its total size. It is a portable
+style setting with normal validation/history/save behavior; Core frame geometry
+and C ABI remain unchanged. Editor owns the X/Y controls.

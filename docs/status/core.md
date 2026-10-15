@@ -1,30 +1,50 @@
-READY working tree on 2372753: RND-9 screen quality + CAP-3 toolbar marker sidecars; Rust99, Core Swift70, Clippy and signed build/codesign PASS. Final RND-7 inset-origin handoff in progress.
+READY d14c367 + pending follow-up: screen quality, inset origin and toolbar marker compatibility; Rust100/Core Swift71/Render13 portable +6 native skips, Clippy and signed build/codesign PASS. Lead MUST checkpoint all seven pending files before integration/push.
 
 # Core status
 
-Updated 2026-10-15 17:12 UTC. Branch team/core; Lead checkpoint b852c2c.
-Main now eacbd4d. `git diff --quiet HEAD main -- core Sources/YapcamCore
-Tests/YapcamCoreTests docs/FORMATS.md` passes: the complete tested Core package is
-integrated. Pushed b852c2c to origin/team/core successfully (fast-forward from
-4c2db8d), and independently verified the remote SHA. Never pushed main.
-Clean-tree `git rebase main` still cannot create .git/worktrees/core/rebase-merge
-(Operation not permitted); Lead must rebase the branch metadata. No workaround.
+Updated 2026-10-15 17:41 UTC. Branch team/core; Lead checkpoint d14c367,
+based on main c1bf553 (main is an ancestor). Lead already rebased during this run;
+no additional rebase needed. Microphone package b852c2c is integrated/published.
+The current source includes d14c367 plus the final tested follow-up below; d14c367
+alone predates the Core Swift empty-quality-object decoder fix and strengthened
+preset/inset regressions. Do not integrate/push that intermediate checkpoint alone.
 
 ## Next
 
-Screen quality + toolbar marker compatibility are green and commit-ready:
-Rust99/Core Swift70/Clippy/signed canonical app/codesign PASS. Logs
-/private/tmp/yapcam-core-{screen-quality,marker-sidecar}-ready.log.
+Continuation audit 17:41 UTC: main remains c1bf553; no new Core assignment or
+integration since the final green run. Rechecked the brief, FEATURES' Core row
+and updated consumer handoffs. Editor's new camera/layout controls and Render's
+enhanced-mic regression use delivered Core APIs; their new statuses request no
+additional Core implementation. Preserve the seven-file verified follow-up for
+Lead's checkpoint. No source changes, app activity or redundant test runs this
+cycle; diff --check passes. Main is already an ancestor, so no rebase needed.
 
-One more explicit Render handoff found in the full request audit: canvas.inset_origin
-is decoded by Render but not persisted/emitted by Core. Implement that metadata
-with centered [0,0] legacy/factory default; preserve total inset and frame geometry.
-Contract documented first in FORMATS.md. Camera matte/lens/color older alias requests
-are already handled by Render's current camera_layout/zoom_lens/camera_style adapter.
+No remaining assigned Core implementation item after this consumer-request audit.
+Closed the missed Render screen_quality/inset_origin and UI markers.json handoffs,
+in addition to original CORE-1...10/shared gap work. Original empty-backlog audits
+missed those explicit handoffs; this cycle corrects them. Older Render glass_loupe,
+camera_color and camera_matte alias requests are superseded by the current adapter
+consuming zoom_lens/camera_style/camera_layout. FEATURES conditionally mentions
+caption font/reveal metadata if Editor makes a new concrete request; no new request
+for those fields arrived in this cycle.
 
-Lead already rebased HEAD2372753 onto main eacbd4d. Git metadata remains Lead-owned.
-Checkpoint these verified packages at the green stopping points; source/API review
-and UI/native acceptance remain separate. No other team's source/tests touched.
+Lead MUST checkpoint ALL these seven pending files before integration/push:
+Sources/YapcamCore/ScreenQuality.swift; Tests/YapcamCoreTests/ScreenQualityTests.swift;
+core/README.md; core/src/effects.rs; core/src/preset.rs;
+core/src/screen_quality_tests.rs; docs/status/core.md.
+In particular the Swift DTO fix is required for Render's existing valid {} contract,
+and the preset fix makes unknown-only optional objects leave disabled settings off.
+Please arrange the required other-family review and mirror new Swift APIs in the
+Lead-owned SWIFT_API.md. No header, other-team source/tests or frozen fixtures edited.
+
+Final gate: Rust100 PASS/1 intentional scale ignore, Core Swift71 PASS, renderer
+contract suites19 =13 portable PASS/6 explicit native skips; Clippy all-targets
+-D warnings/fmt/diff; CLEAN canonical app + strict codesign PASS. Rust log:
+/private/tmp/yapcam-core-consumer-handoffs-ready.log. That first combined run found
+the Swift DTO empty-object mismatch in Render's test; fix and final app/Core Swift/
+Render run PASS in /private/tmp/yapcam-core-consumer-handoffs-swift-final.log.
+Native pixel acceptance and UI control wiring remain with Render/Editor/Lead.
+No app launched or PID signaled. Every finished wrapper listed/deleted its root.
 
 UI failure evidence on pre-integration Core test baseline for Lead/UI: the broad UI command (direct-binary app test
 excluded per launch rule) aborts with signal6. Diagnostic report
@@ -169,6 +189,34 @@ Verification: Rust76 and Core Swift58 PASS, strict codesign PASS; log
 and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
+
+### READY final consumer handoffs (2026-10-15 17:37 UTC)
+
+- RND-7: canvas.inset_origin [x,y], each finite in[-1,1], defaults centered[0,0]
+  for fresh/legacy projects. Queries append inset_origin for Render's existing
+  screenInsetOrigin consumer; Core typed options expose it. Presets, transactional
+  validation/history/save/reopen retain it; geometry/timing/ABI unchanged. One Rust
+  and one Swift regression cover boundary values, malformed arrays/rollback, legacy
+  default, snapshots, persistence and unchanged frame geometry.
+- CAP-3 compatibility: optional recording/markers.json {markers_ns:[Int64]} loaded
+  once at create/open. Merge into immutable runtime events, bound by source segments,
+  stable ui-marker:<array-index> IDs; exact-time dedup prefers captured durable flags.
+  Query maps pauses/splits/speeds/cuts/repeats through existing clocks. No source
+  file rewritten, no query/frame IO. Malformed data returns invalid JSON explicitly;
+  negative/gap/final-end/truncated-tail entries are discarded. Two Rust/one Swift
+  regressions cover exact toolbar schema, ordering/dedup, paused boundaries, edits,
+  snapshots, reopen, source-byte preservation and malformed input. UI should still
+  forward future flags directly to Capture's durable marker API.
+- RND-9 final compatibility: CoreScreenQuality decoding accepts {} with the same
+  0.5/quality defaults as Render. Null/missing remains disabled. Preset filtering
+  discards unknown-only objects without enabling an optional setting. Both regressions
+  verified on the final source; no old appearance/default/ABI changed.
+- All five new Rust/three Swift regressions are included in final Rust100/Core Swift71
+  gates. Existing Render ScreenQualityTests/ProjectAdapterTests/CoreLensLayoutTests
+  pass13 portable cases;6 native cases skip explicitly without Metal/media services.
+  Final logs and checkpoint file list are in Next. Previous per-package green gates
+  below remain historical; final combined gate supersedes their counts.
+
 
 ### READY RND-9 persisted screen quality (2026-10-15 17:27 UTC)
 

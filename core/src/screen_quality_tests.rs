@@ -59,6 +59,8 @@ fn screen_quality_is_opt_in_and_keeps_frames_history_and_legacy_appearance() {
 fn screen_quality_presets_filter_partial_objects_and_invalid_edits_are_atomic() {
     let f = Fixture::new();
     let mut p = Project::create(&f.0).unwrap();
+    p.apply(&json!({"op":"apply_preset","preset":{"canvas":{"screen_quality":{"foreign_id":"ignore"}}}})).unwrap();
+    assert!(p.data.canvas.screen_quality.is_none());
     p.apply(&json!({"op":"set","path":"canvas.screen_quality","value":{}}))
         .unwrap();
     for invalid in [
