@@ -31,7 +31,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| REC-01 | Capture | Record an entire display | docs | SCStream display capture, native pixel size, HEVC, cursor excluded from video (M1) | capture | limited (no TCC: display capture implemented; host media check pending) | Record 5 s; ffprobe size = display pixels; cursor absent in video |
+| REC-01 | Capture | Record an entire display | docs | SCStream display capture, native pixel size, HEVC, cursor excluded from video (M1) | capture | verified live (selftest on signed build: HEVC 1680x1050, 600.08 s / 34,476 frames, status complete, package ok; 4-min and 10-min runs; qa 2026-10-15) | Record 5 s; ffprobe size = display pixels; cursor absent in video |
 | REC-02 | Capture | Record a single window | docs | SCContentFilter window; follows window moves/resizes; target-window-closed ends/pauses with warning | capture | limited (no TCC: window capture implemented, resize/scale policy tested) | Record TextEdit window while moving it; output stays window-sized |
 | REC-03 | Capture | Record a custom area | docs | Area rect in display points, drawn with overlay; stored in session.json | capture+ui | limited (no TCC: area capture implemented; geometry math tested) | Area 800×600 → video 800×600 (×scale) |
 | REC-04 | Capture | Source picker (display / window / area) in toolbar | docs/assumption | Vertical toolbar with three modes and live thumbnails | ui | implemented (ui: popovers via UI snapshots; live interaction limited: no TCC) | Switch modes, each starts correct capture |
@@ -41,7 +41,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | REC-08 | Capture | Pause / resume during recording | docs | New segment per resume; pauses removed from source time (FORMATS.md) | capture | limited (no TCC: SessionLifecycleTests with injected services pass: pause/resume segments, no drift in 10k-segment test) | Record 3 s, pause 5 s, 3 s → duration ≈ 6 s, A/V in sync |
 | REC-09 | Capture | Recording HUD (timer, pause, stop, mic level) | assumption | Small floating panel excluded from capture | ui | implemented (ui: HUD snapshots; exclusion from capture limited: no TCC) | HUD absent from exported file |
 | REC-10 | Capture | Exclude own app windows from capture | docs/assumption | CaptureExclusions registered windows | capture | limited (no TCC: stream exclusion policy unit-tested only) | E2E: toolbar visible on screen, absent in recording |
-| REC-11 | Capture | Frame rate 30/60 fps, VFR | assumption | maxFPS option; VFR timestamps preserved | capture | limited (no TCC: cadence/VFR cap unit tests at 30/60 Hz pass) | ffprobe frame timestamps monotonic, ≤60 fps |
+| REC-11 | Capture | Frame rate 30/60 fps, VFR | assumption | maxFPS option; VFR timestamps preserved | capture | verified live (VFR HEVC, 34,476 frames in 600.08 s = 57.5 fps average on a static desktop, monotonic; ffmpeg decodes without errors) | ffprobe frame timestamps monotonic, ≤60 fps |
 | REC-12 | Capture | Retina / native pixel recording | assumption | pixel_size = points×scale; math tests (no Retina HW) | capture | limited (no Retina display; unit tests only) | Unit: scale 2 sizes |
 | REC-13 | Capture | Hide desktop icons while recording | technical (hide-icons helper) | Option; restores icons on stop/crash | capture/ui | implemented (capture stream filter + ui toggle; Finder behaviour unverified) | Icons hidden in recording, restored after |
 | REC-14 | Capture | Hide Dock icon / recording flag option | docs | Settings toggle for Yapcam Dock icon (accessory activation policy) | ui | implemented (ui: Dock toggle; build only) | Toggle hides Dock icon |
@@ -57,7 +57,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| AUD-01 | Audio | Record system audio | docs | SC audio capture → system.m4a, separate track (M1) | capture | limited (no TCC: system.m4a track implemented, PCM duration tests pass) | Play tone during recording; track RMS > threshold |
+| AUD-01 | Audio | Record system audio | docs | SC audio capture → system.m4a, separate track (M1) | capture | verified live (system.m4a AAC 48 kHz, 300/300 marker beeps detected; offset to video within +-1 frame, drift 7.3 ms over 10 min) | Play tone during recording; track RMS > threshold |
 | AUD-02 | Audio | Record microphone | docs | AVCapture → mic.m4a, device picker, level meter | capture | limited (no mic HW; no-device path tested) | No-device: option disabled with message; no crash |
 | AUD-03 | Audio | Mic device lost mid-recording | assumption | Recording continues, warning, mic track truncated | capture | limited (no HW; simulated) | Unit/simulated device loss |
 | AUD-04 | Audio | Per-track volume (mic, system) | docs | audio.mic_gain_db / system_gain_db; mute | editor+core | integrated (editor Audio tab -> core audio gains; RealCoreRangesTests; audible effect in export unverified) | Set −∞ → exported track silent |
@@ -160,14 +160,14 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| EXP-01 | Export | MP4 export 1080p H.264 (M1) | docs | Exporter | render | verified (PipelineE2E testM1OpenEditExport: ffprobe 1080p) | ffprobe 1920×1080, duration ±1 frame |
+| EXP-01 | Export | MP4 export 1080p H.264 (M1) | docs | Exporter | render | verified (PipelineE2E testM1OpenEditExport: ffprobe 1080p); REAL RECORDING: export fails when range includes the last ~100 ms with audio on (finding F6) | ffprobe 1920×1080, duration ±1 frame |
 | EXP-02 | Export | Resolution options (720/1080/1440/2160/…) | docs/assumption | outputHeight | render | integrated (editor export sheet offers 720-4K since dabe94c, ShortProjectTests; render E2E verifies 720/1080; 1440/2160 file output unverified) | per size ffprobe |
 | EXP-03 | Export | FPS 24/30/60 | docs | fps | render | verified (testFPSAndNoAudio: r_frame_rate 60/1, 300 frames) | ffprobe r_frame_rate |
 | EXP-04 | Export | Quality/compression level | docs | quality 0…1 | render | integrated (editor export sheet quality control since dabe94c; bitrate monotonic check not done) | bitrate monotonic |
 | EXP-05 | Export | GIF export | docs, technical | native ImageIO GIF writer (no gifsicle) | render | verified (testFormatsAndPresets: GIF 30 frames) | valid GIF, frame count |
 | EXP-06 | Export | MOV export, HEVC codec | docs(3rd party), assumption | format/codec | render | verified (testFormatsAndPresets: HEVC mp4 + H.264 mov) | – |
 | EXP-07 | Export | Export progress/cancel, partial file removed | assumption | Task cancel | render+ui | verified (testCancelRemovesPartialFile) | Cancel → no file |
-| EXP-08 | Export | Preview == export | architecture | same compositor | render | implemented (same evaluator; E2E checks zoom crop only; pixel diff vs preview not done: needs Metal host; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | ffmpeg frame diff < threshold |
+| EXP-08 | Export | Preview == export | architecture | same compositor | render | verified live (LiveRecordingTests.testExportMatchesPreviewFrame on real 10-min recording: mean abs luma diff 0.50/255 between exported frame and compositor frame at t=2 s, 720p) | ffmpeg frame diff < threshold |
 | EXP-09 | Export | Performance settings (hardware encode, parallelism) | docs | – | render | verified (Lead run 04:40 M4 debug: 10-min 1080p30 export with audio 4.4x realtime, peak RSS 137 MB; 30-min soak 2.2x, RSS growth -2.5 MB; synthetic low-res sources, real recordings unmeasured) | – |
 | EXP-10 | Export | Quick share widget / copy file | docs | reveal in Finder / drag file; no upload | ui | limited (no cloud) | – |
 | EXP-11 | Export | Verification: reopen output and check tracks | contract | Exporter | render | verified (Exporter reopens output; E2E ffprobe agrees) | – |
@@ -202,6 +202,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
 
 ## Audit log
+Live results (qa, signed build, main b5d1268): see docs/TEST_REPORT.md section 4.
 Last audit: against main 7d545a1 (editor export sheet: all formats, 4K, 24 fps, quality); earlier 065a117 (M3 long-export results); earlier 25f2b97 (CUR-06 integrated); earlier 8600691 (M3 notes added to CUR-06/10, REC-18/19); earlier a02a89e (Metal hardware results folded in); earlier 78a8a0e; earlier 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
