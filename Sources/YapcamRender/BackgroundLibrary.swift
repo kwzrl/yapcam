@@ -49,6 +49,8 @@ public enum BackgroundLibrary {
         }
     }
     public static func preset(id: String) -> BackgroundPreset? { presets.first { $0.id==id } }
+    /// Our authored calm dark starting point; never a system/vendor wallpaper.
+    public static var defaultPreset: BackgroundPreset { preset(id: "deep-slate")! }
     /// CPU-only, sRGB thumbnails generated away from MainActor. Safe to await in a
     /// SwiftUI .task; concurrent requests reuse the same image. Sizes are pixels,
     /// 16...512 per edge (e.g. 320x200 for a 160x100 point cell at 2x).

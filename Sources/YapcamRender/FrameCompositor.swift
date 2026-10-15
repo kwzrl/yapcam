@@ -21,10 +21,13 @@ public final class FrameCompositor: @unchecked Sendable {
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
     private struct CursorTextureKey: Hashable { let style: VectorCursorStyle; let set: String; let size: VectorCursorSize; let scale: Int }
     private var vectorCursors: [CursorTextureKey: VectorCursorTexture] = [:]
+    private let identityLUT: CameraLUTTexture
+    private var cameraLUTs: [URL: CameraLUTTexture] = [:]
     private let empty: MTLTexture
 
     public init(device: MTLDevice, project: any RenderProjectSource) throws {
         self.device = device; self.project = project
+        identityLUT = try CameraLUTTexture(CubeLUT.identity(), device: device)
         manifest = try RecordingManifest.load(package: project.packageURL)
         loader = MTKTextureLoader(device: device)
         layerRenderer = try LayerRenderer(device: device)
@@ -70,16 +73,25 @@ public final class FrameCompositor: @unchecked Sendable {
     func encode(_ frame: YcFrame,from project: any RenderProjectSource,to target: MTLTexture,in cb: MTLCommandBuffer) throws {
         lock.lock(); defer { lock.unlock() }
         let invalidate = invalidationLock.withLock { let value=needsInvalidation; needsInvalidation=false; return value }
-        if invalidate { sources.removeAll(); images.removeAll(); cursorMetadata.removeAll(); cameraEffects.invalidate(); layerRenderer.invalidate(); CVMetalTextureCacheFlush(cache,0) }
+        if invalidate { sources.removeAll(); images.removeAll(); cameraLUTs.removeAll(); cursorMetadata.removeAll(); cameraEffects.invalidate(); layerRenderer.invalidate(); CVMetalTextureCacheFlush(cache,0) }
         guard target.pixelFormat == .bgra8Unorm_srgb, frame.canvas_w > 0, frame.canvas_h > 0 else { throw RenderError.metal("Compositor requires an sRGB BGRA target and nonzero canvas") }
         let effects = try project.renderEffects(atNs: frame.tl_ns,canvasSize: CGSize(width: Int(frame.canvas_w),height: Int(frame.canvas_h)))
         let options = effects.configuration
-        try validateFrame(frame,configuration: options)
+        try validateFrame(frame,configuration: options,layers: effects.layers)
         let screen = try decoded(frame.screen, track: "screen")
         let camera = try decoded(frame.camera, track: "camera")
         var matte: TextureFrame?
         var cameraCrop = SIMD4<Float>(0,0,1,1)
         if let camera { (matte,cameraCrop) = try cameraEffects.evaluate(camera,removeBackground: options.cameraBackgroundRemoval,faceFraming: options.cameraFaceFraming) }
+        let colorSettings = options.cameraColor
+        var colorLUT = identityLUT
+        if let url = colorSettings.lutURL, colorSettings.intensity > 0, camera != nil {
+            if cameraLUTs[url] == nil {
+                if cameraLUTs.count >= 4 { cameraLUTs.removeAll() }
+                cameraLUTs[url] = try CameraLUTTexture(CubeLUT(contentsOf: url), device: device)
+            }
+            colorLUT = cameraLUTs[url]!
+        }
         var cursorTexture = empty
         var cursorRect = SIMD4<Float>.zero
         if options.cursorSetID == nil, options.cursorStyle == .recorded, frame.cursor_visible != 0, frame.cursor_opacity > 0, let segment = manifest.segment(at: frame.screen.segment), let path = segment.files["cursors"] {
@@ -163,6 +175,12 @@ public final class FrameCompositor: @unchecked Sendable {
         } else {
             uniforms.append(.zero); uniforms.append(SIMD4(0.5,0.5,1,0)); uniforms.append(crop); uniforms.append(SIMD4(0,0,1,1))
         }
+        let (tone, processing) = try colorSettings.uniforms()
+        uniforms.append(tone) // 29: warmth, contrast, color intensity, lift
+        uniforms.append(processing) // 30: gamma, grade blend, sharpness, grain
+        uniforms.append(SIMD4(colorLUT.minimum, colorSettings.lutURL == nil ? 0 : 1))
+        uniforms.append(SIMD4(colorLUT.maximum, colorSettings.isEnabled ? 1 : 0))
+        uniforms.append(SIMD4(Float(frame.tl_ns % 1_000_000_000)/1e9,0,0,0))
         if options.cursorMotionBlur > 0 && frame.tl_ns > 0 {
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
         }
@@ -173,11 +191,12 @@ public final class FrameCompositor: @unchecked Sendable {
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentBytes(&uniforms, length: uniforms.count * MemoryLayout<SIMD4<Float>>.stride, index: 0)
         for (index, texture) in [screen?.texture ?? empty, camera?.texture ?? empty, cursorTexture, background, matte?.texture ?? empty].enumerated() { encoder.setFragmentTexture(texture, index: index) }
+        encoder.setFragmentTexture(colorLUT.texture, index: 5)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3); encoder.endEncoding()
         try layerRenderer.encode(effects.layers, canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)), project: project, target: target, cb: cb)
         // CVMetalTexture and its IOSurface must survive until GPU completion.
-        let retainedMatte = matte
-        cb.addCompletedHandler { _ in _ = screen; _ = camera; _ = retainedMatte }
+        let retainedMatte = matte, retainedColorLUT = colorLUT
+        cb.addCompletedHandler { _ in _ = screen; _ = camera; _ = retainedMatte; _ = retainedColorLUT }
     }
 
     private static let shader = """
@@ -199,7 +218,7 @@ public final class FrameCompositor: @unchecked Sendable {
         return (uv-.5) * (a > b ? float2(1,b/a) : float2(a/b,1)) + .5;
     }
     float2 sourceUV(float2 uv,float4 rowX,float4 rowY) { return float2(dot(uv,rowX.xy)+rowX.z,dot(uv,rowY.xy)+rowY.z); }
-    fragment float4 fragmentMain(Vertex v [[stage_in]], constant float4 *u [[buffer(0)]], texture2d<float> screen [[texture(0)]], texture2d<float> cam [[texture(1)]], texture2d<float> cursor [[texture(2)]], texture2d<float> bg [[texture(3)]], texture2d<float> matte [[texture(4)]]) {
+    fragment float4 fragmentMain(Vertex v [[stage_in]], constant float4 *u [[buffer(0)]], texture2d<float> screen [[texture(0)]], texture2d<float> cam [[texture(1)]], texture2d<float> cursor [[texture(2)]], texture2d<float> bg [[texture(3)]], texture2d<float> matte [[texture(4)]], texture3d<float> cameraLUT [[texture(5)]]) {
         constexpr sampler s(coord::normalized, address::clamp_to_edge, filter::linear);
         float2 p = v.uv * u[0].xy;
         float4 result = float4(linearRGB(u[1].rgb),u[1].a);
@@ -262,7 +281,7 @@ public final class FrameCompositor: @unchecked Sendable {
             float distance=length(delta), radius=u[25].y;
             float radial=clamp(distance/radius,0.0,1.0);
             float refraction=1-u[25].z*.15*pow(radial,4.0);
-            float2 uv=u[26].xy+delta/u[4].zw/u[26].z*u[28].zw*refraction;
+            float2 uv=u[26].xy+delta/u[4].zw*u[27].zw*refraction;
             float2 fringe=delta/u[4].zw*u[25].w*.006*pow(radial,4.0);
             float2 inset=min(.5/u[23].xy,u[28].zw*.5);
             float2 cropMin=u[28].xy+inset, cropMax=u[28].xy+u[28].zw-inset;
@@ -312,7 +331,33 @@ public final class FrameCompositor: @unchecked Sendable {
             else d=rounded(p,u[11],clamp(u[12].x,0.0,min(u[11].z,u[11].w)*.5));
             if(u[15].z>0) { float shadow=exp(-max(d,0.0)*max(d,0.0)/(2*u[15].z*u[15].z))*.3; result=over(result,float4(0,0,0,shadow)); }
             uv=coverUV(uv,u[11].zw,u[23].zw*u[18].zw); if(u[12].w>0) uv.x=1-uv.x; uv=sourceUV(u[18].xy+uv*u[18].zw,u[21],u[22]);
-            float4 tex=cam.sample(s,uv); if(u[15].w>0) tex.a*=matte.sample(s,uv).r; tex.a*=u[12].z*(1-smoothstep(-.5,.5,d)); result=over(result,tex);
+            float4 tex=cam.sample(s,uv);
+            if(u[32].w>0) {
+                if(u[30].z>0) {
+                    float2 pixel=1/float2(cam.get_width(),cam.get_height());
+                    float3 adjacent=(cam.sample(s,uv+float2(pixel.x,0)).rgb+cam.sample(s,uv-float2(pixel.x,0)).rgb+cam.sample(s,uv+float2(0,pixel.y)).rgb+cam.sample(s,uv-float2(0,pixel.y)).rgb)*.25;
+                    tex.rgb=clamp(tex.rgb+(tex.rgb-adjacent)*u[30].z*2,0.0,1.0);
+                }
+                if(u[30].y>0) {
+                    float3 encoded=select(tex.rgb*12.92,1.055*pow(max(tex.rgb,0.0),float3(1/2.4))-.055,tex.rgb>.0031308);
+                    float3 adjusted=encoded+float3(u[29].x*.09,u[29].x*.01,-u[29].x*.09);
+                    adjusted=(adjusted-.5)*(1+u[29].y)+.5+u[29].w;
+                    float luma=dot(adjusted,float3(.2126,.7152,.0722));
+                    adjusted=luma+(adjusted-luma)*(1+u[29].z);
+                    adjusted=clamp(pow(max(adjusted,0.0),float3(1/u[30].x)),0.0,1.0);
+                    if(u[31].w>0) {
+                        float3 coordinate=clamp((adjusted-u[31].xyz)/(u[32].xyz-u[31].xyz),0.0,1.0);
+                        float size=float(cameraLUT.get_width());
+                        adjusted=cameraLUT.sample(s,(coordinate*(size-1)+.5)/size).rgb;
+                    }
+                    tex.rgb=linearRGB(clamp(mix(encoded,adjusted,u[30].y),0.0,1.0));
+                }
+                if(u[30].w>0) {
+                    float grain=fract(sin(dot(floor(uv*float2(cam.get_width(),cam.get_height()))+u[33].x*61,float2(29.17,47.73)))*19731.37)-.5;
+                    tex.rgb=clamp(tex.rgb+grain*u[30].w*.025,0.0,1.0);
+                }
+            }
+            if(u[15].w>0) tex.a*=matte.sample(s,uv).r; tex.a*=u[12].z*(1-smoothstep(-.5,.5,d)); result=over(result,tex);
         }
         // Deterministic sub-LSB dithering prevents gradient banding at the sRGB sink.
         float3 encoded=select(result.rgb*12.92,1.055*pow(max(result.rgb,0.0),float3(1/2.4))-.055,result.rgb>.0031308);

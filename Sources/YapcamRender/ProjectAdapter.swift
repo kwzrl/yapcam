@@ -32,7 +32,10 @@ extension Project: RenderProjectSource {
         }
         // These selections are root settings. Read Core's effective shape so
         // always_default wins over a stored shape, without changing frame scale.
-        let options=try renderOptions()
+        let evaluated=try query("{\"q\":\"render_options_at\",\"tl_ns\":\(atNs)}",as: ProjectRenderOptions.self)
+        let options=evaluated.base
+        configuration.glassLoupe=evaluated.glassLoupe
+        configuration.cameraColor=try evaluated.cameraColor?.value(package: packageURL) ?? .init()
         configuration.cursorSetID=options.cursorSetId
         if let shape=options.cursorShape {
             switch shape {

@@ -18,7 +18,7 @@ public struct CubeLUT: Sendable {
         var seen = Set<String>()
         for (index,line) in text.split(separator: "\n",omittingEmptySubsequences: false).enumerated() {
             if index%1024 == 0 { try Task.checkCancellation() }
-            let words = line.split(separator: "#",maxSplits: 1,omittingEmptySubsequences: false)[0].split(whereSeparator: \.isWhitespace)
+            let words = line.prefix(while: { $0 != "#" }).split(whereSeparator: \.isWhitespace)
             guard let first = words.first else { continue }
             let key = String(first)
             if key == "TITLE" { continue }
@@ -47,9 +47,21 @@ public struct CubeLUT: Sendable {
         self.init(dimension: n,minimum: minimum,maximum: maximum,rgba: samples)
     }
     public init(contentsOf url: URL) throws {
+        try self.init(data: Self.readData(url))
+    }
+    private static func readData(_ url: URL) throws -> Data {
+        guard url.isFileURL else { throw RenderError.invalidSettings("LUT must be a local file") }
         let values = try url.resourceValues(forKeys: [.fileSizeKey,.isRegularFileKey])
-        guard url.isFileURL, values.isRegularFile == true, (values.fileSize ?? .max) <= Self.byteLimit else { throw RenderError.invalidSettings("LUT must be a local regular file of at most 16MiB") }
-        try self.init(data: Data(contentsOf: url,options: .mappedIfSafe))
+        guard values.isRegularFile == true, (values.fileSize ?? .max) <= Self.byteLimit else { throw RenderError.invalidSettings("LUT must be a local regular file of at most 16MiB") }
+        let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
+        var bytes = Data()
+        while bytes.count <= byteLimit {
+            try Task.checkCancellation()
+            let next = try file.read(upToCount: min(65_536,byteLimit+1-bytes.count)) ?? Data()
+            if next.isEmpty { break }; bytes.append(next)
+        }
+        guard bytes.count <= byteLimit else { throw RenderError.invalidSettings("LUT exceeds 16MiB") }
+        return bytes
     }
     public static func identity(dimension: Int = 2) throws -> CubeLUT {
         guard (2...65).contains(dimension) else { throw RenderError.invalidSettings("3D LUT size must be 2…65") }
@@ -74,17 +86,26 @@ public struct CubeLUT: Sendable {
     /// a package-relative path for Core persistence. Never edit the selected source.
     public static func importFile(_ source: URL, into package: URL) throws -> String {
         guard package.isFileURL else { throw RenderError.invalidSettings("LUT destination must be a local project") }
-        let parsed = try CubeLUT(contentsOf: source)
-        _ = parsed
-        let bytes = try Data(contentsOf: source)
-        _ = try CubeLUT(data: bytes) // Protect against replacement between metadata/read.
+        let bytes = try readData(source)
+        _ = try CubeLUT(data: bytes)
         let digest = SHA256.hash(data: bytes).map { String(format: "%02x",$0) }.joined()
         let relative = "assets/luts/\(digest).cube"
         let root = package.standardizedFileURL.resolvingSymlinksInPath()
-        let directory = root.appendingPathComponent("assets/luts",isDirectory: true)
-        guard directory.resolvingSymlinksInPath().path.hasPrefix(root.path+"/") else { throw RenderError.invalidSettings("LUT assets escape the project") }
-        try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: true)
-        let target = root.appendingPathComponent(relative)
+        guard (try root.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true else { throw RenderError.invalidSettings("LUT destination project does not exist") }
+        // Resolve each EXISTING ancestor before creating its child. Foundation
+        // may leave a nonexistent final component unresolved across a symlink.
+        var directory = root
+        for component in ["assets","luts"] {
+            let child = directory.appendingPathComponent(component,isDirectory: true)
+            if !FileManager.default.fileExists(atPath: child.path) {
+                try FileManager.default.createDirectory(at: child,withIntermediateDirectories: false)
+            }
+            let resolved = child.resolvingSymlinksInPath()
+            guard resolved.path.hasPrefix(root.path+"/"), (try resolved.resourceValues(forKeys: [.isDirectoryKey])).isDirectory == true else { throw RenderError.invalidSettings("LUT assets escape the project") }
+            directory = resolved
+        }
+        let target = directory.appendingPathComponent("\(digest).cube")
+        guard target.resolvingSymlinksInPath().path.hasPrefix(root.path+"/") else { throw RenderError.invalidSettings("LUT asset escapes the project") }
         if FileManager.default.fileExists(atPath: target.path) {
             guard try Data(contentsOf: target) == bytes else { throw RenderError.write("Existing LUT fingerprint has different content") }
             return relative

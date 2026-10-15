@@ -50,7 +50,7 @@ public struct CameraColorSettings: Sendable, Equatable, Codable {
     }
     public var isEnabled: Bool { presetID != nil || lutURL != nil || warmth != 0 || contrast != 0 || colorIntensity != 0 || sharpen != 0 || grain != 0 }
     public func validate() throws {
-        guard [-1...Float(1)].allSatisfy({ range in [warmth,contrast,colorIntensity].allSatisfy(range.contains) }),
+        guard [warmth,contrast,colorIntensity].allSatisfy({ (-1...1).contains($0) }),
               [intensity,sharpen,grain].allSatisfy({ (0...1).contains($0) }), lutURL?.isFileURL != false,
               presetID == nil || CameraColorLibrary.preset(id: presetID!) != nil,
               presetID == nil || lutURL == nil else { throw RenderError.invalidSettings("Camera color settings or preset are invalid") }
