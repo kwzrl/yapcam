@@ -71,7 +71,7 @@ import YapcamCore
     required init?(coder: NSCoder) { nil }
 
     func windowWillClose(_ notification: Notification) {
-        editorDocument.model.saveNow()
+        editorDocument.model.close()      // saves, cancels background work, makes the stale model inert
         editorDocument.player.pause()
         onClose()
     }

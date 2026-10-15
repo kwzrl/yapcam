@@ -54,6 +54,21 @@ public final class EditorModel: ObservableObject {
     public enum SilenceState: Equatable { case idle, analyzing, found([TimeSpan]), failed(String) }
 
     private var autosaveTask: Task<Void, Never>?
+    /// True once the document window closed. Everything after that is inert: edits, saves and the
+    /// completion of background work (music import, wallpaper, transcript, silence) are refused so a
+    /// stale model can never journal over a reopened document's newer state.
+    public private(set) var isClosed = false
+    var musicTask: Task<Void, Never>?
+
+    /// Saves pending edits, cancels all background work and makes the model inert.
+    public func close() {
+        guard !isClosed else { return }
+        saveNow()
+        isClosed = true
+        autosaveTask?.cancel()
+        for t in [silenceTask, captionTask, wallpaperTask, musicTask] { t?.cancel() }
+        player.pause()
+    }
     public var autosaveDelay: Duration = .seconds(2)
 
     public init(project: EditingProject, player: PlaybackEngine) {
@@ -61,6 +76,7 @@ public final class EditorModel: ObservableObject {
         self.player = player
         self.player.onChange = { [weak self] in self?.syncFromPlayer() }
         syncFromPlayer()
+        applySpeechToPlayer()
     }
 
     // MARK: derived
@@ -143,9 +159,13 @@ public final class EditorModel: ObservableObject {
             guard let self else { return }
             do {
                 let spans = try await project.silentSpans()
+                guard !isClosed, !Task.isCancelled else { return }
                 // Timeline coordinates are only valid for the revision they were measured on.
                 silenceState = revision == started ? .found(spans) : .idle
-            } catch { silenceState = revision == started ? .failed(error.localizedDescription) : .idle }
+            } catch {
+                guard !isClosed else { return }
+                silenceState = revision == started ? .failed(error.localizedDescription) : .idle
+            }
         }
     }
     /// Cut (`speed == nil`) or speed up the silences found by `findSilences()` in one undo step.
@@ -164,13 +184,41 @@ public final class EditorModel: ObservableObject {
         wallpaperBusy = id
         wallpaperTask = Task { [weak self] in
             guard let self else { return }
-            do { try await project.applyWallpaper(id: id); noteExternalEdit() }
-            catch { lastError = "Couldn't apply the wallpaper: \(error.localizedDescription)" }
-            wallpaperBusy = nil
+            defer { wallpaperBusy = nil }
+            guard !isClosed else { return }
+            do {
+                try Task.checkCancellation()
+                try await project.applyWallpaper(id: id)
+                if !isClosed { noteExternalEdit() }
+            } catch is CancellationError {
+            } catch { if !isClosed { lastError = "Couldn't apply the wallpaper: \(error.localizedDescription)" } }
         }
     }
     var wallpaperTask: Task<Void, Never>?
     public func waitForWallpaper() async { await wallpaperTask?.value }
+
+    /// Microphone clean-up from project settings (nil when off or the recording has no microphone).
+    public var speechEnhancement: SpeechEnhancement? {
+        guard hasMic, bool("audio.speech_enhancement") else { return nil }
+        var s = SpeechEnhancement(), d = "audio.speech_enhancement_settings."
+        s.highPassHz = number(d + "high_pass_hz", default: s.highPassHz)
+        s.noiseThresholdDB = number(d + "noise_threshold_db", default: s.noiseThresholdDB)
+        s.noiseReductionDB = number(d + "noise_reduction_db", default: s.noiseReductionDB)
+        s.compressorThresholdDB = number(d + "compressor_threshold_db", default: s.compressorThresholdDB)
+        s.compressorRatio = number(d + "compressor_ratio", default: s.compressorRatio)
+        s.targetLUFS = number(d + "target_lufs", default: s.targetLUFS)
+        s.peakCeilingDBFS = number(d + "peak_ceiling_dbfs", default: s.peakCeilingDBFS)
+        s.normalizeLoudness = bool(d + "normalize_loudness", default: s.normalizeLoudness)
+        return s
+    }
+    private var lastSpeech: SpeechEnhancement??
+    /// Pushes the (possibly changed) clean-up settings to the preview; render re-prepares audio only on change.
+    func applySpeechToPlayer() {
+        let current = speechEnhancement
+        if let last = lastSpeech, last == current { return }
+        do { try player.setSpeechEnhancement(current); lastSpeech = .some(current) }
+        catch { lastError = "Voice clean-up unavailable: \(error.localizedDescription)" }
+    }
 
     public func regenerateAutoZooms() { perform(.autoZooms) }
 
@@ -217,6 +265,7 @@ public final class EditorModel: ObservableObject {
     // MARK: editing
 
     func perform(_ command: EditorCommand) {
+        guard !isClosed else { return }
         do {
             try project.apply(command)
             didEdit()
@@ -227,6 +276,7 @@ public final class EditorModel: ObservableObject {
 
     private func didEdit() {
         revision += 1
+        applySpeechToPlayer()
         if case .found = silenceState { silenceState = .idle }   // stale after any edit
         player.invalidate()
         if playheadNs > durationNs { seek(toNs: durationNs) }
@@ -332,11 +382,11 @@ public final class EditorModel: ObservableObject {
 
 
     public func undo() {
-        guard canUndo else { return }
+        guard !isClosed, canUndo else { return }
         do { try project.undo(); didEdit(); selection = .none } catch { lastError = error.localizedDescription }
     }
     public func redo() {
-        guard canRedo else { return }
+        guard !isClosed, canRedo else { return }
         do { try project.redo(); didEdit() } catch { lastError = error.localizedDescription }
     }
 
@@ -382,7 +432,7 @@ public final class EditorModel: ObservableObject {
     /// Immediate save: used by the debounce and on window close.
     public func saveNow() {
         autosaveTask?.cancel()
-        guard saveState != .clean else { return }
+        guard !isClosed, saveState != .clean else { return }
         do { try project.save(); saveState = .clean }
         catch { saveState = .failed(error.localizedDescription); lastError = "Couldn't save: \(error.localizedDescription)" }
     }

@@ -356,6 +356,7 @@ struct InspectorView: View {
             if model.hasMic {
                 ToggleRow(model: model, title: "Mute", path: "audio.mic_muted")
                 NumberRow(model: model, title: "Volume", path: "audio.mic_gain_db", range: -48...12, unit: "dB", format: "%.0f")
+                VoiceCleanupSection(model: model)
             } else { Text("This recording has no microphone track.").foregroundStyle(.secondary) }
         }
     }
@@ -681,5 +682,25 @@ struct InheritedBlurRow: View {
             get: { inherits },
             set: { model.set(path, $0 ? .null : .number(model.number("canvas.motion_blur"))) }))
         if !inherits { NumberRow(model: model, title: title, path: path, range: 0...1) }
+    }
+}
+
+struct VoiceCleanupSection: View {
+    @ObservedObject var model: EditorModel
+    private let p = "audio.speech_enhancement_settings."
+    var body: some View {
+        ToggleRow(model: model, title: "Clean up voice", path: "audio.speech_enhancement")
+        if model.bool("audio.speech_enhancement") {
+            NumberRow(model: model, title: "Noise reduction", path: p + "noise_reduction_db", range: 0...60, unit: "dB", format: "%.0f")
+            NumberRow(model: model, title: "Noise gate", path: p + "noise_threshold_db", range: -70 ... -15, unit: "dB", format: "%.0f")
+            NumberRow(model: model, title: "Low cut", path: p + "high_pass_hz", range: 20...300, unit: "Hz", format: "%.0f")
+            NumberRow(model: model, title: "Compression", path: p + "compressor_ratio", range: 1...10, unit: ":1", format: "%.1f")
+            ToggleRow(model: model, title: "Even out loudness", path: p + "normalize_loudness", defaultValue: true)
+            if model.bool(p + "normalize_loudness", default: true) {
+                NumberRow(model: model, title: "Target loudness", path: p + "target_lufs", range: -36 ... -10, unit: "LUFS", format: "%.0f")
+            }
+            Text("Processed offline on this Mac; the recording file is never changed. Preview re-prepares audio after a change.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 }

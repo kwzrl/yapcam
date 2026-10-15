@@ -220,17 +220,14 @@ struct TimelineView: View {
         items += model.music.map { ($0.id, $0.span, layout.musicTop, .music($0.id)) }
         items += model.highlights.map { ($0.id, $0.span, layout.highlightTop, .highlight($0.id)) }
         items += model.cursorHides.map { (EditorModel.cursorKey($0.index), $0.span, layout.cursorTop, .cursorHide($0.index)) }
-        for it in items where p.y >= it.top && p.y < it.top + TimelineLayout.laneHeight {
-            let r = model.zoomPreview[it.key] ?? (it.span.startNs, it.span.endNs)
-            let x0 = g.x(forNs: r.0), x1 = g.x(forNs: r.1)
-            guard p.x >= x0 - 2 && p.x <= x1 + 2 else { continue }
-            model.selection = it.sel
-            let h = min(TimelineLayout.edgeHandle, (x1 - x0) / 3)
-            if p.x <= x0 + h { return .rangeStart(key: it.key) }
-            if p.x >= x1 - h { return .rangeEnd(key: it.key) }
-            return .rangeMove(key: it.key, grabOffsetNs: g.ns(forX: p.x) - r.0)
+        guard let hit = LaneHitTest.topmost(x: p.x, y: p.y, items: items.map { LaneHitTest.Item(key: $0.key, span: $0.span, top: $0.top, tag: $0.sel) },
+                                            preview: model.zoomPreview, geometry: g) else { return nil }
+        model.selection = hit.tag
+        switch hit.part {
+        case .start: return .rangeStart(key: hit.key)
+        case .end: return .rangeEnd(key: hit.key)
+        case .body(let off): return .rangeMove(key: hit.key, grabOffsetNs: off)
         }
-        return nil
     }
 
     private func currentSpan(_ key: String) -> TimeSpan? {
@@ -334,5 +331,25 @@ struct Ruler: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// Pure hit testing for the overlay lanes. Items are in drawing order, so later items are on top and win overlaps.
+enum LaneHitTest {
+    struct Item { var key: String; var span: TimeSpan; var top: CGFloat; var tag: EditorSelection }
+    enum Part: Equatable { case start, end, body(grabOffsetNs: Int64) }
+    struct Hit { var key: String; var tag: EditorSelection; var part: Part }
+
+    static func topmost(x: Double, y: Double, items: [Item], preview: [String: (start: Int64, end: Int64)], geometry g: TimelineGeometry) -> Hit? {
+        for it in items.reversed() where y >= it.top && y < it.top + TimelineLayout.laneHeight {
+            let r = preview[it.key] ?? (it.span.startNs, it.span.endNs)
+            let x0 = g.x(forNs: r.0), x1 = g.x(forNs: r.1)
+            guard x >= x0 - 2 && x <= x1 + 2 else { continue }
+            let h = min(TimelineLayout.edgeHandle, (x1 - x0) / 3)
+            if x <= x0 + h { return Hit(key: it.key, tag: it.tag, part: .start) }
+            if x >= x1 - h { return Hit(key: it.key, tag: it.tag, part: .end) }
+            return Hit(key: it.key, tag: it.tag, part: .body(grabOffsetNs: g.ns(forX: x) - r.0))
+        }
+        return nil
     }
 }

@@ -17,6 +17,8 @@ public final class ExportModel: ObservableObject {
     public static let fpsOptions = [30, 60]
 
     private let engine: ExportEngine
+    /// Current microphone clean-up settings (nil = off); read when an export starts.
+    public var speechProvider: () -> SpeechEnhancement? = { nil }
     private var task: Task<Void, Never>?
 
     public init(engine: ExportEngine) { self.engine = engine }
@@ -26,7 +28,7 @@ public final class ExportModel: ObservableObject {
     public func start(to destination: URL) {
         guard !isRunning else { return }
         state = .running(0)
-        let req = ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio)
+        let req = ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio, speech: includeAudio ? speechProvider() : nil)
         let engine = engine
         task = Task { [weak self] in
             do {

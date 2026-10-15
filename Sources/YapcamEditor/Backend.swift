@@ -146,8 +146,18 @@ public protocol PlaybackEngine: AnyObject {
     func pause()
     func seek(toNs: Int64, precise: Bool)
     func invalidate()
+    /// nil = off. Preview re-prepares its audio when the settings change.
+    func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws
     /// Called by the model whenever `currentNs`/`isPlaying` change.
     var onChange: (@MainActor () -> Void)? { get set }
+}
+
+/// Offline microphone clean-up (mirrors render's SpeechEnhancementSettings; project paths audio.speech_enhancement*).
+public struct SpeechEnhancement: Equatable, Sendable {
+    public var highPassHz = 90.0, noiseThresholdDB = -45.0, noiseReductionDB = 30.0
+    public var compressorThresholdDB = -24.0, compressorRatio = 3.0, targetLUFS = -16.0, peakCeilingDBFS = -1.0
+    public var normalizeLoudness = true
+    public init() {}
 }
 
 public struct ExportRequest: Equatable, Sendable {
@@ -155,8 +165,9 @@ public struct ExportRequest: Equatable, Sendable {
     public var fps: Int
     public var destination: URL
     public var includeAudio: Bool
-    public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true) {
-        self.height = height; self.fps = fps; self.destination = destination; self.includeAudio = includeAudio
+    public var speech: SpeechEnhancement?
+    public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true, speech: SpeechEnhancement? = nil) {
+        self.height = height; self.fps = fps; self.destination = destination; self.includeAudio = includeAudio; self.speech = speech
     }
 }
 

@@ -66,13 +66,19 @@ extension EditorModel {
     }
 
     public func importMusicFile(_ url: URL) {
+        guard !isClosed else { return }
         let start = playheadNs
-        Task { [weak self] in
-            guard let self else { return }
-            do { try await project.importMusic(url, startNs: start); noteExternalEdit() }
-            catch { lastError = "Couldn't add music: \(error.localizedDescription)" }
+        musicTask = Task { [weak self] in
+            guard let self, !isClosed else { return }
+            do {
+                try Task.checkCancellation()
+                try await project.importMusic(url, startNs: start)
+                if !isClosed { noteExternalEdit() }
+            } catch is CancellationError {
+            } catch { if !isClosed { lastError = "Couldn't add music: \(error.localizedDescription)" } }
         }
     }
+    public func waitForMusicImport() async { await musicTask?.value }
 
     public func setMusicGain(id: String, _ db: Double) { patchMusic(id: id, ["gain_db": .number(min(max(db, -96), 24))]) }
     public func setMusicLoop(id: String, _ on: Bool) { patchMusic(id: id, ["loop": .bool(on)]) }

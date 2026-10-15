@@ -179,3 +179,65 @@ private func pkgCopy() throws -> URL {
         if case .number? = m.value("canvas.motion_blur_settings.zoom") { Issue.record("expected inherit") }
     }
 }
+
+@MainActor @Suite struct VoiceCleanupTests {
+    @Test func settingsReachThePreviewAndTheExportRequest() async throws {
+        let p = FakeProject(), pl = FakePlayer(), m = EditorModel(project: p, player: pl)
+        #expect(m.speechEnhancement == nil && pl.speechCalls.count == 1 && pl.speechCalls[0] == nil)   // initial push: off
+        m.set("audio.speech_enhancement", bool: true)
+        #expect(m.speechEnhancement?.noiseReductionDB == 30)                    // defaults when settings absent
+        #expect(pl.speechCalls.last! == m.speechEnhancement)
+        m.set("audio.speech_enhancement_settings.noise_reduction_db", number: 42)
+        m.set("audio.speech_enhancement_settings.normalize_loudness", bool: false)
+        #expect(m.speechEnhancement?.noiseReductionDB == 42 && m.speechEnhancement?.normalizeLoudness == false)
+        let calls = pl.speechCalls.count
+        m.set("canvas.padding", number: 20)                                      // unrelated edit: no redundant push
+        #expect(pl.speechCalls.count == calls)
+        m.undo(); m.undo(); m.undo(); m.undo()
+        #expect(m.speechEnhancement == nil && pl.speechCalls.last! == nil)
+        m.redo(); m.redo()
+        #expect(m.speechEnhancement?.noiseReductionDB == 42)
+        // Export carries the settings only when audio is included.
+        let engine = RecordingEngine()
+        let e = ExportModel(engine: engine); e.speechProvider = { m.speechEnhancement }
+        e.start(to: URL(fileURLWithPath: "/tmp/v.mp4")); await e.waitUntilFinished()
+        #expect(engine.last?.speech?.noiseReductionDB == 42)
+        e.includeAudio = false
+        e.start(to: URL(fileURLWithPath: "/tmp/w.mp4")); await e.waitUntilFinished()
+        #expect(engine.last?.speech == nil)
+    }
+
+    @Test func noMicrophoneMeansNoEnhancementAndFailuresAreReported() {
+        let p = FakeProject(), pl = FakePlayer(), m = EditorModel(project: p, player: pl)
+        p.hasMic = false; m.set("audio.speech_enhancement", bool: true)
+        #expect(m.speechEnhancement == nil)
+        p.hasMic = true; pl.speechFailure = NSError(domain: "t", code: 1, userInfo: [NSLocalizedDescriptionKey: "decoder missing"])
+        m.set("audio.speech_enhancement_settings.high_pass_hz", number: 120)
+        #expect(m.lastError?.contains("decoder missing") == true)
+    }
+
+    @Test func realCoreAndPlayerAcceptTheSettings() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d); let m = doc.model
+        // The synthetic fixture has no microphone track, so clean-up stays off but the paths persist.
+        m.set("audio.speech_enhancement", bool: true)
+        m.set("audio.speech_enhancement_settings.target_lufs", number: -18)
+        m.set("audio.speech_enhancement_settings.high_pass_hz", number: 150)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.bool("audio.speech_enhancement") && m.number("audio.speech_enhancement_settings.target_lufs") == -18)
+        #expect(m.speechEnhancement == nil)                         // no mic in the fixture
+        m.set("audio.speech_enhancement_settings.high_pass_hz", number: 5)   // below core's 20 Hz floor
+        #expect(m.lastError != nil && m.number("audio.speech_enhancement_settings.high_pass_hz") == 150)
+        // The real preview player takes the render-side settings without error.
+        try doc.player.setSpeechEnhancement(SpeechEnhancement().render)
+        try doc.player.setSpeechEnhancement(nil)
+    }
+}
+
+final class RecordingEngine: ExportEngine, @unchecked Sendable {
+    private let lock = NSLock(); private var requests: [ExportRequest] = []
+    var last: ExportRequest? { lock.withLock { requests.last } }
+    func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+        lock.withLock { requests.append(request) }; return request.destination
+    }
+}

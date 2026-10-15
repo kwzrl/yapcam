@@ -16,6 +16,11 @@ final class ProjectRenderSource: RenderProjectSource, @unchecked Sendable {
     // Core-driven effects (highlights, fades, cursor/camera options) and gain automation.
     func renderEffects(atNs: Int64, canvasSize: CGSize) throws -> RenderFrameEffects { try project.renderEffects(atNs: atNs, canvasSize: canvasSize) }
     func renderAudioRanges() throws -> [RenderAudioRange]? { try project.renderAudioRanges() }
+    /// Music tracks (built-in and files) and click sounds, evaluated by core (`audio_overlays`). Without this
+    /// forward the protocol default returns [] and all added audio is silently missing from preview and export.
+    func renderAudioOverlays() throws -> [AudioOverlay] { try project.renderAudioOverlays() }
+    var renderConfiguration: RenderConfiguration { project.renderConfiguration }
+    func renderLayers(atNs: Int64) throws -> [RenderLayer] { try project.renderLayers(atNs: atNs) }
     func renderClips() throws -> [RenderClip] {
         try project.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
             .map { RenderClip(srcStartNs: $0.srcStartNs, srcEndNs: $0.srcEndNs, speed: $0.speed) }
@@ -176,15 +181,25 @@ final class PreviewPlayerAdapter: PlaybackEngine {
     func pause() { player.pause() }
     func seek(toNs: Int64, precise: Bool) { player.seek(toNs: toNs, precise: precise) }
     func invalidate() { player.invalidate() }
+    func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws { try player.setSpeechEnhancement(settings.map(\.render)) }
 }
 
 struct RenderExportEngine: ExportEngine {
     let source: ProjectRenderSource
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
-        let settings = ExportSettings(format: .mp4, codec: .h264, outputHeight: request.height, fps: request.fps, includeAudio: request.includeAudio)
+        let settings = ExportSettings(format: .mp4, codec: .h264, outputHeight: request.height, fps: request.fps, includeAudio: request.includeAudio,
+                                      speechEnhancement: request.speech.map(\.render))
         return try await AtomicExport.run(to: request.destination) { temp in
             let exporter = try Exporter(project: source, settings: settings, destination: temp)
             return try await exporter.run(progress: progress)
         }
+    }
+}
+
+extension SpeechEnhancement {
+    var render: SpeechEnhancementSettings {
+        SpeechEnhancementSettings(highPassHz: highPassHz, noiseThresholdDB: noiseThresholdDB, noiseReductionDB: noiseReductionDB,
+                                  compressorThresholdDB: compressorThresholdDB, compressorRatio: compressorRatio, targetLUFS: targetLUFS,
+                                  peakCeilingDBFS: peakCeilingDBFS, normalizeLoudness: normalizeLoudness)
     }
 }

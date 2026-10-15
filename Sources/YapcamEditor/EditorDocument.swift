@@ -31,6 +31,7 @@ import UniformTypeIdentifiers
         adapter = PreviewPlayerAdapter(player: player)
         model = EditorModel(project: CoreEditingProject(project: project), player: adapter)
         export = ExportModel(engine: RenderExportEngine(source: source))
+        export.speechProvider = { [weak model] in model?.speechEnhancement }
         title = package.deletingPathExtension().lastPathComponent
         if !hasProject { try? project.save() }
         if restored { model.markRecoveredUnsaved() }   // journal-only state must be written on close
