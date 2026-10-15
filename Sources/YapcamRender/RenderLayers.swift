@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import CoreText
 import MetalKit
+import YapcamCore
 
 /// Additional drawing instructions evaluated by the project, in the same canvas pixels as YcFrame.
 public struct RenderLayer: Sendable, Equatable {
@@ -16,10 +17,14 @@ public struct RenderLayer: Sendable, Equatable {
     public var opacity: Float
     /// Applies to text only. Sans preserves the original Helvetica rendering.
     public var textFontFamily: RenderTextFontFamily
+    /// Evaluated Core caption instructions. Line opacity/slide already reside in
+    /// opacity/rect; only glyph growth and per-word animation are applied here.
+    public var caption: CoreCaptionEvaluation?
     public init(content: Content, rect: CGRect, cornerRadius: Float = 0, opacity: Float = 1,
-                textFontFamily: RenderTextFontFamily = .sans) {
+                textFontFamily: RenderTextFontFamily = .sans, caption: CoreCaptionEvaluation? = nil) {
         self.content = content; self.rect = rect; self.cornerRadius = cornerRadius; self.opacity = opacity
         self.textFontFamily = textFontFamily
+        self.caption = caption
     }
 }
 
@@ -116,14 +121,25 @@ final class LayerRenderer {
         defer { encoder.endEncoding() }
         encoder.setRenderPipelineState(pipeline)
         for layer in layers {
-            let r = layer.rect
+            var r = layer.rect
             guard [r.minX,r.minY,r.width,r.height].allSatisfy({ $0.isFinite }), r.width > 0, r.height > 0, layer.opacity.isFinite, (0...1).contains(layer.opacity), layer.cornerRadius.isFinite, layer.cornerRadius>=0 else { throw RenderError.invalidSettings("Invalid overlay rectangle") }
+            var captionLayout: CaptionTextLayout?
+            if let caption = layer.caption, case .text(_,let size,_) = layer.content {
+                try validateCaption(caption)
+                captionLayout = try CaptionLayoutCache.shared.layout(caption,fontSize: size,family: layer.textFontFamily,size: r.size)
+                r = captionLayout!.fittedRect(r,growth: caption.growth)
+            }
             var texture = solid
             var uniforms: [SIMD4<Float>] = [SIMD4(canvas.x,canvas.y,0,0), SIMD4(Float(r.minX),Float(r.minY),Float(r.width),Float(r.height)), SIMD4(layer.cornerRadius,layer.opacity,0,0), .zero, .zero]
             switch layer.content {
             case .text(let value, let size, let color):
                 let scale=max(1,max(Double(target.width)/Double(canvas.x),Double(target.height)/Double(canvas.y)))
-                texture = try text(value,fontSize: size*scale,family: layer.textFontFamily,color: color,size: CGSize(width: r.width*scale,height: r.height*scale)); uniforms[2].z = 1
+                if let layout = captionLayout, let caption = layer.caption {
+                    texture = try generatedSRGBTexture(layout.image(caption: caption,color: color,scale: scale),device: device)
+                } else {
+                    texture = try text(value,fontSize: size*scale,family: layer.textFontFamily,color: color,size: CGSize(width: r.width*scale,height: r.height*scale))
+                }
+                uniforms[2].z = 1
             case .image(let path):
                 if images[path] == nil {
                     if images.count >= 8 { images.removeAll() }
