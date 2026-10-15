@@ -21,7 +21,7 @@ public struct EditorContent<Preview: View>: View {
                     Color.black.opacity(0.88)
                     preview
                         .aspectRatio(model.previewAspect, contentMode: .fit)
-                        .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model) } }
+                        .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model, playhead: model.playhead) } }
                         .overlay { rectEditor }
                         .padding(8)
                 }
@@ -100,14 +100,16 @@ public struct EditorContent<Preview: View>: View {
 
 struct TransportBar: View {
     @ObservedObject var model: EditorModel
+    @ObservedObject var playhead: PlayheadState
+    init(model: EditorModel) { self.model = model; playhead = model.playhead }
     var body: some View {
         HStack(spacing: 12) {
             Button { model.togglePlay() } label: {
-                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").frame(width: 20)
+                Image(systemName: playhead.isPlaying ? "pause.fill" : "play.fill").frame(width: 20)
             }
             .help("Play / Pause (Space)")
-            .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
-            Text("\(formatTimecode(model.playheadNs)) / \(formatTimecode(model.durationNs))")
+            .accessibilityLabel(playhead.isPlaying ? "Pause" : "Play")
+            Text("\(formatTimecode(playhead.ns)) / \(formatTimecode(model.durationNs))")
                 .font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
             Spacer()
             Button { model.splitAtPlayhead() } label: { Label("Split", systemImage: "scissors") }.help("Split at playhead (S, ⌘B)")
@@ -149,6 +151,7 @@ public struct EditorCommands: Commands {
 /// Transparent layer over the preview while a zoom is selected: click or drag to place its focus point.
 struct FocusPickerOverlay: View {
     @ObservedObject var model: EditorModel
+    @ObservedObject var playhead: PlayheadState
     var body: some View {
         GeometryReader { geo in
             ZStack {
@@ -182,10 +185,15 @@ struct FocusPickerOverlay: View {
 /// drag a corner to resize. One command is committed on release.
 struct RectEditOverlay: View {
     @ObservedObject var model: EditorModel
+    @ObservedObject private var playhead: PlayheadState
     let current: () -> (rect: [Double], space: String)?
     let preview: ([Double]) -> Void
     let commit: () -> Void
     let base: () -> [Double]?
+    init(model: EditorModel, current: @escaping () -> (rect: [Double], space: String)?, preview: @escaping ([Double]) -> Void,
+         commit: @escaping () -> Void, base: @escaping () -> [Double]?) {
+        self.model = model; self.current = current; self.preview = preview; self.commit = commit; self.base = base; playhead = model.playhead
+    }
     @State private var start: (mode: Mode, rect: [Double], origin: CGPoint)?
     enum Mode { case move, corner(Int) }   // 0 TL, 1 TR, 2 BL, 3 BR
 

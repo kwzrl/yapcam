@@ -55,7 +55,7 @@ struct TimelineView: View {
                     Rectangle().fill(Color.yellow.opacity(0.9)).frame(width: 1, height: layout.totalHeight)
                         .offset(x: g.x(forNs: snap) + g.scrollOffsetPx)
                 }
-                playhead(g)
+                PlayheadMarker(playhead: model.playhead, geometry: g, height: layout.totalHeight)
             }
             .frame(width: contentW, height: layout.totalHeight, alignment: .topLeading)
             .contentShape(Rectangle())
@@ -186,16 +186,6 @@ struct TimelineView: View {
         }
     }
 
-    private func playhead(_ g: TimelineGeometry) -> some View {
-        let x = g.x(forNs: model.playheadNs)
-        return ZStack(alignment: .top) {
-            Rectangle().fill(Color.red).frame(width: 1.5, height: layout.totalHeight)
-            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 10)).foregroundStyle(.red).offset(y: -1)
-        }
-        .frame(width: 12, height: layout.totalHeight, alignment: .top)
-        .offset(x: x - 6)
-        .allowsHitTesting(false)
-    }
 
     // MARK: gestures
 
@@ -351,5 +341,22 @@ enum LaneHitTest {
             return Hit(key: it.key, tag: it.tag, part: .body(grabOffsetNs: g.ns(forX: x) - r.0))
         }
         return nil
+    }
+}
+
+/// Only this view observes the playhead, so scrubbing never re-evaluates the tracks.
+struct PlayheadMarker: View {
+    @ObservedObject var playhead: PlayheadState
+    let geometry: TimelineGeometry
+    let height: CGFloat
+    var body: some View {
+        ZStack(alignment: .top) {
+            Rectangle().fill(Color.red).frame(width: 1.5, height: height)
+            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 10)).foregroundStyle(.red).offset(y: -1)
+        }
+        .frame(width: 12, height: height, alignment: .top)
+        .offset(x: geometry.x(forNs: playhead.ns) - 6)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

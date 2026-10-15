@@ -3,6 +3,11 @@ import Combine
 import YapcamCore
 import CoreGraphics
 
+@MainActor public final class PlayheadState: ObservableObject {
+    @Published public var ns: Int64 = 0
+    @Published public var isPlaying = false
+}
+
 public enum EditorSelection: Equatable, Sendable {
     case none
     case clip(String)
@@ -28,8 +33,11 @@ public final class EditorModel: ObservableObject {
     @Published public var selection: EditorSelection = .none
     @Published public var geometry = TimelineGeometry(pixelsPerSecond: 60)
     @Published public var snappingEnabled = true
-    @Published public private(set) var playheadNs: Int64 = 0
-    @Published public private(set) var isPlaying = false
+    /// Playhead and play state live in their own observable so that scrubbing and playback redraw only
+    /// the playhead marker and time label, not the (potentially 700-item) tracks.
+    public let playhead = PlayheadState()
+    public private(set) var playheadNs: Int64 { get { playhead.ns } set { if playhead.ns != newValue { playhead.ns = newValue } } }
+    public private(set) var isPlaying: Bool { get { playhead.isPlaying } set { if playhead.isPlaying != newValue { playhead.isPlaying = newValue } } }
     @Published public var paletteVisible = false
     @Published public var textRectPreview: (key: String, rect: [Double])?
     public enum CaptionState: Equatable { case idle, working, failed(String) }
@@ -66,7 +74,7 @@ public final class EditorModel: ObservableObject {
         saveNow()
         isClosed = true
         autosaveTask?.cancel()
-        for t in [silenceTask, captionTask, wallpaperTask, musicTask] { t?.cancel() }
+        for t in [silenceTask, captionTask, wallpaperTask, musicTask, pendingInvalidate] { t?.cancel() }
         player.pause()
     }
     public var autosaveDelay: Duration = .seconds(2)
@@ -278,7 +286,7 @@ public final class EditorModel: ObservableObject {
         revision += 1
         applySpeechToPlayer()
         if case .found = silenceState { silenceState = .idle }   // stale after any edit
-        player.invalidate()
+        requestPlayerRefresh()
         if playheadNs > durationNs { seek(toNs: durationNs) }
         saveState = .dirty
         scheduleAutosave()
@@ -416,6 +424,32 @@ public final class EditorModel: ObservableObject {
         snapGuideNs = r.target?.ns
         return r.ns
     }
+
+    // MARK: preview refresh (coalesced)
+
+    /// Every edit must reach the preview, but rebuilding it (project snapshot + audio) costs several ms at large
+    /// sizes. The first edit of a burst refreshes at once; further edits within `invalidateInterval` collapse into one
+    /// trailing refresh, so typing, steppers and repeated clicks do not queue a rebuild each.
+    public var invalidateInterval: Duration = .milliseconds(120)
+    private var lastInvalidate: ContinuousClock.Instant?
+    private var pendingInvalidate: Task<Void, Never>?
+
+    func requestPlayerRefresh() {
+        let now = ContinuousClock.now
+        if pendingInvalidate == nil, lastInvalidate.map({ now - $0 >= invalidateInterval }) ?? true {
+            lastInvalidate = now; player.invalidate(); return
+        }
+        guard pendingInvalidate == nil else { return }
+        let wait = invalidateInterval - (lastInvalidate.map { now - $0 } ?? .zero)
+        pendingInvalidate = Task { [weak self] in
+            try? await Task.sleep(for: max(wait, .milliseconds(1)))
+            guard let self, !Task.isCancelled else { return }
+            pendingInvalidate = nil; lastInvalidate = .now
+            if !isClosed { player.invalidate() }
+        }
+    }
+    /// Test hook: wait for a trailing refresh.
+    public func waitForPlayerRefresh() async { await pendingInvalidate?.value }
 
     // MARK: save
 

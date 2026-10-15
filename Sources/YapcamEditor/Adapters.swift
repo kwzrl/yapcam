@@ -69,16 +69,27 @@ public final class CoreEditingProject: EditingProject {
     public var canRedo: Bool { project.canRedo }
 
     private var editCount = 0
+    /// One cold-path read per change: the project JSON already contains clips and zooms, so the former
+    /// separate `clips`/`zooms` queries (about 14 ms extra at 500 clips/200 zooms) are not needed.
     private func refresh() {
         clicksStale = true
-        clips = ((try? project.query("{\"q\":\"clips\"}", as: [ClipInfo].self)) ?? [])
-            .map { TimelineClip(id: $0.id, srcStartNs: $0.srcStartNs, srcEndNs: $0.srcEndNs, speed: $0.speed) }
-        zooms = ((try? project.query("{\"q\":\"zooms\"}", as: [CoreZoom].self)) ?? []).map {
-            TimelineZoom(id: $0.id, startNs: $0.tlStartNs, endNs: $0.tlEndNs, mode: $0.mode == "auto" ? .auto : .manual,
-                         scale: $0.scale, focusX: $0.target.first ?? 0.5, focusY: $0.target.last ?? 0.5,
-                         easeInNs: $0.easeInNs, easeOutNs: $0.easeOutNs, enabled: $0.enabled ?? true)
+        guard let data = try? project.toJSON(), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            clips = []; zooms = []; settings = .null; return
         }
-        settings = (try? project.query("{\"q\":\"project\"}", as: JSONValue.self)) ?? .null
+        settings = JSONValue(foundation: object)
+        let rows = ((object["timeline"] as? [String: Any])?["clips"] as? [[String: Any]]) ?? []
+        clips = rows.compactMap { r in
+            guard let id = r["id"] as? String, let a = (r["src_start_ns"] as? NSNumber)?.int64Value, let b = (r["src_end_ns"] as? NSNumber)?.int64Value else { return nil }
+            return TimelineClip(id: id, srcStartNs: a, srcEndNs: b, speed: (r["speed"] as? NSNumber)?.doubleValue ?? 1)
+        }
+        zooms = ((object["zooms"] as? [[String: Any]]) ?? []).compactMap { z in
+            guard let id = z["id"] as? String, let a = (z["tl_start_ns"] as? NSNumber)?.int64Value, let b = (z["tl_end_ns"] as? NSNumber)?.int64Value else { return nil }
+            let target = (z["target"] as? [NSNumber])?.map(\.doubleValue) ?? [0.5, 0.5]
+            return TimelineZoom(id: id, startNs: a, endNs: b, mode: (z["mode"] as? String) == "auto" ? .auto : .manual,
+                                scale: (z["scale"] as? NSNumber)?.doubleValue ?? 2, focusX: target.first ?? 0.5, focusY: target.last ?? 0.5,
+                                easeInNs: (z["ease_in_ns"] as? NSNumber)?.int64Value ?? 0, easeOutNs: (z["ease_out_ns"] as? NSNumber)?.int64Value ?? 0,
+                                enabled: (z["enabled"] as? Bool) ?? true)
+        }
     }
 
     private func map(_ c: EditorCommand) -> EditCommand {
@@ -201,5 +212,19 @@ extension SpeechEnhancement {
         SpeechEnhancementSettings(highPassHz: highPassHz, noiseThresholdDB: noiseThresholdDB, noiseReductionDB: noiseReductionDB,
                                   compressorThresholdDB: compressorThresholdDB, compressorRatio: compressorRatio, targetLUFS: targetLUFS,
                                   peakCeilingDBFS: peakCeilingDBFS, normalizeLoudness: normalizeLoudness)
+    }
+}
+
+extension JSONValue {
+    /// Fast conversion from `JSONSerialization` output (avoids Codable's cascading type probes on large documents).
+    init(foundation any: Any) {
+        switch any {
+        case let n as NSNumber:
+            self = CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool(n.boolValue) : .number(n.doubleValue)
+        case let s as String: self = .string(s)
+        case let a as [Any]: self = .array(a.map { JSONValue(foundation: $0) })
+        case let d as [String: Any]: self = .object(d.mapValues { JSONValue(foundation: $0) })
+        default: self = .null
+        }
     }
 }

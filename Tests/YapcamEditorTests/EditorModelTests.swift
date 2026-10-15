@@ -75,11 +75,12 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         #expect(m.zooms[0].startNs == 0)
     }
 
-    @Test func undoRedoAndPlayerInvalidation() {
+    @Test func undoRedoAndPlayerInvalidation() async {
         let (m, _, pl) = makeModel()
         m.addZoomAtPlayhead()
         let inv = pl.invalidations
         m.undo()
+        await m.waitForPlayerRefresh()                       // refreshes within a burst are coalesced
         #expect(m.zooms.isEmpty && m.canRedo && pl.invalidations > inv)
         m.redo()
         #expect(m.zooms.count == 1)
@@ -338,5 +339,32 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         let c = m.cropInsets
         #expect(abs(c.left - 0.1) < 1e-9 && abs(c.top - 0.2) < 1e-9 && abs(c.right - 0.8) < 1e-9)   // right clamped to 0.9 - left
         #expect(m.numbers("canvas.crop").count == 4)
+    }
+}
+
+
+@MainActor @Suite struct PreviewRefreshCoalescingTests {
+    @Test func burstOfEditsCausesLeadingPlusOneTrailingRefresh() async {
+        let pl = FakePlayer(), m = EditorModel(project: FakeProject(), player: pl)
+        m.invalidateInterval = .milliseconds(60)
+        for i in 0..<30 { m.set("canvas.padding", number: Double(i)) }
+        #expect(pl.invalidations == 1)                       // leading edge at once
+        await m.waitForPlayerRefresh()
+        #expect(pl.invalidations == 2)                       // one trailing refresh carries the final state
+        #expect(m.number("canvas.padding") == 29)
+    }
+    @Test func editAfterQuietPeriodRefreshesImmediately() async throws {
+        let pl = FakePlayer(), m = EditorModel(project: FakeProject(), player: pl)
+        m.invalidateInterval = .milliseconds(30)
+        m.set("canvas.padding", number: 1); try await Task.sleep(for: .milliseconds(80))
+        m.set("canvas.padding", number: 2)
+        #expect(pl.invalidations == 2)
+    }
+    @Test func closingCancelsThePendingRefresh() async {
+        let pl = FakePlayer(), m = EditorModel(project: FakeProject(), player: pl)
+        m.set("canvas.padding", number: 1); m.set("canvas.padding", number: 2)
+        let n = pl.invalidations; m.close()
+        await m.waitForPlayerRefresh()
+        #expect(pl.invalidations == n)
     }
 }
