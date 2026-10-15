@@ -10,15 +10,32 @@ public final class ExportModel: ObservableObject {
         case cancelled
     }
     @Published public private(set) var state: State = .idle
-    @Published public var height = 1080
-    @Published public var fps = 30
+    @Published public var height = 720 { didSet { normalize() } }
+    @Published public var fps = 60 { didSet { normalize() } }
     @Published public var includeAudio = true
     @Published public var format: ExportFormat = .mp4h264 {
-        didSet { if format == .gif { includeAudio = false; if fps > 30 { fps = 24 }; if height > 720 { height = 720 } } }
+        didSet {
+            if oldValue == format { return }
+            if !format.supportsAudio { includeAudio = false }
+            // A different format has its own defaults when the current choice does not exist there.
+            if !format.options.fps.contains(fps) { fps = format.options.defaultFPS }
+            if !format.options.heights.contains(height) { height = format.options.defaultHeight }
+            normalize()
+        }
     }
-    @Published public var quality = 0.8
-    public static let heights = [720, 1080, 1440, 2160]
-    public static let fpsOptions = [24, 30, 60]
+    @Published public var preset: CompressionPreset = .social { didSet { normalize() } }
+    /// Quality (0…1) taken from the compression preset; GIF has none.
+    public var quality: Double { preset.quality }
+    public var options: ExportOptionSet { format.options }
+    public var availablePresets: [CompressionPreset] { format.options.presets(atHeight: height) }
+
+    /// Keeps the choices inside what the format offers (fps, height, preset available at that height).
+    private func normalize() {
+        let o = format.options
+        if !o.fps.contains(fps) { fps = o.defaultFPS }
+        if !o.heights.contains(height) { height = o.defaultHeight; return }
+        if let first = o.presets(atHeight: height).first, !o.presets(atHeight: height).contains(preset) { preset = o.defaultPreset.flatMap { o.presets(atHeight: height).contains($0) ? $0 : nil } ?? first }
+    }
 
     private let engine: ExportEngine
     /// Current microphone clean-up settings (nil = off); read when an export starts.

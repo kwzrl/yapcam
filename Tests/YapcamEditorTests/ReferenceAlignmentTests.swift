@@ -377,3 +377,57 @@ import YapcamCore
         #expect(plainPadding == 48)
     }
 }
+
+@MainActor @Suite struct FactoryDefaultsContractTests {
+    private func fixture() throws -> URL {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("fd-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); return d
+    }
+
+    /// New projects follow the documented table for their revision (this core's revision decides which one applies).
+    @Test func newProjectsMatchTheDocumentedFactoryTable() throws {
+        let d = try fixture(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        let g = try #require(m.project.frameGeometry(atNs: 500_000_000))
+        if m.defaultsRevision >= 1 {
+            #expect(m.string("canvas.aspect") == "source" && g.canvasWidth == 1728 && g.canvasHeight == 1080)   // 320×200 recording → 1728×1080
+            #expect(m.number("canvas.radius") == 16 && m.number("canvas.motion_blur") == 1 && m.number("canvas.background.blur") == 0)
+            #expect(m.usesPaddingRatio && abs(m.number("canvas.padding_ratio") - 0.10) < 1e-9)
+            #expect(abs(min(g.dest.minX, g.dest.minY) - 0.10 * min(g.canvasWidth, g.canvasHeight)) < 1.5)          // 108 px padding on the constraining axis (content is centered on the other)
+            #expect(m.string("cursor.set_id") == "classic" && m.number("cursor.smoothing") == 0 && m.string("cursor.click_effect") == "none")
+            #expect(m.springValues(screen: true) == (125, 12, 1.5))
+        } else {
+            #expect(m.string("canvas.aspect") == "16:9" && g.canvasWidth == 1920 && g.canvasHeight == 1080)
+            #expect(m.number("canvas.radius") == 18 && m.number("canvas.motion_blur") == 0 && !m.usesPaddingRatio && m.number("canvas.padding") == 48)
+            #expect(m.value("cursor.set_id") == .null || m.value("cursor.set_id") == nil)
+            #expect(m.number("cursor.smoothing") == 0.15 && m.string("cursor.click_effect") == "ring")
+        }
+    }
+
+    /// A project written by an older version has no revision and no new fields: it keeps the previous defaults.
+    @Test func legacyProjectsKeepTheirPreviousDefaults() throws {
+        let d = try fixture(); defer { try? FileManager.default.removeItem(at: d) }
+        let first = try EditorDocument(package: d); first.model.saveNow(); first.model.close()
+        let url = d.appendingPathComponent("project.json")
+        var obj = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        for k in ["canvas", "cursor", "zoom_settings", "audio", "defaults_revision"] { obj[k] = nil }           // as an older version wrote it
+        try JSONSerialization.data(withJSONObject: obj).write(to: url)
+        try? FileManager.default.removeItem(at: d.appendingPathComponent("project.json.prev"))
+        let m = try EditorDocument(package: d).model
+        let g = try #require(m.project.frameGeometry(atNs: 500_000_000))
+        #expect(m.defaultsRevision == 0 && m.string("canvas.aspect") == "16:9" && g.canvasWidth == 1920 && g.canvasHeight == 1080)
+        #expect(m.number("canvas.padding") == 48 && !m.usesPaddingRatio && m.number("canvas.radius") == 18 && m.number("cursor.smoothing") == 0.15)
+        #expect(m.value("cursor.set_id") == .null || m.value("cursor.set_id") == nil)
+    }
+
+    @Test func controlsFollowTheProjectsDefaultStyle() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        #expect(!m.usesPaddingRatio && !m.hasShadowStyle && !m.usesCursorPoints && m.defaultsRevision == 0)
+        #expect(m.factoryDefault(radius: true) == 18 && m.factoryDefault(backgroundBlur: true) == 24 && m.factoryMotionBlur == 0)
+        m.set("defaults_revision", number: 1); m.set("canvas.padding_ratio", number: 0.1)
+        m.set("canvas.shadow.style", string: "directional"); m.set("cursor.size_points", number: 48)
+        #expect(m.usesPaddingRatio && m.hasShadowStyle && m.usesCursorPoints && m.defaultsRevision == 1)
+        #expect(m.factoryDefault(radius: true) == 16 && m.factoryDefault(backgroundBlur: true) == 0 && m.factoryMotionBlur == 1)
+    }
+}

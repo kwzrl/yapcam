@@ -54,7 +54,8 @@ private func copyFixture() throws -> URL {
         let pkg = try copyFixture(); defer { try? FileManager.default.removeItem(at: pkg) }
         let m = try EditorDocument(package: pkg).model
         let g = try #require(m.project.frameGeometry(atNs: 0))
-        #expect(g.canvasWidth == 1920 && g.dest.width > 0)
+        let expected = DefaultsContract.expectedCanvas(m, source: (320, 200))           // 1728×1080 for new projects, 1920×1080 for legacy ones
+        #expect(g.canvasWidth == expected.w && g.canvasHeight == expected.h && g.dest.width > 0, "canvas \(g.canvasWidth)×\(g.canvasHeight), expected \(expected)")
         let center = try #require(g.sourcePoint(fromPreview: CGPoint(x: 0.5, y: 0.5)))
         #expect(abs(center.x - 0.5) < 0.01 && abs(center.y - 0.5) < 0.01)
         #expect(g.sourcePoint(fromPreview: CGPoint(x: 0.001, y: 0.001)) == nil)   // inside padding
@@ -113,7 +114,10 @@ private func copyFixture() throws -> URL {
         let doc = try EditorDocument(package: pkg)
         let data = try FrameSnapshot.png(source: ProjectRenderSource(doc.project), atNs: 1_000_000_000)
         let rep = try #require(NSBitmapImageRep(data: data))
-        #expect(rep.pixelsWide == 1920 && rep.pixelsHigh == 1080)
+        let g = try #require(doc.model.project.frameGeometry(atNs: 1_000_000_000))
+        #expect(Double(rep.pixelsWide) == g.canvasWidth && Double(rep.pixelsHigh) == g.canvasHeight)   // the copied frame is the canvas
+        let expected = DefaultsContract.expectedCanvas(doc.model, source: (320, 200))
+        #expect(Double(rep.pixelsWide) == expected.w && Double(rep.pixelsHigh) == expected.h)
     }
 }
 

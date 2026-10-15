@@ -46,14 +46,12 @@ struct BackgroundPanel: View {
         }
         Section("Look") {
             if effectiveMode == .blur || kind == "blurred_screen" {
-                NumberRow(model: model, title: "Background blur", path: "canvas.background.blur", range: 0...80, format: "%.0f", defaultValue: 24)
+                NumberRow(model: model, title: "Background blur", path: "canvas.background.blur", range: 0...100, format: "%.0f", defaultValue: model.factoryDefault(backgroundBlur: true))
             }
-            NumberRow(model: model, title: "Padding", path: "canvas.padding", range: 0...200, unit: "pt", format: "%.0f", defaultValue: 48)
-            NumberRow(model: model, title: "Rounded corners", path: "canvas.radius", range: 0...128, unit: "pt", format: "%.0f", defaultValue: 18)
+            PaddingRow(model: model)
+            NumberRow(model: model, title: "Rounded corners", path: "canvas.radius", range: 0...128, unit: "pt", format: "%.0f", defaultValue: model.factoryDefault(radius: true))
             InsetRows(model: model)
-            NumberRow(model: model, title: "Shadow size", path: "canvas.shadow.radius", range: 0...80, unit: "pt", format: "%.0f", defaultValue: 24)
-            NumberRow(model: model, title: "Shadow intensity", path: "canvas.shadow.opacity", range: 0...0.6, defaultValue: 0.3)
-            NumberRow(model: model, title: "Shadow distance", path: "canvas.shadow.offset_y", range: 0...48, unit: "pt", format: "%.0f", defaultValue: 8)
+            ShadowRows(model: model)
             NumberRow(model: model, title: "Texture", path: "canvas.background.noise", range: 0...1, defaultValue: 0)
             ToggleRow(model: model, title: "Window frame", path: "canvas.window_chrome")
         }
@@ -141,4 +139,52 @@ struct WallpaperBrowser: View {
         Button { model.applyRandomWallpaper() } label: { Label("Pick random", systemImage: "dice") }
             .disabled(model.wallpaperBusy != nil)
     }
+}
+
+/// Padding: a percentage of the shorter canvas edge in new projects (`canvas.padding_ratio`), output pixels in older ones.
+struct PaddingRow: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        if model.usesPaddingRatio {
+            NumberRow(model: model, title: "Padding", path: "canvas.padding_ratio", range: 0...0.25, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.10)
+        } else {
+            NumberRow(model: model, title: "Padding", path: "canvas.padding", range: 0...200, unit: "pt", format: "%.0f", defaultValue: 48)
+        }
+    }
+}
+
+/// Shadow: Classic (size, intensity, distance) or Directional (intensity, distance, angle, blur) when core stores a style.
+struct ShadowRows: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        if model.hasShadowStyle {
+            Picker("Shadow", selection: Binding(get: { model.string("canvas.shadow.style", default: "classic") }, set: { model.set("canvas.shadow.style", string: $0) })) {
+                Text("Classic").tag("classic"); Text("Directional").tag("directional")
+            }.pickerStyle(.segmented)
+        }
+        NumberRow(model: model, title: "Shadow intensity", path: "canvas.shadow.opacity", range: 0...0.6, defaultValue: 0.3)
+        if model.hasShadowStyle && model.string("canvas.shadow.style") == "directional" {
+            NumberRow(model: model, title: "Distance", path: "canvas.shadow.distance", range: 0...100, unit: "pt", format: "%.0f", defaultValue: 25)
+            NumberRow(model: model, title: "Angle", path: "canvas.shadow.angle_deg", range: 0...180, unit: "°", format: "%.0f", defaultValue: 45)
+            NumberRow(model: model, title: "Blur", path: "canvas.shadow.blur", range: 0...30, format: "%.0f", defaultValue: 20)
+        } else {
+            NumberRow(model: model, title: "Shadow size", path: "canvas.shadow.radius", range: 0...80, unit: "pt", format: "%.0f", defaultValue: 24)
+            NumberRow(model: model, title: "Shadow distance", path: "canvas.shadow.offset_y", range: 0...48, unit: "pt", format: "%.0f", defaultValue: 8)
+        }
+    }
+}
+
+extension EditorModel {
+    /// Core's factory-default revision of this project (0 = created before the reference defaults).
+    public var defaultsRevision: Int { Int(number("defaults_revision", default: 0)) }
+    public var usesPaddingRatio: Bool { if case .number? = value("canvas.padding_ratio") { true } else { false } }
+    public var hasShadowStyle: Bool { if case .string? = value("canvas.shadow.style") { true } else { false } }
+    public var usesCursorPoints: Bool { if case .number? = value("cursor.size_points") { true } else { false } }
+    /// Reset targets follow the project's defaults revision (new projects: corners 16, background blur 0, motion blur 1).
+    func factoryDefault(radius: Bool = false, backgroundBlur: Bool = false) -> Double {
+        if radius { return defaultsRevision >= 1 ? 16 : 18 }
+        if backgroundBlur { return defaultsRevision >= 1 ? 0 : 24 }
+        return 0
+    }
+    var factoryMotionBlur: Double { defaultsRevision >= 1 ? 1 : 0 }
 }
