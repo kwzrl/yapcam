@@ -3,11 +3,11 @@ import Carbon.HIToolbox
 import SwiftUI
 
 enum SourceMode: String, CaseIterable, Identifiable {
-    case display, window, area
+    case display, window, area, device
     var id: String { rawValue }
-    var title: String { switch self { case .display: "Display"; case .window: "Window"; case .area: "Area" } }
+    var title: String { switch self { case .display: "Display"; case .window: "Window"; case .area: "Area"; case .device: "Device" } }
     var symbol: String {
-        switch self { case .display: "display"; case .window: "macwindow"; case .area: "rectangle.dashed" }
+        switch self { case .display: "display"; case .window: "macwindow"; case .area: "rectangle.dashed"; case .device: "iphone" }
     }
 }
 

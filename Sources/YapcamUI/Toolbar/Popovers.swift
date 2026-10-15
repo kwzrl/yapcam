@@ -49,6 +49,7 @@ struct SourcePopover: View {
             case .display: displayList
             case .window: windowGrid
             case .area: areaPane
+            case .device: devicePane
             }
         }
         .padding(14)
@@ -102,6 +103,35 @@ struct SourcePopover: View {
                     }.padding(.vertical, 2)
                 }
                 .frame(height: 340)
+            }
+        }
+    }
+
+    // Device
+
+    private var devicePane: some View {
+        let devices = IOSDevices.connected()
+        return VStack(alignment: .leading, spacing: 8) {
+            PopoverHeader(title: "Device")
+            if devices.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "iphone.gen3.radiowaves.left.and.right").font(.system(size: 30)).foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                    Text("Connect an iPhone or iPad via USB").font(.system(size: 13, weight: .medium))
+                    Text(IOSDevices.isSupported
+                         ? "Unlock the device and tap Trust if it asks. It appears here when it is ready."
+                         : "Recording a device isn't available in this build yet.")
+                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 130)
+            } else {
+                ForEach(devices) { d in
+                    SelectableRow(selected: false) { } content: {
+                        Image(systemName: "iphone").frame(width: 20)
+                        Text(d.name)
+                    }
+                }
             }
         }
     }

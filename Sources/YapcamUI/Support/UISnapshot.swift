@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor enum UISnapshot {
     static let expectedNames: [String] = {
         var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
-                 "popover-notes", "teleprompter", "popover-source-display", "popover-source-window", "popover-source-area",
+                 "popover-notes", "teleprompter", "popover-source-display", "popover-source-window", "popover-source-area", "popover-source-device",
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
                  "settings-storage", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }

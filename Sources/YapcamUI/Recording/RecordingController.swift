@@ -87,7 +87,7 @@ enum RecordingPhase: Equatable {
 
     // MARK: Options
 
-    private func makeOptions() throws -> UIRecordingOptions {
+    func makeOptions() throws -> UIRecordingOptions {
         let target: UITarget
         switch settings.sourceMode {
         case .display:
@@ -98,6 +98,8 @@ enum RecordingPhase: Equatable {
             let alive = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(settings.windowID)) as? [[String: Any]])?.isEmpty == false
             guard alive else { throw EngineError.failed("The selected window is no longer available. Choose another window.") }
             target = .window(settings.windowID)
+        case .device:
+            throw EngineError.failed(IOSDevices.isSupported ? "Connect an iPhone or iPad via USB, then choose it in the Device source." : IOSDevices.unsupportedMessage)
         case .area:
             guard let saved = settings.areaRect, let display = Displays.info(for: settings.areaDisplayID) else {
                 throw EngineError.failed("Select an area to record first, or pick Display instead.")
