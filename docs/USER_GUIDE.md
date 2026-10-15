@@ -73,7 +73,7 @@ picker and capture your screen directly; choose **Allow** (macOS asks again from
 | Pause / resume | ⌥⌘P |
 
 Rebind both in **Settings → Shortcuts** (click the field, press the new combination; it needs ⌘, ⌥
-or ⌃). Driving a real recording by hotkey is **untested live**.
+or ⌃). Verified live: ⌥⌘R starts, ⌥⌘P pauses and resumes, ⌥⌘R stops.
 
 Other menu shortcuts: ⌘, Settings · ⇧⌘R Recordings window · ⌘O Open Recording · ⌘I Import Video ·
 ⌘Z / ⇧⌘Z undo/redo · ⌘B split at playhead · ⌘K command palette in the editor.
@@ -116,9 +116,8 @@ In the editor choose **Export…**: format (MP4 H.264, MP4 HEVC, MOV H.264 or GI
 resolution (720p up to 2160p), frame rate (24/30/60), quality, include audio. The file is checked after
 writing (reopened, duration and tracks verified). Cancelling removes the partial file.
 
-**Known issue:** exporting a real recording *with audio* currently fails with "The operation could not be
-completed". The project's system-audio range is about 50 ms longer than the actual audio file. Export
-without audio works, and so does trimming the last 100 ms. Fix pending in core/render.
+Verified live: a real 8-second recording exported to 1920×1080 MP4 with its audio track, and a scripted
+edit session (split, delete, zoom, padding, undo/redo) survived a hard kill and reopened intact.
 
 ## Where files live
 
@@ -139,7 +138,7 @@ and `autosave/`. In the Recordings window, right-click a recording to rename, du
 - **Interrupted recording**: if Yapcam or your Mac stopped mid-recording, the next launch offers to
   recover what was written to disk (also shown as a banner in the Recordings window). If the recording
   stops itself (for example low disk space) you get an alert and the part recorded so far is kept.
-  Kill -9 recovery on a real recording is **untested live**.
+  Recovery of the *editor's* unsaved edits after a hard kill is verified live; recovering a recording interrupted mid-capture is covered by capture's tests.
 - **Unsaved edits**: the editor offers to restore or discard them when you reopen the project.
 - **Missing media**: opening a project whose media files moved offers Locate… to relink them.
 - **Low disk**: recording won't start below 1 GB free and warns below 2 GB while recording.
