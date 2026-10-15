@@ -120,6 +120,7 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | Date | Main | What changed in this report |
 |---|---|---|
 | 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
+| 2026-10-15 13:00 | 511f831 | F9 retested: still fails; only the decision doc is on main |
 | 2026-10-15 12:40 | 3b68bde | Final handover pass: suites re-run (Swift 340 + XCTest 129, Rust 68), editor UI rows PASS (autosave/kill/reopen, export), hotkeys PASS, F8 verified fixed, F9 still open |
 | 2026-10-15 12:30 | fc29d18 | Permissions granted: scripted input vs events PASS (max 15 ms / 0.98 pt), auto-zoom from real clicks PASS |
 | 2026-10-15 12:00 | 529f208 | F6 fixed and re-verified (10-min export with audio); window/area via selftest targets PASS; pause A/V, toolbar exclusion PASS; scripted input BLOCKED on Accessibility |
