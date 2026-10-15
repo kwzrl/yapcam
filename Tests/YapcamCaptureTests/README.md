@@ -175,3 +175,33 @@ are explicit. No generated media is checked in; all fixtures use temporary stora
 Apple's fragmentation and atom contracts:
 [AVAssetWriter fragments](https://developer.apple.com/documentation/avfoundation/avassetwriter/moviefragmentinterval),
 [QuickTime atoms](https://developer.apple.com/documentation/quicktime-file-format/atoms).
+
+## Temporary build directories
+
+Every capture validation script that creates a temporary repo, harness or cache must
+install cleanup traps before allocating it. Keep all run artifacts inside that one
+directory, run children synchronously, and terminate/wait for timed-out children
+before exiting. Preserve small logs separately when needed. For example:
+
+```sh
+#!/bin/sh
+set -eu
+capture_run_root=
+capture_cleanup() {
+    if [ -n "$capture_run_root" ]; then
+        printf 'Removing capture temp directory: %s\n' "$capture_run_root"
+        rm -rf -- "$capture_run_root"
+    fi
+}
+trap capture_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+capture_run_root="$(mktemp -d "${TMPDIR:-/tmp}/yapcam-capture-run.XXXXXXXX")"
+# Put the run's repo/harness, build output and caches under "$capture_run_root".
+# Run the validation here in the foreground.
+```
+
+Swift fixtures use `defer` to remove their temporary directories. For abandoned
+script runs, list exact paths and establish capture ownership and absence of active
+users before deleting them. Shared names such as `tmp.*` do not establish ownership.
