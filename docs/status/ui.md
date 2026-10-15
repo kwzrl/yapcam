@@ -47,6 +47,15 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
 
+## Visual polish pass + user guide (main e007d36)
+`--snapshot-ui` now writes every window at 1× and 2× (`<name>.png`, `<name>@2x.png`) in light + dark, 84 images, and also renders each settings pane and the notes popover. Reviewed all of them against docs/briefs/ui.md. Before → after:
+- BUG (found via the review): toolbar was stuck at 300 pt tall (SwiftUI size read with `sizingOptions = []` returned the frame), so the idle toolbar with 7 controls clipped its top/bottom. After: sized from `intrinsicContentSize`, refit again after first layout; idle 66×408, recording 66×326, countdown 66×126.
+- Window popover rendered as a blank panel while loading → "Looking for windows…" spinner.
+- Notes editor had no hint → placeholder text. Recordings empty state said "saved in Yapcam" → shows `~/Movies/Yapcam`. Storage pane showed `/Users/<name>/…` → `~/…`.
+- Snapshot harness fixes (not app bugs): pre-fills the backdrop so dark windows render properly at 2×; each popover is built right before it is written so the Window/Area modes are really shown.
+- Checked and left as is: spacing/typography consistent (11 pt uppercase section headers, 14 pt popover padding, 13 pt body), active/hover/pressed states readable in both appearances, record button states clear, onboarding rows aligned, 2× shows no blur or clipping. Known limit: translucent material blur and the area overlay's dim hole aren't reproducible in a bitmap snapshot.
+- `docs/USER_GUIDE.md` written from what exists on main; untested live paths are marked in it.
+
 ## M3 hardening (main a02a89e)
 1. Accessibility (code + helper tests; VoiceOver itself not run):
    - Labels/hints/selected traits on every toolbar button, source/mic/camera rows, window cells, level meter (percent value), teleprompter controls, shortcut recorder, onboarding rows ("Allow for Microphone"). Decorative icons hidden. Toolbar is one labelled group with VoiceOver actions "Move toolbar left/right/up/down" (keyboard-equivalent of dragging). Recording time has a spoken value ("1 minute 5 seconds"); state changes are announced (started, paused, resumed, stopped, countdown).
