@@ -1,8 +1,15 @@
 # editor status
 
-READY e255871 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY c143346 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Backlog check: every row Lead listed for editor is now implemented except ED-10 caption font/reveal/growth/entrance/language (core has no such fields yet → Request to core below) and manual checks. F4 privacy: no absolute home path in this file (verified by grep).
+- CAP-3 markers: recording markers (core `markers` query, mapped through cuts/speed) show as orange flags on the ruler, act as snap targets and Option+Arrow edit points. Not seen against a real recording with markers. 213 editor tests green.
+- ED-5 glass loupe: zoom inspector Style Classic / Glass loupe with lens size (0.25–0.75), bevel, colour fringing; zoom rows read `style`/`lens` from core; real-core round-trip (clamping, undo). 212 editor tests green. Lens pixels in preview/export not looked at (render owns sampling). FEATURES.md GAP-ED-5/RND-5 rows can drop the "editor lens control pending" note.
+- Look section: "Improve screen quality" (improvement 0…1, upscaling off/fast/quality via `canvas.screen_quality`, off by default) and inset border position (`canvas.inset_origin`, two sliders); real-core round-trip incl. out-of-range rejection. 211 editor tests green. Pixels not verified in a real preview/export.
+- Export sheet on render's RND-1/3/4: option table now matches render (MP4/MOV fps 60/50/30/25/24/20/10, GIF fps 50…10 default 15 fps/480p, heights per format), requests carry the compression preset (render maps to quantiser 14/24/30/42) instead of the assumed quality number, GIF "High quality" and "Play once" toggles, and an estimate line (size, dimensions, time) from `ExportSettings.estimate`. Full suite (UISmokeTests skipped) 490 green. Not done: "Both" codec (two files), clipboard target, queue status UI, remembered per-context settings.
+- Rebased on main 3dd0d3b (render APIs landed). ED-15 preview controls: Preview menu above the preview (size 480p…2160p/automatic, resolution full/half/quarter, playback speed 0.25×…8×, motion blur in preview) → `PreviewPlayer.setPreviewSettings`/`setMotionBlurEnabled`, remembered in defaults and re-applied on open; real player accepts all 90 combinations. `ProjectRenderSource.renderStereoMicrophone()` forwarded (render's request) + "Keep stereo microphone" toggle (`audio.stereo_mic`). 209 editor tests green.
+- Next from render handoffs: camera matte (cutout softness/inset are already `layout_settings` fields; check core emits `camera_matte`), VFR option (experimental, keep off), Both codec/clipboard export.
 - Per-segment camera layout settings: selected layout section can use its own settings (cutout size/softness/inset, split ratio/flip/padded); segment `settings` are now preserved verbatim by every layout rewrite (previously any layout edit would have dropped them). Real-core round-trip test (fixture has no camera, so the segment is written via settings). 207 editor tests green.
 - Rebased on main c1bf553 (full suite 482 green, UISmokeTests skipped). "Add zoom" now uses core's `insert_zoom`, so new zooms inherit the last edited zoom style (real-core test: scale 3.5 carried over). Masks/layout segments still use the old paths (no insert UI to switch). 206 editor tests green.
 - Structural edits (split, delete, zoom add/update, silence/typing processing) now use core's checked `timeline_edit` envelope; real-core test: a 50 ms zoom is rejected with state unchanged. 205 editor tests green.
@@ -197,3 +204,5 @@ Every editor-owned FEATURES row that core/render can support is implemented. Cor
 - App integration: `Sources/Yapcam/Recording/Engine.swift` `openEditor(package:)` should call `EditorWindows.open(package:)`; call `EditorWindows.saveAll()` in `applicationWillTerminate`; add `EditorCommands()` to the app's `.commands`.
 - render: fix audio export hang (above).
 - core: add a `{"q":"clicks"}`-style query is present and used; `canvas.output_size` for non-16:9 presets is set by the editor (1440×1080, 1080×1080, 1080×1920, 2520×1080) — confirm these sizes.
+
+- Request (core): caption style fields (font, reveal, growth, entrance, language) — editor will add the controls once `canvas.captions` records carry them.

@@ -21,6 +21,14 @@ public struct TimelineClip: Equatable, Identifiable, Sendable {
     public var timelineDurationNs: Int64 { Int64(Double(srcEndNs - srcStartNs) / speed) }
 }
 
+public struct ZoomLensParams: Equatable, Sendable {
+    public static let radiusRange = 0.25...0.75
+    public var radius = 0.35, bevel = 0.2, chromaticAberration = 0.5
+    public init(radius: Double = 0.35, bevel: Double = 0.2, chromaticAberration: Double = 0.5) {
+        self.radius = radius; self.bevel = bevel; self.chromaticAberration = chromaticAberration
+    }
+}
+
 public struct TimelineZoom: Equatable, Identifiable, Sendable {
     public enum Mode: String, Sendable { case auto, manual }
     public var id: String
@@ -34,9 +42,12 @@ public struct TimelineZoom: Equatable, Identifiable, Sendable {
     public var easeInNs: Int64
     public var easeOutNs: Int64
     public var enabled: Bool
+    /// nil = classic (the whole screen scales); set = glass loupe (a magnifying lens over the screen).
+    public var lens: ZoomLensParams?
     public init(id: String, startNs: Int64, endNs: Int64, mode: Mode = .manual,
                 scale: Double = 2, focusX: Double = 0.5, focusY: Double = 0.5,
-                easeInNs: Int64 = 300_000_000, easeOutNs: Int64 = 300_000_000, enabled: Bool = true) {
+                easeInNs: Int64 = 300_000_000, easeOutNs: Int64 = 300_000_000, enabled: Bool = true, lens: ZoomLensParams? = nil) {
+        self.lens = lens
         self.id = id; self.startNs = startNs; self.endNs = endNs; self.mode = mode
         self.scale = scale; self.focusX = focusX; self.focusY = focusY
         self.easeInNs = easeInNs; self.easeOutNs = easeOutNs; self.enabled = enabled
@@ -69,6 +80,8 @@ public enum EditorCommand: Equatable, Sendable {
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
     /// New zoom with the project's remembered (last edited) style; focus is centred.
     case insertZoom(startNs: Int64, endNs: Int64)
+    /// nil = classic style; otherwise the glass loupe with these parameters.
+    case setZoomLens(id: String, lens: ZoomLensParams?)
     case removeZoom(id: String)
     case set(path: String, value: JSONValue)
     case autoZooms
@@ -135,6 +148,8 @@ public protocol EditingProject: AnyObject {
     var clickTimesNs: [Int64] { get }
     /// Timeline times of recorded key presses (edited timeline; empty when no keystrokes were recorded).
     var keyTimesNs: [Int64] { get }
+    /// Timeline times of the markers dropped while recording (mapped through cuts, speed and repeated clips).
+    var markerTimesNs: [Int64] { get }
     /// Typing bursts on the edited timeline (one record per retained occurrence; occurrences of one burst share an id).
     var typingRecords: [TypingRecord] { get }
     func frameGeometry(atNs: Int64) -> FrameGeometry?
@@ -179,6 +194,8 @@ public protocol PlaybackEngine: AnyObject {
     func invalidate()
     /// nil = off. Preview re-prepares its audio when the settings change.
     func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws
+    /// Local preview controls (size cap, resolution, speed, motion blur); engines without them ignore the call.
+    func setPreviewOptions(_ options: PreviewOptions) throws
     /// Called by the model whenever `currentNs`/`isPlaying` change.
     var onChange: (@MainActor () -> Void)? { get set }
 }
@@ -208,17 +225,38 @@ public struct ExportRequest: Equatable, Sendable {
     public var speech: SpeechEnhancement?
     public var format: ExportFormat
     public var quality: Double
+    /// Reference-style compression preset; when set it wins over `quality` (MP4/MOV only).
+    public var compression: CompressionPreset?
+    public var gifHighQuality: Bool
+    public var gifDisableLoop: Bool
     public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true, speech: SpeechEnhancement? = nil,
-                format: ExportFormat = .mp4h264, quality: Double = 0.8) {
+                format: ExportFormat = .mp4h264, quality: Double = 0.8, compression: CompressionPreset? = nil,
+                gifHighQuality: Bool = true, gifDisableLoop: Bool = false) {
         self.height = height; self.fps = fps; self.destination = destination; self.includeAudio = includeAudio; self.speech = speech
-        self.format = format; self.quality = quality
+        self.format = format; self.quality = quality; self.compression = compression
+        self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop
+    }
+}
+
+/// Planned output of an export: even pixel size, estimated file size(s) and render time.
+public struct ExportEstimateInfo: Equatable, Sendable {
+    public var width: Int, height: Int
+    public var bytes: Int64
+    public var renderSeconds: Double
+    public init(width: Int, height: Int, bytes: Int64, renderSeconds: Double) {
+        self.width = width; self.height = height; self.bytes = bytes; self.renderSeconds = renderSeconds
     }
 }
 
 public protocol ExportEngine: Sendable {
     /// Cancel by cancelling the surrounding Task. Throws on failure; returns the verified file.
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL
+    /// Planning numbers for the sheet's readout; nil when the engine cannot estimate.
+    func estimate(for request: ExportRequest) -> ExportEstimateInfo?
 }
+public extension ExportEngine { func estimate(for request: ExportRequest) -> ExportEstimateInfo? { nil } }
+
+public extension EditingProject { var markerTimesNs: [Int64] { [] } }
 
 /// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.
 public struct TypingRecord: Equatable, Sendable { public var id: String; public var span: TimeSpan }

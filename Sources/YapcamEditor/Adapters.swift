@@ -42,6 +42,8 @@ final class ProjectRenderSource: RenderProjectSource, @unchecked Sendable {
         return fx
     }
     func renderAudioRanges() throws -> [RenderAudioRange]? { try project.renderAudioRanges() }
+    /// Core's `audio.stereo_mic`: without this forward the default (true) hides the toggle's effect in preview and export.
+    func renderStereoMicrophone() throws -> Bool { try project.renderStereoMicrophone() }
     /// Music tracks (built-in and files) and click sounds, evaluated by core (`audio_overlays`). Without this
     /// forward the protocol default returns [] and all added audio is silently missing from preview and export.
     func renderAudioOverlays() throws -> [AudioOverlay] { try project.renderAudioOverlays() }
@@ -73,6 +75,7 @@ public final class CoreEditingProject: EditingProject {
         if clicksStale {
             clickCache = ((try? project.query("{\"q\":\"clicks\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
             keyCache = ((try? project.query("{\"q\":\"key_events\"}", as: [ClickRow].self)) ?? []).map(\.tlNs)
+            markerCache = ((try? project.markers()) ?? []).map(\.tlNs).sorted()
             typingCache = ((try? project.typingSuggestions()) ?? []).flatMap { s in
                 s.ranges.map { TypingRecord(id: s.id, span: TimeSpan(startNs: $0.tlStartNs, endNs: $0.tlEndNs)) }
             }.sorted { $0.span.startNs < $1.span.startNs }
@@ -82,6 +85,8 @@ public final class CoreEditingProject: EditingProject {
     }
     private var keyCache: [Int64] = []
     public var keyTimesNs: [Int64] { _ = clickTimesNs; return keyCache }
+    private var markerCache: [Int64] = []
+    public var markerTimesNs: [Int64] { _ = clickTimesNs; return markerCache }
     private var typingCache: [TypingRecord] = []
     public var typingRecords: [TypingRecord] {
         _ = clickTimesNs
@@ -138,8 +143,16 @@ public final class CoreEditingProject: EditingProject {
             return TimelineZoom(id: id, startNs: a, endNs: b, mode: (z["mode"] as? String) == "auto" ? .auto : .manual,
                                 scale: (z["scale"] as? NSNumber)?.doubleValue ?? 2, focusX: target.first ?? 0.5, focusY: target.last ?? 0.5,
                                 easeInNs: (z["ease_in_ns"] as? NSNumber)?.int64Value ?? 0, easeOutNs: (z["ease_out_ns"] as? NSNumber)?.int64Value ?? 0,
-                                enabled: (z["enabled"] as? Bool) ?? true)
+                                enabled: (z["enabled"] as? Bool) ?? true,
+                                lens: Self.lens(z))
         }
+    }
+
+    private static func lens(_ z: [String: Any]) -> ZoomLensParams? {
+        guard (z["style"] as? String) == "lens" else { return nil }
+        let l = z["lens"] as? [String: Any] ?? [:]
+        func n(_ k: String, _ d: Double) -> Double { (l[k] as? NSNumber)?.doubleValue ?? d }
+        return ZoomLensParams(radius: n("radius", 0.35), bevel: n("bevel", 0.2), chromaticAberration: n("chromatic_aberration", 0.5))
     }
 
     private func map(_ c: EditorCommand) -> EditCommand {
@@ -165,6 +178,10 @@ public final class CoreEditingProject: EditingProject {
             if let mode { patch["mode"] = .string(mode.rawValue) }
             return .updateZoom(id: id, patch: patch)
         case .insertZoom(let s, let e): return .insertTimelineItem(.zoom, startNs: s, durationNs: e - s)
+        case .setZoomLens(let id, let lens):
+            var patch: [String: JSONValue] = ["style": .string(lens == nil ? "classic" : "lens")]
+            if let l = lens { patch["lens"] = .object(["radius": .number(l.radius), "bevel": .number(l.bevel), "chromatic_aberration": .number(l.chromaticAberration)]) }
+            return .updateZoom(id: id, patch: patch)
         case .removeZoom(let id): return .removeZoom(id: id)
         case .set(let path, let v): return .set(path: path, value: v)
         case .autoZooms: return .autoZooms
@@ -181,7 +198,7 @@ public final class CoreEditingProject: EditingProject {
     /// Structural timeline edits go through core's checked envelope (minimum clip/zoom lengths, atomic, history-safe).
     private func isStructural(_ c: EditorCommand) -> Bool {
         switch c {
-        case .split, .deleteRange, .addZoom, .insertZoom, .updateZoom, .processSilence: true
+        case .split, .deleteRange, .addZoom, .insertZoom, .updateZoom, .setZoomLens, .processSilence: true
         case .batch(let cs): cs.contains(where: isStructural)
         default: false
         }
@@ -265,16 +282,39 @@ final class PreviewPlayerAdapter: PlaybackEngine {
     func seek(toNs: Int64, precise: Bool) { player.seek(toNs: toNs, precise: precise) }
     func invalidate() { player.invalidate() }
     func setSpeechEnhancement(_ settings: SpeechEnhancement?) throws { try player.setSpeechEnhancement(settings.map(\.render)) }
+    func setPreviewOptions(_ o: PreviewOptions) throws {
+        var s = player.previewSettings
+        s.maximumHeight = o.maxHeight
+        s.resolution = PreviewSettings.Resolution(rawValue: o.resolution) ?? .full
+        s.playbackRate = o.rate
+        try player.setPreviewSettings(s)
+        player.setMotionBlurEnabled(o.motionBlur)
+    }
 }
 
 struct RenderExportEngine: ExportEngine {
     let source: ProjectRenderSource
-    func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+
+    static func settings(for request: ExportRequest) -> ExportSettings {
         let (container, codec): (ExportSettings.Format, ExportSettings.Codec) = switch request.format {
         case .mp4h264: (.mp4, .h264); case .mp4hevc: (.mp4, .hevc); case .movh264: (.mov, .h264); case .gif: (.gif, .h264) }
-        let settings = ExportSettings(format: container, codec: codec, outputHeight: request.height, fps: request.fps, quality: request.quality,
-                                      includeAudio: request.includeAudio && request.format.supportsAudio,
-                                      speechEnhancement: request.speech.map(\.render))
+        let compression: ExportSettings.Compression? = request.compression.map {
+            switch $0 { case .studio: .studio; case .social: .social; case .web: .web; case .webLow: .webLow } }
+        return ExportSettings(format: container, codec: codec, outputHeight: request.height, fps: request.fps,
+                              quality: compression == nil ? request.quality : nil,
+                              includeAudio: request.includeAudio && request.format.supportsAudio,
+                              speechEnhancement: request.speech.map(\.render), compression: compression,
+                              gifHighQuality: request.gifHighQuality, gifDisableLoop: request.gifDisableLoop)
+    }
+
+    func estimate(for request: ExportRequest) -> ExportEstimateInfo? {
+        guard let frame = try? source.frame(atNs: 0),
+              let e = try? Self.settings(for: request).estimate(canvasWidth: frame.canvas_w, canvasHeight: frame.canvas_h,
+                                                                 durationNs: source.durationNs, hasAudio: request.includeAudio) else { return nil }
+        return ExportEstimateInfo(width: e.width, height: e.height, bytes: e.totalBytes, renderSeconds: e.renderSeconds)
+    }
+    func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+        let settings = Self.settings(for: request)
         return try await AtomicExport.run(to: request.destination) { temp in
             let exporter = try Exporter(project: source, settings: settings, destination: temp)
             return try await exporter.run(progress: progress)

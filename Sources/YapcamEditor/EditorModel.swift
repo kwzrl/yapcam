@@ -43,6 +43,7 @@ public final class EditorModel: ObservableObject {
     public var presetStore: PresetStore = EditorPresets.currentStore
     public var defaults: UserDefaults = EditorPresets.currentStore.defaults
     @Published public var paletteVisible = false
+    @Published public var previewOptions = PreviewOptions()
     @Published public var silenceRangesState: SilenceRangesState = .idle
     var silenceRangesTask: Task<Void, Never>?
     @Published public var speedMenuVisible = false
@@ -440,6 +441,16 @@ public final class EditorModel: ObservableObject {
         perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: nil, focusX: nil, focusY: nil, easeInNs: max(0, inNs), easeOutNs: max(0, outNs)))
     }
 
+    /// Classic ↔ glass loupe; `lens` carries the (clamped) loupe parameters.
+    public func setZoomLens(id: String, _ lens: ZoomLensParams?) {
+        var l = lens
+        if l != nil {
+            l!.radius = min(max(l!.radius, ZoomLensParams.radiusRange.lowerBound), ZoomLensParams.radiusRange.upperBound)
+            l!.bevel = min(max(l!.bevel, 0), 1); l!.chromaticAberration = min(max(l!.chromaticAberration, 0), 1)
+        }
+        perform(.setZoomLens(id: id, lens: l))
+    }
+
     public func setZoomScale(id: String, _ scale: Double) {
         perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: min(max(scale, 1), 6), focusX: nil, focusY: nil))
     }
@@ -471,7 +482,7 @@ public final class EditorModel: ObservableObject {
 
     public func snapTargets(excludingZoom id: String? = nil, includePlayhead: Bool = true) -> [SnapTarget] {
         Snapping.targets(clips: clips, zooms: zooms, clicks: project.clickTimesNs,
-                         playheadNs: playheadNs, durationNs: durationNs, excludingZoom: id, includePlayhead: includePlayhead)
+                         playheadNs: playheadNs, durationNs: durationNs, markers: project.markerTimesNs, excludingZoom: id, includePlayhead: includePlayhead)
     }
 
     /// `includePlayhead: false` while scrubbing — the playhead must not snap to itself.

@@ -71,6 +71,11 @@ struct TimelineView: View {
             ZStack(alignment: .topLeading) {
                 Ruler(geometry: g, width: contentW)
                     .frame(width: contentW, height: TimelineLayout.rulerHeight)
+                ForEach(Array(model.project.markerTimesNs.enumerated()), id: \.offset) { _, ns in
+                    Image(systemName: "flag.fill").font(.system(size: 9)).foregroundStyle(.orange)
+                        .offset(x: g.x(forNs: ns) - 2, y: 1).allowsHitTesting(false)
+                        .accessibilityLabel("Marker at \(formatTimecode(ns))")
+                }
                 clipTrack(g)
                 zoomTrack(g)
                 if layout.lanes.contains(.typing) { typingLane(g) }

@@ -1,7 +1,7 @@
 import Foundation
 
 public struct SnapTarget: Equatable, Sendable {
-    public enum Kind: String, Sendable { case playhead, clipEdge, zoomEdge, click, start, end }
+    public enum Kind: String, Sendable { case playhead, clipEdge, zoomEdge, click, marker, start, end }
     public var ns: Int64
     public var kind: Kind
 }
@@ -28,7 +28,7 @@ public enum Snapping {
     }
 
     public static func targets(clips: [TimelineClip], zooms: [TimelineZoom], clicks: [Int64], playheadNs: Int64,
-                               durationNs: Int64, excludingZoom: String? = nil, includePlayhead: Bool = true) -> [SnapTarget] {
+                               durationNs: Int64, markers: [Int64] = [], excludingZoom: String? = nil, includePlayhead: Bool = true) -> [SnapTarget] {
         var out: [SnapTarget] = [.init(ns: 0, kind: .start), .init(ns: durationNs, kind: .end)]
         if includePlayhead { out.append(.init(ns: playheadNs, kind: .playhead)) }
         var t: Int64 = 0
@@ -37,6 +37,7 @@ public enum Snapping {
             out.append(.init(ns: z.startNs, kind: .zoomEdge)); out.append(.init(ns: z.endNs, kind: .zoomEdge))
         }
         out += clicks.map { .init(ns: $0, kind: .click) }
+        out += markers.map { .init(ns: $0, kind: .marker) }
         return out
     }
 }

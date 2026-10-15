@@ -21,6 +21,7 @@ public final class FakeProject: EditingProject {
     public var silenceDelay: Duration = .zero
     public var clickTimesNs: [Int64] = []
     public var keyTimesNs: [Int64] = []
+    public var markerTimesNs: [Int64] = []
     public private(set) var dismissedTypingIDs = Set<String>()
     public private(set) var typingCommands: [String] = []
     public var typingRecords: [TypingRecord] {
@@ -109,6 +110,8 @@ public final class FakeProject: EditingProject {
             zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: scale, focusX: fx, focusY: fy))
         case .insertZoom(let s, let e):
             zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: 2, focusX: 0.5, focusY: 0.5))
+        case .setZoomLens(let id, let lens):
+            if let i = zooms.firstIndex(where: { $0.id == id }) { zooms[i].lens = lens }
         case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en, let mode):
             guard let i = zooms.firstIndex(where: { $0.id == id }) else { return }
             if let s { zooms[i].startNs = s }; if let e { zooms[i].endNs = e }
@@ -226,6 +229,8 @@ public final class FakePlayer: PlaybackEngine {
     public private(set) var isPlaying = false
     public var onChange: (@MainActor () -> Void)?
     public private(set) var invalidations = 0
+    public private(set) var previewOptionCalls: [PreviewOptions] = []
+    public func setPreviewOptions(_ o: PreviewOptions) throws { previewOptionCalls.append(o) }
     public private(set) var seeks: [(Int64, Bool)] = []
     public init() {}
     public func play() { isPlaying = true; onChange?() }

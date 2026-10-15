@@ -24,6 +24,9 @@ public final class ExportModel: ObservableObject {
         }
     }
     @Published public var preset: CompressionPreset = .social { didSet { normalize() } }
+    /// GIF only: global-palette high quality pass (default on) and playing once instead of looping.
+    @Published public var gifHighQuality = true
+    @Published public var gifDisableLoop = false
     /// Quality (0…1) taken from the compression preset; GIF has none.
     public var quality: Double { preset.quality }
     public var options: ExportOptionSet { format.options }
@@ -54,8 +57,7 @@ public final class ExportModel: ObservableObject {
         lastDestination = destination
         failedWithAudio = false
         state = .running(0)
-        let req = ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio && format.supportsAudio,
-                                speech: includeAudio && format.supportsAudio ? speechProvider() : nil, format: format, quality: quality)
+        let req = makeRequest(destination: destination)
         let engine = engine
         task = Task { [weak self] in
             do {
@@ -71,6 +73,14 @@ public final class ExportModel: ObservableObject {
             }
         }
     }
+
+    func makeRequest(destination: URL) -> ExportRequest {
+        ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio && format.supportsAudio,
+                      speech: includeAudio && format.supportsAudio ? speechProvider() : nil, format: format, quality: quality,
+                      compression: format == .gif ? nil : preset, gifHighQuality: gifHighQuality, gifDisableLoop: gifDisableLoop)
+    }
+    /// Size and time readout for the current choices (nil when the engine cannot plan them).
+    public var estimate: ExportEstimateInfo? { engine.estimate(for: makeRequest(destination: URL(fileURLWithPath: "/dev/null"))) }
 
     private func progressed(_ p: Double) { if case .running = state { state = .running(p) } }
 

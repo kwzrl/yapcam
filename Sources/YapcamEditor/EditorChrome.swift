@@ -173,6 +173,7 @@ struct PreviewControlsBar: View {
                 .popover(isPresented: $showCrop) { Form { CropSection(model: model) }.formStyle(.grouped).frame(width: 300, height: 300) }
                 .help("Crop the recording")
             Spacer()
+            PreviewOptionsMenu(model: model)
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 12).padding(.vertical, 6)

@@ -55,7 +55,7 @@ extension EditorModel {
     public func jumpToEditPoint(forward: Bool) -> Bool {
         var points = Set<Int64>([0, durationNs])
         for i in selectableItems { points.insert(i.startNs); points.insert(i.endNs) }
-        points.formUnion(project.clickTimesNs)
+        points.formUnion(project.clickTimesNs); points.formUnion(project.markerTimesNs)
         let sorted = points.filter { $0 >= 0 && $0 <= durationNs }.sorted()
         let target = forward ? sorted.first { $0 > playheadNs } : sorted.last { $0 < playheadNs }
         guard let target else { return false }
