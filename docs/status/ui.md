@@ -1,4 +1,4 @@
-READY ui: reference alignment UI-1..UI-13 done (see status; a few sub-items listed as not done); unit-tested + rendered; NOT run live (user instance running)
+READY ui: preset+defaults test isolation fixed (swift test -j 6 ×3 green, 465 tests); rebased on f611874
 
 READY ui: QA self-test launch flags (--capture-selftest options, --ui-record-selftest, --drive-input-selftest) built, tested, run live; NOTE for QA: this app does NOT have Accessibility/Input Monitoring (logged accessibility=false)
 
@@ -149,6 +149,11 @@ Ran with `open -n -W`, no lock, no other instance, script aborts on any skip; I 
 - Global hotkeys via `--live-e2e <dir> hotkey` (Accessibility now granted): ⌥⌘R started recording, ⌥⌘P → paused, ⌥⌘P → recording, ⌥⌘R → idle with a package. Verified.
 - User guide updated (hotkeys verified, known audio-export issue removed, recovery wording).
 Still unverified: real mic/camera (no devices), VoiceOver, multi-display, Retina.
+
+## Preset / test isolation (freeze exception) — READY
+Problem: tests wrote to the real preset library (`~/Library/Application Support/Yapcam/Presets`) and the real `yapcam.defaultPreset` key; under parallel `swift test` a test that set the default preset changed what other tests' new projects started from (→ flaky "Unknown clip id").
+Fix: `EditorPresets` (shared by the editor and the app's `PresetStore`, now one source of truth) resolves its folder and defaults in this order: per-task override (`PresetIsolation.directory` / `.defaultsSuiteName`, task-locals so parallel tests are isolated), global override (set by self-test launches: scratch folder + the `mov.yapcam.Yapcam.selftest` suite), env `YAPCAM_PRESETS_DIR`, a per-process temp folder + defaults suite whenever it detects it runs under swift test, else the real locations. Tests that touch presets or create `EditorDocument`s run inside `withIsolatedPresets { }` (own temp folder, own suite). Editor-owned files touched under the exception: `EditorChrome.swift` (EditorPresets, now public + `PresetIsolation`), `LayoutTests`, `ReferenceAlignmentTests`, new `PresetIsolation.swift`.
+Verified: `swift test -j 6` three times in a row, 465 tests green each time; the real Presets folder stays empty. Gotcha for everyone: after rebasing onto new core code, run `scripts/build-core.sh` AND delete `.build/arm64-apple-macosx/debug/YapcamPackageTests.xctest` (SwiftPM doesn't relink the test bundle when only the Rust `.a` changed; I saw 41 bogus core failures until I did).
 
 ## Reference alignment, M/L items (gap-list UI-5…UI-13)
 - UI-5 window extras: the window card has an options menu: resize to 16:9 / 4:3 / 9:16 / 16:10 / 1:1 (Accessibility, fitted to the display, min 150), bring to front, adjust as area (hands the window's rectangle to the area overlay), record entire display. Not done: editable W×H fields and user-saved sizes, "ignore window". Needs Accessibility (shows a notice otherwise).
