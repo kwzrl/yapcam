@@ -1,4 +1,4 @@
-READY HEAD qa: live DoD re-run on c1bf553 PASS (F10 low); hotkeys/after-recording buttons not run live
+READY 5a5246b qa: live DoD re-run on c1bf553 PASS (F10 low); hotkeys/after-recording buttons not run live
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
