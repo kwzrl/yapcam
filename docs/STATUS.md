@@ -60,6 +60,9 @@ architecture, A/V sync debugging, platform problems and independent reviews.
   Limitation: sources are synthetic/low-resolution; real 1080p/4K screen recordings are not
   measured yet (needs the screen-recording grant).
 
+- Fresh checkout (05:05): `git clone https://github.com/kwzrl/yapcam` → `scripts/build-app.sh`
+  builds Rust + Swift and signs `build/Yapcam.app` (15 MB) without manual steps on this Mac.
+
 ## Open
 Everything in `docs/FEATURES.md` (being written by qa). First integration target: M1
 (see `docs/briefs/common.md`).
