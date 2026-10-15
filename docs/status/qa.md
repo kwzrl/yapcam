@@ -1,4 +1,4 @@
-READY HEAD qa: audit vs 88f1995; no todo rows left
+READY c0dca95 qa: audit vs 88f1995; no todo rows left
 
 # qa status
 
