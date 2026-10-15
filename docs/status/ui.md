@@ -59,6 +59,7 @@ Results:
   - Window (Terminal): video 1626×1014 for a 1627×1015 pt window (capture rounds down to even sizes; harmless), content is the window.
   - Pause/resume: toggled via `togglePause` (phase paused → recording): 2 segments, 2.16 s + 1.93 s = 4.09 s, the 2 s pause is excluded.
   - Test recordings deleted afterwards.
+- Global hotkeys: `--live-e2e <dir> hotkey` registers the real shortcuts and presses ⌥⌘R / ⌥⌘P with synthetic CGEvents. Result here: the events do not trigger the hotkey (posting synthetic key events needs the Accessibility permission for Yapcam, which is not granted; onboarding shows it as "Allow"). So hotkey-driven recording stays unverified. After granting Accessibility to build/Yapcam.app, rerun that command; or press ⌥⌘R by hand.
 - Requests: core + render: the audio range clamp above (high: blocks exporting any real recording with audio).
 - Deleted my other four test recordings.
 

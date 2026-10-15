@@ -130,6 +130,36 @@ import YapcamRender
         default:
             settings.sourceMode = .display
         }
+        if kind == "hotkey" {
+            // Register the real global shortcuts, then press them with synthetic key events.
+            let start = GlobalHotKey(), pause = GlobalHotKey()
+            start.register(settings.startStopShortcut) { rec.toggleStartStop() }
+            pause.register(settings.pauseShortcut) { rec.togglePause() }
+            func press(_ c: KeyCombo) {
+                let flags: CGEventFlags = [.maskCommand, .maskAlternate]
+                for down in [true, false] {
+                    let e = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(c.keyCode), keyDown: down)
+                    e?.flags = flags
+                    e?.post(tap: .cghidEventTap)
+                }
+            }
+            press(settings.startStopShortcut)
+            guard await waitFor({ rec.phase == .recording }, seconds: 10) else {
+                log("hotkey start did NOT start recording; phase=\(rec.phase) (synthetic events may need Accessibility for this app)")
+                return finish(dir, report)
+            }
+            log("hotkey start OK")
+            try? await Task.sleep(for: .seconds(2))
+            press(settings.pauseShortcut)
+            try? await Task.sleep(for: .seconds(1)); log("after pause hotkey: \(rec.phase)")
+            press(settings.pauseShortcut)
+            try? await Task.sleep(for: .seconds(1)); log("after resume hotkey: \(rec.phase)")
+            press(settings.startStopShortcut)
+            _ = await waitFor({ rec.phase == .idle }, seconds: 30)
+            log("after stop hotkey: \(rec.phase)")
+            log("package \(newestPackage(in: settings.storageDirectory)?.path ?? "none")")
+            return finish(dir, report)
+        }
         rec.begin()
         guard await waitFor({ rec.phase == .recording }, seconds: 15) else { log("FAIL never recording: \(rec.alert?.message ?? "-")"); return finish(dir, report) }
         try? await Task.sleep(for: .seconds(2))
