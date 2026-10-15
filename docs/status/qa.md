@@ -1,4 +1,4 @@
-READY 288cd93 qa: audit vs 78a8a0e
+READY HEAD qa: M3 docs (KNOWN_LIMITATIONS, THIRD_PARTY, TEST_REPORT draft) + Metal-verified rows
 
 # qa status
 
@@ -32,6 +32,8 @@ READY 288cd93 qa: audit vs 78a8a0e
 - Audit vs main 88f1995: editor UI for section K, text/reactions/captions/music/keys/click sound/animation modes and wallpaper picker landed → those rows integrated. Only AUD-06 wiring, CUR-06 set library, host/Metal checks, Speech host check and live QA remain.
 
 - Audit vs main 78a8a0e: AUD-06 core setting + render path landed (editor toggle wiring left). Everything else unchanged.
+
+- M3 package (Lead 03:15): FEATURES render rows tagged verified on Metal (86/86); new docs/KNOWN_LIMITATIONS.md, docs/THIRD_PARTY.md (Rust crates + Apple frameworks + tooling audited; all permissive; acknowledgements file still open), docs/TEST_REPORT.md structure.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).

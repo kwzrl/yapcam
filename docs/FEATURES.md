@@ -66,7 +66,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | AUD-07 | Audio | Background music library + volume | technical (bundled music in 5 genres) | Own royalty-free tracks only (not reference files); loop, fade | editor+render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host) | Add music, export has 3rd source |
 | AUD-08 | Audio | Mouse click sounds | docs / technical (click sound sets) | Own click sounds (2 variants), volume | render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host) | Click event → audio impulse at time |
 | AUD-09 | Audio | Recording start/stop sounds | technical | Optional | ui | implemented (ui: start/stop sounds, played outside capture; build only) | Setting toggles |
-| AUD-10 | Audio | Captions via local transcription | docs / technical (whisper binary) | On-device speech recognition (Speech/ whisper.cpp later); caption style | editor | integrated (capture transcription -> core import_transcript -> editor caption UI; unit tests; real Speech host check pending) | Transcribe sample; caption times align ±200 ms |
+| AUD-10 | Audio | Captions via local transcription | docs / technical (whisper binary) | On-device speech recognition (Speech/ whisper.cpp later); caption style | editor | integrated (capture transcription -> core import_transcript -> editor caption UI; unit tests; real Speech host check pending; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Transcribe sample; caption times align ±200 ms |
 | AUD-11 | Audio | Silence detection → speed-up/cut | technical (detect-silence) | Offer to cut/speed silent ranges | core+editor | implemented (core PCM silence analysis verified; AAC decode unavailable in sandbox; editor Audio tab -> cut/speed) | Silence range detected in known file |
 
 ## C. Camera
@@ -74,10 +74,10 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
 | CAM-01 | Camera | Record webcam as separate track | docs | camera.mov host-time stamped | capture | limited (no camera; no-device path) | No camera: option unavailable, message |
-| CAM-02 | Camera | Camera shape, size, position, radius, shadow, mirror | docs | camera.* settings | editor+render | integrated (editor Camera tab -> core -> render; pixel output unverified, no camera) | Fixture camera track: rect/shape in frame |
-| CAM-03 | Camera | Dynamic camera layouts (hide/enlarge/fullscreen over time) | docs | camera layout segments on timeline | core+editor | integrated (editor layout lane -> core layouts; Rust layer tests; pixels unverified) | Layout change at t → frame description changes |
-| CAM-04 | Camera | Background removal for camera | technical (matting/segmentation models) | Vision person segmentation | render | limited (no camera: render Vision matting wired through frameExtras, synthetic tests; editor forwards render effects) | Synthetic still image test |
-| CAM-05 | Camera | Face detection to frame camera | technical (face-detector) | Vision face rect | render | limited (no camera: render Vision face framing wired through frameExtras, synthetic tests) | Fixture image |
+| CAM-02 | Camera | Camera shape, size, position, radius, shadow, mirror | docs | camera.* settings | editor+render | integrated (editor Camera tab -> core -> render; pixel output unverified, no camera; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Fixture camera track: rect/shape in frame |
+| CAM-03 | Camera | Dynamic camera layouts (hide/enlarge/fullscreen over time) | docs | camera layout segments on timeline | core+editor | integrated (editor layout lane -> core layouts; Rust layer tests; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Layout change at t → frame description changes |
+| CAM-04 | Camera | Background removal for camera | technical (matting/segmentation models) | Vision person segmentation | render | limited (no camera: render Vision matting wired through frameExtras, synthetic tests; editor forwards render effects; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Synthetic still image test |
+| CAM-05 | Camera | Face detection to frame camera | technical (face-detector) | Vision face rect | render | limited (no camera: render Vision face framing wired through frameExtras, synthetic tests; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Fixture image |
 | CAM-06 | Camera | Camera lost mid-recording | assumption | Continue, warning | capture | limited | simulated |
 
 ## D. Cursor and input events
@@ -89,12 +89,12 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | CUR-03 | Cursor | Smooth cursor movement toggle | docs | cursor.smoothing; off = raw | core+render | integrated (editor toggle -> core spring -> render; Rust frame goldens; pixels unverified) | Off: frame cursor == raw event pos |
 | CUR-04 | Cursor | Cursor speed presets Slow/Mellow/Quick/Rapid + tension/friction/mass | docs | spring params; presets map to values | core | integrated (editor speed presets -> core spring params; Rust spring test) | Spring step response unit tests |
 | CUR-05 | Cursor | Cursor size, show/hide, hide when idle, hide in sections | docs | cursor.size/visible/hide_when_idle + range overrides | core+editor | integrated (editor cursor tab + hidden-sections lane -> core ranges) | Hidden section frame has no cursor |
-| CUR-06 | Cursor | Cursor sets (macOS, tahoe, touch, many custom) | technical (assets: ~24 sets) | Native macOS cursor images + a few own styles | render | implemented (partial: render original vector cursors + editor style recorded/pointer/touch; no larger set library) | Switch set changes image |
-| CUR-07 | Cursor | Click effect (ripple/ring) | docs/assumption | cursor.click_effect | render | integrated (editor click effect -> core -> render procedural effect; pixels unverified) | Click frame differs from idle frame |
-| CUR-08 | Cursor | Cursor motion blur | docs | strength slider | render | integrated (editor cursor motion blur control -> core extras -> render) | Fast move frame blurred |
+| CUR-06 | Cursor | Cursor sets (macOS, tahoe, touch, many custom) | technical (assets: ~24 sets) | Native macOS cursor images + a few own styles | render | implemented (partial: render original vector cursors + editor style recorded/pointer/touch; no larger set library; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Switch set changes image |
+| CUR-07 | Cursor | Click effect (ripple/ring) | docs/assumption | cursor.click_effect | render | integrated (editor click effect -> core -> render procedural effect; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Click frame differs from idle frame |
+| CUR-08 | Cursor | Cursor motion blur | docs | strength slider | render | integrated (editor cursor motion blur control -> core extras -> render; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Fast move frame blurred |
 | CUR-09 | Cursor | Loop cursor to start position | assumption | option | core | integrated (editor loop toggle -> core) | last pos = first pos |
-| CUR-10 | Cursor | Keystroke display (opt-in) | assumption (key events in format) | key overlay with modifiers | capture+render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host) | cmd+k shows overlay |
-| CUR-11 | Cursor | Cursor click highlights/spotlight | assumption | optional | render | integrated (editor spotlight radius -> core extras -> render) | – |
+| CUR-10 | Cursor | Keystroke display (opt-in) | assumption (key events in format) | key overlay with modifiers | capture+render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | cmd+k shows overlay |
+| CUR-11 | Cursor | Cursor click highlights/spotlight | assumption | optional | render | integrated (editor spotlight radius -> core extras -> render; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
 
 ## E. Zoom
 
@@ -108,8 +108,8 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ZOM-06 | Zoom | Zoom speed presets + tension/friction/mass | docs | ease_in/out + spring | core | integrated (editor speed preset -> core ease/spring) | Curve unit tests (no overshoot unless set) |
 | ZOM-07 | Zoom | Camera follows cursor while zoomed | docs | pan with cursor, dead-zone | core | integrated (editor follow-cursor toggle -> core pan; Rust frame goldens) | Cursor at edge pans view |
 | ZOM-08 | Zoom | Instant zoom | docs | zoom without easing | core | integrated (editor 'Instant (no easing)' per zoom) | ease=0 |
-| ZOM-09 | Zoom | Zoom motion blur | docs | strength slider | render | integrated (editor zoom motion blur control; pixels unverified) | – |
-| ZOM-10 | Zoom | Zoom-aware sharpness (render from source resolution) | assumption | sample source at needed resolution | render | implemented (render samples source at native size; sharpness check pending Metal host test) | Zoomed export has native detail |
+| ZOM-09 | Zoom | Zoom motion blur | docs | strength slider | render | integrated (editor zoom motion blur control; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
+| ZOM-10 | Zoom | Zoom-aware sharpness (render from source resolution) | assumption | sample source at needed resolution | render | implemented (render samples source at native size; sharpness check pending Metal host test; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Zoomed export has native detail |
 
 ## F. Timeline / editing
 
@@ -122,24 +122,24 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EDT-05 | Edit | Undo/redo | assumption | command stack | core+editor | verified (testCutUndoRedoDuration + testNoDriftOverManyEdits (300 edits)) | 100 ops undo/redo exact |
 | EDT-06 | Edit | Autosave + reopen | docs | autosave journal, project.json.prev | core | verified (editor RealStackTests journal restore/discard + core autosave Rust tests; kill -9 on app untested) | Kill app, reopen, edits intact |
 | EDT-07 | Edit | Aspect ratio + crop | docs | canvas.aspect, screen crop | core+render | integrated (editor aspect/crop -> core canvas; output sizes 1440x1080/1080x1080/1080x1920/2520x1080 awaiting core confirmation) | 9:16 export size correct |
-| EDT-08 | Edit | Mask/highlight regions | docs | rect/rounded highlight with dim outside | core+render | integrated (editor Overlays tab + lane + rect editor -> core highlights; editor OverlayTests; pixels unverified) | – |
-| EDT-09 | Edit | Annotations / text overlays | assumption | text blocks on timeline | editor+render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host) | – |
+| EDT-08 | Edit | Mask/highlight regions | docs | rect/rounded highlight with dim outside | core+render | integrated (editor Overlays tab + lane + rect editor -> core highlights; editor OverlayTests; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
+| EDT-09 | Edit | Annotations / text overlays | assumption | text blocks on timeline | editor+render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
 | EDT-10 | Edit | Command menu (⌘K style) | docs | searchable action palette | editor | verified (editor palette unit tests; also cheat sheet) | – |
 | EDT-11 | Edit | Copy current frame as image | docs | clipboard PNG of composited frame | editor | verified (editor RealStackTests: copy-frame PNG 1920x1080) | Clipboard image equals frame |
 | EDT-12 | Edit | Timeline zoom, snapping, keyboard shortcuts | docs | per shortcut list | editor | verified (editor snapping/geometry/gesture unit tests; one undo step per gesture) | – |
-| EDT-13 | Edit | Reactions (emoji reactions on timeline) | docs | emoji sprites with animation | editor+render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host) | – |
-| EDT-14 | Edit | Animations (intro/outro, scene transitions) | docs (Look & Feel/animations) | entrance/exit animation presets | core+render | integrated (editor animation modes UI -> core; core supports fade + added modes per editor c7d941f; pixels unverified) | – |
+| EDT-13 | Edit | Reactions (emoji reactions on timeline) | docs | emoji sprites with animation | editor+render | integrated (core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
+| EDT-14 | Edit | Animations (intro/outro, scene transitions) | docs (Look & Feel/animations) | entrance/exit animation presets | core+render | integrated (editor animation modes UI -> core; core supports fade + added modes per editor c7d941f; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
 
 ## G. Look and canvas
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| LOK-01 | Canvas | Background: solid, gradient (M1) | docs | canvas.background | render | verified (RenderTests solid + gradient pixel tests; need Metal host) | Pixel check of background |
-| LOK-02 | Canvas | Background: wallpaper images in categories | technical (9 categories) | Own generated gradients/images only | render | integrated (render BackgroundLibrary + editor wallpaper picker cc5a72e; tests; 12 original images) | – |
-| LOK-03 | Canvas | Background: macOS wallpaper / custom image | technical | custom image import; system wallpaper | render | verified (editor ReviewFixTests: import image background, resolve asset, render frame) | – |
-| LOK-04 | Canvas | Background blur / noise texture | technical (noise asset) | option | render | integrated (editor background blur/noise controls; pixels unverified) | – |
-| LOK-05 | Canvas | Padding (M1), corner radius, shadow, inset/border | docs | canvas.* | render | verified (RenderTests crop + rounded-corner pixel test; shadow/inset unverified) | Frame: content rect inset equals padding |
-| LOK-06 | Canvas | Window device frame / macOS window chrome | technical (devices assets) | optional frames | render | integrated (editor window frame control -> core extras -> render) | – |
+| LOK-01 | Canvas | Background: solid, gradient (M1) | docs | canvas.background | render | verified (RenderTests solid + gradient pixel tests; need Metal host; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Pixel check of background |
+| LOK-02 | Canvas | Background: wallpaper images in categories | technical (9 categories) | Own generated gradients/images only | render | integrated (render BackgroundLibrary + editor wallpaper picker cc5a72e; tests; 12 original images; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
+| LOK-03 | Canvas | Background: macOS wallpaper / custom image | technical | custom image import; system wallpaper | render | verified (editor ReviewFixTests: import image background, resolve asset, render frame; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
+| LOK-04 | Canvas | Background blur / noise texture | technical (noise asset) | option | render | integrated (editor background blur/noise controls; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
+| LOK-05 | Canvas | Padding (M1), corner radius, shadow, inset/border | docs | canvas.* | render | verified (RenderTests crop + rounded-corner pixel test; shadow/inset unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | Frame: content rect inset equals padding |
+| LOK-06 | Canvas | Window device frame / macOS window chrome | technical (devices assets) | optional frames | render | integrated (editor window frame control -> core extras -> render; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
 | LOK-07 | Canvas | Output size/aspect presets | docs | canvas.output_size | core | integrated (editor aspect presets set canvas.output_size) | – |
 | LOK-08 | Canvas | Watermark | n/a | none: no watermark ever | – | verified (by design) | Export has no overlay |
 
@@ -167,8 +167,8 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EXP-05 | Export | GIF export | docs, technical | native ImageIO GIF writer (no gifsicle) | render | verified (testFormatsAndPresets: GIF 30 frames) | valid GIF, frame count |
 | EXP-06 | Export | MOV export, HEVC codec | docs(3rd party), assumption | format/codec | render | verified (testFormatsAndPresets: HEVC mp4 + H.264 mov) | – |
 | EXP-07 | Export | Export progress/cancel, partial file removed | assumption | Task cancel | render+ui | verified (testCancelRemovesPartialFile) | Cancel → no file |
-| EXP-08 | Export | Preview == export | architecture | same compositor | render | implemented (same evaluator; E2E checks zoom crop only; pixel diff vs preview not done: needs Metal host) | ffmpeg frame diff < threshold |
-| EXP-09 | Export | Performance settings (hardware encode, parallelism) | docs | – | render | implemented (render metrics; ExportSyncTests prints benchmark; no hardware numbers yet) | – |
+| EXP-08 | Export | Preview == export | architecture | same compositor | render | implemented (same evaluator; E2E checks zoom crop only; pixel diff vs preview not done: needs Metal host; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | ffmpeg frame diff < threshold |
+| EXP-09 | Export | Performance settings (hardware encode, parallelism) | docs | – | render | implemented (render metrics; ExportSyncTests prints benchmark; no hardware numbers yet; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86)) | – |
 | EXP-10 | Export | Quick share widget / copy file | docs | reveal in Finder / drag file; no upload | ui | limited (no cloud) | – |
 | EXP-11 | Export | Verification: reopen output and check tracks | contract | Exporter | render | verified (Exporter reopens output; E2E ffprobe agrees) | – |
 
@@ -202,7 +202,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
 
 ## Audit log
-Last audit: against main 78a8a0e; earlier 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
+Last audit: against main a02a89e (Metal hardware results folded in); earlier 78a8a0e; earlier 88f1995; earlier f640b35 (core worktree status read for unmerged core work); earlier 60902da (masks/intro-outro/presets/background library/transcription landed); earlier passes 6d91a7f, 4a1cee5, from code, team status files and test names (not re-run
 by qa except E2E). Meaning: **implemented** = code present, not verified end to end;
 **integrated** = reachable editor→core→render, no pixel/real-media proof; **verified (how)** = a
 named test or measurement passed; **limited (why)** = cannot be verified here. Live-capture
@@ -223,3 +223,9 @@ No row is `todo`. Open work, by owner:
 
 Cross-team wiring gaps: none known in code; hardware/pixel verification needs a Metal host run
 (`YAPCAM_REQUIRE_RENDER_HARDWARE=1`), live rows need the TCC grant.
+
+## Metal hardware results (Lead run 03:15, main a02a89e, M4)
+Render 86/86 on Metal incl. text, reactions, captions, highlights, camera effects, A/V sync within
+one frame after export. Synthetic-source benchmarks (60 frames, no audio): export 1080p 4.7x,
+4K 1.9x realtime; preview 1080p 57.6 fps (3 dropped / 2 s), 4K 58.9 fps (2 dropped / 2 s).
+Camera rows remain synthetic-input only (no camera hardware). Source: docs/STATUS.md.
