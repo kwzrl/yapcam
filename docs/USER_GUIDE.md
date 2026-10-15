@@ -60,9 +60,10 @@ Press Record: a 3-second countdown runs (0, 3 or 5 s in Settings → General), t
 turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Restart** (discard this take
 and start over) and **Cancel** (discard). Stop saves the recording and opens the editor.
 
-The recording path itself (capture → package → editor) is covered by unit and end-to-end tests with
-synthetic input, but a real screen recording from the app was **not verified** on the current build
-**(untested live)**.
+Verified live on this Mac (display + system audio): Record → countdown → recording → Stop → the editor
+opens on the new recording, and the toolbar, countdown and timer are **not** in the recorded video.
+The first time you record, macOS may show a prompt that Yapcam wants to bypass the system window
+picker and capture your screen directly; choose **Allow** (macOS asks again from time to time).
 
 ## Shortcuts
 
@@ -111,10 +112,13 @@ saved preset to the open editor, imports/exports preset files for sharing, and o
 
 ## Export
 
-In the editor choose **Export…**: resolution (720p up to 2160p), frame rate (24/30/60), include audio,
-format MP4 (H.264). The file is checked after writing (it is reopened and its duration and tracks
-verified). Cancelling removes the partial file. The render core also supports GIF, MOV and HEVC, but
-the export sheet exposes MP4 only for now.
+In the editor choose **Export…**: format (MP4 H.264, MP4 HEVC, MOV H.264 or GIF without audio),
+resolution (720p up to 2160p), frame rate (24/30/60), quality, include audio. The file is checked after
+writing (reopened, duration and tracks verified). Cancelling removes the partial file.
+
+**Known issue:** exporting a real recording *with audio* currently fails with "The operation could not be
+completed". The project's system-audio range is about 50 ms longer than the actual audio file. Export
+without audio works, and so does trimming the last 100 ms. Fix pending in core/render.
 
 ## Where files live
 

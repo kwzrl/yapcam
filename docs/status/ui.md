@@ -1,4 +1,4 @@
-READY ui: M3 items 1-3 done (accessibility, geometry tests, error messages); 252 tests green; VoiceOver + live recording unverified
+READY ui: live record→stop→editor verified, toolbar/HUD absent from video; BUG for core+render: export with audio fails on real recordings (see status)
 
 # ui status
 
@@ -46,6 +46,16 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - SWIFT_API.md: confirm `CaptureTarget.area` rect is top-left-origin display-local points.
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
+
+## LIVE end-to-end (screen recording granted, main b5d1268)
+Driver: `Yapcam --live-e2e <dir>` (`Support/LiveE2E.swift`) runs the real controller path the toolbar buttons use (toolbar shown, 3 s countdown, record 5 s with cursor motion, stop, editor opens, export) and screenshots the whole display at each step with ScreenCaptureKit (own windows NOT excluded). Screenshots live in the session scratchpad `…/scratchpad/e2e*/01-idle…05-after-export.png`; they show your desktop, so not committed.
+Results:
+- idle toolbar, countdown (toolbar shows "2" + Cancel, big "2" overlay centered), recording HUD (00:02, Pause/Stop/Notes/Restart/Cancel), editor opening on the new recording: all work. Package: HEVC 1680×1050, ~290 frames/5.03 s, system.m4a, events.
+- Toolbar, HUD and countdown overlay are ABSENT from the recorded screen.mov: extracted frames at 0.3 s, 2.0 s and 4.0 s with ffmpeg (the full-screen screenshot at the same moment shows them, the recorded frames don't). Cursor also absent from video (as designed).
+- macOS shows a one-time "Yapcam wants to bypass the system window picker" prompt on first capture (visible in the screenshots); documented in the user guide.
+- BUG (not in my files): export with audio fails: `RenderError.decode("The operation could not be completed")`; model and direct `Exporter` both. Export without audio succeeds. Root cause confirmed by experiment: `audio_ranges` for system_audio says `file_end_ns` 5 027 856 333 but the real `system.m4a` is 4.98 s long (raw AVAssetReader on both files is fine); trimming 100 ms off the project tail makes export-with-audio succeed. The audio file is ~50 ms shorter than the segment (normal for SCStream audio). Fix belongs in core (clamp audio range to the real file duration when building ranges) and/or render (`AudioTimeline`: clamp `insertTimeRange` to the asset's actual duration, never fail the whole export). Repro package kept: `~/Movies/Yapcam/Recording-2026-10-15T082900-2CD84F.yapcam` (delete when fixed); run `Yapcam --live-e2e /tmp/x` or open it and Export with audio.
+- Requests: core + render: the audio range clamp above (high: blocks exporting any real recording with audio).
+- Deleted my other four test recordings.
 
 ## Visual polish pass + user guide (main e007d36)
 `--snapshot-ui` now writes every window at 1× and 2× (`<name>.png`, `<name>@2x.png`) in light + dark, 84 images, and also renders each settings pane and the notes popover. Reviewed all of them against docs/briefs/ui.md. Before → after:

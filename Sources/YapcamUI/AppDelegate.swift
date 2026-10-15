@@ -42,6 +42,12 @@ import YapcamEditor
             return
         }
 
+        if let i = args.firstIndex(of: "--live-e2e"), args.indices.contains(i + 1) {
+            let dir = URL(filePath: args[i + 1], directoryHint: .isDirectory)
+            Task { await LiveE2E.run(into: dir) }
+            return
+        }
+
         if let i = args.firstIndex(of: "--snapshot-ui"), args.indices.contains(i + 1) {
             let dir = URL(filePath: args[i + 1], directoryHint: .isDirectory)
             Task { await UISnapshot.run(into: dir) }

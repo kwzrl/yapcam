@@ -15,6 +15,14 @@ import YapcamEditor
         return find(EditorDocument.self, labeled: "editorDocument", in: controller)
     }
 
+    /// Any open editor window's document (used by the live end-to-end driver).
+    static func anyDocument() -> EditorDocument? {
+        for w in NSApp.windows {
+            if let c = w.windowController, let d = find(EditorDocument.self, labeled: "editorDocument", in: c) { return d }
+        }
+        return nil
+    }
+
     static func keyEditor() -> EditorModel? { keyDocument()?.model }
 
     /// True while a text field is being edited: ⌘Z must undo typing, not the timeline.
