@@ -389,16 +389,7 @@ struct InspectorView: View {
     }
 
     @ViewBuilder private var cameraLayout: some View {
-        Section("Camera") {
-            ToggleRow(model: model, title: "Show camera", path: "camera.visible", defaultValue: true)
-            NumberRow(model: model, title: "Size", path: "camera.size", range: 0.1...0.75, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.22)
-            Toggle("Make smaller during zoom", isOn: Binding(get: { model.number("camera.zoom_scale", default: 1) < 0.999 },
-                                                              set: { model.set("camera.zoom_scale", number: $0 ? 0.6 : 1) }))
-            if model.number("camera.zoom_scale", default: 1) < 0.999 {
-                NumberRow(model: model, title: "Size while zoomed", path: "camera.zoom_scale", range: 0.25...0.8, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.6)
-            }
-            CameraPositionRow(model: model)
-        }
+        CameraLayoutSettings(model: model)
         Section("Layout over time") {
             if case .layout(let id) = model.selection, let l = model.layouts.first(where: { $0.id == id }) {
                 Picker("Layout", selection: Binding(get: { l.mode }, set: { model.setLayoutMode(id: l.id, $0) })) {

@@ -526,3 +526,56 @@ import YapcamCore
         #expect(p.importedLUTs.count == 1 && m.string("camera.style.preset") == "lut")
     }
 }
+
+@MainActor @Suite struct CameraLayoutTests {
+    private func fixture() throws -> URL {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("cl-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); return d
+    }
+
+    @Test func realCoreAcceptsEveryLayoutSettingAndSegmentMode() throws {
+        let d = try fixture(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        let p = "camera.layout_settings."
+        for mode in ["overlay", "cutout", "split"] { m.set(p + "mode", string: mode); #expect(m.lastError == nil, "\(mode): \(m.lastError ?? "")") }
+        m.set(p + "aspect", .number(16.0 / 9)); m.set(p + "aspect", .null)
+        m.set(p + "split_ratio", .number(0.5)); m.set(p + "split_ratio", .number(2.0 / 3)); m.set(p + "split_ratio", .null)
+        m.set(p + "split_flip", bool: true); m.set(p + "split_padded", bool: true)
+        m.set(p + "cutout_position", .array([.number(0.5), .number(1)])); m.set(p + "cutout_size", number: 0.4)
+        m.set(p + "edge_softness", number: 0.5); m.set(p + "edge_inset", number: 3)
+        m.set("camera.hide_during_silence", bool: true); m.set("camera.min_silence_ns", number: 6_000_000_000)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        m.set(p + "cutout_size", number: 0.05); #expect(m.lastError != nil && m.number(p + "cutout_size") == 0.4)     // out of range: rejected, kept
+        #expect(layoutModes.map(\.value).contains("cutout") && layoutModes.map(\.value).contains("split"))
+    }
+
+    @Test func silenceRangesAreStoredSortedForCore() async throws {
+        let p = FakeProject(durationNs: 60_000_000_000)
+        p.silences = [TimeSpan(startNs: 20_000_000_000, endNs: 26_000_000_000), TimeSpan(startNs: 5_000_000_000, endNs: 9_000_000_000), TimeSpan(startNs: 8_000_000_000, endNs: 10_000_000_000)]
+        let m = EditorModel(project: p, player: FakePlayer())
+        m.setHideDuringSilence(true); #expect(m.bool("camera.hide_during_silence"))
+        await m.waitForCameraSilence()
+        #expect(m.silenceRangesState == .idle && m.cameraSilenceCount == 2)                       // overlapping ones merged
+        if case .array(let rows)? = m.value("camera.silence_ranges"), case .object(let first) = rows[0], case .number(let a)? = first["tl_start_ns"], case .number(let b)? = first["tl_end_ns"] {
+            #expect(a == 5_000_000_000 && b == 10_000_000_000)
+        } else { Issue.record("no ranges stored") }
+        m.setHideDuringSilence(false); #expect(!m.bool("camera.hide_during_silence"))
+    }
+
+    @Test func realCoreTakesSilenceRangesAndMinimum() throws {
+        let d = try fixture(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        let rows: [JSONValue] = [.object(["tl_start_ns": .number(1_000_000_000), "tl_end_ns": .number(4_000_000_000)])]
+        m.set("camera.silence_ranges", .array(rows)); m.set("camera.hide_during_silence", bool: true)
+        #expect(m.lastError == nil && m.cameraSilenceCount == 1, "\(m.lastError ?? "")")
+        m.set("camera.min_silence_ns", number: 1_000_000_000); #expect(m.lastError != nil)        // below the 2 s floor
+    }
+
+    @Test func closingCancelsTheAnalysis() async {
+        let p = FakeProject(durationNs: 10_000_000_000); p.silenceDelay = .seconds(5)
+        let m = EditorModel(project: p, player: FakePlayer())
+        m.refreshCameraSilence(); m.close(); await m.waitForCameraSilence()
+        #expect(m.cameraSilenceCount == 0)
+    }
+}

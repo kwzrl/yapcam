@@ -43,6 +43,8 @@ public final class EditorModel: ObservableObject {
     public var presetStore: PresetStore = .shared
     public var defaults: UserDefaults = PresetStore.shared.defaults
     @Published public var paletteVisible = false
+    @Published public var silenceRangesState: SilenceRangesState = .idle
+    var silenceRangesTask: Task<Void, Never>?
     @Published public var speedMenuVisible = false
     var lastRegionStyle: HighlightRegion?
     /// Typing suggestion whose popover is open (start of its span), and the ones the user dismissed.
@@ -91,7 +93,7 @@ public final class EditorModel: ObservableObject {
         saveNow()
         isClosed = true
         autosaveTask?.cancel()
-        for t in [silenceTask, captionTask, wallpaperTask, musicTask, pendingInvalidate] { t?.cancel() }
+        for t in [silenceTask, captionTask, wallpaperTask, musicTask, pendingInvalidate, silenceRangesTask] { t?.cancel() }
         player.pause()
         project.close()      // core refuses any mutation from now on, even from work that was already past its last cancellation check
     }

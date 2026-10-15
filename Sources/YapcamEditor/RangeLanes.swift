@@ -10,7 +10,7 @@ public struct LayoutSegment: Equatable, Identifiable, Sendable {
 }
 
 public let layoutModes: [(label: String, value: String)] = [
-    ("Screen only", "screen"), ("Camera only", "camera"), ("Overlay", "overlay"), ("Side by side", "side_by_side")]
+    ("Screen only", "screen"), ("Camera only", "camera"), ("Overlay", "overlay"), ("Cutout", "cutout"), ("Split", "split"), ("Side by side", "side_by_side")]
 
 /// Camera layout segments and "hide cursor" ranges live in project settings as arrays; edits
 /// rewrite the whole array through `set`, which core validates and records as one undo step.
