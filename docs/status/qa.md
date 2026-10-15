@@ -1,4 +1,4 @@
-READY 63ad66f qa: THIRD_PARTY approved, TEST_REPORT/KNOWN_LIMITATIONS refreshed (b90ee0d)
+READY HEAD qa: audit vs 7d545a1
 
 # qa status
 
@@ -48,6 +48,8 @@ READY 63ad66f qa: THIRD_PARTY approved, TEST_REPORT/KNOWN_LIMITATIONS refreshed 
 - Regression on main aa70d91: E2E 11/11 green after core rebuild; fresh-checkout build verified by Lead (05:05). Privacy scan flags docs/status/render.md (absolute home path, F4).
 
 - THIRD_PARTY.md approved (title no longer draft, decisions recorded); TEST_REPORT.md links SETUP.md and has an update log; KNOWN_LIMITATIONS.md refreshed for b90ee0d.
+
+- Audit vs main 7d545a1: EXP-02/04 integrated via editor export sheet; TEST_REPORT update log extended.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
