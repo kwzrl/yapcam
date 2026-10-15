@@ -16,13 +16,21 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Latest continuation check: 2026-10-15 18:32 UTC; main c565a93, local HEAD f109faa
-  (based on 3dd0d3b). Capture source/tests match main; Lead's next rebase is pending.
-  No new capture implementation item or failure appeared; local Next stays empty.
-  QA now verifies UI F10 fixed on 3dd0d3b (editorOpened/editorInFront both true).
-  Reference hotkey and after-recording acceptance still need new UI self-test
-  hooks; selected-app audio and marker forwarding remain unchanged. No app launch,
-  repeated tests or Git metadata mutation here; only this handoff is modified.
+- Latest continuation check: 2026-10-15 19:03 UTC; main 97b9d82, local HEAD 4c0b7ee
+  (based on c565a93). Capture source/tests match main; Lead's next rebase is pending.
+  No capture-owned code gap or native failure appeared. Only this handoff changes.
+- CAP-3 editor consumer is now DELIVERED (c143346, reflected in main FEATURES):
+  timeline marker flags, snapping/edit points consume Core's mapped marker query.
+  UI's exact live recording path is still missing: RecordingController.addMarker
+  appends elapsed*1e9 and LiveEngine/EngineSession expose no marker method. Existing
+  Project.markers() reads events.jsonl, not the clean-stop UI markers.json. Thus
+  newly recorded hotkey marks still need UI forwarding before end-to-end acceptance;
+  the integrated CAP-3 row should retain that caveat. Capture's API/wire format is
+  ready and unchanged; editor presentation is no longer a missing implementation.
+- UI's hotkey/after-recording self-test hooks have landed (HotkeyScriptTests;
+  UI reports 500 tests), but no new live capture results were added. Their marker
+  counts are UI state until the forwarding above is wired. Another app instance
+  still blocks native checks per QA. No app launched or unchanged tests rerun here.
 - NEW HOST EVIDENCE from QA's TEST_REPORT (main c1bf553, 19:45): display overlay /
   Start / Stop yields a complete 12.19 s package; scripted input 47/47, timing
   0.27–8.67 ms (mean 1.95), position <=0.98 point, 5 paired clicks. Area 800x500,
@@ -820,17 +828,17 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
 ## Next
 No remaining capture module implementation item in the integrated gap list.
 Address findings from native acceptance or API integration. UI reports its
-preset/test isolation fixed on main eacbd4d. Core marker mapping is delivered; UI
-forwarding/options/prompts, editor presentation and hardware acceptance remain.
+preset/test isolation fixed on main eacbd4d. Core marker mapping AND editor flags /
+snapping are delivered; UI forwarding/options/prompts and native acceptance remain.
 Dispatch note for Lead: capture needs a new concrete assignment or native failure
 report to continue implementation; the unchanged consumer rows are already handed off.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint this status refresh and rebase capture f109faa onto main c565a93
+1. Lead: checkpoint this status refresh and rebase capture 4c0b7ee onto main 97b9d82
    (Git remains read-only here). UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
-   event marker query/TimelineMarker is complete; editor uses tlNs for display and
-   snapping. Lead: document public capture additions/optional derived UI sidecar in
+   event marker query/TimelineMarker and editor presentation/snapping are complete;
+   UI marker forwarding is the remaining implementation step. Lead: document public capture additions/optional derived UI sidecar in
    SWIFT_API/FORMATS. QA's GAP-CAP module statuses are now reconciled; consumer and
    native acceptance remain open. CAP-4 is a documented extra; CAP-7 belongs to UI.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
