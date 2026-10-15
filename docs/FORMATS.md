@@ -49,6 +49,9 @@ relative to the top-left of the captured content (display, window or area), y do
 A segment is one uninterrupted stretch between start/resume and pause/stop.
 `src_start_ns` of segment n+1 = `src_start_ns + duration_ns` of segment n (pauses removed).
 
+
+> F9 decision (2026-10-15): `source.display_name` is written by capture for every source kind, and readers treat it as optional (fallback: display id / window title). Descriptive fields never block opening a recording.
+
 ## seg-XXX/events.jsonl (written by YapcamCapture)
 
 One JSON object per line, `t` = ns relative to the segment start, monotonic:
