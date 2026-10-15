@@ -54,7 +54,7 @@ import YapcamRender
     /// Self-tests save here instead of showing the save panel (a panel would block a headless run).
     nonisolated(unsafe) static var testSaveURL: URL?
 
-    static var cacheDirectory: URL {
+    nonisolated static var cacheDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Caches/Yapcam/QuickExport", directoryHint: .isDirectory)
     }
 
@@ -66,22 +66,21 @@ import YapcamRender
         Task { await export(pkg, action: action) }
     }
 
+    /// No progress for this long, or this long overall, and the export is stopped with a visible error.
+    nonisolated static let stallLimit: TimeInterval = 60
+    nonisolated static let hardLimit: TimeInterval = 300
+
     func export(_ package: URL, action: Action) async {
         guard !running else { return }
         running = true; defer { running = false }
         state = .working(0)
+        let name = package.deletingPathExtension().lastPathComponent
+        let started = Date()
+        Probe.log("quick-export start \(action) package=\(name)")
         QuickExportWidget.shared.showProgress()
         do {
-            let project = FileManager.default.fileExists(atPath: package.appending(path: "project.json").path)
-                ? try Project.open(package: package) : try Project.create(package: package)
-            try FileManager.default.createDirectory(at: Self.cacheDirectory, withIntermediateDirectories: true)
-            let name = package.deletingPathExtension().lastPathComponent
-            let out = Self.cacheDirectory.appending(path: "\(name).mp4")
-            try? FileManager.default.removeItem(at: out)
-            let exporter = try Exporter(project: project,
-                                        settings: ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, quality: 0.8, includeAudio: true),
-                                        destination: out)
-            _ = try await exporter.run(progress: { p in Task { @MainActor in QuickExport.shared.progress(p) } })
+            let out = try await Self.runGuarded(package: package, name: name)
+            Probe.log("quick-export rendered \(name).mp4 in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
             switch action {
             case .copy:
                 let pb = NSPasteboard.general
@@ -93,25 +92,75 @@ import YapcamRender
                     try? FileManager.default.removeItem(at: dest)
                     try FileManager.default.copyItem(at: out, to: dest)
                     state = .done("Saved \(dest.lastPathComponent)")
-                    QuickExportWidget.shared.refresh()
-                    return
+                } else {
+                    let panel = NSSavePanel()
+                    panel.nameFieldStringValue = "\(name).mp4"
+                    panel.directoryURL = AppSettings.shared.storageDirectory
+                    panel.allowedContentTypes = [.mpeg4Movie]
+                    if panel.runModal() == .OK, let dest = panel.url {
+                        try? FileManager.default.removeItem(at: dest)
+                        try FileManager.default.copyItem(at: out, to: dest)
+                        state = .done("Saved \(dest.lastPathComponent)")
+                        NSWorkspace.shared.activateFileViewerSelecting([dest])
+                    } else { state = .idle }
                 }
-                let panel = NSSavePanel()
-                panel.nameFieldStringValue = "\(name).mp4"
-                panel.directoryURL = AppSettings.shared.storageDirectory
-                panel.allowedContentTypes = [.mpeg4Movie]
-                if panel.runModal() == .OK, let dest = panel.url {
-                    try? FileManager.default.removeItem(at: dest)
-                    try FileManager.default.copyItem(at: out, to: dest)
-                    state = .done("Saved \(dest.lastPathComponent)")
-                    NSWorkspace.shared.activateFileViewerSelecting([dest])
-                } else { state = .idle }
             }
+            Probe.log("quick-export done \(action): \(state)")
         } catch {
-            state = .failed(UserMessage.describe(error))
-            RecordingController.shared.alert = AppAlert(title: "Export failed", error: error)
+            let message = (error as? QuickExportError)?.message ?? UserMessage.describe(error)
+            state = .failed(message)
+            Probe.log("quick-export FAILED \(action): \(error)")
+            RecordingController.shared.alert = AppAlert(title: "Export failed", message: message)
         }
         QuickExportWidget.shared.refresh()
+    }
+
+    enum QuickExportError: Error {
+        case stalled(Int), tooLong(Int)
+        var message: String {
+            switch self {
+            case .stalled(let s): return "The export stopped making progress for \(s) seconds and was cancelled. The recording is safe: open it in the editor and export from there."
+            case .tooLong(let s): return "The export took longer than \(s / 60) minutes and was cancelled. The recording is safe: open it in the editor and export from there."
+            }
+        }
+    }
+
+    /// The export runs off the main thread and races a watchdog, so neither a slow encoder nor a hung one can
+    /// freeze the app or leave the widget "working" forever.
+    private static func runGuarded(package: URL, name: String) async throws -> URL {
+        let dir = cacheDirectory
+        let out = dir.appending(path: "\(name).mp4")
+        let tracker = ProgressTracker()
+        let result: Result<URL, Error> = await withCheckedContinuation { continuation in
+            let once = ResumeOnce(continuation)
+            let work = Task.detached(priority: .userInitiated) {
+                do {
+                    let project = FileManager.default.fileExists(atPath: package.appending(path: "project.json").path)
+                        ? try Project.open(package: package) : try Project.create(package: package)
+                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                    try? FileManager.default.removeItem(at: out)
+                    let exporter = try Exporter(project: project,
+                                                settings: ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, quality: 0.8, includeAudio: true),
+                                                destination: out)
+                    _ = try await exporter.run(progress: { p in
+                        tracker.update(p)
+                        Task { @MainActor in QuickExport.shared.progress(p) }
+                    })
+                    once.resume(.success(out))
+                } catch { once.resume(.failure(error)) }
+            }
+            Task.detached {
+                let begun = Date()
+                while true {
+                    try? await Task.sleep(for: .seconds(2))
+                    if once.isFinished { return }
+                    let idle = Date().timeIntervalSince(tracker.lastChange)
+                    if idle > stallLimit { work.cancel(); try? FileManager.default.removeItem(at: out); once.resume(.failure(QuickExportError.stalled(Int(stallLimit)))); return }
+                    if Date().timeIntervalSince(begun) > hardLimit { work.cancel(); try? FileManager.default.removeItem(at: out); once.resume(.failure(QuickExportError.tooLong(Int(hardLimit)))); return }
+                }
+            }
+        }
+        return try result.get()
     }
 
     fileprivate func progress(_ p: Double) { if case .working = state { state = .working(p) } }
@@ -221,5 +270,35 @@ struct QuickExportWidgetView: View {
     private func run(_ a: QuickExport.Action) {
         guard let p = model.package else { return }
         Task { await QuickExport.shared.export(p, action: a) }
+    }
+}
+
+/// Remembers the last progress value and when it changed; logs every 10 %.
+private final class ProgressTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = -1.0
+    private var changed = Date()
+    private var loggedDecile = -1
+    var lastChange: Date { lock.lock(); defer { lock.unlock() }; return changed }
+    func update(_ p: Double) {
+        lock.lock()
+        if p != last { last = p; changed = Date() }
+        let decile = Int(p * 10)
+        let log = decile > loggedDecile
+        if log { loggedDecile = decile }
+        lock.unlock()
+        if log { Probe.log("quick-export progress \(Int(p * 100))%") }
+    }
+}
+
+/// Resumes a continuation exactly once, from whichever of the worker and the watchdog gets there first.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Result<URL, Error>, Never>?
+    init(_ c: CheckedContinuation<Result<URL, Error>, Never>) { continuation = c }
+    var isFinished: Bool { lock.lock(); defer { lock.unlock() }; return continuation == nil }
+    func resume(_ r: Result<URL, Error>) {
+        lock.lock(); let c = continuation; continuation = nil; lock.unlock()
+        c?.resume(returning: r)
     }
 }

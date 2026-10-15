@@ -304,6 +304,7 @@ struct WindowOverlayRoot: View {
 
 private final class OverlayWindow: NSWindow {
     var onEscape: (() -> Void)?
+    var onReturn: (() -> Void)?
     init(screen: NSScreen) {
         super.init(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         isOpaque = false; backgroundColor = .clear; hasShadow = false
@@ -313,7 +314,13 @@ private final class OverlayWindow: NSWindow {
         setFrame(screen.frame, display: false)
     }
     override var canBecomeKey: Bool { true }
-    override func keyDown(with event: NSEvent) { if event.keyCode == 53 { onEscape?() } else { super.keyDown(with: event) } }
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 53: onEscape?()
+        case 36, 76: onReturn?()          // Return starts, like the Start recording button
+        default: super.keyDown(with: event)
+        }
+    }
     override func cancelOperation(_ sender: Any?) { onEscape?() }
 }
 
@@ -342,6 +349,7 @@ private final class OverlayWindow: NSWindow {
             guard let id = screen.displayID, let info = Displays.info(for: id) else { continue }
             let w = OverlayWindow(screen: screen)
             w.onEscape = { [weak self] in self?.hide() }
+            w.onReturn = { [weak self] in self?.startForTesting() }
             let root: AnyView
             switch kind {
             case .display:

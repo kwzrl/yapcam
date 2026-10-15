@@ -156,6 +156,8 @@ import YapcamEditor
     static func runUIRecord(seconds: Double, driveInput: Bool, source: String? = nil, options: SelfTestOptions = SelfTestOptions()) async {
         let tag = driveInput ? "drive-input-selftest" : "ui-record-selftest"
         guard seconds > 0, seconds <= 3600 else { Probe.log("\(tag) failed seconds must be in (0, 3600]"); return }
+        SelfTestWatchdog.arm(seconds: options.watchdog ?? (seconds + 300), tag: tag)
+        defer { SelfTestWatchdog.disarm() }
         let settings = AppSettings.shared, rec = RecordingController.shared
         // Run with fixed settings but leave the user's preferences as they were.
         let saved = (settings.countdown, settings.openEditorAfterRecording, settings.sourceMode)
@@ -171,6 +173,7 @@ import YapcamEditor
             }
         }
         if let path = options.saveTo { QuickExport.testSaveURL = URL(filePath: path) }
+        RecordingController.autoConfirm = options.autoConfirm
         ToolbarPanelController.shared.show()
         try? await Task.sleep(for: .seconds(1))
         let trusted = AXIsProcessTrusted()
@@ -180,7 +183,12 @@ import YapcamEditor
             HotkeyManager.shared.rebind()
             Probe.log("\(tag) hotkeys registered; failed to register: \(HotkeyManager.shared.failed.map(\.rawValue).sorted())")
             await SelfTestKeys.run(steps, tag: tag)
-            _ = await waitFor({ rec.phase == .idle }, seconds: 90)
+            if !(await waitFor({ rec.phase == .idle }, seconds: 30)) {
+                // The script didn't end the recording: stop it so the run still finishes with an outcome.
+                Probe.log("\(tag) script left phase=\(rec.phase); stopping it")
+                rec.stop()
+                _ = await waitFor({ rec.phase == .idle }, seconds: 60)
+            }
             Probe.log("\(tag) script finished: phase=\(rec.phase) alert=\(rec.alert?.message ?? "-")")
             await logOutcome(tag, settings: settings, mode: options.afterRecording ?? "create")
             return
@@ -319,4 +327,30 @@ import YapcamEditor
         func date(_ u: URL) -> Date { (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast }
         return urls.filter { $0.pathExtension == "yapcam" }.max { date($0) < date($1) }
     }
+}
+
+/// If a self-test run doesn't finish in time (a hang on the main thread included), a background timer logs it,
+/// captures a `sample <pid>` stack next to the log, and exits with status 4, so QA never waits 9 minutes for nothing.
+enum SelfTestWatchdog {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var done = false
+
+    static func arm(seconds: Double, tag: String) {
+        lock.lock(); done = false; lock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) {
+            lock.lock(); let finished = done; lock.unlock()
+            guard !finished else { return }
+            let pid = ProcessInfo.processInfo.processIdentifier
+            let file = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Logs/Yapcam/hang-\(pid)-\(tag).txt")
+            Probe.log("\(tag) WATCHDOG: still running after \(Int(seconds)) s; sampling pid \(pid) to \(file.path)")
+            let p = Process()
+            p.executableURL = URL(filePath: "/usr/bin/sample")
+            p.arguments = [String(pid), "3", "-file", file.path]
+            try? p.run(); p.waitUntilExit()
+            Probe.log("\(tag) WATCHDOG: sample written (\(FileManager.default.fileExists(atPath: file.path))); exiting with status 4")
+            _exit(4)
+        }
+    }
+
+    static func disarm() { lock.lock(); done = true; lock.unlock() }
 }
