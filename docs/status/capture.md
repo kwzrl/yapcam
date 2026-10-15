@@ -16,12 +16,20 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Latest continuation check: 2026-10-15 17:41 UTC; Lead checkpoint 6fcd827 is based
-  on main c1bf553. Capture source/tests match main; rebase is current. New QA audit
-  covers UI-5/isolation and still reports a running external Yapcam instance
-  (PID 74073), so live rechecks remain unavailable. No capture defect or new
-  implementation assignment appeared; local Next is empty. Existing validation
-  is unchanged. No app launch, repeated tests or Git mutation performed.
+- Latest continuation check: 2026-10-15 18:02 UTC; main 3dd0d3b, local HEAD e268f6a
+  (based on c1bf553). Capture sources/tests still match main. Lead's next rebase
+  is pending; no Git retry/workaround. Local capture implementation Next is empty.
+- NEW HOST EVIDENCE from QA's TEST_REPORT (main c1bf553, 19:45): display overlay /
+  Start / Stop yields a complete 12.19 s package; scripted input 47/47, timing
+  0.27–8.67 ms (mean 1.95), position <=0.98 point, 5 paired clicks. Area 800x500,
+  window 1626x1014 with matching manifest, pause 2.17 + 1.85 s all PASS. QA also
+  reports real auto-zoom and export/clipboard/model checks passing. These are QA
+  host runs, not new capture runs here; no new capture failure was reported.
+- F10 (editorOpened=true / editorInFront=false) is UI-owned and may be activation
+  behavior in the self-test. QA did not run reference hotkeys (another app instance)
+  or after-recording buttons (missing hook). Selected-app audio isolation, durable
+  marker action forwarding, Speech and hardware-specific acceptance remain open;
+  the successful baseline runs do not close those checks. No app launched here.
 - CAP-3 integration discrepancy in updated main FEATURES: the row now lists only
   editor presentation as pending, but RecordingController.addMarker still writes
   elapsed*1e9 into its UI array and EngineSession/LiveEngine expose no capture marker
@@ -813,7 +821,7 @@ Dispatch note for Lead: capture needs a new concrete assignment or native failur
 report to continue implementation; the unchanged consumer rows are already handed off.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint this status refresh; capture is rebased onto main c1bf553
+1. Lead: checkpoint this status refresh and rebase capture e268f6a onto main 3dd0d3b
    (Git remains read-only here). UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
    event marker query/TimelineMarker is complete; editor uses tlNs for display and
