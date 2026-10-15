@@ -36,7 +36,7 @@ extension AudioTimeline {
             else {
                 let value=try SpeechAudioPreparation(root: cacheRoot ?? FileManager.default.temporaryDirectory)
                 try await value.process(sources,settings: speechEnhancement,mono: mono,progress: progress)
-                preparation=value
+                preparation=value.files.isEmpty ? nil : value
             }
         } else { preparation=nil }
         try Task.checkCancellation()

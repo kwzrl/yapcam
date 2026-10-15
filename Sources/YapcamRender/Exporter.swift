@@ -154,7 +154,8 @@ public final class Exporter: @unchecked Sendable {
         writer.add(video)
         let pool = try makePool(width: width, height: height)
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: video, sourcePixelBufferAttributes: nil)
-        let preparationWeight=settings.includeAudio && settings.speechEnhancement != nil ? 0.15 : 0
+        // Microphone channel conversion can prepare media even with DSP disabled.
+        let preparationWeight=settings.includeAudio ? 0.15 : 0
         let timeline: AudioTimeline?
         if settings.includeAudio {
             timeline=try await AudioTimeline.prepare(project: project,range: range,speechEnhancement: settings.speechEnhancement) { value in progress(value*preparationWeight) }

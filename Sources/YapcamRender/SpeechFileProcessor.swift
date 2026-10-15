@@ -130,6 +130,7 @@ public extension SpeechEnhancer {
                 if mono && inputChannels==2 {
                     selected=stride(from: 0,to: samples.count,by: 2).map { samples[$0]*0.5+samples[$0+1]*0.5 }
                 } else { selected=samples }
+                guard selected.allSatisfy(\.isFinite) else { throw RenderError.decode("Microphone PCM contains nonfinite samples") }
                 let processed=try processor?.process(selected) ?? selected
                 if settings != nil { try meter.process(interleaved: processed) }
                 try writePCM(processed,channels: channels,format: format,to: file)
