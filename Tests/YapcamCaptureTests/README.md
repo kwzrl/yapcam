@@ -96,3 +96,29 @@ authorization are available to the runner. It fails explicitly if a gate is miss
 The test never prompts. For app onboarding, Lead/UI must add
 `NSSpeechRecognitionUsageDescription` and call
 `TranscriptionService.requestAuthorization()` from an explicit user action.
+
+AUD-06 voice-isolation groundwork: `VoiceIsolationService().processFile(micURL)`
+creates `mic.voice-isolated.caf` beside the original, using Apple's AUSoundIsolation
+voice effect in offline mode. A new adjacent CAF path can be passed with `to:`.
+No microphone permission or audio device is needed. Missing effect registration,
+unsupported native formats or model/resource errors fail explicitly; there is no
+copy-through fallback. Call only after recording stops. Consumers retain the
+original mic track start offset; the output is 48 kHz Float32 with the original
+file-local duration and declared AU latency trimmed. The original/manifest are
+unchanged; selecting this derivative in core/render is a separate integration step.
+
+Default tests use actual PCM CAF input/output and an injected delay/failure kernel:
+mono/stereo sample alignment, resampling duration, exclusive publication, invalid
+input, nonfinite output and cancellation cleanup. These tests do not measure Apple's
+model. Run the real model test outside the sandbox on a host with Apple Audio Units:
+
+```sh
+YAPCAM_VOICE_ISOLATION_MEDIA_TESTS=1 swift test --filter actualAppleVoiceIsolationReducesNoiseAndRetainsSpeech
+```
+
+This generates temporary speech with `say`, mixes deterministic noise, runs the
+native effect, checks quiet-region noise RMS falls by at least 6 dB, retains nonzero
+speech-region energy, preserves frame count and leaves the original unchanged.
+It fails when synthesis/effect support is unavailable. Listening quality and native
+latency alignment still need independent host acceptance; energy is not an
+intelligibility measurement.
