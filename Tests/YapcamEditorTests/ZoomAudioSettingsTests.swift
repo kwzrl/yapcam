@@ -30,3 +30,19 @@ import YapcamCore
         #expect(m.lastError == nil && m.zooms.count == zooms + 1)
     }
 }
+
+@MainActor @Suite struct InsertionStyleTests {
+    @Test func newZoomsInheritTheLastEditedStyle() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("is-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        m.seek(toNs: 500_000_000); m.addZoomAtPlayhead()
+        guard case .zoom(let id) = m.selection else { Issue.record("no zoom selected"); return }
+        m.setZoomScale(id: id, 3.5)
+        m.seek(toNs: 4_000_000_000); m.addZoomAtPlayhead()
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        guard case .zoom(let second) = m.selection, let z = m.zooms.first(where: { $0.id == second }) else { Issue.record("no second zoom"); return }
+        #expect(z.scale == 3.5)                                                     // remembered from the edit of the first zoom
+    }
+}

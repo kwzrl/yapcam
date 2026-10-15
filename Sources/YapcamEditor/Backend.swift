@@ -67,6 +67,8 @@ public enum EditorCommand: Equatable, Sendable {
     case addZoom(startNs: Int64, endNs: Int64, scale: Double, focusX: Double, focusY: Double)
     case updateZoom(id: String, startNs: Int64?, endNs: Int64?, scale: Double?, focusX: Double?, focusY: Double?,
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
+    /// New zoom with the project's remembered (last edited) style; focus is centred.
+    case insertZoom(startNs: Int64, endNs: Int64)
     case removeZoom(id: String)
     case set(path: String, value: JSONValue)
     case autoZooms
