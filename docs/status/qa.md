@@ -1,4 +1,4 @@
-READY 55cc55d qa: hotkeys + after-recording live checks done (F11/F12 low)
+READY 4853267 qa: 30 s autosave checked (journal recovery PASS, hook wait too short F13)
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -78,6 +78,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - Live hotkeys + after-recording choices run on main 97b9d82 (see TEST_REPORT section 4): start/stop/marker/pause/resume and create/widget/copy/save PASS; pick hotkeys + restart partial (F11), one intermittent save hang (F12).
 
+- Suites re-run on 97b9d82: Rust 100, XCTest 207 (0 failures), Swift Testing 501. RENDER_BENCHMARK now 2.7x (1080p) / 0.75x (4K) vs 6.3x / 1.9x earlier, but the benchmark changed (120 frames at the new 60 fps default) and the machine was under load (avg ~6): not a confirmed regression. Request render/Lead: re-measure on an idle machine; 4K below realtime would matter for the 4K export default.
+
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
 
@@ -105,6 +107,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - F11 [ui, LOW] Hotkey hook: after the restart hotkey the script logs nothing more (stalls; probably the restart confirmation dialog blocks the script's `return` step). Pick hotkeys Opt-Cmd-3/4/5 followed by the posted Return do not start recording from the overlay; Ctrl-Cmd-Return in window/area mode says "Choose a window / Select an area first". Repro: `open -n build/Yapcam.app --args --ui-record-selftest 10 --hotkey-script "startStop,wait:3,restart,wait:1,return,wait:3,startStop"` and `--hotkey-script "recordArea,wait:1.5,return,wait:3,startStop"`; read probe.log. May be hook limits (overlay not key for posted Return); ui please confirm manually.
 - F12 [ui, LOW] `--after-recording save --save-to <file>` hung once after the package line (process alive 9 min, no outcome); 4 retries fine. Intermittent.
+
+- F13 [ui hook, LOW] `--editor-selftest --crash-after-autosave` gives up on save=clean after ~30 s but the editor now autosaves 30 s after the last edit (88d3ba4): increase the wait to >= 45 s. Journal recovery still PASSES (crash at 32 s and immediate).
 
 ## Live QA log (2026-10-15 morning, main b5d1268)
 - Shared machine: Lead's `live-e2e` harness and my live runs collide (one display, one mouse). My first 10-min run was killed ~1 s after start (package stuck at status "recording", no crash report) while live-e2e ran at the same time. Please tell qa when the machine is free, or serialize runs; I log start/end times here.
