@@ -1,34 +1,51 @@
-READY 6511eb2 + working-tree follow-up: shared Core CAP-3/ED-7/8/9/RND-5/8 delivered; Rust91 debug/release + Core Swift66 + signed build PASS. UI68/71 environment-limited. Lead: checkpoint master-blur regression fix + docs before merge/push.
+READY working tree on b8575bc: AUD-06 explicit microphone media selection + relink invalidation; Rust95, Core Swift68, Clippy and signed build/codesign PASS. Lead checkpoint/rebase needed; UI TIS concurrency crash diagnosed below.
 
 # Core status
 
-Updated 2026-10-15 16:26 UTC. Branch team/core; Lead checkpoint6511eb2. Main last observed5328b45. Git metadata remains managed by Lead; no reset/stash/workaround or main push.
+Updated 2026-10-15 17:01 UTC. Branch team/core; Lead checkpoint b8575bc.
+Baseline main f611874 contained identical Core source/tests/contracts before this
+follow-up. Freeze explicitly
+lifted. `git rebase main` attempted on a clean tree; sandbox cannot create
+.git/worktrees/core/rebase-merge (Operation not permitted). Lead handles metadata;
+no workaround/reset/stash/main push. Lead reports integrated 465 Swift + 189 XCTest
++ 91 Rust green on main.
 
 ## Next
 
-INTEGRATION FREEZE: stopped at the verified Core stopping point. No new features,
-defaults/contracts changes, rebases or further work until Lead says "freeze lifted".
-Only final motion regression correction, README and this handoff await checkpoint.
-Freeze commit attempt failed: Git cannot create worktrees/core/index.lock
-(Operation not permitted). Lead must checkpoint core/src/motion.rs, core/README.md
-and docs/status/core.md. No metadata workaround attempted.
+Continuation audit 17:01 UTC: main remains f611874; no new integration or Core
+request has arrived. Rechecked the brief, every Core-owned/shared FEATURES row
+and team handoffs. The todo labels on the gap rows are stale; their Core models,
+commands, queries and regression evidence are mapped below. Capture's outstanding
+enhanced-mic persistence request is covered by the READY working tree. No source
+changes or redundant test runs this cycle; the latest Rust95/Core Swift68/signed
+build results still apply, and diff --check passes. Preserve this uncommitted
+handoff for Lead's checkpoint/rebase rather than attempting a rebase with edits.
 
+No open Core implementation item remains after the gap-list/shared-row audit
+and Capture's AUD-06 persistence handoff. Lead: checkpoint/rebase this verified
+worktree, request the required other-family review of microphone.rs and the Swift
+import lifecycle, then integrate. Git metadata remains blocked as recorded above;
+no uncommitted implementation was pushed. UI/Editor own their preset/test isolation.
 
-No next Core implementation item remains after the broader shared-row audit.
-CORE-1...10, CAP-3 marker mapping, ED-2 aspects, ED-7 targeted restoration,
-ED-8 camera style/LUT, ED-9 camera layouts, ED-13 motion presets, RND-5 lens
-instructions and RND-8 master blur now have Core models/commands/evaluation.
-FEATURES' joint rows still need downstream/native acceptance; Core completion
-does not mean their pixels or UI are verified.
+NEW UI failure evidence for Lead/UI: the broad UI command (direct-binary app test
+excluded per launch rule) aborts with signal6. Diagnostic report
+~/Library/Logs/DiagnosticReports/swiftpm-testing-helper-2026-10-15-184921.ips
+states HIToolbox TIS/TSM APIs were called concurrently from two threads. Triggered
+stack: KeyCombo.keyName -> menuKey -> MainMenu.build ->
+ReviewFixTests.mainMenuHasEditorCommands. This is a UI keyboard/menu thread issue;
+no Core frame/FFI panic appears in that stack. Do not treat this run as UI green.
+Isolated PresetTests.saveListApplyRoundTrip PASS; isolated
+applyingPresetUpdatesEditorAndSaves reaches EditorDocument and fails with
+.metal("Metal preview unavailable") before preset apply. No unknown clip/zoom ID
+error reproduced after the clean Swift build. Logs:
+/private/tmp/yapcam-core-mic-selection-{ready,preset-check}.log.
 
-Lead checkpoint6511eb2 contains the new implementations. The working tree adds
-the final master-blur regression correction, README and this status: checkpoint
-these before merging/pushing (6511eb2 alone has the earlier failing test sample).
-The tested worktree passes Rust91 debug/release, Core Swift66, Clippy/fmt/diff,
-canonical signed app build and strict codesign. Latest complete log:
-/private/tmp/yapcam-core-shared-backlog-master-ready.log. Remote team/core still
-has the previously tested preset checkpoint4c2db8d; do not push an incomplete
-checkpoint. Local main remains5328b45, already an ancestor; no new rebase needed.
+The original gap list CORE-1...10 and shared CAP-3/ED-2/7/8/9/13/RND-5/8 Core
+contributions are delivered and integrated. b8575bc checkpointed the final
+master-blur regression correction and README before integration. Prior verified
+Core log: /private/tmp/yapcam-core-shared-backlog-master-ready.log (Rust91 debug
+and release, Core Swift66, Clippy/fmt, signed canonical build/codesign). Native
+main acceptance above supersedes this sandbox's UI Metal/display limitations.
 
 Remaining work belongs to consumers: Editor wires markers/targeted restore,
 camera style/layout controls and the master blur slider; Render consumes camera
@@ -44,7 +61,7 @@ objects encoded `.set(path:"canvas.padding",...)` as
 foreign clip/zoom ID symptom before preset import even begins. Temporary tracing
 was removed. Full clean rebuild eliminates those ID errors.
 
-Lead must replay UI on the native Metal/display host. This sandbox ran
+Prior pre-freeze UI evidence (superseded by the new run above): this sandbox ran
 `swift test --disable-sandbox -j 4 --filter YapcamUITests --skip appLaunchedWithSnapshotFlagRendersEverything`:
 68/71 passed; saveListApplyRoundTrip passes. applyingPresetUpdatesEditorAndSaves
 now reaches EditorDocument initialization and fails with `.metal("Metal preview
@@ -153,6 +170,43 @@ Verification: Rust76 and Core Swift58 PASS, strict codesign PASS; log
 and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
+
+### READY AUD-06 persisted enhanced microphone selection (2026-10-15 16:51 UTC)
+
+- Documented schema/commands/query first in FORMATS.md. Optional
+  audio.mic_replacements defaults empty, validates source/asset bindings, and is
+  filtered on both preset save/apply. No existing appearance/default/ABI changes.
+- Capture the original identity before isolation with microphoneIdentity(path:),
+  call Capture VoiceIsolationService, then importEnhancedMicrophone(report.output,
+  forOriginal: identity). Import checks 48k Float32 PCM, channel count and duration
+  within one sample; copies into assets and selects in one undo step. Stale source,
+  invalid output and closed-project failure clean staged assets. Existing source
+  recordings and manifest are unchanged. useOriginalMicrophone(path:) clears choice.
+- microphoneMedia()/q:microphone_media expose original/effective path/index,
+  enhanced/stale. audio_ranges selects effective media without changing clocks,
+  offsets, speed, clip gains or automation; map_audio_ranges accepts either path.
+  Existing Render adapter consumes this same query for preview/export. Speech
+  mastering's plan uses/deduplicates effective files; enabling DSP is independent.
+- Source or derivative relink changes registered identity and invalidates the old
+  binding; query falls back to original with stale=true. Save/reopen and snapshots
+  preserve selection/history. Physical missing/changed media keeps normal open
+  validation. Files remain for snapshots/undo, with no automatic cache cleanup.
+- Verification: Rust95 PASS (1 intentional scale-test ignore), 10,000 random FFI
+  commands across four seeds/31 families including new selection/set/query;
+  Core Swift68 PASS, Clippy all-targets -D warnings, fmt/diff and canonical signed
+  app build + strict codesign PASS. Four Rust/two Swift new regressions cover
+  edited/repeated mapping, history/snapshots/reopen, stale relink, invalid/batch
+  rollback, independent/shared-file selection, preset isolation and staged cleanup.
+  Main logs /private/tmp/yapcam-core-mic-selection-{check,ready}.log.
+- Consumer work: Editor selection/progress/error UI and Capture native isolation
+  quality/latency acceptance. No native isolation or live media success is claimed.
+  Original gap-list CORE-6 preset behavior is unchanged. All finished verification
+  roots were listed and deleted by with-temp.sh traps; no app launched/PID signaled.
+- Files for Lead checkpoint: Sources/YapcamCore/{MicrophoneMedia,SpeechEnhancement,
+  Types}.swift; Tests/YapcamCoreTests/SpeechEnhancementTests.swift; core/src/
+  {microphone,commands,hardening,lib,model,preset,project,query}.rs; core/README.md;
+  docs/FORMATS.md; docs/status/core.md. Header/other teams' files untouched.
+
 
 - RND-8 Core READY: optional canvas.global_motion_blur multiplier, factory1/legacy null, applied once to screen/zoom/pan/cursor Frame/FrameMotion/Extras/cold-option strengths. Null preserves independent stored amounts; master0/.5/1, legacy decode, bounds, presets/history/save/reopen covered. Rust91/Core Swift66 PASS. Frame geometry itself carries no blur amount: the regression samples evaluated Frame during a moving spring interval. Only this final test correction remains outside checkpoint6511eb2. Editor: single slider binds global_motion_blur; Render: apply actual fps/60 once to evaluated amounts, and may disable preview blur.
 

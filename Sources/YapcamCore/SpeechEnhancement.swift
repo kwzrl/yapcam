@@ -37,10 +37,10 @@ public struct PreparedMicrophoneMedia: Sendable, Equatable {
     public var sampleRate: Double
 }
 
-private struct SpeechMediaFingerprint: Decodable, Equatable {
-    var path: String
-    var size: UInt64
-    var headHash: String
+public struct MicrophoneMediaIdentity: Codable, Sendable, Equatable {
+    public var path: String
+    public var size: UInt64
+    public var headHash: String
     static func read(_ url: URL, path: String) throws -> Self {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         guard let size = attributes[.size] as? NSNumber else { throw CoreError.status(4, "Cannot inspect microphone source size") }
@@ -52,7 +52,7 @@ private struct SpeechMediaFingerprint: Decodable, Equatable {
         return Self(path: path, size: size.uint64Value, headHash: "fnv1a64:" + String(format: "%016llx", hash))
     }
 }
-private struct SpeechFileInfo {
+struct SpeechFileInfo {
     let durationNs: Int64
     let channels: UInt32
     let sampleRate: Double
@@ -93,7 +93,7 @@ extension Project {
         let snapshot = try snapshot()
         let plan = try snapshot.speechEnhancementPlan()
         guard plan.enabled && !plan.media.isEmpty else { return [] }
-        let fingerprints = try snapshot.query("{\"q\":\"media\"}", as: [SpeechMediaFingerprint].self)
+        let fingerprints = try snapshot.query("{\"q\":\"media\"}", as: [MicrophoneMediaIdentity].self)
         let cache = packageURL.appendingPathComponent("cache/speech", isDirectory: true)
         let root = packageURL.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         guard cache.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(root) else { throw CoreError.status(1, "Speech cache directory escapes package") }
@@ -110,12 +110,12 @@ extension Project {
             let index = Int(media.mediaIndex)
             guard fingerprints.indices.contains(index) && fingerprints[index].path == media.path else { throw CoreError.status(1, "Microphone media index changed") }
             let source = try snapshot.mediaURL(atIndex: media.mediaIndex)
-            guard try SpeechMediaFingerprint.read(source, path: media.path) == fingerprints[index] else { throw CoreError.missingMedia([media.path]) }
+            guard try MicrophoneMediaIdentity.read(source, path: media.path) == fingerprints[index] else { throw CoreError.missingMedia([media.path]) }
             let original = try await SpeechFileInfo.source(source)
             let output = run.appendingPathComponent("mic-\(i).caf")
             try await processor(source, output, plan.settings)
             try Task.checkCancellation()
-            guard try SpeechMediaFingerprint.read(source, path: media.path) == fingerprints[index] else { throw CoreError.missingMedia([media.path]) }
+            guard try MicrophoneMediaIdentity.read(source, path: media.path) == fingerprints[index] else { throw CoreError.missingMedia([media.path]) }
             guard output.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(runRoot) else { throw CoreError.status(1, "Processed microphone escapes cache run") }
             let processed = try AVAudioFile(forReading: output)
             let info = try SpeechFileInfo.pcm(processed)

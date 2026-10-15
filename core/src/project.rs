@@ -637,6 +637,7 @@ impl Project {
         Ok(p)
     }
     fn load(package: &Path, mut data: ProjectData, session: Session) -> Result<Self> {
+        crate::microphone::validate(&data, &session)?;
         let end = session
             .segments
             .last()

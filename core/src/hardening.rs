@@ -463,7 +463,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 .as_str()
                 .unwrap_or("missing");
             let random = arbitrary_json(&mut seed, 4);
-            let mut command = match n % 29 {
+            let mut command = match n % 31 {
                 0 => random.clone(),
                 1 => json!({"op":"set","path":"canvas.padding","value":random}),
                 2 => json!({"op":"set","path":"notes","value":format!("fuzz-{n} ☕\0字幕")}),
@@ -512,6 +512,10 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 }
                 26 => json!({"op":"set","path":"camera.style","value":random}),
                 27 => json!({"op":"set","path":"camera.layout_settings","value":random}),
+                29 => {
+                    json!({"op":"select_mic","original":random,"path":arbitrary_json(&mut seed,2)})
+                }
+                30 => json!({"op":"set","path":"audio.mic_replacements","value":random}),
                 _ => {
                     json!({"op":"update_zoom","id":before["zooms"][0]["id"].as_str().unwrap_or("missing"),"patch":{"style":"lens","lens":random}})
                 }
@@ -570,7 +574,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
             }
             if step % 11 == 0 {
                 let query = if step % 33 == 0 {
-                    json!({"q":(["typing_suggestions","capabilities","history","insertion_styles","autosave_policy","timeline_constraints","markers","camera_style","camera_style_library"][(step as usize/33)%9])})
+                    json!({"q":(["typing_suggestions","capabilities","history","insertion_styles","autosave_policy","timeline_constraints","markers","camera_style","camera_style_library","microphone_media"][(step as usize/33)%10])})
                 } else if step % 22 == 0 {
                     json!({"q":(["effects_at","zoom_lens_at","camera_layout_at"][(n%3) as usize]),"tl_ns":arbitrary_json(&mut seed,2)})
                 } else {

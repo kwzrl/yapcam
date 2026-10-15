@@ -118,16 +118,20 @@ public enum EditCommand: Encodable, Sendable {
     case relinkProject(project: JSONValue, paths: [String])
     case addMedia(path: String, asBackground: Bool)
     case insertSource(startNs: Int64, endNs: Int64, atNs: Int64, speed: Double = 1, settings: ClipSettings = ClipSettings())
+    case selectMicrophone(original: MicrophoneMediaIdentity, enhancedPath: String?)
     // Encode integer times as Int64, never via JSONValue.Double.
     enum Key: String, CodingKey {
         case op, at = "at_tl_ns", start = "tl_start_ns", end = "tl_end_ns", clipID = "clip_id"
         case key, srcStart = "src_start_ns", srcEnd = "src_end_ns", settings
-        case command, duration = "duration_ns"
+        case command, original, duration = "duration_ns"
         case speed, zoom, id, patch, path, value, commands, preset, ranges, mode, project, paths, role, record, transcript, style, replace
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: Key.self)
         switch self {
+        case .selectMicrophone(let original, let path):
+            try c.encode("select_mic", forKey: .op); try c.encode(EffectCommandValue(value: original), forKey: .original)
+            if let path { try c.encode(path, forKey: .path) } else { try c.encodeNil(forKey: .path) }
         case .insertSource(let start, let end, let at, let speed, let settings):
             try c.encode("insert_source", forKey: .op); try c.encode(start, forKey: .srcStart); try c.encode(end, forKey: .srcEnd)
             try c.encode(at, forKey: .at); try c.encode(speed, forKey: .speed); try c.encode(EffectCommandValue(value: settings), forKey: .settings)
