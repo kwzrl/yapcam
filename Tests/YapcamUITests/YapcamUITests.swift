@@ -555,3 +555,49 @@ import YapcamEditor
         #expect(throws: (any Error).self) { try SelfTests.loadScript(bad.path) }
     }
 }
+
+@MainActor @Suite struct EditorSelfTestTests {
+    @Test func argumentParsing() {
+        let a = ["Yapcam", "--editor-selftest", "/p/x.yapcam", "--crash-after-autosave"]
+        #expect(EditorSelfTests.argument(after: "--editor-selftest", in: a) == "/p/x.yapcam")
+        #expect(EditorSelfTests.argument(after: "--editor-selftest", in: a, offset: 2) == nil)      // next is a flag
+        let e = ["Yapcam", "--editor-export-selftest", "/p/x.yapcam", "/tmp/o.mp4"]
+        #expect(EditorSelfTests.argument(after: "--editor-export-selftest", in: e, offset: 2) == "/tmp/o.mp4")
+        #expect(EditorSelfTests.argument(after: "--editor-reopen-check", in: e) == nil)
+    }
+
+    @Test func expectationRoundTrips() throws {
+        let x = EditorSelfTests.Expectation(package: "/p", clips: 2, zooms: 1, durationNs: 3_000_000_000, padding: 0.23, crashMode: "now")
+        #expect(try JSONDecoder().decode(EditorSelfTests.Expectation.self, from: JSONEncoder().encode(x)) == x)
+    }
+
+    /// The same edit sequence the flag runs, on a model over a synthetic package, then the reopen comparison.
+    @Test func scriptedEditsSurviveSaveAndReopen() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-edsel-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/synthetic/basic.yapcam")
+        let pkg = dir.appending(path: "E.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.copyItem(at: fixture, to: pkg)
+
+        let doc = try EditorDocument(package: pkg, restoreUnsavedChanges: false)
+        let m = doc.model
+        let dur = m.durationNs
+        #expect(dur > 2_000_000_000)
+        m.seek(toNs: dur / 3); m.splitAtPlayhead()
+        let clipsAfterSplit = m.clips.count
+        #expect(clipsAfterSplit >= 2)
+        if let second = m.clipStarts().dropFirst().first { m.selection = .clip(second.clip.id); m.deleteSelection() }
+        m.seek(toNs: m.durationNs / 5); m.addZoomAtPlayhead()
+        m.set("canvas.padding", number: 72)
+        m.undo(); m.redo()
+        #expect(abs(m.number("canvas.padding") - 72) < 1e-9)
+        let want = (m.clips.count, m.zooms.count, m.durationNs)
+        m.saveNow()
+
+        let again = try EditorDocument(package: pkg, restoreUnsavedChanges: true)
+        #expect((again.model.clips.count, again.model.zooms.count, again.model.durationNs) == want)
+        #expect(abs(again.model.number("canvas.padding") - 72) < 1e-9)
+    }
+}
