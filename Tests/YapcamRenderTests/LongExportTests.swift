@@ -1,5 +1,6 @@
 import XCTest
 import Metal
+import Darwin
 @preconcurrency import AVFoundation
 @testable import YapcamRender
 
@@ -31,25 +32,66 @@ enum LongRunDecoder {
             throw RenderError.unavailable("ffmpeg is required for independent A/V measurement")
         }
     }
-    static func grayFrames(_ url: URL) throws -> Data {
-        try capture(["-v","error","-i",url.path,"-an","-vf","scale=1:1","-fps_mode","passthrough","-pix_fmt","gray","-f","rawvideo","pipe:1"])
+    static func grayFrames(_ url: URL,timeout: Double = 300) throws -> Data {
+        try capture(["-v","error","-i",url.path,"-an","-vf","scale=1:1","-fps_mode","passthrough","-pix_fmt","gray","-f","rawvideo","pipe:1"],timeout: timeout)
     }
-    static func audioSamples(_ url: URL,start: Double) throws -> [Float] {
-        let bytes=try capture(["-v","error","-ss",String(start),"-i",url.path,"-t","0.3","-vn","-ac","1","-ar","48000","-f","f32le","pipe:1"])
+    static func audioSamples(_ url: URL,start: Double,timeout: Double = 30) throws -> [Float] {
+        let bytes=try capture(["-v","error","-ss",String(start),"-i",url.path,"-t","0.3","-vn","-ac","1","-ar","48000","-f","f32le","pipe:1"],timeout: timeout)
         guard bytes.count.isMultiple(of: MemoryLayout<Float>.size) else { throw RenderError.verification("Independent decoder returned a truncated audio sample") }
         return bytes.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
     }
-    static func capture(_ arguments: [String]) throws -> Data {
+    static func capture(_ arguments: [String],timeout: Double = 300) throws -> Data {
         try requireAvailable()
         let process=Process(), pipe=Pipe()
+        // Child diagnostics go to a file rather than the XCTest runner's pipes.
+        // A synchronous read must not depend on the runner draining stderr.
+        let errorsURL=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-decoder-errors-\(UUID().uuidString).log")
+        guard FileManager.default.createFile(atPath: errorsURL.path,contents: nil) else { throw RenderError.write("Cannot create decoder diagnostic file") }
+        defer { try? FileManager.default.removeItem(at: errorsURL) }
+        let errors=try FileHandle(forWritingTo: errorsURL)
+        defer { try? errors.close() }
         process.executableURL=URL(fileURLWithPath: executable)
-        process.arguments=["-nostdin"]+arguments; process.standardOutput=pipe
+        process.arguments=["-nostdin","-filter_threads","1","-filter_complex_threads","1"]+arguments
+        process.standardInput=FileHandle.nullDevice
+        process.standardOutput=pipe; process.standardError=errors
         try process.run()
+        let deadline=DecoderDeadline(process: process)
+        let watchdog=DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        watchdog.schedule(deadline: .now()+timeout)
+        watchdog.setEventHandler { deadline.expire() }
+        watchdog.resume()
+        defer { watchdog.cancel() }
         let data=pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard process.terminationStatus==0 else { throw RenderError.verification("Independent decoder failed (\(process.terminationStatus))") }
+        let timedOut=deadline.finish()
+        let diagnostics=(try? Data(contentsOf: errorsURL)).map { String(decoding: $0.suffix(4096),as: UTF8.self) } ?? "No diagnostics"
+        if timedOut { throw RenderError.verification("Independent decoder timed out after \(timeout)s: \(diagnostics)") }
+        guard process.terminationStatus==0 else {
+            throw RenderError.verification("Independent decoder failed (\(process.terminationStatus)): \(diagnostics)")
+        }
         return data
     }
+}
+
+/// Owns only the child created above. A deadline cannot signal a completed/reaped
+/// child: finish and expire serialize, and isRunning guards native completion.
+private final class DecoderDeadline: @unchecked Sendable {
+    private let lock=NSLock()
+    private let process: Process
+    private var completed=false
+    private var expired=false
+    init(process: Process) { self.process=process }
+    func expire() {
+        lock.withLock {
+            guard !completed,process.isRunning else { return }
+            expired=true
+            // ffmpeg can defer SIGTERM while a codec waits. Its output is an
+            // owned temporary fixture, so a hard deadline joins it via waitUntilExit.
+            _ = Darwin.kill(process.processIdentifier,SIGKILL)
+        }
+    }
+    func finish() -> Bool { lock.withLock { completed=true; return expired } }
+
 }
 
 final class LongExportTests: XCTestCase {
@@ -177,22 +219,44 @@ final class LongRunFixtureTests: XCTestCase {
         try raw.write(to: video)
         for delay in [0.0,0.07] {
             let output=root.appendingPathComponent("delay-\(delay).mp4")
+            // Delay actual PCM content, keeping the mux origin fixed. This
+            // calibrates drift without relying on ffmpeg's own -itsoffset logic.
+            let audioRoot=root.appendingPathComponent("audio-\(delay)")
+            _ = try LongRunSource(package: audioRoot,durationSeconds: 6,pulses: [1,3,5].map { Int64((Double($0)+delay)*1e9) },decodedVideo: false)
             _ = try LongRunDecoder.capture([
                 "-v","error","-f","rawvideo","-pixel_format","gray","-video_size","32x18","-framerate","30","-i",video.path,
-                "-itsoffset",String(delay),"-i",root.appendingPathComponent("recording/signal.caf").path,
+                "-i",audioRoot.appendingPathComponent("recording/signal.caf").path,
                 "-c:v","libx264","-preset","ultrafast","-crf","18","-pix_fmt","yuv420p","-c:a","aac","-b:a","128k","-t","6",output.path
-            ])
-            let gray=try LongRunDecoder.grayFrames(output)
+            ],timeout: 15)
+            let gray=try LongRunDecoder.grayFrames(output,timeout: 15)
             XCTAssertEqual(gray.count,180)
             for pulse in [1.0,3.0,5.0] {
                 let start=pulse-0.15
-                let audio=try LongRunDecoder.audioSamples(output,start: start)
+                let audio=try LongRunDecoder.audioSamples(output,start: start,timeout: 15)
                 let observed=try LongRunSyncObservation(pulseSeconds: pulse,video: gray,audio: audio,audioWindowStart: start,fps: 30)
                 XCTAssertEqual(observed.offsetSeconds,delay,accuracy: 0.002,"Decoder must preserve the muxed audio delay at \(pulse)s")
                 if delay==0 { XCTAssertLessThan(abs(observed.offsetSeconds),1.0/30) }
                 else { XCTAssertGreaterThan(observed.offsetSeconds,1.0/30) }
                 print("RENDER_M3_CALIBRATION encoder=ffmpeg_software pulse_s=\(pulse) injected_delay_ms=\(delay*1000) observed_offset_ms=\(observed.offsetSeconds*1000)")
             }
+        }
+    }
+    func testDecoderDeadlineJoinsItsChildAndFailuresRetainDiagnostics() throws {
+        guard FileManager.default.isExecutableFile(atPath: LongRunDecoder.executable) else { throw XCTSkip("ffmpeg is required for decoder deadline verification") }
+        let start=ProcessInfo.processInfo.systemUptime
+        do {
+            _ = try LongRunDecoder.capture(["-v","error","-re","-f","lavfi","-i","anullsrc=r=48000:cl=mono","-t","30","-f","null","-"],timeout: 0.1)
+            XCTFail("A real-time 30s child must be stopped by its 100ms deadline")
+        } catch let error as RenderError {
+            XCTAssertTrue(error.localizedDescription.contains("timed out"),error.localizedDescription)
+        }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime-start,2,"Deadline must join its child promptly")
+        do {
+            _ = try LongRunDecoder.capture(["-v","error","-f","yapcam-invalid-format","-i","unused"],timeout: 5)
+            XCTFail("Invalid format must fail")
+        } catch let error as RenderError {
+            XCTAssertTrue(error.localizedDescription.contains("Independent decoder failed"),error.localizedDescription)
+            XCTAssertTrue(error.localizedDescription.contains("yapcam-invalid-format"),"Keep native stderr in a bounded failure diagnostic")
         }
     }
     func testIndependentMeasurementExposesInjectedAudioDrift() throws {
