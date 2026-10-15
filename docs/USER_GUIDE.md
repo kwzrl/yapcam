@@ -88,8 +88,7 @@ Other menu shortcuts: ⌘, Settings · ⇧⌘R Recordings window · ⌘O Open Re
 
 ## Editing basics
 
-Open a recording from the Recordings window, **File → Open Recording…**, or by double-clicking a
-`.yapcam` package. **File → Import Video…** turns an existing MOV/MP4 into a project (screen track
+Open a recording from the Recordings window, **File → Open Recording…**, or by double-clicking a`.yapcam` package (the Finder association is declared in the app but **untested live**). **File → Import Video…** turns an existing MOV/MP4 into a project (screen track
 only, no cursor events).
 
 The editor has a preview, a timeline and an inspector with five tabs: **Look** (background, padding,
