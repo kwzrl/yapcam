@@ -66,10 +66,13 @@ struct SourceMetadata: Codable, Sendable {
     var scale: Double
     var windowTitle: String?
     var appBundleID: String?
+    var deviceID: String?
+    var deviceName: String?
 
     enum CodingKeys: String, CodingKey {
         case kind, displayID = "display_id", displayName = "display_name", contentRectPoints = "content_rect_points"
         case scale, windowTitle = "window_title", appBundleID = "app_bundle_id"
+        case deviceID = "device_id", deviceName = "device_name"
     }
 
     // Older window packages may omit this field when decoded, but every new
@@ -83,6 +86,8 @@ struct SourceMetadata: Codable, Sendable {
         try container.encode(scale, forKey: .scale)
         try container.encodeIfPresent(windowTitle, forKey: .windowTitle)
         try container.encodeIfPresent(appBundleID, forKey: .appBundleID)
+        try container.encodeIfPresent(deviceID, forKey: .deviceID)
+        try container.encodeIfPresent(deviceName, forKey: .deviceName)
     }
 }
 struct TrackMetadata: Codable, Sendable {

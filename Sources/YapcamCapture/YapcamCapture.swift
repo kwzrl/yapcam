@@ -31,6 +31,15 @@ public struct CaptureSources: Sendable {
     public var windows: [WindowSource]
     public var cameras: [CaptureDevice]
     public var microphones: [CaptureDevice]
+    public var deviceScreens: [CaptureDevice] = []
+    public var deviceScreenDiscoveryError: String? = nil
+
+    /// USB iOS screen devices, independent of Mac Screen Recording permission.
+    public static func loadDeviceScreens() throws -> [CaptureDevice] {
+        try DeviceScreenDiscovery.load().enumerated().map { index, device in
+            CaptureDevice(id: device.id, name: device.name, isDefault: index == 0)
+        }
+    }
 
     public static func load() async throws -> CaptureSources {
         try await load(includeWindowThumbnails: true)
@@ -38,6 +47,7 @@ public struct CaptureSources: Sendable {
 
     /// Device polling and noninteractive self-tests can skip window screenshots.
     public static func load(includeWindowThumbnails: Bool) async throws -> CaptureSources {
+        let deviceScreens = Result { try loadDeviceScreens() }
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let names = await MainActor.run {
             Dictionary(uniqueKeysWithValues: NSScreen.screens.compactMap { screen -> (UInt32, String)? in
@@ -54,15 +64,20 @@ public struct CaptureSources: Sendable {
         }
         let candidates = content.windows.filter { $0.frame.width > 1 && $0.frame.height > 1 }
         let windows = try await CaptureThumbnails.sources(candidates, includeImages: includeWindowThumbnails)
-        return CaptureSources(displays: displays, windows: windows,
-                              cameras: devices(.video), microphones: devices(.audio))
+        var result = CaptureSources(displays: displays, windows: windows,
+                                    cameras: devices(.video), microphones: devices(.audio))
+        do { result.deviceScreens = try deviceScreens.get() }
+        catch { result.deviceScreenDiscoveryError = error.localizedDescription }
+        return result
     }
 
     static func devices(_ media: AVMediaType) -> [CaptureDevice] {
         let types: [AVCaptureDevice.DeviceType] = media == .video
             ? [.builtInWideAngleCamera, .external, .continuityCamera] : [.microphone, .external]
         let defaultID = AVCaptureDevice.default(for: media)?.uniqueID
-        return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: media, position: .unspecified).devices.map {
+        return AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: media, position: .unspecified).devices.filter {
+            media != .video || !DeviceScreenDiscovery.isScreenDevice($0)
+        }.map {
             CaptureDevice(id: $0.uniqueID, name: $0.localizedName, isDefault: $0.uniqueID == defaultID)
         }
     }
@@ -72,6 +87,7 @@ public enum CaptureTarget: Sendable, Codable, Equatable {
     case display(CGDirectDisplayID)
     case window(CGWindowID)
     case area(display: CGDirectDisplayID, rect: CGRect)
+    case device(String)
 }
 
 public struct RecordingOptions: Sendable, Codable {

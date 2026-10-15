@@ -157,6 +157,65 @@ regressions cover display/window/area, selecting a non-primary display's name, a
 legacy missing-name input. This is capture's side of Lead's F9 write-always/read-optional
 decision; core's legacy-reader fallback and a new real window open need host validation.
 
+## USB iPhone / iPad screen capture (limited: no connected device)
+
+```swift
+let devices = try CaptureSources.loadDeviceScreens() // no Mac screen discovery
+// Show devices by id/name; an empty list means no supported device is connected.
+let options = RecordingOptions(target: .device(selectedID), systemAudio: true,
+                               outputDirectory: outputDirectory)
+let session = RecordingSession(options: options)
+```
+
+The combined `CaptureSources.load()` also returns `deviceScreens: [CaptureDevice]`
+and `deviceScreenDiscoveryError: String?`. The standalone throwing discovery is
+usable without Mac Screen Recording permission; it does not request camera/mic
+authorization. UI must request `.camera`, plus `.microphone` when device audio is
+enabled, before starting. `systemAudio` controls the DEVICE audio for this target;
+Mac microphone/camera options remain optional separate auxiliary tracks.
+
+CoreMediaIO's process opt-in exposes screen capture devices; discovery accepts
+connected external/muxed video devices, excludes Continuity Camera and ordinary
+webcams, and deduplicates video/muxed listings by uniqueID. Identification uses
+capabilities rather than a phone's user-editable name. Wireless screen discovery is
+not enabled. Refresh on connect/disconnect or reopen the picker: hardware enumeration
+can update after the opt-in. CMIO failure is surfaced rather than treated as no device.
+
+AVCaptureSession video/audio outputs use its common synchronization clock, converted
+to the same host clock used by the existing writer. Device video goes to `screen.mov`
+(HEVC); its audio goes to `system.m4a` (AAC, native incoming sample rate/channels
+persisted on first audio and at stop). First video anchors zero; audio preroll is discarded. Pause/resume,
+fragment sidecars, low-disk handling and recovery use the existing package pipeline.
+Unplug/runtime errors interrupt the primary capture and preserve finalized media.
+
+Additive source format: `kind: "device"`, `device_id: <AVCaptureDevice.uniqueID>`,
+`device_name: <localizedName>`, `display_id: 0` (compatibility sentinel), and
+`display_name: <localizedName>`. The logical rect is `[0,0,videoWidth,videoHeight]`
+with scale 1; device input pixels serve as its coordinate space. No Mac display is
+associated. Mac cursor/key taps are disabled: `events.jsonl` and `cursors.json` are
+valid empty journals, and no iOS touches are inferred. Rotation/resolution changes
+that change the encoded size require a new recording; resume rejects changed sizes.
+
+Tests inject discovery candidates/enable failures, no-device and permission errors,
+primary disconnect, and real synthetic CMSampleBuffers for shared-clock video/audio
+routing, audio start offset, actual audio metadata and changed-size rejection. An
+opt-in real discovery check expects this fleet's empty device list:
+
+```sh
+swift test -j 4 --filter 'usb|USB'
+YAPCAM_CAPTURE_DEVICE_TESTS=1 swift test -j 4 --filter actualUSBDiscoveryWithNoConnectedIOSDevice
+```
+
+With a real device, use the guarded `capture_selftest device:<uniqueID> 60` helper
+above (LaunchServices, QA app lock and other-instance checks still apply). Verify
+native dimensions, both HEVC/AAC tracks, duration/A/V sync, pause/resume, portrait
+orientation, unplug handling and core/editor open/export. This is NOT yet verified
+on an iPhone/iPad; no device is connected here.
+
+Primary API contracts:
+[CoreMediaIO screen-device opt-in](https://developer.apple.com/documentation/coremediaio/kcmiohardwarepropertyallowscreencapturedevices),
+[AVCaptureDevice media capabilities](https://developer.apple.com/documentation/avfoundation/avcapturedevice/hasmediatype(_:)).
+
 ## On-device transcription
 
 `TranscriptionService().transcribe(package:localeIdentifier:track:)` writes

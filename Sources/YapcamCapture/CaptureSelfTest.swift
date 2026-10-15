@@ -10,13 +10,23 @@ import Foundation
                            hideDesktopIcons: Bool = false, captureNotifications: Bool = true,
                            recordKeystrokes: Bool = false) async throws -> URL {
         guard seconds.isFinite, seconds > 0, seconds <= 3600 else { throw CaptureError.writerFailed("Self-test duration must be in (0, 3600]") }
-        let sources = try await CaptureSources.load(includeWindowThumbnails: false)
-        guard let display = sources.displays.first else { throw CaptureError.sourceUnavailable }
-        let overrides = try CaptureSelfTestOverrides(environment: ProcessInfo.processInfo.environment,
+        let environment = ProcessInfo.processInfo.environment
+        let deviceRequested: Bool
+        if case .device = target { deviceRequested = true }
+        else { deviceRequested = target == nil && environment["YAPCAM_CAPTURE_SELFTEST_TARGET"]?.hasPrefix("device:") == true }
+        let sources: CaptureSources
+        if deviceRequested {
+            sources = CaptureSources(displays: [], windows: [], cameras: [], microphones: [],
+                                     deviceScreens: try CaptureSources.loadDeviceScreens())
+        } else { sources = try await CaptureSources.load(includeWindowThumbnails: false) }
+        let overrides = try CaptureSelfTestOverrides(environment: environment,
                                                     sources: sources, seconds: seconds)
+        guard let selectedTarget = target ?? overrides.target ?? sources.displays.first.map({ .display($0.id) }) else {
+            throw CaptureError.sourceUnavailable
+        }
         let pauseAfter = overrides.pauseAfter ?? pauseAfter
         let output = outputDirectory ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam/QA/capture")
-        let session = RecordingSession(options: RecordingOptions(target: target ?? overrides.target ?? .display(display.id),
+        let session = RecordingSession(options: RecordingOptions(target: selectedTarget,
             systemAudio: systemAudio, microphoneID: microphoneID, cameraID: cameraID,
             recordKeystrokes: recordKeystrokes, maxFPS: overrides.maxFPS ?? maxFPS, hideDesktopIcons: hideDesktopIcons,
             captureNotifications: captureNotifications, outputDirectory: output))
@@ -57,6 +67,11 @@ struct CaptureSelfTestOverrides {
             pauseAfter = pause
         }
         guard let value = environment["YAPCAM_CAPTURE_SELFTEST_TARGET"] else { return }
+        if value.hasPrefix("device:") {
+            let id = String(value.dropFirst(7))
+            guard sources.deviceScreens.contains(where: { $0.id == id }) else { throw CaptureError.deviceLost(id) }
+            target = .device(id); return
+        }
         guard let display = sources.displays.first else { throw CaptureError.sourceUnavailable }
         if value == "display" { target = .display(display.id); return }
         if value.hasPrefix("window:") {

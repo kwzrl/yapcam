@@ -107,6 +107,7 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
 @MainActor private final class LifecycleHarness {
     let directory: URL
     var permission: PermissionState = .granted
+    var permissionByKind: [Permission: PermissionState] = [:]
     var freeBytes: Int64 = 2_000_000_000
     var rect = CGRect(x: 0, y: 0, width: 64, height: 64)
     var scale: CGFloat = 1
@@ -125,16 +126,20 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
     func cleanup() { try? FileManager.default.removeItem(at: directory) }
-    func session(target: CaptureTarget = .display(2)) -> RecordingSession {
+    func session(target: CaptureTarget = .display(2), systemAudio: Bool = false) -> RecordingSession {
         let finishes = finishes
         let samples = samples
-        let services = CaptureSessionServices(permissionState: { [unowned self] _ in self.permission },
+        let services = CaptureSessionServices(permissionState: { [unowned self] kind in self.permissionByKind[kind] ?? self.permission },
             availableBytes: { [unowned self] _ in self.freeBytes },
             prepare: { [unowned self] options in
                 if let error = self.prepareError { throw error }
                 let geometry = try CaptureGeometry(rect: self.rect, scale: self.scale)
-                let source = SourceMetadata(kind: "display", displayID: 2,
+                var source = SourceMetadata(kind: "display", displayID: 2,
                     contentRectPoints: [self.rect.minX, self.rect.minY, self.rect.width, self.rect.height], scale: self.scale)
+                if case .device(let id) = options.target {
+                    source.kind = "device"; source.displayID = 0; source.displayName = "Test iPhone"
+                    source.deviceID = id; source.deviceName = "Test iPhone"
+                }
                 return CaptureSessionPlan(source: source, geometry: geometry) { [unowned self] writer, pixels in
                     let stream = LifecycleStream(writer: writer, pixels: pixels, barrier: self.barrier,
                         delayFirstFrame: self.delayFirstFrame, includeAuxiliary: self.includeAuxiliary)
@@ -151,8 +156,75 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
                 try $0.openEventLog()
                 try self.eventHook?($0)
             }, automaticHealthChecks: false)
-        return RecordingSession(options: RecordingOptions(target: target, systemAudio: false, outputDirectory: directory), services: services)
+        return RecordingSession(options: RecordingOptions(target: target, systemAudio: systemAudio, outputDirectory: directory), services: services)
     }
+}
+
+@Test @MainActor func missingUSBDeviceCreatesNoPackageAndDoesNotNeedMacScreenPermission() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.permissionByKind[.screen] = .denied
+    harness.prepareError = .deviceLost("unplugged")
+    let session = harness.session(target: .device("unplugged"))
+    await #expect(throws: CaptureError.deviceLost("unplugged")) { try await session.start() }
+    #expect(session.packageURL == nil && harness.streams.isEmpty)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: harness.directory.path).isEmpty)
+}
+
+@Test(arguments: [false, true]) @MainActor func usbCaptureRequiresAVPermissionsWithoutRequestingThem(audio: Bool) async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.permissionByKind[.screen] = .denied
+    let permission: Permission = audio ? .microphone : .camera
+    harness.permissionByKind[permission] = .denied
+    let session = harness.session(target: .device("usb-test-phone"), systemAudio: audio)
+    await #expect(throws: CaptureError.permissionDenied(permission)) { try await session.start() }
+    #expect(session.packageURL == nil && harness.streams.isEmpty)
+}
+
+@Test @MainActor func usbSessionPauseResumeWritesEmptyHostEventsAndDisconnectPreservesPackage() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.permissionByKind[.screen] = .denied
+    harness.eventHook = { _ in Issue.record("USB source must not start the Mac input event tap") }
+    let session = harness.session(target: .device("usb-test-phone"))
+    try await session.start()
+    let package = try #require(session.packageURL)
+    try await session.pause()
+    try await session.resume()
+    harness.streams[1].writer.fail(.deviceLost("Test iPhone"))
+    try await eventually { session.state == .failed(.deviceLost("Test iPhone")) }
+    let value = try readSession(package)
+    #expect(value.source.kind == "device" && value.source.deviceID == "usb-test-phone")
+    #expect(value.status == "interrupted" && value.segments.count == 2)
+    #expect(value.segments[1].srcStartNs == value.segments[0].durationNs)
+    #expect(value.segments.allSatisfy { $0.trackStartNs["screen"] == 0 })
+    for segment in value.segments {
+        #expect(try Data(contentsOf: package.appendingPathComponent("recording/\(segment.dir)/events.jsonl")).isEmpty)
+    }
+    #expect(RecordingPackageLease.isAvailable(package))
+    #expect(!FileManager.default.fileExists(atPath: package.appendingPathComponent("recording/.capture.lock").path))
+}
+
+@Test @MainActor func usbSessionPublishesActualAudioFormatDuringCaptureAndOnStop() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.permissionByKind[.screen] = .denied
+    let session = harness.session(target: .device("usb-test-phone"), systemAudio: true)
+    try await session.start()
+    let package = try #require(session.packageURL)
+    let writer = harness.streams[0].writer
+    let samples = try InjectedCaptureSamples()
+    let time = CaptureClock.now
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        writer.queue.async {
+            do { writer.append(try samples.audio(at: time), track: "system_audio"); continuation.resume() }
+            catch { continuation.resume(throwing: error) }
+        }
+    }
+    try await eventually { (try? readSession(package))?.tracks.systemAudio?.channels == 1 }
+    #expect(try readSession(package).tracks.systemAudio?.deviceName == "Test iPhone")
+    _ = try await session.stop()
+    let manifest = try readSession(package)
+    #expect(manifest.status == "complete")
+    #expect(manifest.tracks.systemAudio?.sampleRate == 48_000 && manifest.tracks.systemAudio?.channels == 1)
+    #expect(manifest.segments[0].files["system_audio"] == "seg-000/system.m4a")
 }
 
 @MainActor private func eventually(_ condition: () -> Bool) async throws {

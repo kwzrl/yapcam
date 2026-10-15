@@ -1,4 +1,5 @@
-READY 56f3ca5 + WORKTREE F9 always-write containing display_name; signed build/108 capture tests pass
+READY c21286e + WORKTREE USB iPhone/iPad source/API; build + 118 tests, LIMITED (no physical device)
+READY 4817b58 F9 always-write containing display_name; signed build/unit verified; Lead reports fixed
 READY f400c3e QA F8 even-size pixel metadata; unit verified + QA native pass on 3b68bde
 READY a3a51ad clean-finish lock cleanup / signed-app live variants; host checks pending
 READY 7383d08 M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
@@ -11,15 +12,30 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 12:49 CEST: main remains 511f831; F9's five files are
-  READY and await checkpoint/native window-open verification. No newer capture
-  finding or host result. QA .app-lock absent; no app launched, repeat test run,
-  or temporary repo/harness created.
-- Top-priority F9 handled 2026-10-15 12:47 CEST. Main 511f831 documents Lead's
-  always-write/read-optional decision; capture implementation/unit validation is
-  READY in this worktree. Five owned files pending: CaptureGeometry.swift,
-  RecordingPackage.swift, CaptureTests.swift, tests README and this status.
-  Lead checkpoint/rebase/push and real window->core open still needed. No app launched.
+- USB iPhone/iPad screen source is IMPLEMENTED / LIMITED (no device attached).
+  UI API ready in this worktree:
+  CaptureTarget.device(String /* AVCaptureDevice.uniqueID */),
+  CaptureSources.deviceScreens: [CaptureDevice],
+  CaptureSources.loadDeviceScreens() throws -> [CaptureDevice] (no SC/TCC discovery),
+  and CaptureSources.deviceScreenDiscoveryError: String? on the combined load result.
+  UI: add Device source mode, list deviceScreens, pass .device(id) via LiveEngine;
+  systemAudio controls DEVICE audio for this target. No connected device means an
+  empty list; a discovery failure is explicit. Mac screen permission is not needed
+  for this target; AV camera/audio authorization applies. Exact API/format handoff below.
+- Validation 2026-10-15: capture suite 118 tests / 7 opt-in skips / zero failures
+  (16.7 s incl. hour/100-crash simulation). Separate REAL no-device discovery
+  passes: CAPTURE_USB_DISCOVERY devices=0. Rust 69 pass / 1 ignored; canonical signed
+  app build + strict codesign pass (Yapcam Dev Signing / mov.yapcam.Yapcam).
+  No Yapcam app launched, no recorded media or credentials committed. Only a tiny
+  temporary Swift flag wrapper was created and removed by an EXIT trap; no repo copy.
+- Local HEAD c21286e; main d71b663 adds the final handover. Rebase before USB edits
+  denied Git metadata writes as before; Lead checkpoints/rebases/pushes. USB changes
+  are 13 owned files (9 source, 3 test/README, this status; 3 new files). Logs:
+  /tmp/yapcam-capture-device-{module,focused,tests,native-discovery,rust,app}.log.
+  Final audio-metadata callback regression included; signed app rebuilt afterwards.
+  Source/test/status gitleaks scans, shell-snippet syntax and git diff --check pass.
+- F9 is checkpointed as 4817b58/integrated; Lead's 13:00 handover reports F9 fixed
+  and live window open verified. Older QA retest at 511f831 predates the code fix.
 - New QA handover confirms F8 fixed/native verified on 3b68bde and clean lock
   removal verified. Native hour/Speech/voice-isolation remain open. Old F8/lock host
   acceptance requests below are superseded by that QA evidence.
@@ -56,9 +72,6 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   352 frames / 6.09 s, AAC system audio offset 1 ms, 95 events. This supersedes
   historical TCC-denial notes; it is a display baseline, not window/area/pause or
   speech/model acceptance. Lead will run native/live checks outside the sandbox.
-- Local HEAD 56f3ca5; main 511f831 contains prior capture changes. Clean-tree rebase
-  attempted before F9 edits: creating rebase-merge still denied.
-  Lead handles Git checkpoint/rebase/push; no recordings committed.
 - Fixed clean-finish .capture.lock residue: every normal lease release unlinks its
   own inode while still holding flock. This includes recording stop, recovery and
   transcription; paused sessions retain the file/lock. Crashes can leave an empty
@@ -92,6 +105,53 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 - Native Speech/isolation, real capture and long-session encoder/device behavior are
   not established by simulation or the separate renderer Metal hardware results;
   the confirmed short display capture above is additional host evidence.
+
+## USB device source — UI / Lead API and format handoff
+- UI uses CaptureSources.loadDeviceScreens() throws -> [CaptureDevice] without
+  ScreenCaptureKit. Combined load() also fills deviceScreens and an explicit optional
+  discovery error. Add a Device mode to UITarget/settings/picker/RecordingController,
+  map it in LiveEngine to CaptureTarget.device(selectedID), and request .camera plus
+  .microphone when device audio is enabled. Refresh after connect/disconnect; CMIO
+  enumeration may update after process opt-in. Empty list is the no-device state.
+- CoreMediaIO kCMIOHardwarePropertyAllowScreenCaptureDevices=1 enables process-level
+  discovery. Candidates are connected external/muxed video devices, deduplicated
+  by uniqueID; ordinary cameras/Continuity Camera are excluded. We do not opt in to
+  wireless devices or match hard-coded/localized iPhone names. Assumption: the muxed
+  external screen capability exposed by CMIO identifies wired iOS screen sources.
+- DeviceScreenStream/Driver implements CaptureSessionStream via AVCaptureSession.
+  Blocking configuration/start/stop runs on a serial control queue; both delegates
+  use the writer queue and the SAME session synchronization clock, converted to the
+  host clock. Native input format is selected on macOS; screen.mov is HEVC and
+  system.m4a is the device's audio (AAC). Native audio ASBD rate/channels are persisted
+  on first accepted audio and finalization, not assumed stereo/48k. First video defines zero; audio preroll
+  is discarded. maxFPS remains a 30/60 cap, not a native-device frame-rate promise.
+- Package additions for Lead FORMATS.md: source.kind="device", source.device_id=AV
+  uniqueID, source.device_name=localizedName, display_id=0 (compatibility sentinel),
+  display_name=device name, content_rect_points=[0,0,nativeWidth,nativeHeight], scale=1.
+  Phone input pixels define its coordinate space; no host display is associated.
+  Add optional deviceID/deviceName to source metadata descriptions. Same session
+  schema/seg-XXX files/host-start and track-starts sidecars as other recordings.
+- Mac cursor/key taps are intentionally not attached for USB targets: events.jsonl
+  and cursors.json are valid empty journals; phone touches are not available through
+  these capture APIs. Optional Mac mic/camera still use existing auxiliary tracks.
+  Device unplug/runtime error interrupts the primary recording while preserving the
+  package; auxiliary device loss keeps its existing warn/continue policy. Changed
+  device dimensions/orientation require a new recording; resume rejects changed size.
+- Tests: injected opt-in/discovery failure/no-device, capability filtering/dedup,
+  device source/Codable metadata, no host-screen permission dependency, camera/audio
+  permission failures, pause/resume, primary disconnect, empty host event journals,
+  real synthetic-buffer shared-clock routing/audio offset/actual ASBD and changed-size
+  rejection. Coordinator tests also assert the real audio format is published during
+  active recording and at stop. Actual CMIO+AV discovery returned zero devices.
+  Native iOS frame delivery, A/V sync, orientation, input format selection, unplug
+  behavior and core/editor open/export remain UNVERIFIED (no iPhone/iPad here).
+- Host discovery command (no app launch, expects this host's no-device state):
+  YAPCAM_CAPTURE_DEVICE_TESTS=1 swift test -j 4 --filter actualUSBDiscoveryWithNoConnectedIOSDevice
+  With a real connected device, first check QA .app-lock/other instances, then use
+  the guarded LaunchServices helper: capture_selftest device:<uniqueID> 60
+  (and repeat with final argument 3 for pause). Never run the empty-device assertion
+  after attaching hardware. Re-review AVCapture control/sample queue lifetimes before
+  merge. Suggested checkpoint: feat(capture): record USB iOS device screens with audio.
 
 ## QA F9 — always-write display_name / implementation verified
 - Root cause: the window constructor omitted displayName, so synthesized optional
@@ -545,9 +605,10 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. F9's five owned files are READY; checkpoint/rebase/push under the agreed read-only
-   Git workflow and validate a new window package's display_name/core open on the
-   host. F8/lock cleanup are QA-verified. Run host
+1. USB device source/API is READY but hardware LIMITED. Checkpoint/rebase/push the
+   13 owned files and re-review AVCapture control/sample queue lifetimes. UI consumes
+   the API above; Lead adds .device and source metadata additions to SWIFT_API/FORMATS,
+   QA marks REC-17 limited pending a real USB device. F9/F8/lock cleanup are verified. Run host
    commands only when QA releases .app-lock and no other Yapcam instance runs.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run

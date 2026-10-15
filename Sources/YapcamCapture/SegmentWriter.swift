@@ -28,11 +28,13 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     private var screenStartNs: Int64?
     private var startedTracks: Set<String> = []
     private var endHostNs: Int64?
+    private var audioFormats: [String: AudioMetadata] = [:]
     var onWarning: (@Sendable (String) -> Void)?
     var onFailure: (@Sendable (CaptureError) -> Void)?
     var onGeometry: (@Sendable (CGRect, CGRect, CGFloat) -> Void)?
     var onTrackStarted: (@Sendable (String, Int64) -> Void)?
     var onMicLevel: (@Sendable (Float) -> Void)?
+    var onAudioFormat: (@Sendable (String, AudioMetadata) -> Void)?
 
     init(directory: URL, hostStartNs: Int64, maxFPS: Int,
          makeTrack: @escaping TrackFactory = { try MediaTrackWriter(url: $0, key: $1, first: $2) }) {
@@ -98,8 +100,12 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        let error = CaptureError.from(error)
+        fail(CaptureError.from(error))
+    }
+
+    func fail(_ error: CaptureError) {
         queue.async {
+            guard self.accepting, self.failure == nil else { return }
             self.failure = self.failure ?? error
             self.onFailure?(error)
         }
@@ -141,6 +147,14 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                 nextScreenNs = max((nextScreenNs ?? ns) + interval, ns + interval)
             }
             if startedTracks.insert(key).inserted, let origin = screenStartNs {
+                if key == "system_audio" || key == "mic", let format = sample.formatDescription,
+                   let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
+                   asbd.mSampleRate.isFinite, asbd.mSampleRate > 0, asbd.mSampleRate <= 768_000,
+                   asbd.mChannelsPerFrame > 0 {
+                    let audio = AudioMetadata(sampleRate: Int(asbd.mSampleRate.rounded()), channels: Int(asbd.mChannelsPerFrame))
+                    audioFormats[key] = audio
+                    onAudioFormat?(key, audio)
+                }
                 let starts = tracks.filter { startedTracks.contains($0.key) }.mapValues { $0.firstNs - origin }
                 try PackageIO.write(starts, to: directory.appendingPathComponent("track-starts.json"))
                 onTrackStarted?(key, track.firstNs - origin)
@@ -180,6 +194,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         var starts: [String: Int64]
         var hostStartNs: Int64?
         var error: CaptureError?
+        var audioFormats: [String: AudioMetadata] = [:]
     }
 
     func finish() async -> Result {
@@ -191,6 +206,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                 let origin = self.screenStartNs
                 let end = self.endHostNs ?? CaptureClock.now
                 let unavailable = self.unavailableTracks
+                let audioFormats = self.audioFormats
                 Task {
                     var files: [String: String] = [:]
                     var starts: [String: Int64] = [:]
@@ -206,7 +222,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                         }
                     }
                     if files["screen"] == nil, error == nil { error = .writerFailed("No screen frames were captured") }
-                    continuation.resume(returning: Result(files: files, starts: starts, hostStartNs: origin, error: error))
+                    continuation.resume(returning: Result(files: files, starts: starts, hostStartNs: origin, error: error, audioFormats: audioFormats))
                 }
             }
         }

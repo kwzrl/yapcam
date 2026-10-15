@@ -30,6 +30,17 @@ extension SCStream: CaptureSessionStream {}
         CaptureSessionServices(permissionState: CapturePermissions.state,
             availableBytes: PackageIO.availableBytes,
             prepare: { options in
+                if case .device(let id) = options.target {
+                    guard options.maxFPS == 30 || options.maxFPS == 60 else {
+                        throw CaptureError.writerFailed("Frame rate must be 30 or 60")
+                    }
+                    let device = try DeviceScreenDiscovery.require(id, devices: DeviceScreenDiscovery.load())
+                    let geometry = try device.geometry()
+                    let source = try device.source()
+                    return CaptureSessionPlan(source: source, geometry: geometry) { writer, pixels in
+                        DeviceScreenStream(id: id, audio: options.systemAudio, pixels: pixels, writer: writer)
+                    }
+                }
                 let resolved = try await ResolvedCapture.resolve(options)
                 return CaptureSessionPlan(source: resolved.source, geometry: resolved.geometry) { writer, pixels in
                     resolved.configuration.width = pixels[0]

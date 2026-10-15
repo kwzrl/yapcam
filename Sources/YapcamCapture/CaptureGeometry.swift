@@ -86,6 +86,8 @@ struct CaptureCoordinateMapping: Sendable {
         let source: SourceMetadata
         var crop: CGRect?
         switch options.target {
+        case .device:
+            throw CaptureError.writerFailed("USB device capture uses AVFoundation, not ScreenCaptureKit")
         case .display(let id), .area(let id, _):
             guard let display = content.displays.first(where: { $0.displayID == id }) else { throw CaptureError.sourceUnavailable }
             let bounds = CGDisplayBounds(id)

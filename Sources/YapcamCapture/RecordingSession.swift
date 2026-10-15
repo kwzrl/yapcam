@@ -35,12 +35,20 @@ import ScreenCaptureKit
         self.options = options; self.services = services
     }
 
+    private var isDeviceScreen: Bool { if case .device = options.target { return true }; return false }
+    private func requireSourcePermissions() throws {
+        let required: [Permission] = isDeviceScreen ? (options.systemAudio ? [.camera, .microphone] : [.camera]) : [.screen]
+        for permission in required where services.permissionState(permission) != .granted {
+            throw CaptureError.permissionDenied(permission)
+        }
+    }
+
     public func start() async throws {
         guard state == .idle, !busy else { throw invalidState("start") }
         busy = true; state = .preparing
         defer { busy = false }
         do {
-            guard services.permissionState(.screen) == .granted else { throw CaptureError.permissionDenied(.screen) }
+            try requireSourcePermissions()
             try FileManager.default.createDirectory(at: options.outputDirectory, withIntermediateDirectories: true)
             try PackageIO.requireSpace(services.availableBytes(options.outputDirectory))
             let resolved = try await services.prepare(options)
@@ -82,7 +90,7 @@ import ScreenCaptureKit
         busy = true; state = .preparing
         defer { busy = false }
         do {
-            guard services.permissionState(.screen) == .granted else { throw CaptureError.permissionDenied(.screen) }
+            try requireSourcePermissions()
             guard let packageURL else { throw invalidState("resume") }
             try PackageIO.requireSpace(services.availableBytes(packageURL))
             let resolved = try await services.prepare(options)
@@ -92,7 +100,7 @@ import ScreenCaptureKit
             default:
                 guard initial.pixelSize == [resolved.geometry.pixelWidth, resolved.geometry.pixelHeight],
                       manifest?.source.scale == resolved.source.scale else {
-                    throw CaptureError.writerFailed("Display dimensions or scale changed while paused; start a new recording")
+                    throw CaptureError.writerFailed("Capture source dimensions or scale changed while paused; start a new recording")
                 }
             }
             try await beginSegment(resolved)
@@ -171,6 +179,13 @@ import ScreenCaptureKit
                 self.micLevel = level
             }
         }
+        writer.onAudioFormat = { [weak self] key, format in
+            Task { @MainActor in
+                guard let self, self.activeStartNs == start else { return }
+                self.updateAudioFormat(format, key: key)
+                do { try self.persist() } catch { await self.handleFailure(self.asCaptureError(error)) }
+            }
+        }
         writer.onTrackStarted = { [weak self] key, offset in
             Task { @MainActor in
                 guard let self, self.activeStartNs == start, self.manifest?.segments.indices.contains(index) == true else { return }
@@ -213,7 +228,9 @@ import ScreenCaptureKit
                 }
             }
         }
-        try services.startEvents(events)
+        // The Mac's cursor/keys do not describe touches on the USB device screen.
+        if isDeviceScreen { try events.openEventLog() }
+        else { try services.startEvents(events) }
         let devices = AuxiliaryCapture(writer: writer, fps: options.maxFPS)
         devices.onWarning = writer.onWarning
         self.devices = devices
@@ -247,6 +264,7 @@ import ScreenCaptureKit
                 files["events"] = "\(dir)/events.jsonl"; files["cursors"] = "\(dir)/cursors.json"
                 manifest?.segments[index].files = files
             }
+            for (key, format) in result.audioFormats { updateAudioFormat(format, key: key) }
             completedNs = try SegmentTimeline.nextSourceStart(after: manifest?.segments ?? [])
             failure = failure ?? result.error ?? pendingFailure
         }
@@ -254,6 +272,17 @@ import ScreenCaptureKit
         elapsed = Double(completedNs) / 1_000_000_000
         try persist()
         if let failure { throw failure }
+    }
+
+    private func updateAudioFormat(_ format: AudioMetadata, key: String) {
+        var format = format
+        if key == "system_audio" {
+            format.deviceName = isDeviceScreen ? manifest?.source.deviceName : manifest?.tracks.systemAudio?.deviceName
+            manifest?.tracks.systemAudio = format
+        } else if key == "mic" {
+            format.deviceName = manifest?.tracks.mic?.deviceName
+            manifest?.tracks.mic = format
+        }
     }
 
     private func startTimer() {
@@ -279,7 +308,7 @@ import ScreenCaptureKit
         guard state == .recording, !busy, let packageURL, let generation = activeStartNs else { return }
         do {
             try PackageIO.requireSpace(services.availableBytes(packageURL))
-            guard services.permissionState(.screen) == .granted else { throw CaptureError.permissionDenied(.screen) }
+            try requireSourcePermissions()
             switch options.target {
             case .display(let id), .area(let id, _):
                 guard CGDisplayIsActive(id) != 0 else { throw CaptureError.sourceUnavailable }
@@ -294,7 +323,7 @@ import ScreenCaptureKit
                 case .area(_, let area):
                     guard CGRect(origin: .zero, size: bounds.size).contains(area) else { throw CaptureError.sourceUnavailable }
                     events?.updateContentRect(area.offsetBy(dx: bounds.minX, dy: bounds.minY))
-                case .window: break
+                case .window, .device: break
                 }
                 if options.hideDesktopIcons || !options.captureNotifications {
                     // Newly opened Finder folders must remain visible, while
@@ -309,6 +338,8 @@ import ScreenCaptureKit
                 guard state == .recording, !busy, activeStartNs == generation else { return }
                 guard let window = content.windows.first(where: { $0.windowID == id }) else { throw CaptureError.sourceUnavailable }
                 events?.updateContentRect(window.frame)
+            case .device:
+                break // AVCaptureSession/device notifications report source loss.
             }
         } catch {
             guard activeStartNs == generation else { return }
