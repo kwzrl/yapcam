@@ -60,7 +60,7 @@ mirror reference assets.
 | Screen Studio (installed locally) | behavior reference only | proprietary; never copied |
 
 ## 6. Open items for Lead
-1. Generate and commit an acknowledgements file for the Rust crates before any release.
+1. DONE: docs/THIRD_PARTY_NOTICES.md contains the MIT texts of shipped crates (generated from registry sources); regenerate when Cargo.lock changes, and bundle it in the app (Lead decision).
 2. Confirm minimum macOS (Info.plist `LSMinimumSystemVersion`) matches the "macOS 15+" claim.
 3. If a future change adds a dependency (e.g. a Swift package or a model), add it here first
    (TEAMS.md rule 11).

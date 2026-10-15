@@ -1,4 +1,4 @@
-READY 3e7809e qa: M3 docs (KNOWN_LIMITATIONS, THIRD_PARTY, TEST_REPORT draft) + Metal-verified rows
+READY HEAD qa: THIRD_PARTY_NOTICES.md generated
 
 # qa status
 
@@ -34,6 +34,8 @@ READY 3e7809e qa: M3 docs (KNOWN_LIMITATIONS, THIRD_PARTY, TEST_REPORT draft) + 
 - Audit vs main 78a8a0e: AUD-06 core setting + render path landed (editor toggle wiring left). Everything else unchanged.
 
 - M3 package (Lead 03:15): FEATURES render rows tagged verified on Metal (86/86); new docs/KNOWN_LIMITATIONS.md, docs/THIRD_PARTY.md (Rust crates + Apple frameworks + tooling audited; all permissive; acknowledgements file still open), docs/TEST_REPORT.md structure.
+
+- docs/THIRD_PARTY_NOTICES.md generated (MIT texts of 6 shipped crates + Apache-2.0); THIRD_PARTY.md open item 1 closed. Main unchanged at 121d9de; privacy scan still flags docs/status/editor.md (F4).
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
