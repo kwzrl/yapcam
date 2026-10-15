@@ -572,9 +572,11 @@ fn apply_inner(
                     p.cursor.physics_version = 1;
                     if p.cursor.speed_preset == "none" {
                         p.cursor.smoothing = 0.0;
-                    } else if p.cursor.smoothing == 0.0 {
+                    } else {
                         p.cursor.smoothing = 1.0;
                     }
+                    cs.changed
+                        .extend(["cursor.physics_version".into(), "cursor.smoothing".into()]);
                 }
                 "cursor.smoothing"
                     if p.cursor.smoothing > 0.0 && p.cursor.speed_preset == "none" =>
@@ -583,18 +585,27 @@ fn apply_inner(
                 }
                 "zoom_settings.speed_preset" | "zoom_settings.animation_style" => {
                     p.zoom_settings.physics_version = 1;
+                    cs.changed.push("zoom_settings.physics_version".into());
                 }
                 _ if path.starts_with("cursor.spring") => {
                     p.cursor.physics_version = 1;
                     p.cursor.speed_preset = "custom".into();
-                    if p.cursor.smoothing == 0.0 {
-                        p.cursor.smoothing = 1.0;
-                    }
+                    p.cursor.smoothing = 1.0;
+                    cs.changed.extend([
+                        "cursor.physics_version".into(),
+                        "cursor.speed_preset".into(),
+                        "cursor.smoothing".into(),
+                    ]);
                 }
                 _ if path.starts_with("zoom_settings.spring") => {
                     p.zoom_settings.physics_version = 1;
                     p.zoom_settings.animation_style = "custom".into();
                     p.zoom_settings.speed_preset = "custom".into();
+                    cs.changed.extend([
+                        "zoom_settings.physics_version".into(),
+                        "zoom_settings.animation_style".into(),
+                        "zoom_settings.speed_preset".into(),
+                    ]);
                 }
                 _ => {}
             }

@@ -228,9 +228,12 @@ mod tests {
                 p.frame(t).unwrap().screen_crop
             );
         }
+        p.data.cursor = crate::model::Cursor::default();
+        p.data.cursor.spring.tension = 700.0; // Valid old custom settings survive opting into a named preset.
         p.apply(&json!({"op":"set","path":"cursor.speed_preset","value":"rapid"}))
             .unwrap();
         assert_eq!(p.data.cursor.smoothing, 1.0);
+        assert_eq!(p.data.cursor.spring.tension, 700.0);
         p.apply(&json!({"op":"set","path":"cursor.speed_preset","value":"none"}))
             .unwrap();
         assert_eq!(p.data.cursor.smoothing, 0.0);
@@ -242,6 +245,8 @@ mod tests {
             p.apply(&json!({"op":"set","path":path,"value":value}))
                 .unwrap();
         }
+        p.apply(&json!({"op":"set","path":"cursor.spring.tension","value":250}))
+            .unwrap();
         let before = p.data.clone();
         for (path, value) in [
             ("zoom_settings.spring.mass", json!(15.1)),

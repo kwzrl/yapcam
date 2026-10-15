@@ -362,6 +362,13 @@ mod tests {
             Project::open(&f.0).unwrap().query(&query).unwrap(),
             p.query(&query).unwrap()
         );
+        p.apply(&json!({"op":"auto_speed_typing","speed":3}))
+            .unwrap();
+        assert_eq!(time::duration(&p.data.timeline.clips), 320_000_000);
+        assert_eq!(
+            p.query(&query).unwrap()[0]["ranges"],
+            json!([{"tl_start_ns":0,"tl_end_ns":120_000_000},{"tl_start_ns":120_000_000,"tl_end_ns":320_000_000}])
+        );
         // Sub-threshold duration and exact 500ms gaps cannot manufacture bursts.
         p.events[0] = [
             0_i64,
@@ -488,6 +495,19 @@ mod tests {
         let before = p.data.clone();
         p.apply(&json!({"op":"auto_zooms"})).unwrap();
         assert_eq!(p.data, before);
+        // A down without any earlier position uses the center, including when a
+        // move at the same timestamp was recorded later in the event sequence.
+        p.events[0] = vec![
+            serde_json::from_value(json!({"t":700_000_000,"type":"down"})).unwrap(),
+            serde_json::from_value(json!({"t":700_000_000,"type":"move","x":0,"y":0})).unwrap(),
+        ];
+        p.input = p
+            .events
+            .iter()
+            .map(|e| crate::input::InputCache::new(e))
+            .collect();
+        p.apply(&json!({"op":"auto_zooms"})).unwrap();
+        assert_eq!(p.data.zooms[0].target, [0.5, 0.5]);
     }
     #[test]
     fn clusters_typing_manual_preservation_and_global_off() {

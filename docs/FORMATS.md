@@ -104,7 +104,8 @@ The full list lives in `core/src/commands.rs` and is mirrored in `Sources/Yapcam
 
 ## Documented `set` paths (schema 1)
 
-`set` accepts only the following paths. All numbers must be finite. Colors are
+`set` accepts the documented paths below and in the additive sections later in
+this file. All numbers must be finite. Colors are
 four sRGB RGBA components in [0,1]; lengths are output canvas pixels unless noted.
 Arrays are replaced as a whole; indexing into arrays with a path is unsupported.
 Nested objects (`canvas.background`, `canvas.shadow`, `canvas.animation`,
@@ -112,7 +113,13 @@ Nested objects (`canvas.background`, `canvas.shadow`, `canvas.animation`,
 filled from defaults. Unknown paths/keys or invalid values fail transactionally.
 Root setting objects are applied through `apply_preset`, not `set`.
 
-| Path | Type / allowed values | Default |
+The Default column in this inventory describes legacy missing-field decoding,
+not the current `Project.create` factory preset. New-project overrides and the
+old-to-new table are under [Factory defaults and compatibility](#factory-defaults-and-compatibility).
+Setting a spring parameter opts into the aligned custom bounds described there;
+loading a version-0 spring preserves its legacy bounds and response.
+
+| Path | Type / allowed values | Legacy decode default |
 |---|---|---|
 | `canvas.aspect` | `source`, `custom`, or positive W:H string | `16:9` |
 | `canvas.output_size` | [width,height], integers 1…16384; height sets output height, width used for custom aspect | [1920,1080] |
@@ -145,10 +152,10 @@ Root setting objects are applied through `apply_preset`, not `set`.
 | `cursor.idle_timeout_ns` | nonnegative Int64 ns | 2000000000 |
 | `cursor.click_effect` | none / ring / highlight | ring |
 | `cursor.click_duration_ns` | positive Int64 ns | 400000000 |
-| `cursor.speed_preset` | custom / slow / mellow / quick / rapid | custom |
-| `cursor.spring.tension` | 1…2000 | 250 |
-| `cursor.spring.friction` | 1…200 | 28 |
-| `cursor.spring.mass` | 0.1…10 | 1 |
+| `cursor.speed_preset` | custom / slow / mellow / quick / rapid / smooth / medium / none | custom |
+| `cursor.spring.tension` | 5…600 on edit; legacy version-0 decode 1…2000 | 250 |
+| `cursor.spring.friction` | 5…200 on edit; legacy version-0 decode 1…200 | 28 |
+| `cursor.spring.mass` | 0.1…15 on edit; legacy version-0 decode 0.1…10 | 1 |
 | `cursor.spring.allow_overshoot` | boolean | false |
 | `cursor.ranges` | cursor visibility records below | [] |
 | `cursor.loop_to_start` | boolean | false |
@@ -176,9 +183,9 @@ Root setting objects are applied through `apply_preset`, not `set`.
 | `zoom_settings.follow_cursor` | boolean, follow during auto zoom | true |
 | `zoom_settings.dead_zone` | 0…0.45, inset fraction of zoom crop | 0.15 |
 | `zoom_settings.speed_preset` | custom / slow / mellow / quick / rapid | custom |
-| `zoom_settings.spring.tension` | 1…2000 | 250 |
-| `zoom_settings.spring.friction` | 1…200 | 28 |
-| `zoom_settings.spring.mass` | 0.1…10 | 1 |
+| `zoom_settings.spring.tension` | 5…600 on edit; legacy version-0 decode 1…2000 | 250 |
+| `zoom_settings.spring.friction` | 5…200 on edit; legacy version-0 decode 1…200 | 28 |
+| `zoom_settings.spring.mass` | 0.1…15 on edit; legacy version-0 decode 0.1…10 | 1 |
 | `zoom_settings.spring.allow_overshoot` | boolean | false |
 | `export.last_preset` | string | mp4-1080p |
 | `notes` | speaker notes string | empty |
@@ -620,6 +627,55 @@ Existing schema-1 projects keep their serialized geometry and physics. New field
 missing in an older file select the legacy mode; opening does not regenerate zooms
 or discard settings. The C ABI remains unchanged. All additions below participate
 in transactional set/batch, undo/redo, journals, snapshots and save/reopen.
+
+### Factory defaults and compatibility
+
+`Project.create` writes `defaults_revision: 1` and applies the following factory
+settings. `Project.open` does not apply that factory preset: schema-0 migration
+only advances the schema number, and missing fields in an older schema-1 project
+use the legacy values below. Explicit stored values, including `cursor.set_id:
+null`, remain unchanged. `defaults_revision` is provenance, not an instruction to
+reset values on open. Save/reopen and snapshots keep the selected mode.
+
+| Setting | Previous factory / legacy missing-field value | New project revision 1 |
+|---|---|---|
+| defaults_revision | absent (decodes as 0) | 1 |
+| canvas.aspect | `16:9` | `source` (recording aspect, including crop) |
+| canvas.output_size | [1920,1080] | [1920,1080] seed retained; evaluated width follows aspect at height1080 |
+| canvas.padding / padding_ratio | 48 output pixels / null | stored padding48 remains inactive; ratio0.10 of the shorter canvas edge |
+| canvas.radius | 18 output pixels | 16 output pixels |
+| canvas.shadow.style | `classic` | `directional` |
+| evaluated screen shadow (x,y,radius,opacity) | (0,8,24,0.3) | (25*cos45°,25*sin45°,160,0.3), approximately (17.67766953,17.67766953,160,0.3) |
+| canvas.background.kind / color | `solid` / [0.12,0.14,0.18,1] | unchanged; our own calm dark background |
+| canvas.background.blur | 24 | 0 (inactive for solid backgrounds) |
+| canvas.motion_blur | 0 | 1 |
+| cursor.set_id | null, recorded cursor artwork | `classic`, our authored palette |
+| cursor.style / shape / logical_size | `recorded` / null / `regular` | unchanged; a nonnull palette selects authored artwork |
+| cursor.size / size_points | multiplier1 / null | stored multiplier1 remains inactive; 48 logical points on our 32pt authored canvas |
+| cursor.smoothing / speed_preset | 0.15 / `custom` | 0 / `none` |
+| cursor.click_effect | `ring` | `none` |
+| cursor.physics_version / motion_blur | 0 / 0 | 1 / 1 |
+| zoom_settings.physics_version | 0 | 1 |
+| zoom_settings.spring (stiffness,damping,mass,overshoot) | (250,28,1,false) | (125,12,1.5,false) |
+| default zoom level / follow_cursor | 2 / true | unchanged (default_scale2) |
+| newly inserted music gain when omitted | -18dB (amplitude0.1258925412) | -26.0205999133dB (amplitude0.05); existing music gains retain their values |
+| audio.click_sound.gain_db | -12dB (amplitude0.2511886432) | -12.0411998266dB (amplitude0.25); click sound remains disabled |
+
+The legacy `canvas.shadow.radius:24` and `offset_y:8` are retained but inactive
+for directional shadows; distance25/angle_deg45/blur20 drive that mode. New
+mic-preset/stereo and typing metadata do not alter legacy DSP or media clocks.
+
+For the uncropped 320x200 synthetic fixture, new factory aspect evaluates to
+1728x1080, versus legacy 1920x1080. Screen destination changes from
+(x172.8,y48,w1574.4,h984) to (x172.8,y108,w1382.4,h864). Canvas-space normalized
+rect [0.25,0.25,0.5,0.5] evaluates to (432,270,864,540), previously
+(480,270,960,540); a full-canvas fade is (0,0,1728,1080), previously
+(0,0,1920,1080). Consumers must derive these rectangles from the frame canvas.
+
+`cursor.set_id=null` remains an explicit request for recorded artwork; it does
+not restore the new factory palette. Restoring factory cursor selection requires
+`classic`. Tests specifically exercising recorded artwork should select null
+before capturing their baseline, or open a legacy project.
 
 Auto zoom regeneration uses retained mouse-down events on the edited timeline.
 Each click contributes a window from 300ms before to 2500ms after it, with a 1ms

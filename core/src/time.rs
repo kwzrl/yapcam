@@ -451,6 +451,46 @@ pub fn sample(session: &Session, track: &str, src: i64) -> Sample {
 mod tests {
     use super::*;
     #[test]
+    fn bulk_speed_mapping_keeps_fractional_edges_and_long_source_clocks() {
+        let old = vec![
+            Clip {
+                id: "long".into(),
+                src_start_ns: 0,
+                src_end_ns: 9_007_199_254_740_999,
+                speed: 1.0,
+            },
+            Clip {
+                id: "fraction".into(),
+                src_start_ns: 50,
+                src_end_ns: 63,
+                speed: 1.2,
+            },
+            Clip {
+                id: "last".into(),
+                src_start_ns: 100,
+                src_end_ns: 119,
+                speed: 0.75,
+            },
+        ];
+        let mut new = old.clone();
+        new[1].speed = 3.0;
+        new[2].speed = 2.0;
+        let map = BulkSpeedTimeMap::new(&old, &new);
+        for (i, c) in old.iter().enumerate() {
+            for src in [c.src_start_ns, c.src_end_ns] {
+                let before = source_boundary_to_timeline(&old, i, src).unwrap();
+                let after = source_boundary_to_timeline(&new, i, src).unwrap();
+                assert_eq!(map.map(before), after);
+            }
+        }
+        let end = duration(&old);
+        assert_eq!(map.map(end + 5), duration(&new) + 5);
+        let same = BulkSpeedTimeMap::new(&old, &old);
+        for t in [0, 1, 9_007_199_254_740_999, end] {
+            assert_eq!(same.map(t), t);
+        }
+    }
+    #[test]
     fn indexed_clip_and_cut_maps_match_linear_oracle_at_fractional_edges() {
         let mut clips = Vec::new();
         let mut src = 0;
