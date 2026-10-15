@@ -1,4 +1,4 @@
-READY HEAD qa: F6 verified fixed; window/area targets verified live
+READY 3ee7a97 qa: F6 verified fixed; window/area targets verified live
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
