@@ -1,4 +1,4 @@
-READY d5065b4 + WORKTREE AUD-06 groundwork / PCM file tests; native model host gate pending
+READY a52fc4a AUD-06 groundwork / PCM file tests; native model host gate pending
 READY 63f4abb package 1 AUD-10 implementation/unit tests; real Speech host gate pending
 READY 63f4abb package 2 injected-fault verification; unit tests pass
 READY 63f4abb package 3 scale/multi-display geometry; math tests pass
@@ -6,9 +6,11 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Audit 2026-10-15 02:18 CEST: main remains f640b35; AUD-06 files still await Lead's
-  checkpoint. No new capture backlog, review file or native Speech/isolation result.
-  No code changes or repeated tests this cycle; prior validation still applies.
+- Audit 2026-10-15 02:38 CEST: checkpoint a52fc4a contains AUD-06 and is integrated
+  in main 88f1995. Capture source/tests and FORMATS.md/SWIFT_API.md match this worktree.
+  No new capture backlog, review file or native Speech/isolation result was found.
+  Only this status refresh changed; prior validation still applies.
+  Main/HEAD are unchanged since the failed rebase; no repeated Git write or test run.
 - AUD-06 Apple voice isolation groundwork implemented/unit validated. Prior AUD-10,
   fault and geometry packages are implemented and integrated; native Speech remains
   a host gate. Added VoiceIsolationService.swift, VoiceIsolationTests.swift and README.
@@ -17,8 +19,9 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   quality/alignment remains unverified; do not mark the AUD-06 feature verified.
 - Package 1 files: Sources/YapcamCapture/{TranscriptionService,AppleOnDeviceSpeech}.swift,
   Tests/YapcamCaptureTests/TranscriptionTests.swift, tests README and this status.
-- Observed local HEAD d5065b4 (parent 60902da), main f640b35. Git metadata remains
-  read-only here; Lead handles worktree advancement and commits/push.
+- Observed local HEAD a52fc4a (parent f640b35), main 88f1995. Retried clean-tree
+  git rebase main: cannot create rebase-merge (Operation not permitted); no rebase
+  started. Lead handles worktree advancement and commits/push under read-only Git.
   Only capture-owned source/tests/status changed; no new dependencies.
 
 ## AUD-06 groundwork / assumptions and current evidence
@@ -46,6 +49,8 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 - Render's current P4 status confirms its separate original DSP helper is implemented
   but does not provide model-based isolation. The Apple isolation output can be an
   explicit input to that helper if core/editor elect to chain isolation and mastering.
+  At 02:38 its status reports shared preview/export DSP integration in progress.
+  Core persistence/editor toggle and native Apple isolation acceptance remain separate.
 - Sandbox AudioComponentFindNext returns no Apple effects. A direct AVAudioUnitEffect
   initializer probe crashed on that absence; production uses discovery plus the
   throwing AUAudioUnit initializer instead. Native quality/alignment is unverified.
@@ -71,8 +76,9 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   test runner and its children. Subsequent runs used bounded process-group watchdogs
   and separate scratch paths; the final full-suite attempt completed normally.
 - Source/test gitleaks scans and git diff --check pass. No dependencies or media
-  fixtures committed. Pending files: VoiceIsolationService.swift, VoiceIsolationTests.swift,
-  tests README and this status. Lead handles the checkpoint/push and independent review.
+  fixtures committed. VoiceIsolationService.swift, VoiceIsolationTests.swift, README
+  and the prior status are checkpointed in a52fc4a. Only this status update is pending;
+  Lead handles push and independent review.
 
 ## Package 1 — AUD-10 implementation / unit validation complete
 - Public actor TranscriptionService: transcribe(package:localeIdentifier:track:)
@@ -176,6 +182,8 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   and says track offsets must not be applied a second time. Editor's current worktree
   reports caption import/list/lane implemented with EditorWindows.transcriber as the
   app injection hook; real transcription/UI wiring and host permission remain pending.
+  Editor now reports 226 full-suite tests green after a clean/rebuilt app; this is
+  other-team validation and does not establish native Speech/isolation quality here.
 - b75ea0a implements review H2/H3/M1/M2/input-clock fixes. Host HEVC static-tail seek,
   startup/resume flash and real input alignment still need verification/re-review.
 - Lead / FORMATS.md: optional seg-XXX/track-starts.json maps track keys to start offsets
@@ -190,9 +198,9 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   checks do not establish real device sync/loss, Retina or multi-display acceptance.
 
 ## Next / Lead requests
-1. Checkpoint AUD-06 groundwork (four files above), advance this worktree to main and
-   push under the agreed read-only Git workflow. Prior three packages are integrated.
-   No independent capture implementation item remains in the current assignment.
+1. AUD-06 checkpoint a52fc4a and the prior three packages are integrated in main
+   88f1995. Advance this worktree to main and handle push/status checkpoint under
+   the agreed read-only Git workflow. No independent capture implementation remains.
 2. Arrange independent review of the new isolation/Speech services and prior H2/H3 timing fixes.
    Run the full Swift suite on a Metal host; sandbox editor/E2E failures are not fixed
    or hidden by capture. No fully green full-suite claim for these checkpoints.
