@@ -89,7 +89,7 @@ extension Project: RenderProjectSource {
         // UTF-8 text/emoji payloads use Core's evaluated cold layers. This complete list
         // includes annotation/caption backgrounds, highlights and the final fade once.
         let rows=try query("{\"q\":\"layers_at\",\"tl_ns\":\(atNs)}",as: [CoreDrawingLayer].self)
-        let layers=try rows.map { try $0.drawingLayer() }
+        let layers=try coreDrawingLayers(rows)
         return RenderFrameEffects(configuration: configuration,layers: layers)
     }
 }
