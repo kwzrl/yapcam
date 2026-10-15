@@ -43,7 +43,18 @@ import YapcamEditor
             if let i = args.firstIndex(of: flag) {
                 let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
                 let source = EditorSelfTests.argument(after: "--source", in: args)
-                Task { await SelfTests.runUIRecord(seconds: seconds, driveInput: drive, source: source); NSApp.terminate(nil) }
+                var options = SelfTestOptions()
+                options.afterRecording = EditorSelfTests.argument(after: "--after-recording", in: args)
+                options.saveTo = EditorSelfTests.argument(after: "--save-to", in: args)
+                if let text = EditorSelfTests.argument(after: "--hotkey-script", in: args) {
+                    var error: String?
+                    guard let steps = HotkeyStep.parse(text, error: &error) else {
+                        Probe.log("\(drive ? "drive-input" : "ui-record")-selftest failed bad --hotkey-script: \(error ?? "?")")
+                        NSApp.terminate(nil); return
+                    }
+                    options.hotkeyScript = steps
+                }
+                Task { await SelfTests.runUIRecord(seconds: seconds, driveInput: drive, source: source, options: options); NSApp.terminate(nil) }
                 return
             }
         }

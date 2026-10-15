@@ -153,7 +153,7 @@ import YapcamEditor
 
     /// Records through the same `RecordingController` path as the Record button, with the toolbar and HUD
     /// on screen. `driveInput` additionally posts scripted CGEvents while recording.
-    static func runUIRecord(seconds: Double, driveInput: Bool, source: String? = nil) async {
+    static func runUIRecord(seconds: Double, driveInput: Bool, source: String? = nil, options: SelfTestOptions = SelfTestOptions()) async {
         let tag = driveInput ? "drive-input-selftest" : "ui-record-selftest"
         guard seconds > 0, seconds <= 3600 else { Probe.log("\(tag) failed seconds must be in (0, 3600]"); return }
         let settings = AppSettings.shared, rec = RecordingController.shared
@@ -161,10 +161,30 @@ import YapcamEditor
         let saved = (settings.countdown, settings.openEditorAfterRecording, settings.sourceMode)
         defer { (settings.countdown, settings.openEditorAfterRecording, settings.sourceMode) = saved }
         settings.sourceMode = .display
+        if let mode = options.afterRecording {
+            switch mode {
+            case "create": settings.afterRecording = .createProject; settings.showQuickExportWidget = false
+            case "widget": settings.afterRecording = .createProject; settings.showQuickExportWidget = true
+            case "copy": settings.afterRecording = .exportCopy; settings.showQuickExportWidget = false
+            case "save": settings.afterRecording = .exportSave; settings.showQuickExportWidget = false
+            default: Probe.log("\(tag) failed unknown --after-recording \(mode) (use create, widget, copy or save)"); return
+            }
+        }
+        if let path = options.saveTo { QuickExport.testSaveURL = URL(filePath: path) }
         ToolbarPanelController.shared.show()
         try? await Task.sleep(for: .seconds(1))
         let trusted = AXIsProcessTrusted()
         Probe.log("\(tag) start seconds=\(seconds) source=\(source ?? "record-button") accessibility=\(trusted) inputMonitoring=\(CGPreflightListenEventAccess()) countdown=\(settings.countdown)")
+        if let steps = options.hotkeyScript {
+            // The whole recording is driven by posted shortcuts; the script must start and stop it.
+            HotkeyManager.shared.rebind()
+            Probe.log("\(tag) hotkeys registered; failed to register: \(HotkeyManager.shared.failed.map(\.rawValue).sorted())")
+            await SelfTestKeys.run(steps, tag: tag)
+            _ = await waitFor({ rec.phase == .idle }, seconds: 90)
+            Probe.log("\(tag) script finished: phase=\(rec.phase) alert=\(rec.alert?.message ?? "-")")
+            await logOutcome(tag, settings: settings, mode: options.afterRecording ?? "create")
+            return
+        }
         if let source {
             // The same path a click takes: source overlay → Start recording.
             guard await startThroughOverlay(source, settings: settings, tag: tag) else { return }
@@ -189,11 +209,35 @@ import YapcamEditor
         if let a = rec.alert { Probe.log("\(tag) alert \(a.title): \(a.message)") }
         let pkg = newestPackage(in: settings.storageDirectory)
         Probe.log("\(tag) \(pkg == nil ? "failed no package" : "ok") \(pkg?.path ?? "")")
-        // After Stop the editor opens at once, in front, on the new recording.
-        let editor = await waitFor({ EditorBridge.anyDocument() != nil }, seconds: 15)
-        try? await Task.sleep(for: .seconds(1))          // the raise happens twice: right away and again after layout
-        let front = EditorBridge.editorIsFrontAndKey
-        Probe.log("\(tag) editorOpened=\(editor) editorInFront=\(front) appActive=\(NSApp.isActive) editorPackage=\(EditorBridge.anyDocument()?.project.packageURL.lastPathComponent ?? "-")")
+        await logOutcome(tag, settings: settings, mode: options.afterRecording ?? "create")
+    }
+
+    /// What happened after Stop, for the after-recording choice in effect.
+    private static func logOutcome(_ tag: String, settings: AppSettings, mode: String) async {
+        let pkg = newestPackage(in: settings.storageDirectory)
+        Probe.log("\(tag) package \(pkg?.path ?? "none")")
+        switch mode {
+        case "copy", "save":
+            let done = await waitFor({ if case .working = QuickExport.shared.state { false } else { QuickExport.shared.state != .idle } }, seconds: 120)
+            Probe.log("\(tag) afterRecording=\(mode) export state=\(QuickExport.shared.state) finished=\(done) editorOpened=\(EditorBridge.anyDocument() != nil)")
+            if mode == "copy" {
+                let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] ?? []
+                let sizes = urls.map { (try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+                Probe.log("\(tag) clipboard files=\(urls.map(\.path)) bytes=\(sizes)")
+            } else if let path = QuickExport.testSaveURL?.path {
+                let size = (try? URL(filePath: path).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                Probe.log("\(tag) saved file \(path) exists=\(FileManager.default.fileExists(atPath: path)) bytes=\(size)")
+            } else { Probe.log("\(tag) save: no --save-to given, the save panel would have blocked; use --save-to <file.mp4>") }
+        case "widget":
+            try? await Task.sleep(for: .seconds(3))
+            Probe.log("\(tag) afterRecording=widget quickExportWidgetVisible=\(QuickExportWidget.shared.isVisible) editorOpened=\(EditorBridge.anyDocument() != nil)")
+        default:
+            // After Stop the editor opens at once, in front, on the new recording.
+            let editor = await waitFor({ EditorBridge.anyDocument() != nil }, seconds: 15)
+            try? await Task.sleep(for: .seconds(1))          // the raise happens twice: right away and again after layout
+            let front = EditorBridge.editorIsFrontAndKey
+            Probe.log("\(tag) afterRecording=create editorOpened=\(editor) editorInFront=\(front) appActive=\(NSApp.isActive) editorPackage=\(EditorBridge.anyDocument()?.project.packageURL.lastPathComponent ?? "-")")
+        }
     }
 
     /// Display / window / area: show the overlay, then press Start recording the way a click would.
