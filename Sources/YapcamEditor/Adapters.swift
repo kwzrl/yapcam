@@ -153,6 +153,7 @@ public final class CoreEditingProject: EditingProject {
     public func undo() throws { try project.undo(); refresh() }
     public func redo() throws { try project.redo(); refresh() }
     public func save() throws { try project.save() }
+    public func close() { project.close() }
     public var wallpapers: [WallpaperInfo] {
         BackgroundLibrary.presets.map { WallpaperInfo(id: $0.id, title: $0.title, category: $0.category.rawValue) }
     }

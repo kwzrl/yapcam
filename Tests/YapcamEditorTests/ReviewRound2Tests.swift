@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import YapcamCore
 import YapcamRender
+import AVFoundation
 @testable import YapcamEditor
 
 private func pkgCopy2() throws -> URL {
@@ -159,5 +160,48 @@ private func pkgCopy2() throws -> URL {
         let id = m.addText(.annotation)!
         #expect(m.minDurationNs(forKey: EditorModel.textKey(m.textItems(.annotation).first { $0.id == id }!)) == 100_000_000)
         #expect(m.minDurationNs(forKey: "layout-x") == minZoomDurationNs)
+    }
+}
+
+/// Core `Project.close()` removes the residual window of finding #1.
+@MainActor @Suite struct ProjectCloseTests {
+    @Test func closingTheModelClosesTheProject() {
+        let p = FakeProject(durationNs: 5_000_000_000), m = EditorModel(project: p, player: FakePlayer())
+        m.addZoomAtPlayhead(); m.close()
+        #expect(p.closed && p.saveCount == 1)
+    }
+
+    @Test func realProjectRefusesEveryMutationAfterClose() throws {
+        let d = try pkgCopy2(); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d); let m = doc.model
+        m.set("canvas.padding", number: 31)
+        m.close()
+        #expect(throws: (any Error).self) { try doc.project.apply(.set(path: "canvas.padding", value: .number(5))) }
+        #expect(throws: (any Error).self) { try doc.project.save() }
+        #expect(throws: (any Error).self) { try doc.project.undo() }
+        #expect(doc.project.durationNs > 0)                                       // reads keep working
+        let reopened = try EditorDocument(package: d)
+        #expect(reopened.model.number("canvas.padding") == 31)                    // the pre-close save won
+    }
+
+    @Test func lateBackgroundImportCannotTouchAReopenedPackage() async throws {
+        let d = try pkgCopy2(); defer { try? FileManager.default.removeItem(at: d) }
+        let wav = FileManager.default.temporaryDirectory.appendingPathComponent("late-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: wav) }
+        do {
+            let fmt = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
+            let f = try AVAudioFile(forWriting: wav, settings: fmt.settings)
+            let b = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 44100)!; b.frameLength = 44100
+            try f.write(from: b)
+        }
+        let stale = try EditorDocument(package: d)
+        stale.model.importMusicFile(wav)
+        stale.model.close()                                                       // window closed while the import is running
+        let fresh = try EditorDocument(package: d)                                // reopened
+        fresh.model.set("canvas.padding", number: 66); fresh.model.saveNow()
+        await stale.model.waitForMusicImport()
+        let verify = try EditorDocument(package: d)
+        #expect(verify.model.number("canvas.padding") == 66 && verify.model.music.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: d.appendingPathComponent("autosave/project.json").path))
     }
 }

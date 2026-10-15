@@ -39,6 +39,7 @@ public final class FakeProject: EditingProject {
     public var canRedo: Bool { !redoStack.isEmpty }
 
     public func apply(_ command: EditorCommand) throws {
+        if closed { throw NSError(domain: "Fake", code: 9, userInfo: [NSLocalizedDescriptionKey: "Project is closed"]) }
         let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
         try run(command)
         undoStack.append(snap); redoStack.removeAll()
@@ -157,6 +158,8 @@ public final class FakeProject: EditingProject {
         settings = Self.setting(settings, ["audio", "music"][...], .array(rows))
         undoStack.append(snap); redoStack.removeAll()
     }
+    public private(set) var closed = false
+    public func close() { closed = true }
     public func silentSpans() async throws -> [TimeSpan] { try await Task.sleep(for: silenceDelay); return silences }
     public func save() throws {
         if failSave { throw NSError(domain: "Fake", code: 2, userInfo: [NSLocalizedDescriptionKey: "disk full"]) }
