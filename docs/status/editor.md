@@ -1,6 +1,6 @@
 # editor status
 
-READY 6855810 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY e824589 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Structural edits (split, delete, zoom add/update, silence/typing processing) now use core's checked `timeline_edit` envelope; real-core test: a 50 ms zoom is rejected with state unchanged. 205 editor tests green.
