@@ -41,6 +41,7 @@ public final class EditorModel: ObservableObject {
     public private(set) var isPlaying: Bool { get { playhead.isPlaying } set { if playhead.isPlaying != newValue { playhead.isPlaying = newValue } } }
     @Published public var paletteVisible = false
     @Published public var speedMenuVisible = false
+    var lastRegionStyle: HighlightRegion?
     /// Typing suggestion whose popover is open (start of its span), and the ones the user dismissed.
     @Published public var typingPopover: Int64?
     var dismissedTyping = Set<Int64>()

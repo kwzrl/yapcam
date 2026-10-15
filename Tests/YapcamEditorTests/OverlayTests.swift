@@ -21,7 +21,7 @@ private func pkgCopy() throws -> URL {
         let id = m.highlights[0].id
         #expect(m.selection == .highlight(id))
         m.setHighlightKind(id: id, .spotlight); #expect(m.highlights[0].kind == .spotlight && m.highlights[0].strokeWidth == 0)
-        m.setHighlightKind(id: id, .highlight); #expect(m.highlights[0].kind == .highlight && m.highlights[0].dimOpacity == 0.4)
+        m.setHighlightKind(id: id, .highlight); #expect(m.highlights[0].kind == .highlight && m.highlights[0].dimOpacity == 0.5)
         m.updateHighlight(id: id) { $0.space = "canvas" }; #expect(m.highlights[0].space == "canvas")
         m.deleteSelection(); #expect(m.highlights.isEmpty && m.selection == .none)
     }

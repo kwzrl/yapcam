@@ -69,7 +69,7 @@ import AppKit
         model.selection = .zoom(model.zooms[0].id)
         try await render("3-zoom-selected", model: model, section: .animations, title: "Recording 2026-10-15", dir: dir, preview: frame)
         model.selection = .none
-        for (i, s) in InspectorSection.allCases.enumerated() {
+        for (i, s) in model.availableSections.enumerated() {
             try await render("4\(i)-\(s.rawValue)", model: model, section: s, title: "Recording 2026-10-15", dir: dir, preview: frame)
         }
     }

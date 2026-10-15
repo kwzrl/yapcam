@@ -290,3 +290,90 @@ import YapcamCore
         m.undo(); #expect(m.durationNs == before)                                             // one undo step
     }
 }
+
+@MainActor @Suite(.serialized) struct ReferenceControlTests {
+    private func fixture() throws -> URL {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("rc-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); return d
+    }
+
+    @Test func cameraPositionGridHasEightPointsWithoutACenter() {
+        #expect(CameraPositionRow.xs.count == 3 && CameraPositionRow.ys.count == 3)
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.set("camera.position", .array([.number(CameraPositionRow.xs[2]), .number(CameraPositionRow.ys[0])]))
+        #expect(m.numbers("camera.position") == [0.82, 0.22])
+    }
+
+    @Test func captionLookAppliesToAllCaptionsAndNewOnes() {
+        UserDefaults.standard.removeObject(forKey: EditorModel.captionLookKey); defer { UserDefaults.standard.removeObject(forKey: EditorModel.captionLookKey) }
+        let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer())
+        m.set("canvas.output_size", .array([.number(1920), .number(1000)]))
+        m.addText(.caption, text: "a"); m.seek(toNs: 5_000_000_000); m.addText(.caption, text: "b")
+        var look = CaptionLook(); look.size = 0.1; look.light = true; look.center = true
+        m.setCaptionLook(look)
+        for c in m.textItems(.caption) {
+            #expect(c.fontSize == 100 && c.color == [0.08, 0.08, 0.08, 1] && c.background[3] > 0.8)
+            #expect(abs(c.rect[1] + c.rect[3] / 2 - 0.5) < 1e-9)                      // centered
+        }
+        m.undo(); #expect(m.textItems(.caption).allSatisfy { $0.fontSize != 100 })      // one undo step for all captions
+        m.redo()
+        m.seek(toNs: 9_000_000_000); m.addText(.caption, text: "new")
+        #expect(m.textItems(.caption).last?.fontSize == 100)                             // new captions follow the remembered look
+        look.size = 5; look.light = false; look.center = false; m.setCaptionLook(look)
+        #expect(m.textItems(.caption).allSatisfy { abs($0.fontSize - 0.125 * 1000) < 1e-9 && $0.rect[1] > 0.6 })   // clamped to 12.5 %, bottom
+    }
+
+    @Test func newRegionsInheritTheLastStyleAndApplyToAllWorks() {
+        let m = EditorModel(project: FakeProject(durationNs: 30_000_000_000), player: FakePlayer())
+        m.addHighlightAtPlayhead(kind: .highlight)
+        #expect(m.highlights[0].dimOpacity == 0.5)                                       // reference default
+        let first = m.highlights[0].id
+        m.updateHighlight(id: first) { $0.dimOpacity = 0.8; $0.strokeWidth = 7; $0.stroke = [1, 0, 0, 1] }
+        m.seek(toNs: 10_000_000_000); m.addHighlightAtPlayhead(kind: .highlight)
+        #expect(m.highlights[1].dimOpacity == 0.8 && m.highlights[1].strokeWidth == 7 && m.highlights[1].stroke == [1, 0, 0, 1])
+        m.seek(toNs: 20_000_000_000); m.addHighlightAtPlayhead(kind: .mask)
+        #expect(m.highlights[2].kind == .mask && m.highlights[2].dimOpacity == 0)        // a different kind does not inherit
+        m.updateHighlight(id: first) { $0.dimOpacity = 0.3 }
+        m.applyHighlightStyleToAll(from: first)
+        #expect(m.highlights[1].dimOpacity == 0.3 && m.highlights[2].dimOpacity == 0)    // only the same kind changes
+    }
+
+    @Test func presetManagementRenameUpdateMatchAndDefault() throws {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        let base = "ut-\(UUID().uuidString.prefix(6))"
+        defer { for n in [base, base + "-b"] { try? FileManager.default.removeItem(at: EditorPresets.url(n)) }; EditorPresets.defaultName = nil }
+        m.savePreset(named: base); #expect(EditorPresets.names().contains(base))
+        m.renamePreset(from: base, to: base + "-b")
+        #expect(EditorPresets.names().contains(base + "-b") && !EditorPresets.names().contains(base))
+        EditorPresets.defaultName = base + "-b"
+        m.renamePreset(from: base + "-b", to: base); #expect(EditorPresets.defaultName == base)           // default follows a rename
+        m.savePreset(named: base + "-b")
+        m.renamePreset(from: base, to: base + "-b"); #expect(m.lastError != nil)                           // no overwrite on rename
+        m.lastError = nil
+        let before = try Data(contentsOf: EditorPresets.url(base))
+        m.updatePreset(named: base)
+        let after = try Data(contentsOf: EditorPresets.url(base))
+        #expect(m.lastError == nil, "\(m.lastError ?? "")"); #expect(after == before)                                                      // fake exports "{}" both times
+    }
+
+    @Test func defaultPresetStartsNewProjects() throws {
+        let src = try fixture(); defer { try? FileManager.default.removeItem(at: src) }
+        let name = "ut-def-\(UUID().uuidString.prefix(6))"
+        defer { try? FileManager.default.removeItem(at: EditorPresets.url(name)); EditorPresets.defaultName = nil }
+        let a = try EditorDocument(package: src); a.model.set("canvas.padding", number: 91); a.model.set("canvas.radius", number: 40)
+        a.model.savePreset(named: name)
+        #expect(a.model.presetMatchesProject(named: name))                                              // "Matches project"
+        a.model.set("canvas.padding", number: 50); #expect(!a.model.presetMatchesProject(named: name))
+        a.model.updatePreset(named: name); #expect(a.model.presetMatchesProject(named: name))           // update to match
+        a.model.close()
+        EditorPresets.defaultName = name
+        let fresh = try fixture(); defer { try? FileManager.default.removeItem(at: fresh) }
+        let b = try EditorDocument(package: fresh)
+        #expect(b.model.number("canvas.padding") == 50 && b.model.number("canvas.radius") == 40)        // new project starts from the default
+        EditorPresets.defaultName = nil
+        let plain = try fixture(); defer { try? FileManager.default.removeItem(at: plain) }
+        let plainPadding = try EditorDocument(package: plain).model.number("canvas.padding")
+        #expect(plainPadding == 48)
+    }
+}

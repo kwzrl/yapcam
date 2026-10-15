@@ -26,6 +26,10 @@ import UniformTypeIdentifiers
         let hasProject = ["project.json", "project.json.prev", "autosave/project.json"]
             .contains { fm.fileExists(atPath: package.appendingPathComponent($0).path) }
         project = hasProject ? try Project.open(package: package) : try Project.create(package: package)
+        if !hasProject, let name = EditorPresets.defaultName, FileManager.default.fileExists(atPath: EditorPresets.url(name).path) {
+            // New projects start from the preset marked "use as default for new projects", if there is one.
+            try? project.importPreset(from: EditorPresets.url(name))
+        }
         let source = ProjectRenderSource(project)
         player = try PreviewPlayer(project: source)
         adapter = PreviewPlayerAdapter(player: player)

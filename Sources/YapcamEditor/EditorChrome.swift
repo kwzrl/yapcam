@@ -16,14 +16,21 @@ import AppKit
     static func url(_ name: String) -> URL { directory.appending(path: "\(name).yapcampreset") }
     static func clean(_ name: String) -> String { name.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-") }
 
+    static let defaultKey = "yapcam.defaultPreset"
+    /// The preset applied to every new project (nil = none).
+    static var defaultName: String? {
+        get { UserDefaults.standard.string(forKey: defaultKey) }
+        set { UserDefaults.standard.set(newValue, forKey: defaultKey) }
+    }
+
     /// Asks for a name (AppKit alert with a text field). nil = cancelled.
-    static func promptName() -> String? {
+    static func promptName(title: String = "Save look as preset", initial: String = "My Preset", confirm: String = "Save") -> String? {
         let alert = NSAlert()
-        alert.messageText = "Save look as preset"
+        alert.messageText = title
         alert.informativeText = "Name for this look (background, cursor, zoom defaults…)"
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24)); field.stringValue = "My Preset"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24)); field.stringValue = initial
         alert.accessoryView = field
-        alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: confirm); alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
     }
 }
@@ -36,6 +43,35 @@ extension EditorModel {
             try FileManager.default.createDirectory(at: EditorPresets.directory, withIntermediateDirectories: true)
             try project.exportPreset(to: EditorPresets.url(name))
         } catch { lastError = "Couldn't save the preset: \(error.localizedDescription)" }
+    }
+    /// True when the saved preset has exactly the settings of the project right now ("Matches project" badge).
+    public func presetMatchesProject(named name: String) -> Bool {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("match-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        guard (try? project.exportPreset(to: tmp)) != nil,
+              let a = try? JSONSerialization.jsonObject(with: Data(contentsOf: tmp)) as? NSDictionary,
+              let b = try? JSONSerialization.jsonObject(with: Data(contentsOf: EditorPresets.url(name))) as? NSDictionary else { return false }
+        return a.isEqual(b)
+    }
+    /// "Update to match the current project": overwrites the preset file atomically.
+    public func updatePreset(named name: String) {
+        let tmp = EditorPresets.directory.appendingPathComponent(".update-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        do { try project.exportPreset(to: tmp); _ = try FileManager.default.replaceItemAt(EditorPresets.url(name), withItemAt: tmp) }
+        catch { lastError = "Couldn't update the preset: \(error.localizedDescription)" }
+    }
+    public func renamePreset(from old: String, to raw: String) {
+        let new = EditorPresets.clean(raw)
+        guard !new.isEmpty, new != old else { return }
+        guard !FileManager.default.fileExists(atPath: EditorPresets.url(new).path) else { lastError = "A preset named “\(new)” already exists."; return }
+        do {
+            try FileManager.default.moveItem(at: EditorPresets.url(old), to: EditorPresets.url(new))
+            if EditorPresets.defaultName == old { EditorPresets.defaultName = new }
+        } catch { lastError = "Couldn't rename the preset: \(error.localizedDescription)" }
+    }
+    public func removePreset(named name: String) {
+        do { try FileManager.default.trashItem(at: EditorPresets.url(name), resultingItemURL: nil); if EditorPresets.defaultName == name { EditorPresets.defaultName = nil } }
+        catch { lastError = "Couldn't remove the preset: \(error.localizedDescription)" }
     }
     public func applyPreset(at url: URL) {
         guard !isClosed else { return }
@@ -69,10 +105,22 @@ struct EditorTopBar: View {
             Button { model.paletteVisible = true } label: { Image(systemName: "command") }
                 .help("Command palette (⌘K)").accessibilityLabel("Commands")
             Menu {
-                Button("Save current look…") { if let n = EditorPresets.promptName() { model.savePreset(named: n) } }
+                Button("Create preset from this look…") { if let n = EditorPresets.promptName() { model.savePreset(named: n); presetNames = EditorPresets.names() } }
                 Divider()
                 if presetNames.isEmpty { Text("No presets yet") }
-                ForEach(presetNames, id: \.self) { n in Button("Apply “\(n)”") { model.applyPreset(at: EditorPresets.url(n)) } }
+                ForEach(presetNames, id: \.self) { n in
+                    let badges = [model.presetMatchesProject(named: n) ? "Matches project" : nil, EditorPresets.defaultName == n ? "Default" : nil].compactMap { $0 }
+                    Menu(badges.isEmpty ? n : "\(n)  ·  \(badges.joined(separator: ", "))") {
+                        Button("Apply") { model.applyPreset(at: EditorPresets.url(n)) }
+                        Button("Rename…") { if let new = EditorPresets.promptName(title: "Rename preset", initial: n, confirm: "Rename") { model.renamePreset(from: n, to: new); presetNames = EditorPresets.names() } }
+                        Button("Update to match current project") { model.updatePreset(named: n) }
+                        Button(EditorPresets.defaultName == n ? "Don't use as default" : "Use as default for new projects") {
+                            EditorPresets.defaultName = EditorPresets.defaultName == n ? nil : n
+                        }
+                        Divider()
+                        Button("Remove", role: .destructive) { model.removePreset(named: n); presetNames = EditorPresets.names() }
+                    }
+                }
             } label: { Label("Presets", systemImage: "square.stack") }
                 .menuStyle(.borderlessButton).fixedSize()
                 .onAppear { presetNames = EditorPresets.names() }

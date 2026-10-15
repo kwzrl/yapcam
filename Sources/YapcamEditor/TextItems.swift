@@ -72,13 +72,15 @@ extension EditorModel {
                                           "radius": .number(t.radius), "opacity": .number(t.opacity)])])
     }
     private func writeText(_ kind: TextKind, _ items: [TextItem]) { set(kind.path, .array(items.map(json))) }
+    func writeTextList(_ kind: TextKind, _ items: [TextItem]) { writeText(kind, items) }
 
     @discardableResult
     public func addText(_ kind: TextKind, text: String? = nil) -> String? {
         let start = playheadNs, end = min(start + (kind == .reaction ? 2_000_000_000 : 3_000_000_000), durationNs)
         guard end - start >= minItemNs else { lastError = "Not enough room here."; return nil }
-        let t = TextItem.make(kind, id: "\(kind.rawValue)-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end,
+        var t = TextItem.make(kind, id: "\(kind.rawValue)-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end,
                               text: text ?? (kind == .annotation ? "Your text" : kind == .caption ? "Caption" : "👍"))
+        if kind == .caption { t = captionLook.apply(to: t, outputHeight: outputHeight) }
         writeText(kind, textItems(kind) + [t])
         guard lastError == nil else { return nil }
         selection = .text(kind, t.id); return t.id

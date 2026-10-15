@@ -250,10 +250,12 @@ struct InspectorView: View {
         Section("Key overlay") {
             ToggleRow(model: model, title: "Show typed keys", path: "cursor.key_overlay.enabled")
             if model.bool("cursor.key_overlay.enabled") {
-                ToggleRow(model: model, title: "Shortcuts only", path: "cursor.key_overlay.shortcuts_only", defaultValue: true)
+                Toggle("Show single-key presses", isOn: Binding(get: { !model.bool("cursor.key_overlay.shortcuts_only", default: true) },
+                                                                set: { model.set("cursor.key_overlay.shortcuts_only", bool: !$0) }))
                 DurationRow(model: model, title: "Stays visible", path: "cursor.key_overlay.duration_ns", default: 1_000_000_000)
                 RectRow(model: model, title: "Position", path: "cursor.key_overlay.rect", fallback: [0.3, 0.82, 0.4, 0.12])
-                NumberRow(model: model, title: "Font size", path: "cursor.key_overlay.style.font_size", range: 12...120, unit: "px", format: "%.0f")
+                let h = max(model.numbers("canvas.output_size").last ?? 1080, 1)
+                NumberRow(model: model, title: "Size", path: "cursor.key_overlay.style.font_size", range: 0.075 * h...0.25 * h, unit: "%", format: "%.1f", scale: 100 / h, defaultValue: 0.10 * h)
                 ColorRow(model: model, title: "Text", path: "cursor.key_overlay.style.color")
                 ColorRow(model: model, title: "Background", path: "cursor.key_overlay.style.background", opacity: true)
                 NumberRow(model: model, title: "Corner radius", path: "cursor.key_overlay.style.radius", range: 0...48, unit: "px", format: "%.0f")
@@ -350,14 +352,20 @@ struct InspectorView: View {
             NumberRow(model: model, title: "Smoothing", path: "cursor.smoothing", range: 0...1)
             PickerRow(model: model, title: "Movement speed", path: "cursor.speed_preset", options: speedPresets)
             ToggleRow(model: model, title: "Hide when idle", path: "cursor.hide_when_idle")
+            if model.bool("cursor.hide_when_idle") {
+                DurationRow(model: model, title: "Idle after", path: "cursor.idle_timeout_ns", default: 2_000_000_000, range: 0.5...5)
+            }
             ToggleRow(model: model, title: "Always use the default arrow", path: "cursor.always_default")
             ToggleRow(model: model, title: "Tilt while moving", path: "cursor.rotate_on_move")
             ToggleRow(model: model, title: "Remove tiny shakes", path: "cursor.remove_shakes")
             ToggleRow(model: model, title: "Reduce cursor-type flicker", path: "cursor.optimize_types")
             HoldCursorRow(model: model)
             PickerRow(model: model, title: "Click effect", path: "cursor.click_effect",
-                      options: [("None", "none"), ("Ring", "ring"), ("Highlight", "highlight")])
+                      options: [("None", "none"), ("Circle", "ring"), ("Ripple", "highlight")])
             ToggleRow(model: model, title: "Loop cursor to start", path: "cursor.loop_to_start")
+            if model.bool("cursor.loop_to_start") {
+                DurationRow(model: model, title: "Loop position takes", path: "cursor.loop_duration_ns", default: 400_000_000, range: 1...4)
+            }
             PickerRow(model: model, title: "Cursor style", path: "cursor.style",
                       options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch"), ("Arrow", "arrow")])
             NullableChoiceRow(model: model, title: "Cursor set", path: "cursor.set_id", automatic: "Recorded", options: cursorSets)
@@ -379,8 +387,12 @@ struct InspectorView: View {
     @ViewBuilder private var cameraLayout: some View {
         Section("Camera") {
             ToggleRow(model: model, title: "Show camera", path: "camera.visible", defaultValue: true)
-            NumberRow(model: model, title: "Size", path: "camera.size", range: 0.05...0.75, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.22)
-            NumberRow(model: model, title: "Size while zoomed", path: "camera.zoom_scale", range: 0.25...4, unit: "x", defaultValue: 1)
+            NumberRow(model: model, title: "Size", path: "camera.size", range: 0.1...0.75, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.22)
+            Toggle("Make smaller during zoom", isOn: Binding(get: { model.number("camera.zoom_scale", default: 1) < 0.999 },
+                                                              set: { model.set("camera.zoom_scale", number: $0 ? 0.6 : 1) }))
+            if model.number("camera.zoom_scale", default: 1) < 0.999 {
+                NumberRow(model: model, title: "Size while zoomed", path: "camera.zoom_scale", range: 0.25...0.8, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.6)
+            }
             CameraPositionRow(model: model)
         }
         Section("Layout over time") {
@@ -489,15 +501,28 @@ struct ZoomScaleRow: View {
     }
 }
 
+/// 8-point position grid (corners and edge midpoints, no center).
 struct CameraPositionRow: View {
     @ObservedObject var model: EditorModel
+    static let xs = [0.18, 0.5, 0.82], ys = [0.22, 0.5, 0.78]
     var body: some View {
-        let corners: [(String, [Double])] = [("↖", [0.18, 0.22]), ("↗", [0.82, 0.22]), ("↙", [0.18, 0.78]), ("↘", [0.82, 0.78])]
         LabeledContent("Position") {
-            HStack {
-                ForEach(corners, id: \.0) { c in
-                    Button(c.0) { model.set("camera.position", .array(c.1.map { .number($0) })) }
-                        .buttonStyle(.bordered).accessibilityLabel("Camera corner \(c.0)")
+            let cur = model.numbers("camera.position")
+            VStack(spacing: 3) {
+                ForEach(0..<3, id: \.self) { r in
+                    HStack(spacing: 3) {
+                        ForEach(0..<3, id: \.self) { c in
+                            if r == 1 && c == 1 { Color.clear.frame(width: 26, height: 20) }
+                            else {
+                                let on = cur.count == 2 && abs(cur[0] - Self.xs[c]) < 0.02 && abs(cur[1] - Self.ys[r]) < 0.02
+                                Button { model.set("camera.position", .array([.number(Self.xs[c]), .number(Self.ys[r])])) } label: {
+                                    RoundedRectangle(cornerRadius: 4).fill(on ? Color.accentColor : Color.primary.opacity(0.15)).frame(width: 26, height: 20)
+                                }
+                                .buttonStyle(.plain).accessibilityLabel("Camera position \(["top", "middle", "bottom"][r]) \(["left", "center", "right"][c])")
+                                .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -536,12 +561,13 @@ struct DurationRow: View {
     @ObservedObject var model: EditorModel
     let title: String, path: String
     var `default` = 400_000_000.0
+    var range: ClosedRange<Double> = 0.1...5
     @State private var seconds = 0.4
     @State private var editing = false
     var body: some View {
         LabeledContent(title) {
             HStack {
-                Slider(value: $seconds, in: 0.1...5) { e in editing = e; if !e { model.set(path, number: (seconds * 1e9).rounded()) } }
+                Slider(value: $seconds, in: range) { e in editing = e; if !e { model.set(path, number: (seconds * 1e9).rounded()) } }
                     .accessibilityLabel(title).accessibilityValue(String(format: "%.1f seconds", seconds))
                 Text(String(format: "%.1f s", seconds)).monospacedDigit().frame(width: 46, alignment: .trailing).accessibilityHidden(true)
             }
@@ -568,7 +594,8 @@ struct HighlightControls: View {
         Stepper("Outline width \(Int(region.strokeWidth)) pt", value: Binding(get: { region.strokeWidth }, set: { v in model.updateHighlight(id: id) { $0.strokeWidth = v } }), in: 0...16)
         Stepper("Corner radius \(Int(region.radius)) pt", value: Binding(get: { region.radius }, set: { v in model.updateHighlight(id: id) { $0.radius = v } }), in: 0...64, step: 2)
         if region.kind != .mask {
-            Stepper("Dim outside \(Int(region.dimOpacity * 100))%", value: Binding(get: { region.dimOpacity }, set: { v in model.updateHighlight(id: id) { $0.dimOpacity = min(max(v, 0), 1) } }), in: 0...1, step: 0.1)
+            Stepper("Dim outside \(Int(region.dimOpacity * 100))%", value: Binding(get: { region.dimOpacity }, set: { v in model.updateHighlight(id: id) { $0.dimOpacity = min(max(v, 0.1), 0.9) } }), in: 0.1...0.9, step: 0.1)
+            Button("Apply to all highlights") { model.applyHighlightStyleToAll(from: id) }.disabled(model.highlights.count < 2)
         }
         Button("Remove region", role: .destructive) { model.deleteSelection() }
     }
@@ -661,6 +688,7 @@ struct CaptionSection: View {
             case .failed(let m): Text(m).foregroundStyle(.red); Button("Dismiss") { model.captionState = .idle }
             case .idle: Button(captions.isEmpty ? "Generate captions from speech" : "Regenerate captions") { model.generateCaptions() }
             }
+            CaptionStyleControls(model: model)
             if case .text(.caption, let id) = model.selection, let t = captions.first(where: { $0.id == id }) { TextControls(model: model, item: t) }
             Button("Add caption at playhead") { model.addText(.caption) }
             if !captions.isEmpty {
