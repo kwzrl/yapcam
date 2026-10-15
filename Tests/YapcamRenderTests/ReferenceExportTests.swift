@@ -47,6 +47,68 @@ final class ReferenceExportTests: XCTestCase {
             XCTAssertEqual(size.width%2,0); XCTAssertEqual(size.height%2,0)
         }
     }
+    func testClosestValidPresetMapsOldSheetsAndPreservesSavedControls() throws {
+        let bytes = Data(#"{"format":"gif","codec":"hevc","outputHeight":1440,"fps":24,"quality":0.6,"includeAudio":true,"rangeStartNs":10,"rangeEndNs":700000000}"#.utf8)
+        let saved = try JSONDecoder().decode(ExportSettings.self,from: bytes)
+        // Decoding remains lossless for old frame rates, dimensions and quality;
+        // normalization is explicit and must not silently rewrite saved records.
+        XCTAssertEqual(saved.fps,24); XCTAssertEqual(saved.outputHeight,1440)
+        XCTAssertEqual(saved.quality,0.6); XCTAssertNil(saved.compression)
+        XCTAssertEqual(try JSONDecoder().decode(ExportSettings.self,from: JSONEncoder().encode(saved)),saved)
+        let mapped = saved.closestValidPreset()
+        XCTAssertEqual(mapped.fps,20); XCTAssertEqual(mapped.outputHeight,1080); XCTAssertEqual(mapped.codec,.h264)
+        XCTAssertFalse(mapped.includeAudio); XCTAssertNil(mapped.speechEnhancement)
+        XCTAssertEqual(mapped.rangeStartNs,10); XCTAssertEqual(mapped.rangeEndNs,700_000_000)
+        XCTAssertEqual(mapped.quality,0.6); XCTAssertNil(mapped.compression)
+        XCTAssertEqual(saved.fps,24,"Mapping must not mutate the caller's settings")
+        for format in [ExportSettings.Format.mp4,.mov,.gif] {
+            for compression in ExportSettings.Compression.allCases {
+                for target in ExportSettings.Target.allCases {
+                    for fps in [Int.min,9,24,29,60,Int.max] {
+                        for height in [Int.min,480,719,1440,2160,Int.max] {
+                            let requested = ExportSettings(format: format,codec: .both,outputHeight: height,fps: fps,compression: compression,gifHighQuality: false,gifDisableLoop: true)
+                            let result = requested.closestValidPreset(for: target)
+                            XCTAssertNoThrow(try result.validatedRange(duration: 1))
+                            XCTAssertEqual(result.closestValidPreset(for: target),result,"Mapping is idempotent")
+                            XCTAssertEqual(result.compression,compression)
+                            XCTAssertFalse(result.gifHighQuality); XCTAssertTrue(result.gifDisableLoop)
+                            if target == .clipboard || format == .gif { XCTAssertNotEqual(result.codec,.both) }
+                        }
+                    }
+                }
+            }
+        }
+        let web = ExportSettings(codec: .both,outputHeight: 2160,fps: 60,compression: .web).closestValidPreset()
+        XCTAssertEqual(web.outputHeight,1080); XCTAssertEqual(web.fps,60); XCTAssertEqual(web.codec,.both)
+        let root = try temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let source = try syntheticSource(root)
+        let legacy = ExportSettings(format: .gif,outputHeight: 720,fps: 24,quality: 0.6)
+        XCTAssertThrowsError(try legacy.validatedRange(duration: source.durationNs),"The old sheet request is outside the new catalog; execution must map it first")
+        let exporter = try Exporter(project: source,settings: legacy,destination: root.appendingPathComponent("legacy.gif"))
+        XCTAssertEqual(exporter.effectiveSettings,legacy.closestValidPreset())
+        for invalid in [ExportSettings(fps: 0),ExportSettings(outputHeight: -1),ExportSettings(quality: .nan),ExportSettings(rangeEndNs: 300_000_000)] {
+            XCTAssertThrowsError(try Exporter(project: source,settings: invalid,destination: root.appendingPathComponent("bad.mp4")))
+        }
+    }
+    func testLegacyEditorGIFExportsWithClosestSupportedRateOnHost() async throws {
+        _ = try requireRenderDevice()
+        let root = try temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let source = try syntheticSource(root)
+        let output = root.appendingPathComponent("legacy.gif")
+        let exporter = try Exporter(project: source,settings: .init(format: .gif,outputHeight: 720,fps: 24,quality: 0.6),destination: output)
+        _ = try await exporter.run { _ in }
+        let image = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL,nil))
+        XCTAssertEqual(CGImageSourceGetCount(image),4)
+        XCTAssertEqual(exporter.metrics?.frames,4)
+        XCTAssertEqual(exporter.effectiveSettings.fps,20)
+        var duration = 0.0
+        for i in 0..<4 {
+            let p = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(image,i,nil) as? [CFString:Any])
+            let gif = try XCTUnwrap(p[kCGImagePropertyGIFDictionary] as? [CFString:Any])
+            duration += try XCTUnwrap(gif[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
+        }
+        XCTAssertEqual(duration,0.2,accuracy: 0.000001)
+    }
     func testGlobalPaletteImprovesErrorAndGIFOnceHasNoRepeatExtension() throws {
         let root = try temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
         let image = try BackgroundLibrary.image(for: XCTUnwrap(BackgroundLibrary.preset(id: "quiet-dawn")),width: 64,height: 40)

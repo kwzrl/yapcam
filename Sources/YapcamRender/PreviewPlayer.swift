@@ -22,6 +22,7 @@ struct PreviewSubmissionMetrics {
     @Published public private(set) var error: String?
     @Published public private(set) var metrics = PreviewMetrics()
     @Published public private(set) var speechEnhancementSettings: SpeechEnhancementSettings?
+    @Published public private(set) var motionBlurEnabled = true
     public var speechEnhancementReports: [SpeechEnhancementReport] { audioTimeline?.speechReports ?? [] }
     let project: any RenderProjectSource
     private(set) var renderProject: any RenderProjectSource
@@ -104,6 +105,11 @@ struct PreviewSubmissionMetrics {
         guard settings != speechEnhancementSettings else { return }
         speechEnhancementSettings=settings
         invalidate()
+    }
+    public func setMotionBlurEnabled(_ enabled: Bool) {
+        guard enabled != motionBlurEnabled else { return }
+        motionBlurEnabled=enabled; compositor.setMotionBlurEnabled(enabled)
+        redrawRevision += 1; view?.needsDisplay=true
     }
     public func invalidate() {
         // Rebuild the same clip mapping after edits; keep the current timeline location.

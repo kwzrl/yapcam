@@ -4,6 +4,9 @@ import CYapcamCore
 func validateFrame(_ f: YcFrame,configuration c: RenderConfiguration,layers: [RenderLayer] = []) throws {
     try c.glassLoupe?.validate()
     try c.cameraColor.validate()
+    guard c.screenShadowOffsetX.isFinite, (-1...1).contains(c.screenInsetOrigin.x), (-1...1).contains(c.screenInsetOrigin.y) else {
+        throw RenderError.invalidSettings("Screen shadow offset or inset origin is invalid")
+    }
     if c.glassLoupe != nil, f.screen.present != 0 {
         for layer in layers {
             if case .highlight(_,let fill,_,_) = layer.content, fill.w*layer.opacity >= 0.999 {

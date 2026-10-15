@@ -16,6 +16,8 @@ public final class FrameCompositor: @unchecked Sendable {
     private let lock = NSLock()
     private let invalidationLock = NSLock()
     private var needsInvalidation = false
+    private var motionBlurEnabled = true
+    private let framesPerSecond: Int
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
@@ -25,7 +27,9 @@ public final class FrameCompositor: @unchecked Sendable {
     private var cameraLUTs: [URL: CameraLUTTexture] = [:]
     private let empty: MTLTexture
 
-    public init(device: MTLDevice, project: any RenderProjectSource) throws {
+    public init(device: MTLDevice, project: any RenderProjectSource, framesPerSecond: Int = 60) throws {
+        guard (1...60).contains(framesPerSecond) else { throw RenderError.invalidSettings("Compositor frame rate must be 1...60") }
+        self.framesPerSecond=framesPerSecond
         self.device = device; self.project = project
         identityLUT = try CameraLUTTexture(CubeLUT.identity(), device: device)
         manifest = try RecordingManifest.load(package: project.packageURL)
@@ -50,6 +54,8 @@ public final class FrameCompositor: @unchecked Sendable {
     }
     /// Mark media caches stale without waiting for an in-flight decode on the UI thread.
     public func invalidateSources() { invalidationLock.withLock { needsInvalidation = true } }
+    /// Cheap preview-only switch; does not rebuild audio, snapshots or decoders.
+    public func setMotionBlurEnabled(_ enabled: Bool) { invalidationLock.withLock { motionBlurEnabled=enabled } }
     private func decoded(_ sample: YcSample, track: String) throws -> TextureFrame? {
         guard sample.present != 0 else { return nil }
         guard let segment = manifest.segment(at: sample.segment), let path = segment.files[track] else { throw RenderError.missingMedia("Missing \(track) in segment \(sample.segment)") }
@@ -72,7 +78,7 @@ public final class FrameCompositor: @unchecked Sendable {
     /// A preview generation supplies its frozen source so edits cannot mix frame/effects.
     func encode(_ frame: YcFrame,from project: any RenderProjectSource,to target: MTLTexture,in cb: MTLCommandBuffer) throws {
         lock.lock(); defer { lock.unlock() }
-        let invalidate = invalidationLock.withLock { let value=needsInvalidation; needsInvalidation=false; return value }
+        let (invalidate,blurEnabled) = invalidationLock.withLock { let value=(needsInvalidation,motionBlurEnabled); needsInvalidation=false; return value }
         if invalidate { sources.removeAll(); images.removeAll(); cameraLUTs.removeAll(); cursorMetadata.removeAll(); cameraEffects.invalidate(); layerRenderer.invalidate(); CVMetalTextureCacheFlush(cache,0) }
         guard target.pixelFormat == .bgra8Unorm_srgb, frame.canvas_w > 0, frame.canvas_h > 0 else { throw RenderError.metal("Compositor requires an sRGB BGRA target and nonzero canvas") }
         let effects = try project.renderEffects(atNs: frame.tl_ns,canvasSize: CGSize(width: Int(frame.canvas_w),height: Int(frame.canvas_h)))
@@ -141,9 +147,9 @@ public final class FrameCompositor: @unchecked Sendable {
         func color(_ c: (Float, Float, Float, Float)) -> SIMD4<Float> { SIMD4(c.0, c.1, c.2, c.3) }
         let crop = rect(frame.screen_crop)
         // Fixed shutter interval makes blur deterministic for seek, preview and export.
-        let zoomBlur=options.zoomMotionBlur ?? frame.motion_blur
-        let panBlur=options.panMotionBlur ?? frame.motion_blur
-        let prior=(zoomBlur>0 || panBlur>0 || options.cursorMotionBlur>0) && frame.tl_ns>0
+        let strengths=MotionBlurPolicy.strengths(frame: frame,configuration: options,framesPerSecond: framesPerSecond,enabled: blurEnabled)
+        let zoomBlur=strengths.x, panBlur=strengths.y, cursorBlur=strengths.z
+        let prior=(zoomBlur>0 || panBlur>0 || cursorBlur>0) && frame.tl_ns>0
             ? try project.frame(atNs: max(0,frame.tl_ns-16_666_667)) : frame
         let previous=rect(prior.screen_crop)
         var uniforms: [SIMD4<Float>] = [
@@ -156,9 +162,9 @@ public final class FrameCompositor: @unchecked Sendable {
             SIMD4(frame.cursor_visible != 0 ? frame.cursor_opacity : 0, frame.click_progress,options.cursorRotationRadians,0),
             SIMD4(Float(frame.click_x), Float(frame.click_y), 0, 0), rect(frame.camera_dest),
             SIMD4(frame.camera_corner_radius, Float(frame.camera_shape), camera == nil ? 0 : frame.camera_opacity, Float(frame.camera_mirror)),
-            previous, SIMD4(frame.inset_width, 0, 0, 0),
+            previous, SIMD4(frame.inset_width, options.screenShadowOffsetX, options.screenInsetOrigin.x, options.screenInsetOrigin.y),
             SIMD4(options.backgroundNoise,options.windowChrome ? 1 : 0, options.cameraShadowRadius, matte == nil ? 0 : 1),
-            SIMD4(zoomBlur,options.cursorMotionBlur,options.cursorSpotlightRadius,panBlur),
+            SIMD4(zoomBlur,cursorBlur,options.cursorSpotlightRadius,panBlur),
             SIMD4(Float(frame.cursor_x),Float(frame.cursor_y),Float(frame.cursor_x),Float(frame.cursor_y)), cameraCrop,
             screen?.geometry.rowX ?? SIMD4(1,0,0,0), screen?.geometry.rowY ?? SIMD4(0,1,0,0),
             camera?.geometry.rowX ?? SIMD4(1,0,0,0), camera?.geometry.rowY ?? SIMD4(0,1,0,0),
@@ -181,7 +187,7 @@ public final class FrameCompositor: @unchecked Sendable {
         uniforms.append(SIMD4(colorLUT.minimum, colorSettings.lutURL == nil ? 0 : 1))
         uniforms.append(SIMD4(colorLUT.maximum, colorSettings.isEnabled ? 1 : 0))
         uniforms.append(SIMD4(Float(frame.tl_ns % 1_000_000_000)/1e9,0,0,0))
-        if options.cursorMotionBlur > 0 && frame.tl_ns > 0 {
+        if cursorBlur > 0 && frame.tl_ns > 0 {
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
         }
         let pass = MTLRenderPassDescriptor()
@@ -247,7 +253,7 @@ public final class FrameCompositor: @unchecked Sendable {
                 float2 cropCenter=mix(u[5].xy+u[5].zw*.5,u[13].xy+u[13].zw*.5,u[16].w*shutter);
                 float4 sampleResult=result;
                 float radius=clamp(u[6].x,0.0,min(dest.z,dest.w)*.5);
-                float4 shadowRect=dest; shadowRect.y+=u[6].w;
+                float4 shadowRect=dest; shadowRect.xy+=float2(u[14].y,u[6].w);
                 float sd=rounded(p,shadowRect,radius);
                 float shadow=exp(-max(sd,0.0)*max(sd,0.0)/(2*max(u[6].y*u[6].y,1.0)))*u[6].z;
                 sampleResult=over(sampleResult,float4(0,0,0,shadow));
@@ -255,7 +261,7 @@ public final class FrameCompositor: @unchecked Sendable {
                 float2 uv=(p-dest.xy)/max(dest.zw,float2(.000001));
                 float4 tex=screen.sample(s,sourceUV(cropCenter-cropSize*.5+uv*cropSize,u[19],u[20]));
                 float inset=clamp(u[14].x,0.0,min(dest.z,dest.w)*.5);
-                float4 inner=float4(dest.xy+inset,dest.zw-2*inset);
+                float4 inner=float4(dest.xy+inset*(1-u[14].zw),dest.zw-2*inset);
                 float border=inset>0 ? smoothstep(-.5,.5,rounded(p,inner,max(0.0,radius-inset))) : 0;
                 tex=over(tex,float4(linearRGB(u[7].rgb),u[7].a*border));
                 tex.a*=mask; sampleResult=over(sampleResult,tex);

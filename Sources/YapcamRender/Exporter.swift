@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 import VideoToolbox
 
 public final class Exporter: @unchecked Sendable {
+    private static let scheduler = ExportScheduler()
     private let project: any RenderProjectSource
     private let settings: ExportSettings
     private let destination: URL
@@ -29,8 +30,32 @@ public final class Exporter: @unchecked Sendable {
         guard destination.isFileURL else { throw RenderError.invalidSettings("Export destination must be a local file") }
     }
     public func run(progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+        try await run(progress: progress,status: { _ in })
+    }
+    /// Status callbacks may run off MainActor; waiting cancellation creates no file.
+    public func run(progress: @Sendable @escaping (Double) -> Void,
+                    status: @Sendable @escaping (ExportPhase) -> Void) async throws -> URL {
         guard lock.withLock({ if running { return false }; running = true; return true }) else { throw RenderError.write("This exporter is already running") }
         defer { lock.withLock { running = false } }
+        do {
+            let result = try await Self.scheduler.run(waiting: { status(.waiting) }) {
+                status(.preparing)
+                let result = try await self.renderInSlot { value in
+                    if value == 0 { status(.rendering) }
+                    progress(value)
+                }
+                status(.completed)
+                return result
+            }
+            return result
+        } catch {
+            if error is CancellationError { status(.cancelled) }
+            else { status(.failed(error.localizedDescription)) }
+            throw error
+        }
+    }
+    // Both children inherit their parent's global slot; reacquiring would deadlock.
+    private func renderInSlot(progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
         try Task.checkCancellation()
         let startTime = ProcessInfo.processInfo.systemUptime
         if settings.codec == .both { return try await runBoth(startTime: startTime, progress: progress) }
@@ -43,7 +68,7 @@ public final class Exporter: @unchecked Sendable {
         let partial = destination.deletingLastPathComponent().appendingPathComponent(".yapcam-export-\(UUID().uuidString).\(settings.format.rawValue)")
         defer { if FileManager.default.fileExists(atPath: partial.path) { try? FileManager.default.removeItem(at: partial) } }
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw RenderError.metal("Metal unavailable") }
-        let compositor = try FrameCompositor(device: device, project: project)
+        let compositor = try FrameCompositor(device: device, project: project, framesPerSecond: settings.fps)
         var cache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, [kCVMetalTextureUsage as String: MTLTextureUsage([.shaderRead,.renderTarget]).rawValue] as CFDictionary, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Export texture cache unavailable") }
         progress(0)
@@ -70,7 +95,7 @@ public final class Exporter: @unchecked Sendable {
         for (i,codec) in [ExportSettings.Codec.h264,.hevc].enumerated() {
             var options = settings; options.codec = codec
             let child = try Exporter(project: project,settings: options,destination: directory.appendingPathComponent("\(i).\(settings.format.rawValue)"))
-            _ = try await child.run { value in progress((Double(i)+value)/2) }
+            _ = try await child.renderInSlot { value in progress((Double(i)+value)/2) }
             children.append(child)
         }
         try Task.checkCancellation()
