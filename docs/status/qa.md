@@ -1,4 +1,4 @@
-READY HEAD qa: live QA results (TEST_REPORT section 4), findings F6/F7
+READY a26510e qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 # qa status
 
