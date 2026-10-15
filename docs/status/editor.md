@@ -1,6 +1,6 @@
 # editor status
 
-READY ccea9b6 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 7cdc3db editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Zoom "Start animation early" + default zoom level (`zoom_settings.start_early/default_scale`), voice preset (`audio.mic_preset`) in voice clean-up; round-trip test on real core. 204 editor tests green.
