@@ -102,7 +102,7 @@ fn append_text(layers: &mut Vec<Value>, r: &TextRecord, f: &Frame, id: &str) {
         if r.style.background[3] > 0.0 {
             layers.push(json!({"id":format!("{id}:background"),"kind":"highlight","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":r.style.background,"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0}));
         }
-        layers.push(json!({"id":id,"kind":"text","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":[0.0,0.0,0.0,0.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0,"text":r.text,"font_size":r.style.font_size,"color":r.style.color}));
+        layers.push(json!({"id":id,"kind":"text","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":[0.0,0.0,0.0,0.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0,"text":r.text,"font_size":r.style.font_size,"font_family":r.style.font_family,"color":r.style.color}));
     }
 }
 /// Apply content entrance/exit to the legacy geometry. No additional ABI slots,
@@ -219,7 +219,29 @@ impl Project {
             ("caption", &self.data.canvas.captions),
         ] {
             for r in records {
-                append_text(&mut layers, r, &f, &format!("core:{kind}:{}", r.id));
+                if kind == "caption" {
+                    let Some(evaluation) = crate::captions::evaluate(r, tl_ns) else {
+                        continue;
+                    };
+                    if evaluation.visible_text.is_empty() {
+                        continue;
+                    }
+                    let first = layers.len();
+                    let mut visible = r.clone();
+                    visible.text = evaluation.visible_text.clone();
+                    visible.style.opacity *= evaluation.line_opacity;
+                    append_text(&mut layers, &visible, &f, &format!("core:{kind}:{}", r.id));
+                    for row in &mut layers[first..] {
+                        let y = row["rect"][1].as_f64().unwrap();
+                        let height = row["rect"][3].as_f64().unwrap();
+                        row["rect"][1] = (y + height * evaluation.line_offset_y).into();
+                        if row["kind"] == "text" {
+                            row["caption"] = serde_json::to_value(&evaluation)?;
+                        }
+                    }
+                } else {
+                    append_text(&mut layers, r, &f, &format!("core:{kind}:{}", r.id));
+                }
             }
         }
         let key = &self.data.cursor.key_overlay;

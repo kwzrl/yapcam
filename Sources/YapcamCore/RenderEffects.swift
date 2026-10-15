@@ -61,6 +61,8 @@ public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
     public var text: String?
     public var fontSize: Double?
     public var color: [Float]?
+    public var fontFamily: TextStyle.FontFamily?
+    public var caption: CoreCaptionEvaluation?
 }
 
 /// Mouse-down events, sorted on the edited timeline. Removed events are omitted.

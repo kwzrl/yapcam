@@ -156,6 +156,7 @@ impl Project {
             "annotations" => Ok(serde_json::to_value(&self.data.canvas.annotations)?),
             "reactions" => Ok(serde_json::to_value(&self.data.canvas.reactions)?),
             "captions" => Ok(serde_json::to_value(&self.data.canvas.captions)?),
+            "caption_options" => Ok(crate::captions::options()),
             "music_library" => Ok(
                 json!([{"id":"calm","name":"Calm","duration_ns":8_000_000_000_i64},{"id":"bright","name":"Bright","duration_ns":8_000_000_000_i64}]),
             ),
