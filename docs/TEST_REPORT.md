@@ -84,6 +84,7 @@ Method: the app's own launch flags (`--capture-selftest N [--target window:<id>|
 | Other Yapcam instance vs hotkeys | checked | before each run a Carbon probe registered all 8 reference combos successfully (nothing else held them), so posted keys could only reach the test instance |
 | After-recording choices (`--ui-record-selftest 6 --after-recording ...`, main 97b9d82) | PASS (create, widget, copy, save) | create: editor opened and in front. widget: quickExportWidgetVisible=true, editor not opened. copy: export state done, clipboard holds 1 file URL (1.43 MB mp4, in ~/Library/Caches/Yapcam/QuickExport). save with `--save-to`: file written, 1728x1080 H.264 + AAC, 6.2 s; 4 of 5 runs fine, 1 run hung after the package with no outcome line (F12, not reproduced in 4 retries) |
 | Autosave then kill (exit 9) then reopen (`--editor-selftest --crash-after-autosave` + `--editor-reopen-check`) | PASS | save state clean before crash; reopened with clips=1 zooms=1 duration 2695 ms padding 72 |
+| Autosave 30 s policy (main 01f05df, `--editor-selftest --crash-after-autosave`) | PARTIAL (F13) | the hook waited ~32 s and logged `autosave DID NOT complete` (save=dirty): its wait is shorter than the new 30 s autosave delay; the crash then left the journal and the reopen check PASSED (unsavedJournalPresent=true, clips=1 zooms=1 padding 72). Whether the 30 s save itself completes was not verified live |
 | Kill with only the journal (`--crash-now` + reopen check) | PASS | unsavedJournalPresent=true; restore path recovers clips=1 zooms=1 padding 72 (state dirty = unsaved restore) |
 | Editor export via the export model (`--editor-export-selftest`) | PASS | 1920x1080, 2.700 s (project 2.695 s), 1 audio track |
 | Hotkey-driven recording (`--live-e2e hotkey`) | PASS | start, pause (paused), resume (recording), stop (idle); package complete |
@@ -118,6 +119,7 @@ From docs/FEATURES.md (113 rows): verified 38, integrated 47, implemented 18, li
 | F10 | LOW | ui | after Stop the editor was not in front | fixed, verified on 3dd0d3b |
 | F11 | LOW | ui | hook: `--hotkey-script "startStop,wait:3,restart,wait:1,return,..."`: after the restart hotkey the script produces no further log lines (stalls) - the confirmation dialog probably blocks the script's own `return` step; also pick hotkeys + `return` do not start from the overlay | open (hook limitation or real: ui to check whether the overlay window is key so a real Return starts recording) |
 | F12 | LOW | ui | `--after-recording save --save-to <file>` hung once (no `afterRecording=save` line, process alive 9 min, killed by qa); 4 later runs fine | open, intermittent |
+| F13 | LOW | ui (hook) | `--editor-selftest --crash-after-autosave` waits about 30 s for save=clean, but autosave now fires 30 s after the last edit: the wait must be >= 45 s (or the hook should trigger the autosave) | open |
 | F4 | LOW | editor | privacy-scan flags an absolute home path in docs/status/editor.md | open |
 Details and repros: docs/status/qa.md.
 
@@ -134,6 +136,7 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | Date | Main | What changed in this report |
 |---|---|---|
 | 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
+| 2026-10-15 21:20 | 01f05df | 30 s autosave: journal recovery PASS, autosave-complete wait in the hook too short (F13) |
 | 2026-10-15 21:10 | 97b9d82 | Suites re-run: Rust 100, XCTest 207 (0 failures), Swift Testing 501; render benchmark lower but not comparable (60 fps default, 120 frames, machine under load) |
 | 2026-10-15 20:55 | 97b9d82 | Hotkeys live (start/stop/marker/pause/resume PASS; pick+restart partial, F11) and after-recording create/widget/copy/save PASS (F12 one intermittent hang) |
 | 2026-10-15 19:55 | 3dd0d3b | F10 verified fixed (editor in front after Stop); hotkey and after-recording live checks blocked on missing in-app hooks |
