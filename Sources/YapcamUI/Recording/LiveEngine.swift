@@ -33,11 +33,17 @@ import YapcamEditor
     }
 
     static func map(_ error: Error) -> EngineError {
-        guard let e = error as? CaptureError else { return .failed(error.localizedDescription) }
+        guard let e = error as? CaptureError else {
+            let ns = error as NSError
+            if ns.domain == "com.apple.ScreenCaptureKit.SCStreamErrorDomain" && ns.code == -3801 { return .permissionDenied("screen") }
+            return .failed(UserMessage.describe(error))
+        }
         switch e {
         case .permissionDenied(let p): return .permissionDenied(p.rawValue)
         case .diskFull(let b): return .diskFull(availableBytes: b)
-        default: return .failed(e.localizedDescription)
+        case .sourceUnavailable: return .failed("The display or window you chose isn't available any more. Pick the source again in the toolbar.")
+        case .deviceLost(let name): return .failed("The device “\(name)” was disconnected. Recording continues without it.")
+        case .writerFailed(let d): return .failed("Recording could not be written to disk (\(UserMessage.clean(d, fallback: "unknown problem"))). Check free space and the recordings folder in Settings → Storage.")
         }
     }
 

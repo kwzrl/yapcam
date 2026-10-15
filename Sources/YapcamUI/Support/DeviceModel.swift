@@ -57,7 +57,7 @@ struct DeviceInfo: Identifiable, Equatable { let id: String; let name: String }
             out.setSampleBufferDelegate(self, queue: queue)
             guard s.canAddOutput(out) else { return }
             s.addOutput(out)
-        } catch { meterError = error.localizedDescription; return }
+        } catch { meterError = "Could not read the microphone. \(UserMessage.describe(error))"; return }
         meterSession = s
         queue.async { s.startRunning() }
     }

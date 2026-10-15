@@ -96,7 +96,7 @@ import YapcamCore
             } catch {
                 // Never delete here: `importVideo` removes only what it created itself, and
                 // `pkg` may be a package someone else made in the meantime.
-                RecordingController.shared.alert = AppAlert(title: "Could not import the video", message: error.localizedDescription)
+                RecordingController.shared.alert = AppAlert(title: "Could not import the video", error: error)
             }
         }
     }
@@ -133,6 +133,6 @@ import YapcamCore
             out += "\nLog (last 200 lines)\n" + text.split(separator: "\n").suffix(200).joined(separator: "\n") + "\n"
         }
         do { try out.write(to: dest, atomically: true, encoding: .utf8) }
-        catch { RecordingController.shared.alert = AppAlert(title: "Could not write diagnostics", message: error.localizedDescription) }
+        catch { RecordingController.shared.alert = AppAlert(title: "Could not write diagnostics", error: error) }
     }
 }

@@ -34,7 +34,7 @@ struct WindowInfo: Identifiable, Equatable {
             }
             error = windows.isEmpty ? "No windows available to record." : nil
         } catch {
-            self.error = "Could not list windows: \(error.localizedDescription)"
+            self.error = "Could not list windows. \(UserMessage.describe(error))"
         }
     }
 

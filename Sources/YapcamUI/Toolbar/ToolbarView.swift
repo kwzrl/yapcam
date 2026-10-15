@@ -29,7 +29,13 @@ struct ToolbarView: View {
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
         .padding(2)
         .fixedSize()
-        .alert(item: $rec.alert) { a in Alert(title: Text(a.title), message: Text(a.message), dismissButton: .default(Text("OK"))) }
+        .alert(item: $rec.alert) { a in
+            if let p = a.permission {
+                return Alert(title: Text(a.title), message: Text(a.message),
+                             primaryButton: .default(Text("Open System Settings")) { perms.open(p) }, secondaryButton: .cancel(Text("Not Now")))
+            }
+            return Alert(title: Text(a.title), message: Text(a.message), dismissButton: .default(Text("OK")))
+        }
     }
 
     private var edge: Edge { layout.onLeftHalf ? .trailing : .leading }

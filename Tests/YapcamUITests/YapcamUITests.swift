@@ -274,3 +274,164 @@ import YapcamEditor
         #expect(EditorWindows.transcriber != nil)
     }
 }
+
+// MARK: - Multi-display and scale geometry (simulated displays)
+
+@Suite struct GeometryTests {
+    // AppKit global coordinates, bottom-left origin; the main display is at (0, 0).
+    static let main1x = ScreenInfo(id: 1, frame: CGRect(x: 0, y: 0, width: 1680, height: 1050),
+                                   visibleFrame: CGRect(x: 0, y: 0, width: 1680, height: 1050 - 25), scale: 1)
+    static let left2x = ScreenInfo(id: 2, frame: CGRect(x: -1440, y: 0, width: 1440, height: 900),
+                                   visibleFrame: CGRect(x: -1440, y: 0, width: 1440, height: 875), scale: 2)
+    static let right1x = ScreenInfo(id: 3, frame: CGRect(x: 1680, y: 0, width: 1920, height: 1080),
+                                    visibleFrame: CGRect(x: 1680, y: 0, width: 1920, height: 1055), scale: 1)
+    static let above2x = ScreenInfo(id: 4, frame: CGRect(x: 0, y: 1050, width: 1512, height: 982),
+                                    visibleFrame: CGRect(x: 0, y: 1050, width: 1512, height: 957), scale: 2)
+    static let size = CGSize(width: 66, height: 300)
+
+    @Test func defaultPlacementIsRightEdgeCenteredOnEveryArrangement() {
+        for s in [Self.main1x, Self.left2x, Self.right1x, Self.above2x] {
+            let o = ToolbarGeometry.origin(size: Self.size, on: s, saved: nil)
+            #expect(o.x == s.visibleFrame.maxX - Self.size.width - ToolbarGeometry.defaultInset)
+            #expect(abs(o.y + Self.size.height / 2 - s.visibleFrame.midY) < 0.001)
+            #expect(s.visibleFrame.contains(CGRect(origin: o, size: Self.size)))
+        }
+    }
+
+    @Test func savedFractionRoundTripsOnDisplaysWithNegativeAndOffsetOrigins() {
+        for s in [Self.left2x, Self.above2x, Self.right1x] {
+            let frame = CGRect(x: s.frame.minX + 200, y: s.frame.minY + 400, width: Self.size.width, height: Self.size.height)
+            let f = ToolbarGeometry.fraction(frame: frame, on: s)
+            let back = ToolbarGeometry.origin(size: Self.size, on: s, saved: f)
+            #expect(abs(back.x - frame.minX) < 0.001 && abs(back.y - frame.minY) < 0.001)
+        }
+    }
+
+    @Test func savedSpotIsClampedWhenDisplayGotSmaller() {
+        // Saved at the far top-right of a big display, restored on a small one.
+        let o = ToolbarGeometry.origin(size: Self.size, on: Self.left2x, saved: .init(x: 0.999, y: 0.999))
+        #expect(Self.left2x.visibleFrame.contains(CGRect(origin: o, size: Self.size)))
+    }
+
+    @Test func clampKeepsToolbarOutOfMenuBarAndOffscreen() {
+        let off = CGRect(x: 5000, y: 5000, width: 66, height: 300)
+        let c = ToolbarGeometry.clamp(off, to: Self.main1x.visibleFrame)
+        #expect(Self.main1x.visibleFrame.contains(c))
+        let tiny = CGRect(x: 0, y: 0, width: 66, height: 300)
+        let small = ToolbarGeometry.clamp(tiny, to: CGRect(x: 0, y: 0, width: 40, height: 200))
+        #expect(small.minX == 0 && small.maxY == 200)               // pinned, never straddles
+    }
+
+    @Test func removingTheDisplayMovesToolbarToLastUsedThenMain() {
+        let onRight = CGRect(x: 2000, y: 300, width: 66, height: 300)       // on right1x
+        let remaining = [Self.main1x, Self.left2x]
+        // Last used display (left) still connected → go there.
+        let a = ToolbarGeometry.relocate(frame: onRight, screens: remaining, lastID: 2, mainID: 1, saved: { _ in nil })
+        #expect(a != nil && Self.left2x.visibleFrame.contains(a!))
+        // Last used display is the removed one → main display.
+        let b = ToolbarGeometry.relocate(frame: onRight, screens: remaining, lastID: 3, mainID: 1, saved: { _ in nil })
+        #expect(b != nil && Self.main1x.visibleFrame.contains(b!))
+        // A saved position on the fallback display is honoured.
+        let c = ToolbarGeometry.relocate(frame: onRight, screens: remaining, lastID: 3, mainID: 1,
+                                         saved: { $0 == 1 ? .init(x: 0.1, y: 0.9) : nil })
+        #expect(c != nil && abs(c!.minX - 168) < 1)
+        // No displays at all: nothing to do.
+        #expect(ToolbarGeometry.relocate(frame: onRight, screens: [], lastID: nil, mainID: nil, saved: { _ in nil }) == nil)
+    }
+
+    @Test func resolutionChangeKeepsToolbarOnItsDisplayAndClamps() {
+        let shrunk = ScreenInfo(id: 1, frame: CGRect(x: 0, y: 0, width: 1280, height: 800),
+                                visibleFrame: CGRect(x: 0, y: 0, width: 1280, height: 775))
+        let f = CGRect(x: 1600, y: 100, width: 66, height: 300)             // was valid at 1680 wide
+        // Center (1633) is now outside the display → relocated into it.
+        let r = ToolbarGeometry.relocate(frame: f, screens: [shrunk], lastID: 1, mainID: 1, saved: { _ in nil })
+        #expect(r != nil && shrunk.visibleFrame.contains(r!))
+    }
+
+    @Test func popoverSideFollowsTheHalfOfTheCurrentDisplay() {
+        // Same x, different displays: left half of `right1x` but right half of `main1x`.
+        let frame = CGRect(x: 1700, y: 100, width: 66, height: 300)
+        #expect(ToolbarGeometry.onLeftHalf(frame: frame, of: Self.right1x))
+        #expect(!ToolbarGeometry.onLeftHalf(frame: frame, of: ScreenInfo(id: 9, frame: CGRect(x: 1000, y: 0, width: 800, height: 600), visibleFrame: .zero)))
+    }
+
+    // Area overlay ---------------------------------------------------------------------------
+
+    @Test func areaConvertsBetweenDisplayLocalAndGlobalOnAnyArrangement() {
+        let local = CGRect(x: 100, y: 50, width: 400, height: 300)           // top-left origin
+        for s in [Self.main1x, Self.left2x, Self.right1x, Self.above2x] {
+            let g = AreaGeometry.globalRect(fromLocal: local, screenFrame: s.frame)
+            #expect(s.frame.contains(g))
+            #expect(g.maxY == s.frame.maxY - 50)                              // 50 pt below the top edge
+            #expect(AreaGeometry.localRect(fromGlobal: g, screenFrame: s.frame) == local)
+        }
+    }
+
+    @Test func areaPixelSizeFollowsScale() {
+        let r = CGRect(x: 0, y: 0, width: 800, height: 600)
+        #expect(AreaGeometry.pixelSize(of: r, scale: 1) == CGSize(width: 800, height: 600))
+        #expect(AreaGeometry.pixelSize(of: r, scale: 2) == CGSize(width: 1600, height: 1200))
+        #expect(AreaGeometry.pixelSize(of: CGRect(x: 0, y: 0, width: 333.5, height: 10), scale: 2) == CGSize(width: 667, height: 20))
+    }
+
+    @Test func savedAreaIsClippedOrRejectedWhenDisplayChanges() {
+        let area = CGRect(x: 1000, y: 700, width: 600, height: 300)
+        // Display still big enough: unchanged.
+        #expect(AreaGeometry.fit(area, in: CGSize(width: 1680, height: 1050)) == area)
+        // Display shrank: clipped to what is left.
+        #expect(AreaGeometry.fit(area, in: CGSize(width: 1280, height: 800)) == CGRect(x: 1000, y: 700, width: 280, height: 100))
+        // Almost nothing left, or fully outside: rejected.
+        #expect(AreaGeometry.fit(area, in: CGSize(width: 1010, height: 800)) == nil)
+        #expect(AreaGeometry.fit(area, in: CGSize(width: 800, height: 600)) == nil)
+    }
+}
+
+// MARK: - User-facing error messages
+
+@MainActor @Suite struct UserMessageTests {
+    private func looksRaw(_ s: String) -> Bool {
+        let l = s.lowercased()
+        return l.contains("error domain=") || l.contains("os error") || l.contains("nserror")
+            || s.range(of: #"^[-\d\s.:]+$"#, options: .regularExpression) != nil || s.isEmpty
+    }
+
+    @Test func screenPermissionErrorExplainsWhatToDo() {
+        let sc = NSError(domain: "com.apple.ScreenCaptureKit.SCStreamErrorDomain", code: -3801,
+                         userInfo: [NSLocalizedDescriptionKey: "Benutzer:in hat TCCs abgelehnt"])
+        let m = UserMessage.describe(sc)
+        #expect(m.contains("Screen & System Audio Recording") && m.contains("System Settings"))
+        #expect(!m.contains("-3801") && !m.contains("TCC"))
+        if case .permissionDenied(let p) = LiveEngine.map(sc) { #expect(p == "screen") } else { Issue.record("not mapped to permission") }
+        #expect(AppAlert(title: "t", error: sc).permission == .screen)
+    }
+
+    @Test func everyEngineErrorGivesAnActionableSentence() {
+        let all: [EngineError] = [.unavailable("Speech recognition is not set up on this Mac"), .permissionDenied("microphone"), .permissionDenied("camera"),
+                                  .diskFull(availableBytes: 5_000_000), .failed("Choose a window to record first.")]
+        for e in all {
+            let m = UserMessage.describe(e)
+            #expect(!looksRaw(m) && m.count > 12, "\(e)")
+            #expect(".!?".contains(m.last!))
+        }
+        #expect(UserMessage.describe(EngineError.diskFull(availableBytes: 5_000_000)).contains("Settings → Storage"))
+        #expect(AppAlert(title: "t", error: EngineError.permissionDenied("camera")).permission == .camera)
+    }
+
+    @Test func captureErrorsAreTranslated() {
+        for e: Error in [CaptureError.sourceUnavailable, .deviceLost("USB Mic"), .writerFailed("disk full (os error 28)"), .diskFull(availableBytes: 1)] {
+            let m = UserMessage.describe(LiveEngine.map(e))
+            #expect(!looksRaw(m), "\(m)")
+        }
+        #expect(UserMessage.describe(LiveEngine.map(CaptureError.deviceLost("USB Mic"))).contains("USB Mic"))
+    }
+
+    @Test func technicalDumpsAreNeverShown() {
+        let dump = NSError(domain: "Foo", code: 7, userInfo: [NSLocalizedDescriptionKey: "Error Domain=Foo Code=7 \"x\""])
+        #expect(UserMessage.describe(dump).contains("Export Diagnostics"))
+        let core = CoreError.status(4, "No such file or directory (os error 2)")
+        let m = UserMessage.describe(core)
+        #expect(!m.contains("os error") && m.contains("No such file"))
+        #expect(UserMessage.describe(CoreError.status(9, "")).contains("Export Diagnostics"))
+        #expect(UserMessage.describe(CoreError.missingMedia(["a", "b"])).contains("Locate"))
+    }
+}
