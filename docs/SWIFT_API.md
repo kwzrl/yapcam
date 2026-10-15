@@ -304,7 +304,7 @@ format/clock, cleans failed/cancelled runs, and leaves project/recordings unchan
 Successful results live in a unique package cache/speech run directory. Disabled or
 no-retained-mic states return []; native codec/processor failures throw explicitly.
 
-Editor owns this concrete Render invocation and URL substitution:
+For custom media sources, Editor can use this concrete Render invocation and URL substitution:
 
 ```swift
 let frozen = try project.snapshot() // one export configuration
@@ -337,3 +337,16 @@ returns cursor_style 3; `renderOptions()`/`renderOptions(atNs:)` and
 `effects(atNs:)` decode `.arrow`. `cursor.always_default` still takes precedence
 and returns `.pointer`/code 1. All previous raw values and ABI layouts are stable.
 Render owns accepting extras code 3 and selecting its vector arrow texture.
+
+
+Render's newer native timeline integration also accepts the persisted settings
+directly: `ExportSettings(speechEnhancement: settingsOrNil)`,
+`PreviewPlayer(project: project, speechEnhancement: settingsOrNil)` and
+`player.setSpeechEnhancement(settingsOrNil)`. In Editor, derive the same optional
+Render settings from `project.speechEnhancementPlan()` and the field conversion
+above; `enabled == false` maps to nil. For an export, derive them from the same
+frozen project used by the exporter. This native path prepares microphone files
+once and owns their cache lifetime. Use Core's preparation bridge for custom URL
+resolution, or the native Render path; never enable native enhancement on URLs
+that were already processed by the bridge. Editor must wire the same persisted
+configuration into preview and export and cancel/discard stale preview work.

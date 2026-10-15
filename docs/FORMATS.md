@@ -561,3 +561,12 @@ otherwise continues to reflect captured events. Schema 1 and ABI 3 remain unchan
 and YcFrame/YcFrameExtras retain every field, size and offset. The existing set path
 uses normal undo/redo, preset and persistence behavior. Render adapters must accept
 code 3 and map it to their original vector arrow before enabling this selection.
+
+
+AUD-06 integration update: Render's native AudioTimeline now provides preparation
+via optional `ExportSettings.speechEnhancement` and PreviewPlayer constructor/setter
+settings. Editor maps the persisted enabled flag to settings-or-nil and supplies
+the same frozen configuration to preview/export. This is an alternative to the
+Core preparation callback for custom sources, with timeline-owned temporary files.
+Do not process the same microphone through both paths. Project persistence and
+source/time/gain contracts above are identical for either path.
