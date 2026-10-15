@@ -56,11 +56,12 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         #expect(m.selectedZoom?.id == m.zooms[0].id)
     }
 
-    @Test func zoomNearEndIsRejected() {
+    @Test func zoomNearEndIsMovedEarlierInsteadOfRefused() {
         let (m, _, _) = makeModel()
         m.seek(toNs: 9_900_000_000)
         m.addZoomAtPlayhead()
-        #expect(m.zooms.isEmpty && m.lastError != nil)
+        #expect(m.zooms.count == 1 && m.lastError == nil)
+        #expect(m.zooms[0].endNs == 10_000_000_000 && m.zooms[0].startNs == 9_700_000_000)   // 300 ms minimum kept, ends at the project end
     }
 
     @Test func moveAndResizeZoomRespectBounds() {

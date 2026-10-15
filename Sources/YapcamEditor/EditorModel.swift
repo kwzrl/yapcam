@@ -20,6 +20,7 @@ public enum EditorSelection: Equatable, Sendable {
 }
 
 public let minZoomDurationNs: Int64 = 300_000_000
+/// Projects shorter than the usual minimum (e.g. 0.2 s) still accept items that span the whole project.
 public let defaultZoomDurationNs: Int64 = 2_000_000_000
 
 /// All editor state and actions. Views are thin; everything here is unit-testable
@@ -95,6 +96,7 @@ public final class EditorModel: ObservableObject {
     public var canUndo: Bool { project.canUndo }
     public var canRedo: Bool { project.canRedo }
     public var settings: JSONValue { project.settings }
+    var minItemNs: Int64 { min(minZoomDurationNs, max(durationNs, 1)) }
 
     // Typed reads of project settings by dotted path (e.g. "canvas.padding").
     public func value(_ path: String) -> JSONValue? {
@@ -329,9 +331,10 @@ public final class EditorModel: ObservableObject {
     }
 
     public func addZoomAtPlayhead() {
-        let start = playheadNs
+        // Near the end of the project the zoom is moved earlier instead of being refused.
+        let start = max(0, min(playheadNs, durationNs - minItemNs))
         let end = min(start + defaultZoomDurationNs, durationNs)
-        guard end - start >= minZoomDurationNs else {
+        guard end - start >= minItemNs else {
             lastError = "Not enough room for a zoom at the end of the project."
             return
         }
@@ -356,8 +359,8 @@ public final class EditorModel: ObservableObject {
             let len = z.endNs - z.startNs
             s = min(max(m, 0), max(0, durationNs - len)); e = s + len
         } else {
-            if let startNs { s = max(0, min(startNs, e - minZoomDurationNs)) }
-            if let endNs { e = min(durationNs, max(endNs, s + minZoomDurationNs)) }
+            if let startNs { s = max(0, min(startNs, e - minItemNs)) }
+            if let endNs { e = min(durationNs, max(endNs, s + minItemNs)) }
         }
         zoomPreview[id] = (s, e)
     }

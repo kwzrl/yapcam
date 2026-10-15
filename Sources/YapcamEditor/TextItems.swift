@@ -76,7 +76,7 @@ extension EditorModel {
     @discardableResult
     public func addText(_ kind: TextKind, text: String? = nil) -> String? {
         let start = playheadNs, end = min(start + (kind == .reaction ? 2_000_000_000 : 3_000_000_000), durationNs)
-        guard end - start >= minZoomDurationNs else { lastError = "Not enough room here."; return nil }
+        guard end - start >= minItemNs else { lastError = "Not enough room here."; return nil }
         let t = TextItem.make(kind, id: "\(kind.rawValue)-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end,
                               text: text ?? (kind == .annotation ? "Your text" : kind == .caption ? "Caption" : "👍"))
         writeText(kind, textItems(kind) + [t])

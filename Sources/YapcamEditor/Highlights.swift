@@ -69,7 +69,7 @@ extension EditorModel {
 
     public func addHighlightAtPlayhead(kind: HighlightRegion.Kind = .highlight) {
         let start = playheadNs, end = min(start + 3_000_000_000, durationNs)
-        guard end - start >= minZoomDurationNs else { lastError = "Not enough room for a region here."; return }
+        guard end - start >= minItemNs else { lastError = "Not enough room for a region here."; return }
         let h = HighlightRegion.preset(kind, id: "region-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end)
         writeHighlights(highlights + [h])
         if lastError == nil { selection = .highlight(h.id) }
