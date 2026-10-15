@@ -12,7 +12,7 @@ READY f4e8291 editor on real core/render: EditorDocument, EditorWindows.open (re
 - **Inspector tabs**: Look (background solid/gradient/blur, aspect, padding, radius, shadow, inset, motion blur), Cursor (visible, size, smoothing, speed preset, hide idle, click effect, loop, hidden sections lane), Camera (visible, shape, size, radius, opacity, mirror, corners, layout lane; "no camera track" state), Audio (mute/volume per track, speed up typing, silence → cut/speed).
 - **Lanes**: camera layouts, cursor hidden ranges (drag/resize/delete). Crop controls (canvas.crop) and volume-over-time ranges accepted by real core (RealCoreRangesTests).
 - ⌘K command palette (also cheat sheet), copy current frame (⇧⌘C → PNG clipboard), export sheet (720/1080, 30/60, progress/cancel/error/Show in Finder).
-- Tests: `swift test` green, editor 135 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
+- Tests: `swift test` green, editor 137 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
 
 - ZOM-04 per-zoom Auto/Manual switch (reaches core). EDT-05 verified: 100 mixed edits on real core undo to the exact initial state and redo to the exact final state. Short (<2 s) project: zoom clipped to project end; 3 h project: timeline fits, ruler steps ≥ 60 s.
 - Export sheet has an "Include audio" toggle (default on). Workaround for the render hang; the real-export test uses audio off.
@@ -81,6 +81,9 @@ After rebasing onto a core that changed `EditCommand`, an incremental `swift tes
 ## Measured
 - **Live window** (real NSWindow + MTKView + GPU, `YAPCAM_LIVE_DIR=<dir> swift test --filter LiveWindowTests`): 120 scrub steps (model seek + `MTKView.draw()` incl. frame eval + Metal submit) median 16.5 ms, p95 20 ms, max 30 ms, i.e. one 60 Hz display frame (draw waits for the drawable); completion latency of the GPU/AVPlayer seek not separable. `cacheDisplay` does not capture the Metal layer, so preview pixels in that screenshot are not verified.
 - Scrub model path (model seek + core `yc_frame_at` geometry eval): ~3 µs per scrub step (no GPU). End-to-end scrub latency incl. Metal/AVPlayer seek is **not yet measured** (needs a live window).
+
+## Export sheet matches the user guide and render (found while reading docs/USER_GUIDE.md)
+The guide promised 720p–2160p and 24/30/60 fps; the sheet only offered 720/1080 and 30/60. The sheet now has Format (MP4 H.264, MP4 HEVC, MOV H.264, GIF), Resolution (720p/1080p/1440p/4K), Frame rate (24/30/60), Include audio and a Quality slider. GIF switches audio off and clamps to 720p/24 fps; the save panel and file extension follow the format. Verified: options reach the engine; every format exports a real sub-second project through render (MP4, HEVC, MOV, GIF). Request (guide owner): docs/USER_GUIDE.md "Export" still says "the export sheet exposes MP4 only for now" — it now offers MP4/HEVC/MOV/GIF.
 
 ## Audio export hang: RESOLVED (re-verified on main 065a117)
 The fixture (two segments with system audio) now exports with audio through the editor's real path (`AudioExportProbeTests`, bounded by a 60 s watchdog; passes in 0.5 s). The real-export and sub-second-export tests now include audio and use the full fixture. Music/click overlays and voice clean-up are therefore exportable end to end; only audible/pixel correctness of those still needs a human or hardware check.

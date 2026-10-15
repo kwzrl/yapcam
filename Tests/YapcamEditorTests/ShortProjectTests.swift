@@ -102,3 +102,36 @@ import YapcamCore
         #expect(doc.export.state == .done(out), "\(doc.export.state)")
     }
 }
+
+@MainActor @Suite struct ExportOptionsTests {
+    @Test func optionsReachTheEngineAndGifDropsAudio() async {
+        let engine = RecordingEngine(), e = ExportModel(engine: engine)
+        #expect(ExportModel.heights == [720, 1080, 1440, 2160] && ExportModel.fpsOptions == [24, 30, 60])
+        e.height = 2160; e.fps = 24; e.quality = 0.5; e.format = .mp4hevc
+        e.start(to: URL(fileURLWithPath: "/tmp/a.mp4")); await e.waitUntilFinished()
+        let r = engine.last!
+        #expect(r.height == 2160 && r.fps == 24 && r.quality == 0.5 && r.format == .mp4hevc && r.includeAudio)
+        e.reset(); e.height = 2160; e.fps = 60; e.format = .gif                      // GIF: no audio, clamped to 720p / ≤ 30 fps
+        #expect(!e.includeAudio && e.height == 720 && e.fps == 24)
+        e.includeAudio = true                                                          // even if re-enabled it is not requested
+        e.start(to: URL(fileURLWithPath: "/tmp/a.gif")); await e.waitUntilFinished()
+        #expect(engine.last!.format == .gif && !engine.last!.includeAudio && engine.last!.speech == nil)
+        #expect(ExportFormat.allCases.map(\.fileExtension) == ["mp4", "mp4", "mov", "gif"])
+    }
+
+    @Test func everyFormatExportsARealSubSecondProject() async throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        for format in ExportFormat.allCases {
+            let d = FileManager.default.temporaryDirectory.appendingPathComponent("fmt-\(UUID().uuidString).yapcam")
+            try FileManager.default.copyItem(at: src, to: d)
+            let out = FileManager.default.temporaryDirectory.appendingPathComponent("fmt-\(UUID().uuidString).\(format.fileExtension)")
+            defer { try? FileManager.default.removeItem(at: d); try? FileManager.default.removeItem(at: out) }
+            let doc = try EditorDocument(package: d)
+            try doc.project.apply(.deleteRange(startNs: 700_000_000, endNs: doc.project.durationNs))
+            doc.export.format = format; doc.export.height = 720; doc.export.fps = 24; doc.export.quality = 0.6
+            doc.export.start(to: out); await doc.export.waitUntilFinished()
+            #expect(doc.export.state == .done(out), "\(format): \(doc.export.state)")
+            #expect((try? out.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 > 0)
+        }
+    }
+}

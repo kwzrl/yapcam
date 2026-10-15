@@ -13,8 +13,12 @@ public final class ExportModel: ObservableObject {
     @Published public var height = 1080
     @Published public var fps = 30
     @Published public var includeAudio = true
-    public static let heights = [720, 1080]
-    public static let fpsOptions = [30, 60]
+    @Published public var format: ExportFormat = .mp4h264 {
+        didSet { if format == .gif { includeAudio = false; if fps > 30 { fps = 24 }; if height > 720 { height = 720 } } }
+    }
+    @Published public var quality = 0.8
+    public static let heights = [720, 1080, 1440, 2160]
+    public static let fpsOptions = [24, 30, 60]
 
     private let engine: ExportEngine
     /// Current microphone clean-up settings (nil = off); read when an export starts.
@@ -28,7 +32,8 @@ public final class ExportModel: ObservableObject {
     public func start(to destination: URL) {
         guard !isRunning else { return }
         state = .running(0)
-        let req = ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio, speech: includeAudio ? speechProvider() : nil)
+        let req = ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio && format.supportsAudio,
+                                speech: includeAudio && format.supportsAudio ? speechProvider() : nil, format: format, quality: quality)
         let engine = engine
         task = Task { [weak self] in
             do {

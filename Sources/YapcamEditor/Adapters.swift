@@ -225,7 +225,10 @@ final class PreviewPlayerAdapter: PlaybackEngine {
 struct RenderExportEngine: ExportEngine {
     let source: ProjectRenderSource
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
-        let settings = ExportSettings(format: .mp4, codec: .h264, outputHeight: request.height, fps: request.fps, includeAudio: request.includeAudio,
+        let (container, codec): (ExportSettings.Format, ExportSettings.Codec) = switch request.format {
+        case .mp4h264: (.mp4, .h264); case .mp4hevc: (.mp4, .hevc); case .movh264: (.mov, .h264); case .gif: (.gif, .h264) }
+        let settings = ExportSettings(format: container, codec: codec, outputHeight: request.height, fps: request.fps, quality: request.quality,
+                                      includeAudio: request.includeAudio && request.format.supportsAudio,
                                       speechEnhancement: request.speech.map(\.render))
         return try await AtomicExport.run(to: request.destination) { temp in
             let exporter = try Exporter(project: source, settings: settings, destination: temp)
