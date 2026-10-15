@@ -1,4 +1,4 @@
-READY ui: review round 2 fixes (prior #2, new #2, #4, #5) done; tests green; live recording waits for TCC grant
+READY ui: M3 items 1-3 done (accessibility, geometry tests, error messages); 252 tests green; VoiceOver + live recording unverified
 
 # ui status
 
@@ -46,6 +46,16 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - SWIFT_API.md: confirm `CaptureTarget.area` rect is top-left-origin display-local points.
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
+
+## M3 hardening (main a02a89e)
+1. Accessibility (code + helper tests; VoiceOver itself not run):
+   - Labels/hints/selected traits on every toolbar button, source/mic/camera rows, window cells, level meter (percent value), teleprompter controls, shortcut recorder, onboarding rows ("Allow for Microphone"). Decorative icons hidden. Toolbar is one labelled group with VoiceOver actions "Move toolbar left/right/up/down" (keyboard-equivalent of dragging). Recording time has a spoken value ("1 minute 5 seconds"); state changes are announced (started, paused, resumed, stopped, countdown).
+   - Area overlay is keyboard-operable (arrows move, ⇧ resizes, ⌥ ×10, Return/Esc) and exposes role/label/value/help.
+   - Reduce Motion: level meter and teleprompter scroll stop animating (teleprompter steps once a second). Reduce Transparency: panels use solid backgrounds (`PanelSurface`). Increase Contrast: stronger outlines/fills (`ContrastOpacity`).
+   - Tests: `AccessibilityTests` (contrast helper, spoken times, keyboard move stays on screen). NOT verified: the SwiftUI accessibility tree can't be built headlessly, so labels weren't asserted. Manual check list: VoiceOver on, ⌃⌥→ through the toolbar; Full Keyboard Access Tab order top→bottom; System Settings → Accessibility → Display (Reduce motion/transparency, Increase contrast) and re-snapshot.
+2. Multi-display and scale math: placement/clamp/relocation rules extracted to pure `ToolbarGeometry` + `AreaGeometry` (`Support/Geometry.swift`); toolbar controller and area outline now use them. `GeometryTests` simulate 1×/2× displays and arrangements left, right, above (negative and offset origins): default placement, saved-fraction round trip, clamping to menu bar, display removal (last used → main → saved spot), resolution shrink, popover side per display, area local↔global conversion, pixel size per scale, clipping/rejecting a saved area when the display changes (recording now clips or says "the saved area no longer fits on …").
+3. Error messages: `UserMessage` turns errors into what happened + what to do (permission → exact System Settings pane + "Open System Settings" button on the alert; disk full → Settings → Storage; SCStream -3801 → permission text instead of the raw localized TCC string; os-error suffixes and NSError dumps never shown; fallback points to Export Diagnostics). All alert sites use it. `UserMessageTests`.
+Tests: 252 pass.
 
 ## Review round 2 fixes (review-claude-2.md)
 - prior #2: import reservations are case-insensitive/Unicode-normalized; the UI no longer deletes anything on import failure (core's `importVideo` removes only what it created). Test `reservationIsCaseInsensitive`.

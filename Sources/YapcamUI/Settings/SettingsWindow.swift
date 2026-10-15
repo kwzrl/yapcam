@@ -141,6 +141,9 @@ struct ShortcutRecorder: View {
         Button(recording ? "Press shortcut…" : combo.display) { toggle() }
             .frame(minWidth: 120)
             .onDisappear { stop() }
+            .accessibilityLabel("Shortcut")
+            .accessibilityValue(recording ? "Recording: press the new key combination, or Escape to cancel" : combo.display)
+            .accessibilityHint("Activate, then press the new key combination")
     }
 
     private func toggle() { recording ? stop() : start() }

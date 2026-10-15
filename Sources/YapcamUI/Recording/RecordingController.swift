@@ -15,7 +15,17 @@ enum RecordingPhase: Equatable {
 @MainActor final class RecordingController: ObservableObject {
     static let shared = RecordingController()
 
-    @Published private(set) var phase: RecordingPhase = .idle
+    @Published private(set) var phase: RecordingPhase = .idle {
+        didSet {
+            switch (oldValue, phase) {
+            case (_, .recording) where oldValue != .paused: Announcer.say("Recording started")
+            case (_, .paused): Announcer.say("Recording paused")
+            case (.paused, .recording): Announcer.say("Recording resumed")
+            case (_, .idle) where oldValue == .finishing: Announcer.say("Recording stopped")
+            default: break
+            }
+        }
+    }
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var warnings: [String] = []
@@ -340,8 +350,8 @@ private struct CountdownView: View {
             .font(.system(size: 84, weight: .semibold, design: .rounded).monospacedDigit())
             .foregroundStyle(.primary)
             .frame(width: 148, height: 148)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(.separator))
+            .panelSurface(cornerRadius: 28)
             .frame(width: 160, height: 160)
+            .accessibilityLabel("Recording starts in \(model.value) seconds")
     }
 }

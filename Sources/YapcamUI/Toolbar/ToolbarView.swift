@@ -25,9 +25,14 @@ struct ToolbarView: View {
             .padding(.bottom, 8)
         }
         .frame(width: 62)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
+        .panelSurface(cornerRadius: 18)
         .padding(2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Yapcam recording toolbar")
+        .accessibilityAction(named: "Move toolbar left") { layout.move(-60, 0) }
+        .accessibilityAction(named: "Move toolbar right") { layout.move(60, 0) }
+        .accessibilityAction(named: "Move toolbar up") { layout.move(0, 60) }
+        .accessibilityAction(named: "Move toolbar down") { layout.move(0, -60) }
         .fixedSize()
         .alert(item: $rec.alert) { a in
             if let p = a.permission {
@@ -95,12 +100,14 @@ struct ToolbarView: View {
         VStack(spacing: 6) {
             Text("\(n)").font(.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit())
                 .frame(height: 40)
+                .accessibilityLabel("Recording starts in \(n) seconds")
             ToolbarButton(symbol: "xmark", label: "Cancel", help: "Cancel countdown", active: false, action: rec.cancelCountdown)
         }
     }
 
     private var busyControls: some View {
         ProgressView().controlSize(.small).frame(width: 44, height: 90)
+            .accessibilityLabel(rec.phase == .finishing ? "Saving recording" : "Starting recording")
     }
 
     // MARK: Recording
@@ -110,12 +117,14 @@ struct ToolbarView: View {
         return VStack(spacing: 4) {
             HStack(spacing: 5) {
                 Circle().fill(paused ? Color.secondary : Color.red).frame(width: 7, height: 7)
-                    .opacity(paused ? 1 : 0.9)
+                    .opacity(paused ? 1 : 0.9).accessibilityHidden(true)
             }.padding(.top, 2)
             Text(timeString(rec.elapsed))
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(paused ? .secondary : .primary)
                 .frame(height: 18)
+                .accessibilityLabel(paused ? "Recording paused" : "Recording time")
+                .accessibilityValue(Announcer.timeDescription(rec.elapsed))
             if !rec.warnings.isEmpty || rec.lowDisk {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     .help((rec.warnings + (rec.lowDisk ? ["Low disk space: recording may stop soon."] : [])).joined(separator: "\n"))
@@ -157,6 +166,7 @@ private struct Grabber: View {
         .frame(height: 22)
         .contentShape(Rectangle())
         .help("Drag to move")
+        .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
     }
 }
 
@@ -168,6 +178,7 @@ struct ToolbarButton: View {
     var enabled: Bool = true
     let action: () -> Void
     @State private var hover = false
+    @Environment(\.contrastOpacity) private var contrast
 
     var body: some View {
         Button(action: action) {
@@ -179,7 +190,7 @@ struct ToolbarButton: View {
             .foregroundStyle(active ? Color.accentColor : Color.primary)
             .opacity(enabled ? 1 : 0.35)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(active ? Color.accentColor.opacity(0.14) : (hover ? Color.primary.opacity(0.08) : .clear)))
+                .fill(active ? Color.accentColor.opacity(contrast.activeFill) : (hover ? Color.primary.opacity(contrast.hoverFill) : .clear)))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressableStyle())
@@ -187,6 +198,8 @@ struct ToolbarButton: View {
         .onHover { hover = $0 }
         .help(help.isEmpty ? label : help)
         .accessibilityLabel(label)
+        .accessibilityHint(help == label ? "" : help)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 
@@ -204,7 +217,7 @@ struct RecordButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 2).frame(width: 40, height: 40)
+                Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 2).frame(width: 40, height: 40).accessibilityHidden(true)
                 if recording {
                     RoundedRectangle(cornerRadius: 3).fill(Color.red).frame(width: 16, height: 16)
                 } else {
@@ -217,5 +230,6 @@ struct RecordButton: View {
         .buttonStyle(PressableStyle())
         .onHover { hover = $0 }
         .accessibilityLabel(recording ? "Stop recording" : "Start recording")
+        .accessibilityHint(recording ? "Stops and saves the recording" : "Starts recording after the countdown")
     }
 }

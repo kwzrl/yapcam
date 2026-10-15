@@ -40,6 +40,12 @@ import SwiftUI
         p.contentView = hosting
 
         RecordingController.shared.engine.registerExcluded(p)
+        layout.move = { [weak self] dx, dy in
+            guard let self else { return }
+            panel.setFrameOrigin(CGPoint(x: panel.frame.minX + dx, y: panel.frame.minY + dy))
+            clampToScreen()
+            windowDidMove(Notification(name: NSWindow.didMoveNotification))
+        }
 
         RecordingController.shared.$phase.removeDuplicates()
             .sink { [weak self] _ in DispatchQueue.main.async { self?.refit() } }.store(in: &bag)
@@ -141,6 +147,8 @@ import SwiftUI
 
 @MainActor final class ToolbarLayoutModel: ObservableObject {
     @Published var onLeftHalf = false
+    /// Moves the toolbar by (dx, dy) points; used by VoiceOver actions and keyboard users.
+    var move: (CGFloat, CGFloat) -> Void = { _, _ in }
 }
 
 final class ToolbarPanel: NSPanel {

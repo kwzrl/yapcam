@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Carbon.HIToolbox
 import Foundation
 import Testing
@@ -433,5 +434,32 @@ import YapcamEditor
         #expect(!m.contains("os error") && m.contains("No such file"))
         #expect(UserMessage.describe(CoreError.status(9, "")).contains("Export Diagnostics"))
         #expect(UserMessage.describe(CoreError.missingMedia(["a", "b"])).contains("Locate"))
+    }
+}
+
+// MARK: - Accessibility
+
+@MainActor @Suite(.serialized) struct AccessibilityTests {
+    // The SwiftUI accessibility tree is only built for a real accessibility client (VoiceOver),
+    // so labels can't be asserted headlessly; see docs/status/ui.md for the manual check list.
+
+    @Test func contrastAndTransparencyHelpers() {
+        #expect(ContrastOpacity(increased: true).activeFill > ContrastOpacity(increased: false).activeFill)
+        #expect(ContrastOpacity(increased: true).outline > ContrastOpacity(increased: false).outline)
+        #expect(ContrastOpacity(increased: true).hoverFill > ContrastOpacity(increased: false).hoverFill)
+    }
+
+    @Test func spokenTimes() {
+        #expect(Announcer.timeDescription(0) == "0 seconds")
+        #expect(Announcer.timeDescription(61) == "1 minute 1 second")
+        #expect(Announcer.timeDescription(3725) == "1 hour 2 minutes 5 seconds")
+    }
+
+    @Test func movingToolbarByKeyboardActionStaysOnScreen() {
+        // The VoiceOver "Move toolbar" actions funnel through ToolbarGeometry.clamp.
+        let vis = GeometryTests.main1x.visibleFrame
+        var f = CGRect(x: vis.maxX - 70, y: 400, width: 66, height: 300)
+        for _ in 0..<10 { f = ToolbarGeometry.clamp(f.offsetBy(dx: 60, dy: 0), to: vis) }
+        #expect(vis.contains(f))
     }
 }

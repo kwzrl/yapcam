@@ -14,16 +14,18 @@ private struct SelectableRow<Content: View>: View {
     let action: () -> Void
     @ViewBuilder var content: Content
     @State private var hover = false
+    @Environment(\.contrastOpacity) private var contrast
     var body: some View {
         Button(action: action) {
             HStack { content; Spacer(minLength: 4)
                 if selected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) } }
                 .padding(.vertical, 5).padding(.horizontal, 8)
-                .background(RoundedRectangle(cornerRadius: 6).fill(hover ? Color.primary.opacity(0.07) : .clear))
+                .background(RoundedRectangle(cornerRadius: 6).fill(hover ? Color.primary.opacity(contrast.hoverFill) : .clear))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -41,6 +43,7 @@ struct SourcePopover: View {
                 ForEach(SourceMode.allCases) { m in Label(m.title, systemImage: m.symbol).tag(m) }
             }
             .pickerStyle(.segmented).labelsHidden()
+            .accessibilityLabel("Recording source")
 
             switch settings.sourceMode {
             case .display: displayList
@@ -149,16 +152,17 @@ private struct WindowCell: View {
     let thumbnail: NSImage?
     let action: () -> Void
     @State private var hover = false
+    @Environment(\.contrastOpacity) private var contrast
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 4) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06))
+                    RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(contrast.subtleFill))
                     if let t = thumbnail { Image(nsImage: t).resizable().scaledToFit().padding(2) }
                     else { ProgressView().controlSize(.small) }
                 }
                 .frame(height: 88)
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? Color.accentColor : (hover ? Color.primary.opacity(0.25) : .clear), lineWidth: 2))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? Color.accentColor : (hover ? Color.primary.opacity(contrast.outline) : .clear), lineWidth: 2))
                 Text(info.displayTitle).font(.system(size: 11, weight: .medium)).lineLimit(1)
                 Text(info.appName).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -166,6 +170,8 @@ private struct WindowCell: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .accessibilityLabel("\(info.displayTitle), \(info.appName)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
