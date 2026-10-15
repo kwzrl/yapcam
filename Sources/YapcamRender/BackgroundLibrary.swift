@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 import YapcamCore
 
 public struct BackgroundPreset: Identifiable, Sendable, Equatable {
-    public enum Category: String, CaseIterable, Sendable { case gradients, landscapes, geometry }
+    public enum Category: String, CaseIterable, Sendable, Codable { case gradients, landscapes, geometry }
     public enum Artwork: Sendable { case gradient, aurora, strata, orbit }
     public let id: String
     public let title: String
@@ -17,6 +17,13 @@ public struct BackgroundPreset: Identifiable, Sendable, Equatable {
 
 /// Original palettes and analytic artwork. No bundled photographs or third-party assets.
 public enum BackgroundLibrary {
+    /// Stable picker metadata; the same id resolves through preset(id:) and apply(_:to:).
+    public struct Entry: Identifiable, Sendable, Equatable, Codable {
+        public let id: String
+        public let category: BackgroundPreset.Category
+        public let name: String
+    }
+    private static let thumbnails = BackgroundThumbnailCache()
     private static func color(_ hex: UInt32) -> SIMD3<Float> { SIMD3(Float((hex>>16)&255),Float((hex>>8)&255),Float(hex&255))/255 }
     private static func preset(_ id: String,_ title: String,_ category: BackgroundPreset.Category,_ artwork: BackgroundPreset.Artwork,_ a: UInt32,_ b: UInt32,_ c: UInt32,_ angle: Float = 45) -> BackgroundPreset {
         BackgroundPreset(id: id,title: title,category: category,artwork: artwork,colors: [color(a),color(b),color(c)],angleDegrees: angle)
@@ -35,7 +42,25 @@ public enum BackgroundLibrary {
         preset("golden-rings","Golden Rings",.geometry,.orbit,0x2D363F,0xAA8758,0xD9C7A3),
         preset("cool-rings","Cool Rings",.geometry,.orbit,0x233544,0x527F91,0xAEC7C6)
     ]
+    /// Original library in display order. nil includes all categories; no media I/O.
+    public static func catalog(category: BackgroundPreset.Category? = nil) -> [Entry] {
+        presets.filter { category == nil || $0.category == category }.map {
+            Entry(id: $0.id, category: $0.category, name: $0.title)
+        }
+    }
     public static func preset(id: String) -> BackgroundPreset? { presets.first { $0.id==id } }
+    /// CPU-only, sRGB thumbnails generated away from MainActor. Safe to await in a
+    /// SwiftUI .task; concurrent requests reuse the same image. Sizes are pixels,
+    /// 16...512 per edge (e.g. 320x200 for a 160x100 point cell at 2x).
+    /// The shared LRU holds at most 48 images and 8MiB of pixel data, with no disk I/O.
+    public static func thumbnail(id: String, width: Int = 160, height: Int = 100) async throws -> CGImage {
+        try Task.checkCancellation()
+        guard let preset = preset(id: id) else { throw RenderError.invalidSettings("Unknown wallpaper: \(id)") }
+        guard (16...512).contains(width), (16...512).contains(height) else { throw RenderError.invalidSettings("Wallpaper thumbnail dimensions must be 16…512 pixels") }
+        let result = try await thumbnails.image(for: preset, width: width, height: height)
+        try Task.checkCancellation()
+        return result
+    }
     /// Same analytic artwork for small picker thumbnails and full-resolution imports.
     public static func image(for preset: BackgroundPreset,width: Int = 3840,height: Int = 2160) throws -> CGImage {
         guard width>=16, height>=16, width<=8192, height<=8192, width*height<=33_554_432 else { throw RenderError.invalidSettings("Wallpaper dimensions must be 16…8192 with at most 32 megapixels") }
