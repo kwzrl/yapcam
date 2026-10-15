@@ -36,6 +36,7 @@ private func recoveryFixture() throws -> (root: URL, package: URL, manifest: Ses
     #expect(recovered.segments.map(\.durationNs) == [1_000, 500])
     #expect(recovered.segments.map(\.srcStartNs) == [0, 1_000])
     #expect(try SegmentTimeline.nextSourceStart(after: recovered.segments) == 1_500)
+    #expect(!FileManager.default.fileExists(atPath: fixture.package.appendingPathComponent("recording/.capture.lock").path))
 }
 
 @Test func recoveryFallsBackToPreviousTrackStartsAfterCorruptSidecar() throws {
@@ -161,6 +162,24 @@ private func recoveryFixture() throws -> (root: URL, package: URL, manifest: Ses
     withExtendedLifetime(lease) {}
     lease = nil
     #expect(RecordingPackageLease.isAvailable(fixture.package))
+    #expect(!FileManager.default.fileExists(atPath: fixture.package.appendingPathComponent("recording/.capture.lock").path))
     #expect(RecordingSession.interruptedPackages(in: fixture.root).map { $0.resolvingSymlinksInPath().path }
             == [fixture.package.resolvingSymlinksInPath().path])
+}
+
+@Test func releasingOldLeaseDoesNotUnlinkReplacementLock() throws {
+    let fixture = try recoveryFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.root) }
+    let lock = fixture.package.appendingPathComponent("recording/.capture.lock")
+    var old: RecordingPackageLease? = try RecordingPackageLease(package: fixture.package)
+    try FileManager.default.moveItem(at: lock, to: lock.appendingPathExtension("old"))
+    var replacement: RecordingPackageLease? = try RecordingPackageLease(package: fixture.package)
+    withExtendedLifetime(old) {}
+    old = nil
+    #expect(FileManager.default.fileExists(atPath: lock.path))
+    #expect(!RecordingPackageLease.isAvailable(fixture.package))
+    #expect(throws: CaptureError.self) { _ = try RecordingPackageLease(package: fixture.package) }
+    withExtendedLifetime(replacement) {}
+    replacement = nil
+    #expect(!FileManager.default.fileExists(atPath: lock.path))
 }

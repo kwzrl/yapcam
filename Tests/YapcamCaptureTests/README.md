@@ -57,8 +57,44 @@ The helper also supports `microphoneID`, `cameraID`, and `target`. Test window
 movement/resizing both during capture and during the pause. Check the mic meter
 resets to zero after a disconnect and that the screen track continues.
 
+### Signed-app window / area / pause commands
+
+The existing app handler reads these optional environment switches inside
+`CaptureSelfTest.run`: `YAPCAM_CAPTURE_SELFTEST_TARGET` (`display`, `window:<id>`,
+`window:<bundleID>`, or `area:x,y,width,height` on the first display),
+`YAPCAM_CAPTURE_SELFTEST_FPS` (30/60), and `YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER`
+(positive seconds below the recording duration). Rectangles use display-local
+points. A missing window or invalid option fails explicitly. Open a disposable
+TextEdit document for the window cases; a bundle selector picks its first available
+window. Numeric window IDs let the host choose a specific window.
+
+Run from a regular host terminal after building the signed app, one command at a
+time (`-W` waits for the self-test app to exit):
+
+```sh
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_FPS=30 build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 --env YAPCAM_CAPTURE_SELFTEST_FPS=30 --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit build/Yapcam.app --args --capture-selftest 8
+open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit --env YAPCAM_CAPTURE_SELFTEST_FPS=30 --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
+```
+
+Results/package paths are in `~/Library/Logs/Yapcam/probe.log`. Check complete status,
+no `.capture.lock`, screen offset zero, HEVC dimensions and AAC/event timestamps for
+each package. Pause cases must have two contiguous source segments; the 0.5 s pause
+must be absent from source duration. On this scale-1 host the area is 800×600 pixels.
+Move/resize TextEdit during the window run and its pause; encoded dimensions stay
+fixed to the initial window surface. Inspect startup/resume frames for a blank flash,
+and verify a static tail decodes through the stop time. Do not infer these live
+properties from the parser or injected lifecycle tests.
+
 An advisory `recording/.capture.lock` excludes a live/paused recording from
-recovery. The OS releases it on a crash. `seg-XXX/track-starts.json` is an optional
+recovery. Normal lease release removes the file while still locked (including
+clean stop, recovery and transcription); process death releases the OS lock but can
+leave the empty file for the next owner to reclaim. Acquisition verifies the locked
+inode is still at the path, and release never unlinks a replacement inode.
+`seg-XXX/track-starts.json` is an optional
 crash sidecar containing segment-relative first-track offsets; `.prev` is a fallback.
 The additional optional `seg-XXX/host-start.json` is a JSON Int64 containing the
 first written screen PTS in host nanoseconds. It is written before track offsets,

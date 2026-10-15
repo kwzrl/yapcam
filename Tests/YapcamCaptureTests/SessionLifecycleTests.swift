@@ -173,9 +173,12 @@ private func readSession(_ package: URL) throws -> SessionManifest {
     try await session.start()
     let package = try #require(session.packageURL)
     #expect(session.state == .recording)
+    let lockPath = package.appendingPathComponent("recording/.capture.lock").path
+    #expect(FileManager.default.fileExists(atPath: lockPath))
     #expect(try readSession(package).status == "recording")
     try await session.pause()
     #expect(session.state == .paused)
+    #expect(FileManager.default.fileExists(atPath: lockPath))
     #expect(!RecordingPackageLease.isAvailable(package))
     try await Task.sleep(for: .milliseconds(20))
     try await session.resume()
@@ -191,6 +194,19 @@ private func readSession(_ package: URL) throws -> SessionManifest {
     #expect(harness.finishes.count == 2)
     #expect(harness.streams.map(\.stopCount) == [1, 1])
     #expect(RecordingPackageLease.isAvailable(package))
+    #expect(!FileManager.default.fileExists(atPath: lockPath))
+}
+
+@Test @MainActor func stoppingWhilePausedRemovesLockFile() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    let session = harness.session()
+    try await session.start()
+    let package = try #require(session.packageURL)
+    try await session.pause()
+    #expect(!RecordingPackageLease.isAvailable(package))
+    #expect(try await session.stop() == package)
+    #expect(!FileManager.default.fileExists(atPath: package.appendingPathComponent("recording/.capture.lock").path))
+    #expect(try readSession(package).status == "complete")
 }
 
 @Test @MainActor func lifecycleLowDiskFinalizesAndPreservesInterruptedPackage() async throws {
