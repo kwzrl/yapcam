@@ -84,6 +84,7 @@ import Foundation
     }
 
     @Test func presetsRoundTripThroughTheProject() throws {
+        try withIsolatedPresets {
         let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
         let name = "test-\(UUID().uuidString.prefix(6))"
         m.savePreset(named: "  \(name)/x ")
@@ -92,5 +93,6 @@ import Foundation
         #expect(EditorPresets.names().contains("\(name)-x"))
         m.applyPreset(at: p.exportedPresets[0]); #expect(m.number("canvas.padding") == 99 && m.canUndo)
         m.savePreset(named: "   "); #expect(m.lastError != nil)
+    }
     }
 }

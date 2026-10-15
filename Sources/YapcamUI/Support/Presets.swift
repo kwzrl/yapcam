@@ -6,11 +6,8 @@ import YapcamEditor
 /// File-based presets (PRJ-02): look settings of a project (canvas, cursor, zoom defaults…)
 /// saved as JSON via core's `exportPreset` / `importPreset`. Shared by copying the files.
 @MainActor enum PresetStore {
-    nonisolated(unsafe) static var directoryOverride: URL?
-    static var directory: URL {
-        if let directoryOverride { return directoryOverride }
-        return FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Yapcam/Presets", directoryHint: .isDirectory)
-    }
+    /// One source of truth shared with the editor (`EditorPresets`): the same folder, and the same test/self-test isolation.
+    static var directory: URL { EditorPresets.directory }
 
     static func names() -> [String] {
         let urls = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []

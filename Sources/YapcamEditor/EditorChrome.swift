@@ -4,10 +4,43 @@ import AppKit
 // Window chrome of the editor: top bar, controls above the preview, mini rail, transport row.
 
 /// File-based look presets, shared with the app's Presets menu (same folder and file format).
-@MainActor enum EditorPresets {
-    static var directory: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Yapcam/Presets", directoryHint: .isDirectory)
+/// Per-task isolation for tests: each test runs with its own preset folder and defaults suite.
+/// (Task-locals carry Sendable values, so the defaults are given by suite name.)
+public enum PresetIsolation {
+    @TaskLocal public static var directory: URL?
+    @TaskLocal public static var defaultsSuiteName: String?
+}
+
+@MainActor public enum EditorPresets {
+    // Where presets and the default-preset choice live. Tests and self-tests must never touch the real
+    // locations (~/Library/Application Support/Yapcam/Presets, the app's UserDefaults): per-test isolation
+    // is a task-local override, per-process isolation is the global override or the test default below.
+    public nonisolated(unsafe) static var globalDirectory: URL?
+    public nonisolated(unsafe) static var globalDefaults: UserDefaults?
+
+    /// True inside `swift test` (XCTest or Swift Testing host processes).
+    public nonisolated static let isRunningUnderTests: Bool = {
+        let p = ProcessInfo.processInfo
+        return NSClassFromString("XCTestCase") != nil || p.processName.contains("xctest") || p.processName.contains("swiftpm-testing")
+            || (CommandLine.arguments.first ?? "").contains(".xctest")
+    }()
+
+    public static var directory: URL {
+        if let d = PresetIsolation.directory ?? globalDirectory { return d }
+        if let env = ProcessInfo.processInfo.environment["YAPCAM_PRESETS_DIR"], !env.isEmpty { return URL(filePath: env, directoryHint: .isDirectory) }
+        if isRunningUnderTests {
+            return FileManager.default.temporaryDirectory.appending(path: "yapcam-test-presets-\(ProcessInfo.processInfo.processIdentifier)", directoryHint: .isDirectory)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Yapcam/Presets", directoryHint: .isDirectory)
     }
+
+    static var defaults: UserDefaults {
+        if let n = PresetIsolation.defaultsSuiteName, let d = UserDefaults(suiteName: n) { return d }
+        if let d = globalDefaults { return d }
+        if isRunningUnderTests { return testDefaults }
+        return .standard
+    }
+    private static let testDefaults = UserDefaults(suiteName: "mov.yapcam.Yapcam.tests-\(ProcessInfo.processInfo.processIdentifier)") ?? .standard
     static func names() -> [String] {
         let urls = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         return urls.filter { $0.pathExtension == "yapcampreset" }.map { $0.deletingPathExtension().lastPathComponent }
@@ -19,8 +52,8 @@ import AppKit
     static let defaultKey = "yapcam.defaultPreset"
     /// The preset applied to every new project (nil = none).
     static var defaultName: String? {
-        get { UserDefaults.standard.string(forKey: defaultKey) }
-        set { UserDefaults.standard.set(newValue, forKey: defaultKey) }
+        get { defaults.string(forKey: defaultKey) }
+        set { defaults.set(newValue, forKey: defaultKey) }
     }
 
     /// Asks for a name (AppKit alert with a text field). nil = cancelled.
