@@ -1,3 +1,4 @@
+READY 9b0cadc capture LOCAL implementation backlog empty; consumer wiring and native acceptance remain external
 READY 9b0cadc CAP-2/M3 camera sample failure hardening; 136 capture tests + Rust + signed build pass; native gates remain
 READY 9b0cadc CAP-1 per-app system audio + CAP-2 webcam resolution caps; capture tests/signed build pass; full-suite host gate
 READY 9b0cadc CAP-3 durable recording markers + CAP-6 preflight API; signed build/capture tests pass; UI/native gates
@@ -15,24 +16,20 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Backlog recheck: 2026-10-15 14:39 UTC; main remains 5328b45, HEAD c986061.
-  Brief and current main FEATURES/QA/UI handoffs reviewed. Capture source/tests
-  still match main; no new capture defect or local implementation assignment.
-  Remaining CAP rows need consumer wiring/native acceptance as detailed below.
-  Rebase still awaits Lead checkpointing the status-only edit; prior Git denial
-  is unchanged. Existing validation remains current; no app launch or repeated
-  full-suite run. Capture is ready to address any new host failure report.
-- Latest integration audit: main 5328b45 includes capture implementation 9b0cadc;
-  capture source/tests match HEAD c986061 exactly. Main's new reference FEATURES
-  table lists GAP-CAP-1/3/6 as cross-team todo, CAP-2 hardware limited, CAP-4 an
-  implemented extra, CAP-5 device limited, and CAP-7 UI owned. The older no-todo
-  audit described the prior inventory. Capture APIs/tests for CAP-1/2/3/6 are ready;
-  their app/editor acceptance remains open. No new capture QA failure was found.
-- Rebase attempted as requested: git rebase main stopped on the uncommitted status
-  audit. Git metadata is still sandbox read-only; Lead must checkpoint this status
-  and rebase onto 5328b45. No stash or metadata workaround. Current main already
-  contains all capture code, so existing 136 capture-test / Rust / signed-build
-  evidence is unchanged; mixed full-suite/native gates remain, with no rerun.
+- Backlog recheck: 2026-10-15 15:09 UTC; HEAD 59856d4 and main 5328b45 unchanged.
+  Capture source/tests match main; brief, main FEATURES and QA/UI handoffs have
+  no new capture implementation assignment or defect. Main is already in HEAD.
+  Existing 136-test/Rust/signed-build evidence remains current. Only this status
+  is modified. No app launch, repeated tests or denied Git operation performed.
+- Ownership of follow-up work is explicit in Next versus External handoffs below:
+  capture implementation is integrated, while app wiring/native acceptance stays
+  open. Cross-team todo rows do not mean the capture module is unimplemented.
+- Main FEATURES still lists GAP-CAP-1/3/6 as cross-team todo, CAP-2 hardware limited,
+  CAP-4 an implemented extra, CAP-5 device limited and CAP-7 UI owned. Capture APIs
+  and regression tests for CAP-1/2/3/6 are implemented/integrated; their app/editor
+  acceptance awaits the consumer steps below. No new capture implementation item,
+  QA defect or host result appeared. Existing 136-test/Rust/signed-build evidence
+  remains current; no unchanged full-suite or app launch repeated.
 - Concrete UI integration handoff from main 5328b45:
   * Engine.swift UIRecordingOptions and LiveEngine.Session still forward only the
     audio Bool and camera ID. Add/forward systemAudioSelection and
@@ -792,9 +789,14 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   display-baseline checks do not establish device sync/loss, Retina/multi-display,
   or the remaining window/area/pause acceptance.
 
-## Next / Lead requests
-1. Capture module changes are in main via 9b0cadc; status checkpoint c986061
-   predates main 5328b45. Checkpoint the current audit and rebase this worktree.
+## Next
+No remaining local capture implementation item. Address new capture defects from
+native acceptance when Lead posts results. Current APIs, regression tests and
+host commands are ready; validation limits remain explicit above.
+
+## External handoffs / Lead requests
+1. Capture module changes are in main via 9b0cadc; Lead checkpoint 59856d4 is
+   rebased onto main 5328b45. Only this status refresh needs checkpointing.
    UI: consume audio-selection/camera-cap/preflight APIs and forward EngineSession
    marker actions to capture; main's current UI-only marker sidecar is a distinct
    clean-stop path (exact handoff above). Core/editor: map durable event markers
