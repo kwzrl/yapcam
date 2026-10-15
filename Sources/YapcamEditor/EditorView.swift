@@ -7,45 +7,47 @@ public struct EditorContent<Preview: View>: View {
     @ObservedObject var export: ExportModel
     let preview: Preview
     let title: String
+    let packageURL: URL?
+    let initialSection: InspectorSection
     @State private var showExport = false
-    @State private var showInspector = true
 
-    public init(model: EditorModel, export: ExportModel, title: String = "Recording", @ViewBuilder preview: () -> Preview) {
-        self.model = model; self.export = export; self.title = title; self.preview = preview()
+    public init(model: EditorModel, export: ExportModel, title: String = "Recording", packageURL: URL? = nil,
+                initialSection: InspectorSection = .background, @ViewBuilder preview: () -> Preview) {
+        self.model = model; self.export = export; self.title = title; self.packageURL = packageURL
+        self.initialSection = initialSection; self.preview = preview()
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                ZStack {
-                    Color.black.opacity(0.88)
-                    preview
-                        .aspectRatio(model.previewAspect, contentMode: .fit)
-                        .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model, playhead: model.playhead) } }
-                        .overlay { rectEditor }
-                        .padding(8)
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                EditorTopBar(model: model, title: title, packageURL: packageURL, showExport: $showExport)
+                Divider()
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        PreviewControlsBar(model: model)
+                        Divider()
+                        HStack(spacing: 0) {
+                            PreviewLeftRail(model: model)
+                            Divider()
+                            previewArea
+                        }
+                    }
+                    Divider()
+                    InspectorView(model: model, initialSection: initialSection).frame(width: 396)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if showInspector { Divider(); InspectorView(model: model).frame(width: 280) }
+                .frame(maxHeight: .infinity)
+                Divider()
+                TransportBar(model: model)
+                Divider()
+                TimelineView(model: model)
+                    .frame(height: timelineHeight(windowHeight: geo.size.height))
             }
-            Divider()
-            TransportBar(model: model)
-            Divider()
-            TimelineView(model: model)
         }
-        .frame(minWidth: 900, minHeight: 600)
+        .frame(minWidth: 1000, minHeight: 640)
+        .background(Color(nsColor: .windowBackgroundColor))
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(phases: .down) { press in handleKey(press) }
-        .toolbar {
-            ToolbarItemGroup {
-                Button { model.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }.disabled(!model.canUndo)
-                Button { model.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }.disabled(!model.canRedo)
-                Button { showInspector.toggle() } label: { Label("Inspector", systemImage: "sidebar.right") }
-                Button { model.paletteVisible = true } label: { Label("Commands", systemImage: "command") }
-                Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
-            }
-        }
         .sheet(isPresented: $model.paletteVisible) { CommandPaletteView(model: model) }
         .sheet(isPresented: $showExport) { ExportSheet(export: export, suggestedName: title) }
         .alert("Something went wrong", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })) {
@@ -54,6 +56,31 @@ public struct EditorContent<Preview: View>: View {
         .focusedSceneValue(\.editorModel, model)
         .onChange(of: model.selection) { _, new in if new != .none { model.announce(model.describe(new)) } }
         .onDisappear { model.saveNow() }
+    }
+
+    /// Compact timeline: about a quarter of the window, never taller than its content needs.
+    private func timelineHeight(windowHeight: CGFloat) -> CGFloat {
+        let content = TimelineLayout(lanes: model.visibleLanes).totalHeight + 18
+        return min(max(content, 150), max(windowHeight * 0.30, 190))
+    }
+
+    private var previewArea: some View {
+        ZStack {
+            Color(nsColor: .underPageBackgroundColor)
+            preview
+                .aspectRatio(model.previewAspect, contentMode: .fit)
+                .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model, playhead: model.playhead) } }
+                .overlay { rectEditor }
+                .scaleEffect(model.previewZoom)
+                .offset(model.previewPan)
+                .padding(12)
+                // ⌥-drag pans a magnified preview; plain drags belong to the focus/box editors.
+                .simultaneousGesture(DragGesture().onChanged { v in
+                    if model.previewZoom > 1, NSEvent.modifierFlags.contains(.option) { model.previewPan = v.translation }
+                })
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
     }
 
     /// Box editor over the preview for the selected highlight or text item (not for music/captions lists).
@@ -103,34 +130,6 @@ public struct EditorContent<Preview: View>: View {
         case "-": model.zoomTimeline(by: 0.8, anchorX: model.geometry.x(forNs: model.playheadNs)); return .handled
         default: return .ignored
         }
-    }
-}
-
-struct TransportBar: View {
-    @ObservedObject var model: EditorModel
-    @ObservedObject var playhead: PlayheadState
-    init(model: EditorModel) { self.model = model; playhead = model.playhead }
-    var body: some View {
-        HStack(spacing: 12) {
-            Button { model.togglePlay() } label: {
-                Image(systemName: playhead.isPlaying ? "pause.fill" : "play.fill").frame(width: 20)
-            }
-            .help("Play / Pause (Space)")
-            .accessibilityLabel(playhead.isPlaying ? "Pause" : "Play")
-            Text("\(formatTimecode(playhead.ns)) / \(formatTimecode(model.durationNs))")
-                .font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
-            Spacer()
-            Button { model.splitAtPlayhead() } label: { Label("Split", systemImage: "scissors") }.help("Split at playhead (S, ⌘B)")
-            Button { model.addZoomAtPlayhead() } label: { Label("Add zoom", systemImage: "plus.magnifyingglass") }.help("Add zoom at playhead (Z)")
-            Button { model.deleteSelection() } label: { Label("Delete", systemImage: "trash") }
-                .disabled(model.selection == .none).help("Delete selection (⌫)")
-            Toggle(isOn: $model.snappingEnabled) { Image(systemName: "magnet") }.toggleStyle(.button).help("Snapping").accessibilityLabel("Snapping")
-            Divider().frame(height: 16)
-            Button { model.zoomTimeline(by: 0.8, anchorX: model.geometry.x(forNs: model.playheadNs)) } label: { Image(systemName: "minus.magnifyingglass") }.help("Zoom timeline out (-)").accessibilityLabel("Zoom timeline out")
-            Button { model.zoomTimeline(by: 1.25, anchorX: model.geometry.x(forNs: model.playheadNs)) } label: { Image(systemName: "plus.magnifyingglass") }.help("Zoom timeline in (+)").accessibilityLabel("Zoom timeline in")
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12).padding(.vertical, 8)
     }
 }
 

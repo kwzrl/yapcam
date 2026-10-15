@@ -136,6 +136,11 @@ public protocol EditingProject: AnyObject {
     var wallpapers: [WallpaperInfo] { get }
     func applyWallpaper(id: String) async throws
     func wallpaperThumbnail(id: String) async -> CGImage?
+    /// Copy an image into the package and use it as the background (one undo step).
+    func importBackgroundImage(_ file: URL) throws
+    /// Look presets: core's portable setting export/import (one undo step for import).
+    func exportPreset(to url: URL) throws
+    func importPreset(from url: URL) throws
     /// Silent stretches of the main audio track in timeline time (decodes audio; may take a moment).
     func silentSpans() async throws -> [TimeSpan]
 }

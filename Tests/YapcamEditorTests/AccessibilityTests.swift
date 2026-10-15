@@ -88,7 +88,7 @@ import AppKit
         for k in kids { walk(k, depth: depth + 1, visit) }
     }
 
-    @Test func inspectorSectionsAreSpokenAsRadioButtons() async throws {
+    @Test func backgroundTypesAreSpokenAsRadioButtons() async throws {
         let m = EditorModel(project: FakeProject(), player: FakePlayer())
         _ = NSApplication.shared; NSApp.setAccessibilityEnabled(true)
         let host = NSHostingView(rootView: InspectorView(model: m).frame(width: 300, height: 600))
@@ -98,6 +98,14 @@ import AppKit
         var titles = Set<String>()
         walk(host) { a in if a.accessibilityRole() == .radioButton, let t = a.accessibilityTitle() ?? a.accessibilityLabel() { titles.insert(t) } }
         window.orderOut(nil)
-        #expect(titles.isSuperset(of: ["Look", "Overlays", "Cursor", "Camera", "Audio"]), "\(titles)")
+        #expect(titles.isSuperset(of: ["Wallpaper", "Gradient", "Color", "Image", "Blur"]), "\(titles)")
+    }
+}
+
+@Suite struct InspectorSectionTests {
+    @Test func everySectionHasATitleAndIcon() {
+        #expect(InspectorSection.allCases.count == 7)
+        #expect(Set(InspectorSection.allCases.map(\.title)).count == 7 && Set(InspectorSection.allCases.map(\.symbol)).count == 7)
+        #expect(InspectorSection.allCases.map(\.title).contains("Keyboard shortcuts") && InspectorSection.allCases.map(\.title).contains("Zoom & motion"))
     }
 }
