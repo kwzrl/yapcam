@@ -1,6 +1,6 @@
-# Third-party components (draft for Lead review)
+# Third-party components
 
-Audited from `Package.swift`, `core/Cargo.toml`, `core/Cargo.lock`, `Sources/**` imports,
+Reviewed and approved by Lead (2026-10-15). Audited from `Package.swift`, `core/Cargo.toml`, `core/Cargo.lock`, `Sources/**` imports,
 `Resources/`, `scripts/`. Licenses read from each crate's `Cargo.toml` in the local cargo
 registry (2026-10-15). Yapcam itself: Apache-2.0 (`LICENSE`, `NOTICE`).
 
@@ -59,8 +59,10 @@ mirror reference assets.
 | python3 (`-I`) in QA scripts | helper | PSF; dev only |
 | Screen Studio (installed locally) | behavior reference only | proprietary; never copied |
 
-## 6. Open items for Lead
-1. DONE: docs/THIRD_PARTY_NOTICES.md contains the MIT texts of shipped crates (generated from registry sources); regenerate when Cargo.lock changes, and bundle it in the app (Lead decision).
-2. Confirm minimum macOS (Info.plist `LSMinimumSystemVersion`) matches the "macOS 15+" claim.
+## 6. Decisions and follow-ups
+1. `docs/THIRD_PARTY_NOTICES.md` holds the MIT/Apache texts of the shipped crates (generated from
+   registry sources); regenerate it when `Cargo.lock` changes. Decision (Lead): bundle its content
+   into the app later (ui/Lead), not part of the first release candidate tonight.
+2. Minimum macOS: `LSMinimumSystemVersion` is 15.0, matching the "macOS 15+" claim (confirmed by Lead).
 3. If a future change adds a dependency (e.g. a Swift package or a model), add it here first
    (TEAMS.md rule 11).

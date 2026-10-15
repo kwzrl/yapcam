@@ -2,6 +2,9 @@
 
 Build under test: `<main sha>` · date · machine (Mac mini M4, macOS `<ver>`, 1680x1050) ·
 signing identity · permissions granted: `<list>`.
+Build and signing setup: see `docs/SETUP.md` (`scripts/setup-signing.sh` creates the local
+"Yapcam Dev Signing" identity; `scripts/build-app.sh` builds and signs `build/Yapcam.app`).
+A fresh clone builds without manual steps (Lead check 05:05, main aa70d91).
 
 ## 1. Summary (fill last)
 Pass/fail counts per suite, headline risks, go/no-go per milestone (M1, M2, M3).
@@ -50,4 +53,9 @@ Checklist of Screen Studio panels/menus to observe, values captured, rows update
 Link docs/KNOWN_LIMITATIONS.md; list anything new.
 
 ## 10. Privacy and licence
-Scan results, THIRD_PARTY.md status, confirmation that no reference assets are included.
+Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD_PARTY_NOTICES.md status, confirmation that no reference assets are included.
+
+## Update log (keep current with each Lead integration)
+| Date | Main | What changed in this report |
+|---|---|---|
+| 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
