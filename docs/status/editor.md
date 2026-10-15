@@ -3,8 +3,8 @@
 READY 88d3ba4 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Rebased on main 01f05df (core caption typography landed). ED-10: Captions inspector has Font (sans/serif/mono), Reveal (line/word), Growth (full/expanding/centered), Entrance (appear/fade/slide) and Language tag; applies to all captions in one undo step, remembered for new ones. Caption rewrites now keep core's extra style members and word timing (previously a whole-array rewrite would have dropped them): words follow a moved/resized caption, and are dropped when the text is corrected. Real-core test incl. invalid language tag rejected. Full suite (UISmokeTests skipped) green. Preview/export pixels for word reveal not looked at.
 - Rebased on main 97b9d82. Autosave aligned with core's policy as core asked (no competing timer): save 30 s after the last edit, only if the revision is unchanged; closing the window still saves at once and core's recovery journal covers crashes. Kept the editor's own save path (not `ProjectAutosaver`) because the clean/dirty indicator tracks it. Full suite (UISmokeTests skipped) 499 green.
-- Waiting: caption font families (render API landed, core has no persisted font field yet → request to core stands).
 - Rebased on main c565a93. Visual-only preview refresh: known appearance edits (canvas background/padding/radius/shadow/inset/window frame/screen quality, cursor size/set, camera style) call `PreviewPlayer.invalidateVisuals()` (audio and decoders kept); everything else, undo/redo and mixed bursts rebuild fully. Full suite (UISmokeTests skipped) 494 green. Playback smoothness while dragging these sliders not measured on hardware.
 - Backlog check: every row Lead listed for editor is now implemented except ED-10 caption font/reveal/growth/entrance/language (core has no such fields yet → Request to core below) and manual checks. F4 privacy: no absolute home path in this file (verified by grep).
 - CAP-3 markers: recording markers (core `markers` query, mapped through cuts/speed) show as orange flags on the ruler, act as snap targets and Option+Arrow edit points. Not seen against a real recording with markers. 213 editor tests green.
@@ -208,4 +208,3 @@ Every editor-owned FEATURES row that core/render can support is implemented. Cor
 - render: fix audio export hang (above).
 - core: add a `{"q":"clicks"}`-style query is present and used; `canvas.output_size` for non-16:9 presets is set by the editor (1440×1080, 1080×1080, 1080×1920, 2520×1080) — confirm these sizes.
 
-- Request (core): caption style fields (font, reveal, growth, entrance, language) — editor will add the controls once `canvas.captions` records carry them.

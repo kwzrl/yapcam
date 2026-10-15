@@ -34,6 +34,23 @@ extension EditorModel {
             objectWillChange.send()
         }
     }
+    static let captionTypographyKey = "yapcam.captionTypography"
+    /// Remembered caption typography (font_family, reveal, growth, entrance, language) for new captions.
+    public var captionTypography: [String: String] {
+        get { defaults.dictionary(forKey: Self.captionTypographyKey) as? [String: String] ?? [:] }
+        set { defaults.set(newValue, forKey: Self.captionTypographyKey); objectWillChange.send() }
+    }
+    public func captionTypographyValue(_ key: String, default d: String) -> String {
+        if let v = captionTypography[key] { return v }
+        if case .string(let s)? = textItems(.caption).first?.extraStyle[key] { return s }
+        return d
+    }
+    /// Applies one typography choice to every caption (one undo step) and remembers it for new captions.
+    public func setCaptionTypography(_ key: String, _ value: String) {
+        captionTypography[key] = value
+        guard !textItems(.caption).isEmpty else { return }
+        writeTextList(.caption, textItems(.caption).map { var t = $0; t.extraStyle[key] = .string(value); return t })
+    }
     var outputHeight: Double { max(numbers("canvas.output_size").last ?? 1080, 1) }
 
     /// Remembers the look and applies it to all existing captions as one undo step.
@@ -62,6 +79,36 @@ struct CaptionStyleControls: View {
         Picker("Position", selection: Binding(get: { look.center }, set: { v in var l = look; l.center = v; model.setCaptionLook(l) })) {
             Text("Bottom").tag(false); Text("Center").tag(true)
         }.pickerStyle(.segmented)
+        Picker("Font", selection: Binding(get: { model.captionTypographyValue("font_family", default: "sans") }, set: { model.setCaptionTypography("font_family", $0) })) {
+            Text("Sans").tag("sans"); Text("Serif").tag("serif"); Text("Mono").tag("mono")
+        }
+        Picker("Reveal", selection: Binding(get: { model.captionTypographyValue("reveal", default: "line") }, set: { model.setCaptionTypography("reveal", $0) })) {
+            Text("Whole line").tag("line"); Text("Word by word").tag("word")
+        }.pickerStyle(.segmented)
+        Picker("Growth", selection: Binding(get: { model.captionTypographyValue("growth", default: "full") }, set: { model.setCaptionTypography("growth", $0) })) {
+            Text("Full box").tag("full"); Text("Expanding").tag("expanding"); Text("Centered").tag("centered")
+        }
+        Picker("Entrance", selection: Binding(get: { model.captionTypographyValue("entrance", default: "appear") }, set: { model.setCaptionTypography("entrance", $0) })) {
+            Text("Appear").tag("appear"); Text("Fade").tag("fade"); Text("Slide").tag("slide")
+        }
+        CaptionLanguageField(model: model)
         .onAppear { size = look.size }
+    }
+}
+
+/// Caption language tag ("auto" or e.g. "en-US"); core validates the tag, the speech service decides what it can recognise.
+struct CaptionLanguageField: View {
+    @ObservedObject var model: EditorModel
+    @State private var text = "auto"
+    var body: some View {
+        TextField("Language", text: $text, prompt: Text("auto, en-US, de…"))
+            .onSubmit { commit() }
+            .onAppear { text = model.captionTypographyValue("language", default: "auto") }
+            .accessibilityLabel("Caption language")
+    }
+    private func commit() {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        model.setCaptionTypography("language", t.isEmpty ? "auto" : t)
+        if model.lastError != nil { text = model.captionTypographyValue("language", default: "auto") }
     }
 }
