@@ -5,8 +5,8 @@ import YapcamCore
 private func migrationFixture(_ name: String, body: (URL, Data) throws -> Void) throws {
     let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures")
     let package = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-migration-\(UUID().uuidString).yapcam")
-    try FileManager.default.copyItem(at: fixtures.appendingPathComponent("synthetic/basic.yapcam"), to: package)
     defer { try? FileManager.default.removeItem(at: package) }
+    try FileManager.default.copyItem(at: fixtures.appendingPathComponent("synthetic/basic.yapcam"), to: package)
     let frozen = try Data(contentsOf: fixtures.appendingPathComponent("schema/\(name).json"))
     try frozen.write(to: package.appendingPathComponent("project.json"))
     try body(package, frozen)

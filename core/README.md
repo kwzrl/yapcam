@@ -6,7 +6,35 @@ mutations separately from concurrent readers. `snapshot()` copies capture/event 
 that independent handle. Preview and export call the same `frame(atNs:)` evaluator.
 Successful `yc_frame_at` does not allocate, read files or mutate project state.
 
+`Project.close()` permanently disables apply/undo/redo/save on that Swift wrapper
+with `CoreError.status(6, "Project is closed")`. It waits for an active mutation and
+its journal IO to complete, then returns without saving or freeing the C handle.
+Call it after the document's final save, before reopening the package. Frame/query
+reads remain available and do not take the mutation gate. Export snapshots own
+independent lifetimes. Notifications run outside the gate, so observers may close
+the project. This is a per-wrapper lifetime boundary, not a package-wide lock;
+callers must close each stale writer. Import helpers commit through the same apply
+gate, rolling back their newly staged asset if that commit is rejected.
+
 ## Commands
+
+Run Core checks through the cleanup wrapper so temporary fixtures are also removed
+if a test process crashes:
+
+```sh
+zsh core/scripts/with-temp.sh env CARGO_BUILD_JOBS=4 cargo test --manifest-path core/Cargo.toml
+zsh core/scripts/with-temp.sh swift test --disable-sandbox -j 4 --filter YapcamCoreTests
+zsh core/scripts/with-temp.sh scripts/build-app.sh
+```
+
+It creates one `yapcam-core-run.*` root, exports `TMPDIR` for child fixtures and
+`YAPCAM_CORE_TMP` for harness files, and removes the root on exit or HUP/INT/TERM.
+Keep logs outside that root. Reuse the worktree's normal build caches; for isolated
+builds put `--scratch-path "$YAPCAM_CORE_TMP/build"` inside the wrapped command.
+Every new Core script creating a temporary directory must install a cleanup trap
+immediately after creation, before copying or building. SIGKILL or host crashes
+cannot run shell traps; list and inspect only Core-owned abandoned runs before
+removing them.
 
 All successful changes are one undo step; no-op commands do not create history.
 Failed commands/batches change neither state nor history. `yc_apply` returns

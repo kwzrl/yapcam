@@ -6,8 +6,8 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     let source = root.appendingPathComponent("Fixtures/synthetic/basic.yapcam")
     let dest = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-core-swift-\(UUID().uuidString).yapcam")
-    try FileManager.default.copyItem(at: source, to: dest)
     defer { try? FileManager.default.removeItem(at: dest) }
+    try FileManager.default.copyItem(at: source, to: dest)
     return try body(dest)
 }
 private final class ConcurrentEditCheck: @unchecked Sendable {
@@ -19,6 +19,117 @@ private final class ConcurrentEditCheck: @unchecked Sendable {
     func failed(_ error: Error) { lock.lock(); defer { lock.unlock() }; failures.append(error.localizedDescription) }
     func finished() { lock.lock(); defer { lock.unlock() }; editing = false }
     var result: (Int, [String]) { lock.lock(); defer { lock.unlock() }; return (framesDuringEdits, failures) }
+}
+private func expectClosed(_ operation: () throws -> Void) {
+    do { try operation(); Issue.record("Closed project accepted a mutation") }
+    catch CoreError.status(let code, let message) { #expect(code == 6 && message == "Project is closed") }
+    catch { Issue.record("Unexpected close error: \(error)") }
+}
+@Test func projectCloseRejectsStaleWritesAndPreservesIndependentSnapshots() throws {
+    try withFixture { package in
+        let stale = try Project.create(package: package)
+        try stale.apply(.set(path: "notes", value: .string("old document")))
+        try stale.save()
+        let snapshot = try stale.snapshot()
+        let before = try stale.toJSON()
+        stale.close(); stale.close()
+        let reopened = try Project.open(package: package)
+        try reopened.apply(.set(path: "notes", value: .string("new document")))
+        try reopened.save()
+        let primary = try Data(contentsOf: package.appendingPathComponent("project.json"))
+        let previous = try Data(contentsOf: package.appendingPathComponent("project.json.prev"))
+        expectClosed { try stale.apply(.set(path: "notes", value: .string("late callback"))) }
+        expectClosed { try stale.undo() }
+        expectClosed { try stale.redo() }
+        expectClosed { try stale.save() }
+        #expect(try stale.toJSON() == before)
+        #expect(try stale.frame(atNs: 0).tl_ns == 0)
+        #expect(try stale.snapshot().toJSON() == before)
+        try snapshot.apply(.set(path: "notes", value: .string("export snapshot")))
+        #expect(try snapshot.toJSON() != before)
+        #expect(!FileManager.default.fileExists(atPath: package.appendingPathComponent("autosave/project.json").path))
+        #expect(try Data(contentsOf: package.appendingPathComponent("project.json")) == primary)
+        #expect(try Data(contentsOf: package.appendingPathComponent("project.json.prev")) == previous)
+        #expect(try Project.open(package: package).toJSON() == reopened.toJSON())
+    }
+}
+@Test func projectCloseJoinsConcurrentDurableWritersBeforeReopen() throws {
+    try withFixture { package in
+        let stale = try Project.create(package: package)
+        try stale.save()
+        let started = DispatchSemaphore(value: 0)
+        let resumed = DispatchSemaphore(value: 0)
+        let finished = DispatchGroup()
+        let check = ConcurrentEditCheck()
+        finished.enter()
+        DispatchQueue(label: "core-close-regression").async {
+            defer { finished.leave() }
+            started.signal()
+            for n in 0..<24 {
+                do { try stale.apply(.set(path: "notes", value: .string("racing \(n)"))) }
+                catch CoreError.status(6, "Project is closed") { }
+                catch { check.failed(error) }
+            }
+            resumed.wait()
+            for _ in 0..<8 {
+                for operation in [{ _ = try stale.apply(.set(path: "notes", value: .string("late"))) }, { try stale.save() }, { try stale.undo() }, { try stale.redo() }] {
+                    do { try operation(); check.failed(CoreError.status(99, "Late write accepted")) }
+                    catch CoreError.status(6, "Project is closed") { }
+                    catch { check.failed(error) }
+                }
+            }
+        }
+        // Always release/join the worker before removing its fixture, including errors.
+        defer { resumed.signal(); finished.wait() }
+        started.wait()
+        stale.close()
+        let reopened = try Project.open(package: package)
+        try reopened.apply(.set(path: "notes", value: .string("reopened")))
+        try reopened.save()
+        let primary = try Data(contentsOf: package.appendingPathComponent("project.json"))
+        resumed.signal(); finished.wait()
+        #expect(check.result.1.isEmpty)
+        #expect(try Data(contentsOf: package.appendingPathComponent("project.json")) == primary)
+        #expect(!FileManager.default.fileExists(atPath: package.appendingPathComponent("autosave/project.json").path))
+        #expect(try Project.open(package: package).toJSON() == reopened.toJSON())
+    }
+}
+@Test func projectChangeObserverCanCloseWithoutReenteringMutationGate() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let token = NotificationCenter.default.addObserver(forName: Project.didChange, object: p, queue: nil) { _ in p.close() }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try p.apply(.set(path: "notes", value: .string("observer closes")))
+        expectClosed { try p.apply(.set(path: "notes", value: .string("too late"))) }
+        expectClosed { try p.save() }
+        #expect(try p.frame(atNs: 0).tl_ns == 0)
+    }
+}
+@Test func editorAspectPresetsProduceTheirDeclaredOutputDimensions() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let original = try p.frame(atNs: 0)
+        let cases: [(String, Int64, Int64)] = [
+            ("4:3", 1440, 1080), ("1:1", 1080, 1080),
+            ("9:16", 1080, 1920), ("21:9", 2520, 1080), ("custom", 1234, 777)
+        ]
+        for (aspect, width, height) in cases {
+            try p.apply(.batch([
+                .set(path: "canvas.aspect", value: .string(aspect)),
+                .set(path: "canvas.output_size", value: .array([.integer(width), .integer(height)]))
+            ]))
+            for time: Int64 in [0, 2_500_000_000, 4_999_999_999] {
+                let frame = try p.frame(atNs: time)
+                #expect(frame.canvas_w == width && frame.canvas_h == height)
+            }
+            try p.save()
+            let frame = try Project.open(package: package).frame(atNs: 0)
+            #expect(frame.canvas_w == width && frame.canvas_h == height)
+            try p.undo()
+            let restored = try p.frame(atNs: 0)
+            #expect(restored.canvas_w == original.canvas_w && restored.canvas_h == original.canvas_h)
+        }
+    }
 }
 @Test func croppedZoomFirstFramesRemainValidAcrossABI() throws {
     try withFixture { package in
@@ -561,8 +672,8 @@ private final class ConcurrentEditCheck: @unchecked Sendable {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     let package = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-music-test-\(UUID().uuidString).yapcam")
     let file = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-music-source-\(UUID().uuidString).wav")
-    try FileManager.default.copyItem(at: root.appendingPathComponent("Fixtures/synthetic/basic.yapcam"), to: package)
     defer { try? FileManager.default.removeItem(at: file); try? FileManager.default.removeItem(at: package) }
+    try FileManager.default.copyItem(at: root.appendingPathComponent("Fixtures/synthetic/basic.yapcam"), to: package)
     var data = Data()
     func append<T: FixedWidthInteger>(_ value: T) { var little = value.littleEndian; withUnsafeBytes(of: &little) { data.append(contentsOf: $0) } }
     data.append(Data("RIFF".utf8)); append(UInt32(36 + 8_000*2)); data.append(Data("WAVEfmt ".utf8))
@@ -589,6 +700,13 @@ private final class ConcurrentEditCheck: @unchecked Sendable {
     #expect(try p.musicTracks().count == 1)
     try p.save()
     #expect(try Project.open(package: package).musicTracks() == p.musicTracks())
+    let primary = try Data(contentsOf: package.appendingPathComponent("project.json"))
+    p.close()
+    do { try await p.importMusic(file); Issue.record("Closed music import accepted") }
+    catch CoreError.status(let code, let message) { #expect(code == 6 && message == "Project is closed") }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: package.appendingPathComponent("assets").path).count == 1)
+    #expect(try Data(contentsOf: package.appendingPathComponent("project.json")) == primary)
+    #expect(!FileManager.default.fileExists(atPath: package.appendingPathComponent("autosave/project.json").path))
 }
 
 private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {

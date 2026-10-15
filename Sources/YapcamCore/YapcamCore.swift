@@ -13,6 +13,9 @@ public final class Project: @unchecked Sendable {
     public let session: SessionInfo
     public static let didChange = Notification.Name("YapcamCore.Project.didChange")
     private let handle: OpaquePointer
+    // Only mutations use this gate. Frame/query reads never wait for journal IO.
+    private let mutationGate = NSLock()
+    private var closed = false
     private init(handle: OpaquePointer, package: URL, session: SessionInfo) {
         self.handle = handle; packageURL = package; self.session = session
     }
@@ -54,22 +57,42 @@ public final class Project: @unchecked Sendable {
     }
     public static func create(package: URL) throws -> Project { try load(package: package, create: true) }
     public static func open(package: URL) throws -> Project { try load(package: package, create: false) }
+    /// Permanently stop this wrapper from editing or saving. Waits for its active
+    /// mutation to finish; does not save, free the handle, or close export snapshots.
+    /// Reads remain available. Call after the document's final save, before reopen.
+    public func close() {
+        mutationGate.lock(); defer { mutationGate.unlock() }
+        closed = true
+    }
+    private func withMutation<T>(_ body: () throws -> T) throws -> T {
+        mutationGate.lock(); defer { mutationGate.unlock() }
+        guard !closed else { throw CoreError.status(6, "Project is closed") }
+        return try body()
+    }
     public func save() throws {
-        try packageURL.path.withCString { try Self.check(yc_project_save(handle, $0)) }
+        try withMutation {
+            try packageURL.path.withCString { try Self.check(yc_project_save(handle, $0)) }
+        }
     }
     @discardableResult public func apply(_ command: EditCommand) throws -> ChangeSet {
         let bytes = try JSONEncoder().encode(command)
-        let result = try String(decoding: bytes, as: UTF8.self).withCString { c in try Self.stringResult { yc_apply(handle, c, $0) } }
+        let result = try withMutation {
+            try String(decoding: bytes, as: UTF8.self).withCString { c in try Self.stringResult { yc_apply(handle, c, $0) } }
+        }
         let changes = try JSONDecoder().decode(ChangeSet.self, from: result)
         if !changes.changed.isEmpty { NotificationCenter.default.post(name: Self.didChange, object: self) }
         return changes
     }
     public func undo() throws {
-        var did: UInt8 = 0; try Self.check(yc_undo(handle, &did))
+        let did = try withMutation {
+            var did: UInt8 = 0; try Self.check(yc_undo(handle, &did)); return did
+        }
         if did != 0 { NotificationCenter.default.post(name: Self.didChange, object: self) }
     }
     public func redo() throws {
-        var did: UInt8 = 0; try Self.check(yc_redo(handle, &did))
+        let did = try withMutation {
+            var did: UInt8 = 0; try Self.check(yc_redo(handle, &did)); return did
+        }
         if did != 0 { NotificationCenter.default.post(name: Self.didChange, object: self) }
     }
     public var canUndo: Bool { yc_can_undo(handle) != 0 }

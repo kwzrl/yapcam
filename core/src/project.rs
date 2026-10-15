@@ -689,7 +689,8 @@ pub(crate) mod tests {
     pub struct Fixture(pub PathBuf);
     impl Fixture {
         pub fn new() -> Self {
-            let p = std::env::temp_dir().join(unique_id("yapcam-core-test"));
+            // Install the cleanup guard before copying, including partial-copy panics.
+            let fixture = Self(std::env::temp_dir().join(unique_id("yapcam-core-test")));
             fn copy(a: &Path, b: &Path) {
                 fs::create_dir_all(b).unwrap();
                 for e in fs::read_dir(a).unwrap() {
@@ -704,9 +705,9 @@ pub(crate) mod tests {
             copy(
                 &Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("../Tests/Fixtures/synthetic/basic.yapcam"),
-                &p,
+                &fixture.0,
             );
-            Self(p)
+            fixture
         }
     }
     impl Drop for Fixture {

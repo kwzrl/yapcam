@@ -10,8 +10,8 @@ private actor SpeechProcessorCalls {
 private func withSpeechFixture<T>(_ body: (URL, Project) async throws -> T) async throws -> T {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
     let package = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-core-speech-\(UUID().uuidString).yapcam")
-    try FileManager.default.copyItem(at: root.appendingPathComponent("Fixtures/synthetic/basic.yapcam"), to: package)
     defer { try? FileManager.default.removeItem(at: package) }
+    try FileManager.default.copyItem(at: root.appendingPathComponent("Fixtures/synthetic/basic.yapcam"), to: package)
     let url = package.appendingPathComponent("recording/seg-000/mic.wav")
     let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false)!
     do {
