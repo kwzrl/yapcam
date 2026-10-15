@@ -34,6 +34,28 @@ private func migrationFixture(_ name: String, body: (URL, Data) throws -> Void) 
         }
     }
 }
+@Test func olderWindowPackageWithoutDescriptiveNamesMigratesAndReopens() throws {
+    try migrationFixture("v0-prerelease") { package, frozen in
+        let url = package.appendingPathComponent("recording/session.json")
+        var fields = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+        fields["schema_version"] = 0
+        var source = fields["source"] as! [String: Any]
+        source["kind"] = "window"; source["display_id"] = 7
+        for key in ["display_name", "window_title", "app_bundle_id"] { source.removeValue(forKey: key) }
+        fields["source"] = source
+        let original = try JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])
+        try original.write(to: url)
+        let p = try Project.open(package: package)
+        #expect(p.session.source.displayName == "Display 7")
+        #expect(p.session.source.windowTitle == nil && p.session.source.appBundleId == nil)
+        #expect(p.durationNs == 5_000_000_000)
+        #expect(try p.frame(atNs: 4_000_000_000).screen.segment == 1)
+        #expect(try Data(contentsOf: package.appendingPathComponent("project.json")) == frozen)
+        try p.save()
+        #expect(try Project.open(package: package).session.source.displayName == "Display 7")
+        #expect(try Data(contentsOf: url) == original)
+    }
+}
 @Test func frozenMediaFingerprintIsAnExplicitRelinkFailure() throws {
     try migrationFixture("v1-populated") { package, frozen in
         do { _ = try Project.open(package: package); Issue.record("Frozen mismatched fingerprint silently accepted") }

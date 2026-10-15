@@ -156,6 +156,26 @@ public struct SessionInfo: Codable, Sendable {
         public var windowTitle: String?
         public var appBundleId: String?
         public var appBundleID: String? { appBundleId }
+        private enum CodingKeys: String, CodingKey {
+            case kind, displayId, displayName, contentRectPoints, scale, windowTitle, appBundleId
+        }
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            kind = try c.decode(String.self, forKey: .kind)
+            displayId = try c.decode(UInt32.self, forKey: .displayId)
+            contentRectPoints = try c.decode([Double].self, forKey: .contentRectPoints)
+            scale = try c.decode(Double.self, forKey: .scale)
+            windowTitle = try c.decodeIfPresent(String.self, forKey: .windowTitle)
+            appBundleId = try c.decodeIfPresent(String.self, forKey: .appBundleId)
+            let name = try c.decodeIfPresent(String.self, forKey: .displayName)
+            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                displayName = name
+            } else if kind == "window", let title = windowTitle, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                displayName = title
+            } else {
+                displayName = "Display \(displayId)"
+            }
+        }
     }
     public struct Tracks: Codable, Sendable {
         public var screen: Screen

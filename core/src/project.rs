@@ -113,7 +113,10 @@ pub fn read_session(package: &Path, recording: &str) -> Result<Session> {
     let raw: serde_json::Value =
         serde_json::from_slice(&fs::read(relative_path(package, recording)?)?)?;
     check_version(&raw)?;
-    let session: Session = serde_json::from_value(raw)?;
+    let mut session: Session = serde_json::from_value(raw)?;
+    // Descriptive metadata is optional in older/window packages. Normalize only
+    // the in-memory view; opening a recording must never rewrite its manifest.
+    session.source.display_name = Some(session.source.display_name_or_default());
     validate_session(&session)?;
     Ok(session)
 }
@@ -713,6 +716,47 @@ pub(crate) mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    #[test]
+    fn descriptive_source_names_are_optional_in_current_and_older_sessions() {
+        for version in [0, 1] {
+            for kind in ["display", "window", "area"] {
+                for name in [None, Some(serde_json::Value::Null)] {
+                    let f = Fixture::new();
+                    let path = f.0.join("recording/session.json");
+                    let mut raw: serde_json::Value =
+                        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                    raw["schema_version"] = version.into();
+                    raw["source"]["kind"] = kind.into();
+                    raw["source"]["display_id"] = 42.into();
+                    raw["source"]["window_title"] = "Legacy Window".into();
+                    raw["source"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("display_name");
+                    if let Some(name) = name {
+                        raw["source"]["display_name"] = name;
+                    }
+                    let original = serde_json::to_vec(&raw).unwrap();
+                    fs::write(&path, &original).unwrap();
+                    let p = Project::create(&f.0).unwrap();
+                    let expected = if kind == "window" {
+                        "Legacy Window"
+                    } else {
+                        "Display 42"
+                    };
+                    assert_eq!(
+                        p.query(&serde_json::json!({"q":"session"})).unwrap()["source"]
+                            ["display_name"],
+                        expected
+                    );
+                    assert_eq!(p.frame(0).unwrap().screen.present, 1);
+                    p.save(&f.0).unwrap();
+                    assert!(Project::open(&f.0).is_ok());
+                    assert_eq!(fs::read(&path).unwrap(), original);
+                }
+            }
         }
     }
     #[test]

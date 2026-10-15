@@ -19,11 +19,27 @@ pub struct Session {
 pub struct Source {
     pub kind: String,
     pub display_id: u32,
-    pub display_name: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
     pub content_rect_points: [f64; 4],
     pub scale: f64,
     pub window_title: Option<String>,
     pub app_bundle_id: Option<String>,
+}
+impl Source {
+    pub(crate) fn display_name_or_default(&self) -> String {
+        self.display_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| {
+                (self.kind == "window")
+                    .then_some(self.window_title.as_deref())
+                    .flatten()
+                    .filter(|title| !title.trim().is_empty())
+            })
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("Display {}", self.display_id))
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Tracks {

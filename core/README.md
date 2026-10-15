@@ -6,6 +6,14 @@ mutations separately from concurrent readers. `snapshot()` copies capture/event 
 that independent handle. Preview and export call the same `frame(atNs:)` evaluator.
 Successful `yc_frame_at` does not allocate, read files or mutate project state.
 
+Session `source.display_name` is optional for every source kind, including older
+packages. Rust reads it as `Option<String>`; the in-memory session query and Swift
+`SessionInfo.Source.displayName` use the recorded nonempty name, then a nonempty
+window title for window sources, otherwise `Display <display_id>`. Swift retains
+its existing nonoptional displayName API and also supplies this fallback when
+decoding session JSON directly. Reading or saving the project does not rewrite the
+recording manifest. Capture geometry/timing validation remains required.
+
 `Project.close()` permanently disables apply/undo/redo/save on that Swift wrapper
 with `CoreError.status(6, "Project is closed")`. It waits for an active mutation and
 its journal IO to complete, then returns without saving or freeing the C handle.

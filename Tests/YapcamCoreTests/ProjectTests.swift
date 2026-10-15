@@ -10,6 +10,34 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
     try FileManager.default.copyItem(at: source, to: dest)
     return try body(dest)
 }
+@Test func missingSourceDisplayNamesOpenForEveryKindAndDecodeInSwift() throws {
+    for kind in ["display", "window", "area"] {
+        for explicitNull in [false, true] {
+            try withFixture { package in
+                let url = package.appendingPathComponent("recording/session.json")
+                var fields = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+                var source = fields["source"] as! [String: Any]
+                source["kind"] = kind; source["display_id"] = 42
+                source["window_title"] = "Legacy Window"
+                source.removeValue(forKey: "display_name")
+                if explicitNull { source["display_name"] = NSNull() }
+                fields["source"] = source
+                let original = try JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys])
+                try original.write(to: url)
+                let expected = kind == "window" ? "Legacy Window" : "Display 42"
+                let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+                #expect(try decoder.decode(SessionInfo.self, from: original).source.displayName == expected)
+                let p = try Project.create(package: package)
+                #expect(p.session.source.displayName == expected)
+                #expect(try p.frame(atNs: 0).screen.present == 1)
+                #expect(try p.snapshot().session.source.displayName == expected)
+                try p.save()
+                #expect(try Project.open(package: package).session.source.displayName == expected)
+                #expect(try Data(contentsOf: url) == original)
+            }
+        }
+    }
+}
 private final class ConcurrentEditCheck: @unchecked Sendable {
     private let lock = NSLock()
     private var editing = true
