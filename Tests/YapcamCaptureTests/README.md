@@ -68,16 +68,36 @@ points. A missing window or invalid option fails explicitly. Open a disposable
 TextEdit document for the window cases; a bundle selector picks its first available
 window. Numeric window IDs let the host choose a specific window.
 
+All builds share `mov.yapcam.Yapcam`. Before every launch, check
+`~/Movies/Yapcam/QA/.app-lock`: when present, QA owns the app; do non-live work until
+it is gone. Never quit another Yapcam instance or use process-name kill commands.
+Terminate only a PID you personally started. Do not use LaunchServices `open` for
+these tests; it can reuse/activate another instance. The helper below also refuses
+to launch while any Yapcam process is running, or when process inspection fails.
 Run from a regular host terminal after building the signed app, one command at a
-time (`-W` waits for the self-test app to exit):
+time; direct execution waits for that self-test process to exit:
 
 ```sh
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_FPS=30 build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 --env YAPCAM_CAPTURE_SELFTEST_FPS=30 --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit build/Yapcam.app --args --capture-selftest 8
-open -n -W --env YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit --env YAPCAM_CAPTURE_SELFTEST_FPS=30 --env YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3 build/Yapcam.app --args --capture-selftest 8
+capture_selftest() (
+    if [ -e "$HOME/Movies/Yapcam/QA/.app-lock" ]; then
+        printf 'QA owns Yapcam; skipping live test.\n' >&2; exit 1
+    fi
+    if pgrep -x Yapcam >/dev/null 2>&1; then
+        printf 'A Yapcam instance is running; skipping live test.\n' >&2; exit 1
+    else
+        capture_probe_status=$?
+        if [ "$capture_probe_status" -ne 1 ]; then
+            printf 'Cannot inspect running apps; skipping live test.\n' >&2; exit 1
+        fi
+    fi
+    exec env "$@" build/Yapcam.app/Contents/MacOS/Yapcam --capture-selftest 8
+)
+capture_selftest YAPCAM_CAPTURE_SELFTEST_FPS=30
+capture_selftest YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
+capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600
+capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=area:100,100,800,600 YAPCAM_CAPTURE_SELFTEST_FPS=30 YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
+capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit
+capture_selftest YAPCAM_CAPTURE_SELFTEST_TARGET=window:com.apple.TextEdit YAPCAM_CAPTURE_SELFTEST_FPS=30 YAPCAM_CAPTURE_SELFTEST_PAUSE_AFTER=3
 ```
 
 Results/package paths are in `~/Library/Logs/Yapcam/probe.log`. Check complete status,
