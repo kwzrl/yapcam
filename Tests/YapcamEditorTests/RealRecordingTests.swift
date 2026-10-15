@@ -33,8 +33,8 @@ import YapcamCore
         try await exercise(includeAudio: false)
     }
 
-    /// KNOWN FAILING on real recordings (render AudioTimeline silence-pad track makes AVAssetReader fail, -12842;
-    /// see docs/status/editor.md). Kept so the fix can be verified with YAPCAM_REAL_PKG.
+    /// Regression for QA finding F6 (render's audio tail handling used to fail on real recordings with -12842;
+    /// fixed in render, verified with this test on main 529f208).
     @Test func realRecordingExportsWithSystemAudio() async throws {
         try await exercise(includeAudio: true)
     }
