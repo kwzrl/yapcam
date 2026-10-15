@@ -1,6 +1,6 @@
 # editor status
 
-READY 1795a43 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY e255871 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Per-segment camera layout settings: selected layout section can use its own settings (cutout size/softness/inset, split ratio/flip/padded); segment `settings` are now preserved verbatim by every layout rewrite (previously any layout edit would have dropped them). Real-core round-trip test (fixture has no camera, so the segment is written via settings). 207 editor tests green.
