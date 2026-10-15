@@ -540,7 +540,9 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                     .all(|c| c.src_end_ns <= 5_000_000_000));
             }
             if step % 11 == 0 {
-                let query = if step % 22 == 0 {
+                let query = if step % 33 == 0 {
+                    json!({"q":"typing_suggestions"})
+                } else if step % 22 == 0 {
                     json!({"q":"effects_at","tl_ns":arbitrary_json(&mut seed,2)})
                 } else {
                     arbitrary_json(&mut seed, 3)

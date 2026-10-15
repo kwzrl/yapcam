@@ -14,14 +14,17 @@ pub struct InputCache {
     pub steady_move_times: Vec<i64>,
     pub stable_cursors: Vec<(i64, u32)>,
     pub clicks: Vec<Point>,
+    pub click_has_position: Vec<bool>,
 }
 impl InputCache {
     pub fn new(events: &[Event]) -> Self {
         let mut cache = Self::default();
         let mut last = (0.0, 0.0);
+        let mut has_position = false;
         for e in events {
             if let (Some(x), Some(y)) = (e.x, e.y) {
                 last = (x, y);
+                has_position = true;
                 cache.positions.push(Point { t: e.t, x, y });
             }
             if e.kind == "cursor" {
@@ -30,6 +33,7 @@ impl InputCache {
                 }
             }
             if e.kind == "down" {
+                cache.click_has_position.push(has_position);
                 cache.clicks.push(Point {
                     t: e.t,
                     x: e.x.unwrap_or(last.0),
