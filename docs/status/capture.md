@@ -10,6 +10,12 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
+- Backlog audit 2026-10-15 12:38 CEST: main remains 3b68bde; capture source/tests
+  unchanged. QA .app-lock absent; no app launch, rebuild or temp copy. F8 native
+  readback/hour/Speech results still pending; no new capture defect.
+- New QA input evidence on main: 38/38 scripted input events match, maximum timing
+  error 15.4 ms and position error 0.98 point; real clicks also drive auto-zoom.
+  Older no-Accessibility notes are superseded. Hotkey-driven recording remains open.
 - Lead update 2026-10-15 12:12: ALL app permissions granted (screen/system audio,
   Accessibility, Input Monitoring, mic, camera). LaunchServices --drive-input-selftest 6
   reports accessibility=true/inputMonitoring=true; scripted moves and both clicks
@@ -39,8 +45,8 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   352 frames / 6.09 s, AAC system audio offset 1 ms, 95 events. This supersedes
   historical TCC-denial notes; it is a display baseline, not window/area/pause or
   speech/model acceptance. Lead will run native/live checks outside the sandbox.
-- Local HEAD f400c3e; main c504858 contains the capture changes. Clean-tree rebase
-  attempted at 12:17 CEST: creating rebase-merge still denied.
+- Local HEAD d2ee4b1; main 3b68bde contains the capture changes. Clean-tree rebase
+  attempted at 12:28 CEST: creating rebase-merge still denied.
   Lead handles Git checkpoint/rebase/push; no recordings committed.
 - Fixed clean-finish .capture.lock residue: every normal lease release unlinks its
   own inode while still holding flock. This includes recording stop, recovery and
