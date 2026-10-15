@@ -17,11 +17,15 @@ public struct RenderLayer: Sendable, Equatable {
     public init(content: Content, rect: CGRect, cornerRadius: Float = 0, opacity: Float = 1) { self.content = content; self.rect = rect; self.cornerRadius = cornerRadius; self.opacity = opacity }
 }
 
-/// Supplemental render features supplied through ABI v2 or custom source hooks.
+/// Supplemental render features supplied through Core extras/motion or custom source hooks.
 /// Defaults preserve the frame description exactly; the project supplies explicit selections.
 public struct RenderConfiguration: Sendable, Equatable {
     public enum CursorStyle: Sendable { case recorded, arrow, pointer, touch }
     public var cursorStyle: CursorStyle = .recorded
+    public var cursorRotationRadians: Float = 0
+    /// nil preserves custom-source legacy frame.motion_blur; Core supplies evaluated values.
+    public var zoomMotionBlur: Float? = nil
+    public var panMotionBlur: Float? = nil
     public var cursorMotionBlur: Float = 0
     public var cursorSpotlightRadius: Float = 0
     public var backgroundNoise: Float = 0

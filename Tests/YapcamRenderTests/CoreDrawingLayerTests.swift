@@ -26,7 +26,7 @@ final class CoreDrawingLayerTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: package) }
         let project=try Project.create(package: package)
         let data=try JSONSerialization.jsonObject(with: project.toJSON()) as? [String: Any]
-        guard (data?["canvas"] as? [String: Any])?["annotations"] != nil else { throw XCTSkip("Core text model is not on this integration base yet; cold bridge is compatible") }
+        XCTAssertNotNil((data?["canvas"] as? [String: Any])?["annotations"],"Integrated Core must expose the text model")
         for (path,text) in [("annotations","Annotation"),("captions","Caption"),("reactions","😀")] {
             try project.apply(.set(path: "canvas.\(path)",value: .array([.object([
                 "id":.string(path),"tl_start_ns":.integer(0),"tl_end_ns":.integer(2_000_000_000),
