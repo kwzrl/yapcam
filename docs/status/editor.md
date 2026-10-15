@@ -12,7 +12,7 @@ READY cc5a72e editor on real core/render: EditorDocument, EditorWindows.open (re
 - **Inspector tabs**: Look (background solid/gradient/blur, aspect, padding, radius, shadow, inset, motion blur), Cursor (visible, size, smoothing, speed preset, hide idle, click effect, loop, hidden sections lane), Camera (visible, shape, size, radius, opacity, mirror, corners, layout lane; "no camera track" state), Audio (mute/volume per track, speed up typing, silence → cut/speed).
 - **Lanes**: camera layouts, cursor hidden ranges (drag/resize/delete). Crop controls (canvas.crop) and volume-over-time ranges accepted by real core (RealCoreRangesTests).
 - ⌘K command palette (also cheat sheet), copy current frame (⇧⌘C → PNG clipboard), export sheet (720/1080, 30/60, progress/cancel/error/Show in Finder).
-- Tests: `swift test` green, editor 88 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
+- Tests: `swift test` green, editor 90 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
 
 - ZOM-04 per-zoom Auto/Manual switch (reaches core). EDT-05 verified: 100 mixed edits on real core undo to the exact initial state and redo to the exact final state. Short (<2 s) project: zoom clipped to project end; 3 h project: timeline fits, ruler steps ≥ 60 s.
 - Export sheet has an "Include audio" toggle (default on). Workaround for the render hang; the real-export test uses audio off.
@@ -23,8 +23,8 @@ READY cc5a72e editor on real core/render: EditorDocument, EditorWindows.open (re
 ## LOK-02 wallpapers (done)
 Look tab → Wallpapers: category grid of the 12 original render wallpapers/gradients with thumbnails (generated off-main), one click applies (`BackgroundLibrary.apply`: gradients set colors, artwork imports a generated image) as one undo step; busy state, error surfaced, double-apply blocked. Verified: fake flow + real core (gradient then image wallpaper, thumbnail 192×108, undo). CUR-17 cursor style picker exists (recorded/pointer/touch).
 
-## FEATURES section K (CUR-12..16, ANI-02, CAM-07, ANI-03 per-kind blur)
-Not built: core has no set paths for them yet (no `cursor.rotate_on_move`, stop-before-end, jitter filter, screen animation presets, camera zoom scale, per-kind blur). Will add controls when documented in FORMATS.md.
+## FEATURES section K (done)
+Controls for every path core documented in "Guide audit": CUR-12 always default arrow, CUR-13 tilt while moving, CUR-14 stop cursor before end (toggle + length), CUR-15 remove tiny shakes, CUR-16 reduce cursor-type flicker, ANI-02 screen animation Custom/Focused/Smooth, CAM-07 camera size while zoomed, ANI-03 per-kind blur (zoom, screen move; "same as motion blur" = null inherits). Verified: real core accepts all, rejects out-of-range `camera.zoom_scale` with state unchanged, `motion_at` evaluates; inherit/explicit semantics tested. Not verified: how tilt/hold/blur look in a real preview (Metal host run).
 
 ## Build note
 After rebasing onto a core that changed `EditCommand`, an incremental `swift test` crashed with SIGSEGV in unrelated tests (`objc_retain` in an `EditCommand` copy, ui's PresetTests) — stale object layouts. `swift package clean` + rebuild fixed it: 3 consecutive full runs green (212 tests, 30 suites). If a rebase gives random crashes, clean first.

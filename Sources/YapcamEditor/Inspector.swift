@@ -114,6 +114,8 @@ struct InspectorView: View {
             ToggleRow(model: model, title: "Automatic zooms", path: "zoom_settings.automatic", defaultValue: true)
             ToggleRow(model: model, title: "Follow cursor while zoomed", path: "zoom_settings.follow_cursor", defaultValue: true)
             PickerRow(model: model, title: "Transition speed", path: "zoom_settings.speed_preset", options: speedPresets)
+            PickerRow(model: model, title: "Screen animation", path: "zoom_settings.animation_style",
+                      options: [("Custom", "custom"), ("Focused (settles fast)", "focused"), ("Smooth (fluid)", "smooth")])
             Button("Regenerate automatic zooms") { model.regenerateAutoZooms() }
         }
         Section("Background") {
@@ -140,7 +142,9 @@ struct InspectorView: View {
             NumberRow(model: model, title: "Shadow blur", path: "canvas.shadow.radius", range: 0...80, unit: "pt", format: "%.0f")
             NumberRow(model: model, title: "Inset", path: "canvas.inset", range: 0...24, unit: "pt", format: "%.0f")
             if model.number("canvas.inset") > 0 { ColorRow(model: model, title: "Inset color", path: "canvas.inset_color") }
-            NumberRow(model: model, title: "Zoom motion blur", path: "canvas.motion_blur", range: 0...1)
+            NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1)
+            InheritedBlurRow(model: model, title: "Zoom blur", path: "canvas.motion_blur_settings.zoom")
+            InheritedBlurRow(model: model, title: "Screen move blur", path: "canvas.motion_blur_settings.pan")
             ToggleRow(model: model, title: "Window frame", path: "canvas.window_chrome")
             NumberRow(model: model, title: "Background noise", path: "canvas.background.noise", range: 0...1)
         }
@@ -227,6 +231,11 @@ struct InspectorView: View {
             NumberRow(model: model, title: "Smoothing", path: "cursor.smoothing", range: 0...1)
             PickerRow(model: model, title: "Movement speed", path: "cursor.speed_preset", options: speedPresets)
             ToggleRow(model: model, title: "Hide when idle", path: "cursor.hide_when_idle")
+            ToggleRow(model: model, title: "Always use the default arrow", path: "cursor.always_default")
+            ToggleRow(model: model, title: "Tilt while moving", path: "cursor.rotate_on_move")
+            ToggleRow(model: model, title: "Remove tiny shakes", path: "cursor.remove_shakes")
+            ToggleRow(model: model, title: "Reduce cursor-type flicker", path: "cursor.optimize_types")
+            HoldCursorRow(model: model)
             PickerRow(model: model, title: "Click effect", path: "cursor.click_effect",
                       options: [("None", "none"), ("Ring", "ring"), ("Highlight", "highlight")])
             ToggleRow(model: model, title: "Loop cursor to start", path: "cursor.loop_to_start")
@@ -271,6 +280,7 @@ struct InspectorView: View {
                 NumberRow(model: model, title: "Corner radius", path: "camera.radius", range: 0...64, unit: "pt", format: "%.0f")
                 NumberRow(model: model, title: "Opacity", path: "camera.opacity", range: 0...1)
                 ToggleRow(model: model, title: "Mirror", path: "camera.mirrored", defaultValue: true)
+                NumberRow(model: model, title: "Size while zoomed", path: "camera.zoom_scale", range: 0.25...4, unit: "×")
                 NumberRow(model: model, title: "Shadow", path: "camera.shadow_radius", range: 0...60, unit: "pt", format: "%.0f")
                 ToggleRow(model: model, title: "Remove background", path: "camera.background_removal")
                 ToggleRow(model: model, title: "Frame face", path: "camera.face_framing")
@@ -420,7 +430,7 @@ struct DurationRow: View {
     var body: some View {
         LabeledContent(title) {
             HStack {
-                Slider(value: $seconds, in: 0.1...3) { e in editing = e; if !e { model.set(path, number: (seconds * 1e9).rounded()) } }
+                Slider(value: $seconds, in: 0.1...5) { e in editing = e; if !e { model.set(path, number: (seconds * 1e9).rounded()) } }
                 Text(String(format: "%.1f s", seconds)).monospacedDigit().frame(width: 46, alignment: .trailing)
             }
         }
@@ -647,5 +657,29 @@ struct WallpaperThumb: View {
         .frame(height: 44).clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.2)))
         .task { image = await model.project.wallpaperThumbnail(id: info.id) }
+    }
+}
+
+/// 0 = off. Holds the cursor still for the last N seconds of the video.
+struct HoldCursorRow: View {
+    @ObservedObject var model: EditorModel
+    private let path = "cursor.stop_before_end_ns"
+    var body: some View {
+        let on = model.number(path) > 0
+        Toggle("Stop cursor before the end", isOn: Binding(get: { on }, set: { model.set(path, number: $0 ? 1_000_000_000 : 0) }))
+        if on { DurationRow(model: model, title: "Stops", path: path, default: 1_000_000_000) }
+    }
+}
+
+/// A motion-blur strength that either inherits the general setting (null) or has its own value.
+struct InheritedBlurRow: View {
+    @ObservedObject var model: EditorModel
+    let title: String, path: String
+    private var inherits: Bool { if case .number? = model.value(path) { false } else { true } }
+    var body: some View {
+        Toggle("\(title): same as motion blur", isOn: Binding(
+            get: { inherits },
+            set: { model.set(path, $0 ? .null : .number(model.number("canvas.motion_blur"))) }))
+        if !inherits { NumberRow(model: model, title: title, path: path, range: 0...1) }
     }
 }
