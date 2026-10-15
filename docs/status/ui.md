@@ -1,4 +1,4 @@
-READY ui: all ui-owned rows implemented incl. teleprompter; 200 tests green; live recording waits for TCC grant
+READY ui: review round 2 fixes (prior #2, new #2, #4, #5) done; tests green; live recording waits for TCC grant
 
 # ui status
 
@@ -46,6 +46,12 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - SWIFT_API.md: confirm `CaptureTarget.area` rect is top-left-origin display-local points.
 - SWIFT_API.md: `RecordingSession` should expose a way to observe an engine-initiated failure (state `.failed` is enough; UI polls `state`).
 - When capture lands: add `Tests/YapcamUITests`-style testability? Executable target `Yapcam` cannot be imported by tests; consider splitting UI into a library target `YapcamApp` + thin executable (Package.swift is yours).
+
+## Review round 2 fixes (review-claude-2.md)
+- prior #2: import reservations are case-insensitive/Unicode-normalized; the UI no longer deletes anything on import failure (core's `importVideo` removes only what it created). Test `reservationIsCaseInsensitive`.
+- new #2: "Add Preset File to Library…" is a no-op for the library's own file and replaces through a temp copy (`PresetStore.addToLibrary`), so a failed copy never loses a preset. Tests `addingLibraryPresetToItselfKeepsIt`, `failedAddKeepsExistingPreset`.
+- new #4: applying a preset (menu routes) now refreshes the editor's cached project wrapper, redraws the preview, nudges observers and saves (`PresetStore.apply(_:to: EditorDocument)`). Test `applyingPresetUpdatesEditorAndSaves` (model value + saved project.json). Request to editor: a public `EditorDocument.applyPreset(from:)` that does this via `perform`/`didEdit` (undo + dirty tracking); my version marks no undo state.
+- new #5: `EditorWindows.transcriber` is installed at launch, running capture's `TranscriptionService` (asks for Speech Recognition on first use; `NSSpeechRecognitionUsageDescription` added to Info.plist). Test `transcriberIsInstalled`. Real transcription not run live (needs speech permission + a recording with audio).
 
 ## After main f640b35
 Rebased. REC-21/PRJ-02/smoke test were already done (see below); added the teleprompter part of REC-21: floating, capture-excluded `TeleprompterController` panel (large notes text, font size, auto-scroll speed, back to top) opened from the Notes popover, hidden when a recording ends; included in `UISmokeTests` (light + dark). 200 tests pass. All ui-owned FEATURES.md rows are implemented; open: live verification (TCC grant), EXP-10 quick share belongs to the editor's export sheet.

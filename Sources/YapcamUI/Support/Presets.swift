@@ -6,8 +6,10 @@ import YapcamEditor
 /// File-based presets (PRJ-02): look settings of a project (canvas, cursor, zoom defaults…)
 /// saved as JSON via core's `exportPreset` / `importPreset`. Shared by copying the files.
 @MainActor enum PresetStore {
+    nonisolated(unsafe) static var directoryOverride: URL?
     static var directory: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Yapcam/Presets", directoryHint: .isDirectory)
+        if let directoryOverride { return directoryOverride }
+        return FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Yapcam/Presets", directoryHint: .isDirectory)
     }
 
     static func names() -> [String] {
@@ -34,6 +36,39 @@ import YapcamEditor
     }
 
     static func apply(_ file: URL, to project: Project) throws { try project.importPreset(from: file) }
+
+    /// Applies a preset to an open editor document so preview, inspector and saved state all follow.
+    /// Core mutates the `Project` directly, which the editor's cached wrapper doesn't see, so refresh
+    /// it through the wrapper (empty batch), redraw, nudge observers and persist.
+    static func apply(_ file: URL, to doc: EditorDocument) throws {
+        try doc.project.importPreset(from: file)
+        try? doc.model.project.apply(.batch([]))
+        doc.player.invalidate()
+        doc.model.geometry = doc.model.geometry
+        try doc.project.save()
+    }
+
+    /// Copies a preset file into the library. Choosing a file that is already the library's
+    /// copy is a no-op; replacing goes through a temp copy so a failed copy never loses the old preset.
+    @discardableResult
+    static func addToLibrary(_ source: URL) throws -> URL {
+        let fm = FileManager.default
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        let dest = url(for: clean(source.deletingPathExtension().lastPathComponent))
+        if isSameFile(source, dest) { return dest }
+        let temp = directory.appending(path: ".incoming-\(UUID().uuidString)")
+        try fm.copyItem(at: source, to: temp)
+        defer { try? fm.removeItem(at: temp) }
+        if fm.fileExists(atPath: dest.path) { _ = try fm.replaceItemAt(dest, withItemAt: temp) }
+        else { try fm.moveItem(at: temp, to: dest) }
+        return dest
+    }
+
+    static func isSameFile(_ a: URL, _ b: URL) -> Bool {
+        let ids = [a, b].map { try? $0.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier }
+        if let x = ids[0], let y = ids[1] { return x.isEqual(y) }
+        return a.resolvingSymlinksInPath().standardizedFileURL.path == b.resolvingSymlinksInPath().standardizedFileURL.path
+    }
 }
 
 /// The "Presets" menu; items are rebuilt each time it opens.
@@ -81,12 +116,12 @@ import YapcamEditor
 
     @objc private func applyNamed(_ item: NSMenuItem) {
         guard let doc = EditorBridge.keyDocument(), let n = item.representedObject as? String else { return }
-        do { try PresetStore.apply(PresetStore.url(for: n), to: doc.project) } catch { fail("Could not apply preset", error) }
+        do { try PresetStore.apply(PresetStore.url(for: n), to: doc) } catch { fail("Could not apply preset", error) }
     }
 
     @objc private func applyFile() {
         guard let doc = EditorBridge.keyDocument(), let url = pickPreset() else { return }
-        do { try PresetStore.apply(url, to: doc.project) } catch { fail("Could not apply preset", error) }
+        do { try PresetStore.apply(url, to: doc) } catch { fail("Could not apply preset", error) }
     }
 
     @objc private func exportFile() {
@@ -99,11 +134,7 @@ import YapcamEditor
 
     @objc private func addToLibrary() {
         guard let url = pickPreset() else { return }
-        do {
-            try FileManager.default.createDirectory(at: PresetStore.directory, withIntermediateDirectories: true)
-            let dest = PresetStore.url(for: PresetStore.clean(url.deletingPathExtension().lastPathComponent))
-            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
-            try FileManager.default.copyItem(at: url, to: dest)
+        do { try PresetStore.addToLibrary(url)
         } catch { fail("Could not add preset", error) }
     }
 

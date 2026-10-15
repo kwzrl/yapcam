@@ -4,6 +4,7 @@ import Foundation
 import Testing
 import YapcamCapture
 import YapcamCore
+import YapcamEditor
 @testable import YapcamUI
 
 @Suite struct KeyComboTests {
@@ -190,5 +191,86 @@ import YapcamCore
         while p.isRunning && Date() < deadline { try await Task.sleep(for: .milliseconds(200)) }
         if p.isRunning { p.terminate(); Issue.record("app did not exit after --snapshot-ui") }
         #expect(UISmokeTests.check(dir) == [])
+    }
+}
+
+@MainActor @Suite(.serialized) struct ReviewRound2Tests {
+    private func temp() throws -> URL {
+        let d = FileManager.default.temporaryDirectory.appending(path: "yapcam-r2-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+    private func fixturePackage(in dir: URL, name: String) throws -> URL {
+        let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Fixtures/synthetic/basic.yapcam")
+        let pkg = dir.appending(path: "\(name).yapcam", directoryHint: .isDirectory)
+        try FileManager.default.copyItem(at: fixture, to: pkg)
+        return pkg
+    }
+
+    // prior #2: Demo and demo are the same destination on a case-insensitive volume.
+    @Test func reservationIsCaseInsensitive() {
+        let dir = URL(filePath: "/tmp/yapcam-case-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let a = ProjectActions.reserveURL(in: dir, name: "Demo")
+        let b = ProjectActions.reserveURL(in: dir, name: "demo")
+        defer { ProjectActions.release(a); ProjectActions.release(b) }
+        #expect(a.lastPathComponent == "Demo.yapcam")
+        #expect(b.lastPathComponent != "demo.yapcam")
+        ProjectActions.release(a)
+        #expect(ProjectActions.uniqueURL(in: dir, name: "DEMO").lastPathComponent == "DEMO.yapcam")
+    }
+
+    // new #2: adding a preset that already is the library copy must not delete it.
+    @Test func addingLibraryPresetToItselfKeepsIt() throws {
+        let lib = try temp(); defer { try? FileManager.default.removeItem(at: lib) }
+        PresetStore.directoryOverride = lib; defer { PresetStore.directoryOverride = nil }
+        let file = lib.appending(path: "Look.yapcampreset")
+        try Data("one".utf8).write(to: file)
+        try PresetStore.addToLibrary(file)
+        #expect(try String(contentsOf: file, encoding: .utf8) == "one")
+
+        let outside = try temp(); defer { try? FileManager.default.removeItem(at: outside) }
+        let other = outside.appending(path: "Look.yapcampreset")
+        try Data("two".utf8).write(to: other)
+        try PresetStore.addToLibrary(other)                     // replaces by copy, original untouched
+        #expect(try String(contentsOf: file, encoding: .utf8) == "two")
+        #expect(FileManager.default.fileExists(atPath: other.path))
+        #expect(PresetStore.names() == ["Look"])                 // no leftover temp files
+    }
+
+    @Test func failedAddKeepsExistingPreset() throws {
+        let lib = try temp(); defer { try? FileManager.default.removeItem(at: lib) }
+        PresetStore.directoryOverride = lib; defer { PresetStore.directoryOverride = nil }
+        let file = lib.appending(path: "Look.yapcampreset")
+        try Data("keep".utf8).write(to: file)
+        #expect(throws: (any Error).self) { try PresetStore.addToLibrary(URL(filePath: "/nonexistent/Look.yapcampreset")) }
+        #expect(try String(contentsOf: file, encoding: .utf8) == "keep")
+    }
+
+    // new #4: applying a preset refreshes the editor model and persists.
+    @Test func applyingPresetUpdatesEditorAndSaves() throws {
+        let dir = try temp(); defer { try? FileManager.default.removeItem(at: dir) }
+        let target = try fixturePackage(in: dir, name: "T")
+        let source = try fixturePackage(in: dir, name: "S")
+        let sp = try Project.create(package: source)
+        try sp.apply(.set(path: "canvas.padding", value: .number(0.31)))
+        let preset = dir.appending(path: "p.yapcampreset")
+        try sp.exportPreset(to: preset)
+
+        let doc = try EditorDocument(package: target, restoreUnsavedChanges: false)
+        #expect(abs(doc.model.number("canvas.padding") - 0.31) > 0.001)
+        try PresetStore.apply(preset, to: doc)
+        #expect(abs(doc.model.number("canvas.padding") - 0.31) < 0.001)      // inspector source of truth refreshed
+        let saved = try Project.open(package: target)
+        let json = try String(data: saved.toJSON(), encoding: .utf8) ?? ""
+        #expect(json.contains("0.31"))                                       // persisted without another edit
+    }
+
+    // new #5: production transcriber is installed (never a fake).
+    @Test func transcriberIsInstalled() {
+        EditorWindows.transcriber = nil
+        _ = NSApplication.shared
+        AppDelegate().installTranscriber()
+        #expect(EditorWindows.transcriber != nil)
     }
 }
