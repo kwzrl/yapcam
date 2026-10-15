@@ -158,14 +158,14 @@ extension EditorModel {
     public func removeAudioRange(id: String) { write(audioRanges.filter { $0.id != id }) }
 
     /// Crop of the recorded screen as insets (fractions of the source) → `canvas.crop` [x, y, w, h].
-    public var cropInsets: (left: Double, top: Double, right: Double, bottom: Double) {
-        let c = numbers("canvas.crop")
+    public func cropInsets(path: String = "canvas.crop") -> (left: Double, top: Double, right: Double, bottom: Double) {
+        let c = numbers(path)
         guard c.count == 4 else { return (0, 0, 0, 0) }
         return (c[0], c[1], 1 - c[0] - c[2], 1 - c[1] - c[3])
     }
-    public func setCrop(left: Double, top: Double, right: Double, bottom: Double) {
+    public func setCrop(path: String = "canvas.crop", left: Double, top: Double, right: Double, bottom: Double) {
         let l = min(max(left, 0), 0.9), t = min(max(top, 0), 0.9)
         let r = min(max(right, 0), 0.9 - l), b = min(max(bottom, 0), 0.9 - t)
-        set("canvas.crop", color: [l, t, 1 - l - r, 1 - t - b])    // `color` writes a 4-number array
+        set(path, color: [l, t, 1 - l - r, 1 - t - b])    // `color` writes a 4-number array
     }
 }

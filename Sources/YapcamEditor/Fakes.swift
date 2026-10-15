@@ -138,6 +138,15 @@ public final class FakeProject: EditingProject {
         undoStack.append(snap); redoStack.removeAll()
     }
     public func wallpaperThumbnail(id: String) async -> CGImage? { nil }
+    public var cameraRecipes = [CameraRecipe(id: "warm-studio", name: "Warm studio"), CameraRecipe(id: "cool-daylight", name: "Cool daylight")]
+    public private(set) var importedLUTs: [URL] = []
+    public func importCameraLUT(_ file: URL) throws {
+        importedLUTs.append(file)
+        let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
+        settings = Self.setting(settings, ["camera", "style", "preset"][...], .string("lut"))
+        settings = Self.setting(settings, ["camera", "style", "lut_path"][...], .string("assets/lut-1.cube"))
+        undoStack.append(snap); redoStack.removeAll()
+    }
     public private(set) var importedBackgrounds: [URL] = []
     public func importBackgroundImage(_ file: URL) throws {
         importedBackgrounds.append(file)

@@ -412,18 +412,7 @@ struct InspectorView: View {
         }
     }
 
-    @ViewBuilder private var cameraStyle: some View {
-        Section("Camera style") {
-            PickerRow(model: model, title: "Shape", path: "camera.shape",
-                      options: [("Rounded rectangle", "rounded_rect"), ("Circle", "circle"), ("Squircle", "squircle")])
-            NumberRow(model: model, title: "Corner radius", path: "camera.radius", range: 0...64, unit: "pt", format: "%.0f", defaultValue: 24)
-            NumberRow(model: model, title: "Opacity", path: "camera.opacity", range: 0...1, defaultValue: 1)
-            ToggleRow(model: model, title: "Mirror", path: "camera.mirrored", defaultValue: true)
-            NumberRow(model: model, title: "Shadow", path: "camera.shadow_radius", range: 0...60, unit: "pt", format: "%.0f", defaultValue: 0)
-            ToggleRow(model: model, title: "Remove background", path: "camera.background_removal")
-            ToggleRow(model: model, title: "Frame face", path: "camera.face_framing")
-        }
-    }
+    @ViewBuilder private var cameraStyle: some View { CameraStylePanel(model: model) }
 
     @ViewBuilder private var audio: some View {
         Section("Automatic edits") {
@@ -535,25 +524,27 @@ struct CameraPositionRow: View {
 
 struct CropSection: View {
     @ObservedObject var model: EditorModel
+    var path = "canvas.crop"
+    var title = "Crop recording"
     @State private var l = 0.0
     @State private var t = 0.0
     @State private var r = 0.0
     @State private var b = 0.0
     @State private var editing = false
     var body: some View {
-        Section("Crop recording") {
+        Section(title) {
             row("Left", $l); row("Top", $t); row("Right", $r); row("Bottom", $b)
-            Button("Reset crop") { l = 0; t = 0; r = 0; b = 0; model.setCrop(left: 0, top: 0, right: 0, bottom: 0) }
+            Button("Reset crop") { l = 0; t = 0; r = 0; b = 0; model.setCrop(path: path, left: 0, top: 0, right: 0, bottom: 0) }
                 .disabled(l + t + r + b == 0)
         }
         .onAppear(perform: load)
         .onChange(of: model.revision) { _, _ in if !editing { load() } }
     }
-    private func load() { let c = model.cropInsets; l = c.left; t = c.top; r = c.right; b = c.bottom }
+    private func load() { let c = model.cropInsets(path: path); l = c.left; t = c.top; r = c.right; b = c.bottom }
     private func row(_ title: String, _ v: Binding<Double>) -> some View {
         LabeledContent(title) {
             HStack {
-                Slider(value: v, in: 0...0.9) { e in editing = e; if !e { model.setCrop(left: l, top: t, right: r, bottom: b) } }
+                Slider(value: v, in: 0...0.9) { e in editing = e; if !e { model.setCrop(path: path, left: l, top: t, right: r, bottom: b) } }
                     .accessibilityLabel("Crop \(title.lowercased())").accessibilityValue("\(Int(v.wrappedValue * 100)) percent")
                 Text("\(Int(v.wrappedValue * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
             }

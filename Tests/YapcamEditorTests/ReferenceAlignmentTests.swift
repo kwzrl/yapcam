@@ -470,3 +470,59 @@ import YapcamCore
         #expect(mb.typingSpeed == 3 && !mb.captionLook.light && ma.typingSpeed == 6 && ma.captionLook.light)
     }
 }
+
+@MainActor @Suite struct CameraStyleTests {
+    private func fixture() throws -> URL {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("cs-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); return d
+    }
+
+    @Test func realCoreRecipesCustomLookCropAndRenderConfiguration() throws {
+        let d = try fixture(); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d); let m = doc.model
+        let recipes = m.project.cameraRecipes
+        #expect(recipes.count == 12)
+        m.set("camera.style.preset", string: recipes[0].id)
+        #expect(m.lastError == nil && m.string("camera.style.preset") == recipes[0].id, "\(m.lastError ?? "")")
+        m.set("camera.style.warmth", number: 0.5)                                       // editing a recipe value selects custom
+        #expect(m.string("camera.style.preset") == "custom" && m.number("camera.style.warmth") == 0.5)
+        m.set("camera.style.intensity", number: 0.4); m.set("camera.style.sharpen", number: 0.3); m.set("camera.style.grain", number: 0.2)
+        m.set("camera.style.background_blur", number: 0.5)
+        m.setCrop(path: "camera.style.crop", left: 0.1, top: 0.1, right: 0.2, bottom: 0.1)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        let c = m.cropInsets(path: "camera.style.crop"); #expect(abs(c.left - 0.1) < 1e-9 && abs(c.right - 0.2) < 1e-9)
+        // The editor's render source hands the style to render (preview and export snapshot).
+        let src = ProjectRenderSource(doc.project)
+        let cfg = try src.renderEffects(atNs: 500_000_000, canvasSize: CGSize(width: 1920, height: 1080)).configuration
+        #expect(abs(cfg.cameraColor.warmth - 0.5) < 1e-5 && abs(cfg.cameraColor.intensity - 0.4) < 1e-5 && abs(cfg.cameraColor.sharpen - 0.3) < 1e-5)
+        #expect(abs(cfg.cameraCrop.x - 0.1) < 1e-5 && abs(cfg.cameraBackgroundBlur - 0.5) < 1e-5)
+        m.set("camera.style.preset", string: "original")
+        #expect(try src.renderEffects(atNs: 500_000_000, canvasSize: CGSize(width: 1920, height: 1080)).configuration.cameraColor.warmth == 0)   // bypassed
+        m.set("camera.style.warmth", number: 5); #expect(m.lastError != nil)           // out of range is rejected, state kept
+    }
+
+    @Test func lutImportThroughTheProject() throws {
+        let d = try fixture(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        var cube = "TITLE \"t\"\nLUT_3D_SIZE 2\n"
+        for b in [0, 1] { for g in [0, 1] { for r in [0, 1] { cube += "\(r) \(g) \(b)\n" } } }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("l-\(UUID().uuidString).cube")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data(cube.utf8).write(to: url)
+        m.importCameraLUT(url)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.string("camera.style.preset") == "lut")
+        if case .string(let p)? = m.value("camera.style.lut_path") { #expect(p.hasPrefix("assets/")) } else { Issue.record("lut_path missing") }
+        m.undo(); #expect(m.string("camera.style.preset") == "original")
+        try Data("not a cube".utf8).write(to: url)
+        m.importCameraLUT(url); #expect(m.lastError != nil)                              // invalid data: nothing changes
+    }
+
+    @Test func fakeFlowAndTilesAvailability() {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        #expect(m.project.cameraRecipes.map(\.id) == ["warm-studio", "cool-daylight"])
+        m.importCameraLUT(URL(fileURLWithPath: "/tmp/x.cube"))
+        #expect(p.importedLUTs.count == 1 && m.string("camera.style.preset") == "lut")
+    }
+}

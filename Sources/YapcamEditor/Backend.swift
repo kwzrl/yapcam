@@ -45,6 +45,11 @@ public struct WallpaperInfo: Equatable, Identifiable, Sendable {
     public init(id: String, title: String, category: String) { self.id = id; self.title = title; self.category = category }
 }
 
+public struct CameraRecipe: Equatable, Identifiable, Sendable {
+    public var id: String, name: String
+    public init(id: String, name: String) { self.id = id; self.name = name }
+}
+
 public struct TimeSpan: Equatable, Sendable { public var startNs: Int64; public var endNs: Int64
     public init(startNs: Int64, endNs: Int64) { self.startNs = startNs; self.endNs = endNs }
     public var durationNs: Int64 { endNs - startNs }
@@ -141,6 +146,9 @@ public protocol EditingProject: AnyObject {
     var wallpapers: [WallpaperInfo] { get }
     func applyWallpaper(id: String) async throws
     func wallpaperThumbnail(id: String) async -> CGImage?
+    /// The twelve original camera color recipes of core and a `.cube` import (one undo step; core registers the file).
+    var cameraRecipes: [CameraRecipe] { get }
+    func importCameraLUT(_ file: URL) throws
     /// Copy an image into the package and use it as the background (one undo step).
     func importBackgroundImage(_ file: URL) throws
     /// Look presets: core's portable setting export/import (one undo step for import).

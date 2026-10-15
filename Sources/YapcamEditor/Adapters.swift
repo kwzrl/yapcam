@@ -176,6 +176,8 @@ public final class CoreEditingProject: EditingProject {
         guard let preset = BackgroundLibrary.preset(id: id) else { return nil }
         return await Task.detached(priority: .utility) { try? BackgroundLibrary.image(for: preset, width: 192, height: 108) }.value
     }
+    public var cameraRecipes: [CameraRecipe] { ((try? project.cameraStyleLibrary()) ?? []).map { CameraRecipe(id: $0.id, name: $0.name) } }
+    public func importCameraLUT(_ file: URL) throws { _ = try project.importCameraLUT(from: file); refresh() }
     public func importBackgroundImage(_ file: URL) throws { try project.importBackgroundImage(file); refresh() }
     public func exportPreset(to url: URL) throws { try project.exportPreset(to: url) }
     public func importPreset(from url: URL) throws { try project.importPreset(from: url); refresh() }
