@@ -180,7 +180,11 @@ import YapcamEditor
     nonisolated static let appBinary: URL = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appending(path: "build/Yapcam.app/Contents/MacOS/Yapcam")
 
-    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: UISmokeTests.appBinary.path)))
+    /// Skipped while QA owns the app (~/Movies/Yapcam/QA/.app-lock): never start a second Yapcam then.
+    nonisolated static let qaOwnsApp = FileManager.default.fileExists(
+        atPath: FileManager.default.homeDirectoryForCurrentUser.appending(path: "Movies/Yapcam/QA/.app-lock").path)
+
+    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: UISmokeTests.appBinary.path) && !UISmokeTests.qaOwnsApp))
     func appLaunchedWithSnapshotFlagRendersEverything() async throws {
         let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-smoke-app-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: dir) }
