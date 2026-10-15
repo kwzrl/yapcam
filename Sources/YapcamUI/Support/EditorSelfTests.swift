@@ -46,6 +46,15 @@ import YapcamEditor
             Probe.log("\(tag) SKIP package has an unsaved autosave journal (would show the restore prompt); use --editor-reopen-check or delete autosave/")
             return nil
         }
+        // EditorWindows shows a modal alert when core can't open a package, which would hang a headless
+        // run forever; check first with the same core calls and report the reason instead.
+        do {
+            let hasProject = FileManager.default.fileExists(atPath: package.appending(path: "project.json").path)
+            _ = hasProject ? try Project.open(package: package) : try Project.create(package: package)
+        } catch {
+            Probe.log("\(tag) FAIL core cannot open this package: \(UserMessage.describe(error)) | \(error)")
+            return nil
+        }
         EditorWindows.open(package: package)
         guard await waitFor({ EditorBridge.anyDocument() != nil }, seconds: 20), let doc = EditorBridge.anyDocument() else {
             Probe.log("\(tag) FAIL editor window did not open"); return nil
