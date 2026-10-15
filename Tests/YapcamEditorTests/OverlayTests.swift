@@ -122,3 +122,29 @@ private func pkgCopy() throws -> URL {
         #expect(m.zooms[0].easeInNs == 0 && m.lastError == nil)
     }
 }
+
+@MainActor @Suite struct WallpaperTests {
+    @Test func applyingWallpaperGoesThroughTheProjectAsOneStep() async throws {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        #expect(m.wallpapers.map(\.id) == ["quiet-dawn", "boreal-glow"])
+        m.applyWallpaper(id: "boreal-glow"); #expect(m.wallpaperBusy == "boreal-glow")
+        await m.waitForWallpaper()
+        #expect(p.appliedWallpapers == ["boreal-glow"] && m.wallpaperBusy == nil && m.string("canvas.background.kind") == "image")
+        m.undo(); #expect(m.string("canvas.background.kind") == "solid")
+        m.applyWallpaper(id: "nope"); await m.waitForWallpaper()
+        #expect(m.lastError != nil && m.wallpaperBusy == nil)
+    }
+
+    @Test func realLibraryAppliesGradientAndImageWallpapers() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        #expect(m.wallpapers.count == 12)
+        m.applyWallpaper(id: "quiet-dawn"); await m.waitForWallpaper()
+        #expect(m.string("canvas.background.kind") == "gradient" && m.lastError == nil, "\(m.lastError ?? "")")
+        m.applyWallpaper(id: "boreal-glow"); await m.waitForWallpaper()
+        #expect(m.string("canvas.background.kind") == "image" && m.lastError == nil, "\(m.lastError ?? "")")
+        let thumb = await m.project.wallpaperThumbnail(id: "sediment")
+        #expect(thumb?.width == 192 && thumb?.height == 108)
+        m.undo(); #expect(m.string("canvas.background.kind") == "gradient")
+    }
+}

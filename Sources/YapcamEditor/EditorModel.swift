@@ -156,6 +156,22 @@ public final class EditorModel: ObservableObject {
     }
     public func dismissSilences() { silenceState = .idle }
 
+    public var wallpapers: [WallpaperInfo] { project.wallpapers }
+    @Published public var wallpaperBusy: String?
+    /// Applies a library wallpaper (gradients set colors; artwork imports a generated image) as one undo step.
+    public func applyWallpaper(id: String) {
+        guard wallpaperBusy == nil else { return }
+        wallpaperBusy = id
+        wallpaperTask = Task { [weak self] in
+            guard let self else { return }
+            do { try await project.applyWallpaper(id: id); noteExternalEdit() }
+            catch { lastError = "Couldn't apply the wallpaper: \(error.localizedDescription)" }
+            wallpaperBusy = nil
+        }
+    }
+    var wallpaperTask: Task<Void, Never>?
+    public func waitForWallpaper() async { await wallpaperTask?.value }
+
     public func regenerateAutoZooms() { perform(.autoZooms) }
 
     public var selectedZoom: TimelineZoom? {

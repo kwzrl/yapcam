@@ -1,5 +1,6 @@
 import Foundation
 import YapcamCore
+import CoreGraphics
 
 /// In-memory project used for development and tests until the Rust-backed `Project` lands.
 /// Mirrors core semantics: split creates clips, deleteRange ripples, each command = one undo step.
@@ -117,6 +118,16 @@ public final class FakeProject: EditingProject {
         undoStack.append(Snapshot(clips: clips, zooms: zooms, settings: settings))
         clips = s.clips; zooms = s.zooms; settings = s.settings
     }
+    public var wallpapers = [WallpaperInfo(id: "quiet-dawn", title: "Quiet Dawn", category: "gradients"), WallpaperInfo(id: "boreal-glow", title: "Boreal Glow", category: "landscapes")]
+    public private(set) var appliedWallpapers: [String] = []
+    public func applyWallpaper(id: String) async throws {
+        guard wallpapers.contains(where: { $0.id == id }) else { throw NSError(domain: "Fake", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unknown wallpaper"]) }
+        appliedWallpapers.append(id)
+        let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
+        settings = Self.setting(settings, ["canvas", "background", "kind"][...], .string(id == "quiet-dawn" ? "gradient" : "image"))
+        undoStack.append(snap); redoStack.removeAll()
+    }
+    public func wallpaperThumbnail(id: String) async -> CGImage? { nil }
     public var importedTranscripts = 0
     public func importTranscript(_ data: Data) throws {
         guard let o = try JSONSerialization.jsonObject(with: data) as? [String: Any], let words = o["words"] as? [[String: Any]] else {

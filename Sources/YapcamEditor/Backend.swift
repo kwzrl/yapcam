@@ -40,6 +40,11 @@ public struct TimelineZoom: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct WallpaperInfo: Equatable, Identifiable, Sendable {
+    public var id: String, title: String, category: String
+    public init(id: String, title: String, category: String) { self.id = id; self.title = title; self.category = category }
+}
+
 public struct TimeSpan: Equatable, Sendable { public var startNs: Int64; public var endNs: Int64
     public init(startNs: Int64, endNs: Int64) { self.startNs = startNs; self.endNs = endNs }
     public var durationNs: Int64 { endNs - startNs }
@@ -125,6 +130,10 @@ public protocol EditingProject: AnyObject {
     func importTranscript(_ data: Data) throws
     /// Copy an audio file into the package and add it as a music track at `startNs` (one undo step).
     func importMusic(_ file: URL, startNs: Int64) async throws
+    /// Original wallpaper/gradient library (render). Applying is one undo step.
+    var wallpapers: [WallpaperInfo] { get }
+    func applyWallpaper(id: String) async throws
+    func wallpaperThumbnail(id: String) async -> CGImage?
     /// Silent stretches of the main audio track in timeline time (decodes audio; may take a moment).
     func silentSpans() async throws -> [TimeSpan]
 }

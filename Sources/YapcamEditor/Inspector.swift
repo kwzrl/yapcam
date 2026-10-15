@@ -128,6 +128,7 @@ struct InspectorView: View {
                 NumberRow(model: model, title: "Blur", path: "canvas.background.blur", range: 0...80, format: "%.0f")
             }
         }
+        Section("Wallpapers") { WallpaperGrid(model: model) }
         Section("Frame") {
             Picker("Aspect ratio", selection: Binding(get: { AspectPreset(rawValue: model.string("canvas.aspect")) ?? .custom },
                                                        set: { model.setAspect($0) })) {
@@ -610,5 +611,41 @@ struct MusicControls: View {
             Text("Uses caption timing as speech. Generate captions first.").font(.caption).foregroundStyle(.secondary)
         }
         Button("Remove music", role: .destructive) { model.deleteSelection() }
+    }
+}
+
+struct WallpaperGrid: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        let all = model.wallpapers
+        let categories = Array(NSOrderedSet(array: all.map(\.category))) as? [String] ?? []
+        ForEach(categories, id: \.self) { cat in
+            Text(cat.capitalized).font(.caption).foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
+                ForEach(all.filter { $0.category == cat }) { w in
+                    Button { model.applyWallpaper(id: w.id) } label: {
+                        WallpaperThumb(model: model, info: w, busy: model.wallpaperBusy == w.id)
+                    }.buttonStyle(.plain).disabled(model.wallpaperBusy != nil)
+                    .help(w.title).accessibilityLabel("Wallpaper \(w.title)")
+                }
+            }
+        }
+    }
+}
+
+struct WallpaperThumb: View {
+    @ObservedObject var model: EditorModel
+    let info: WallpaperInfo
+    let busy: Bool
+    @State private var image: CGImage?
+    var body: some View {
+        ZStack {
+            if let image { Image(decorative: image, scale: 1).resizable().aspectRatio(16.0 / 9, contentMode: .fill) }
+            else { Rectangle().fill(Color.primary.opacity(0.08)) }
+            if busy { ProgressView().controlSize(.small) }
+        }
+        .frame(height: 44).clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.2)))
+        .task { image = await model.project.wallpaperThumbnail(id: info.id) }
     }
 }
