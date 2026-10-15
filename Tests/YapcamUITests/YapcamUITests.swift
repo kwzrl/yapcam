@@ -891,3 +891,26 @@ import YapcamEditor
         try PresetIsolation.$defaultsSuiteName.withValue(suiteName) { try body() }
     }
 }
+
+@MainActor @Suite struct WindowSizeAndIgnoreTests {
+    @Test func sizeTextParsing() {
+        #expect(WindowAX.parseSize("1280x720") == CGSize(width: 1280, height: 720))
+        #expect(WindowAX.parseSize(" 1280 × 720 ") == CGSize(width: 1280, height: 720))
+        #expect(WindowAX.parseSize("1024,768") == CGSize(width: 1024, height: 768))
+        for bad in ["", "1280", "axb", "100x720", "1280x100", "9000x800", "1x2x3"] { #expect(WindowAX.parseSize(bad) == nil, "\(bad)") }
+    }
+
+    @Test func ignoredWindowsAreSkippedWhenPointing() {
+        func row(_ id: UInt32, _ r: CGRect) -> WindowRow { WindowRow(id: id, pid: 10, layer: 0, app: "A", title: "t", bounds: r) }
+        let rows = [row(1, CGRect(x: 0, y: 0, width: 500, height: 400)), row(2, CGRect(x: 0, y: 0, width: 800, height: 600))]
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99)?.id == 1)
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99, ignoring: [1])?.id == 2)
+    }
+
+    @Test func savedSizesPersistMostRecentFirst() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
+        let s = AppSettings(store: suite)
+        s.savedWindowSizes = ["1280x720", "800x600"]
+        #expect(AppSettings(store: suite).savedWindowSizes == ["1280x720", "800x600"])
+    }
+}
