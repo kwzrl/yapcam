@@ -162,7 +162,7 @@ public final class Exporter: @unchecked Sendable {
             },
             append: { sample in guard context.input.append(sample) else { throw RenderError.write(context.writer.error?.localizedDescription ?? "Cannot append audio") } },
             end: {
-                guard context.reader.status == .completed else { throw RenderError.decode(context.reader.error?.localizedDescription ?? "Audio reader stopped before completion") }
+                guard context.reader.status == .completed else { throw RenderError.decode(context.reader.error.map { "Audio reader: \($0 as NSError)" } ?? "Audio reader stopped before completion") }
                 context.input.markAsFinished()
             },
             // markAsFinished ends requests; failures cancel the owning writer.
