@@ -1,6 +1,6 @@
 # editor status
 
-READY 45be9b8 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY c143346 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - CAP-3 markers: recording markers (core `markers` query, mapped through cuts/speed) show as orange flags on the ruler, act as snap targets and Option+Arrow edit points. Not seen against a real recording with markers. 213 editor tests green.
