@@ -15,11 +15,42 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Follow-up local backlog review: no FEATURES capture row is todo; remaining
-  acceptance needs host Speech/media, real camera/mic/laptop/USB/Retina, UI/core/
-  editor wiring. Lead checkpointed all code/tests as 9b0cadc and rebased onto
-  badc4e4 during this verification; main is an ancestor of HEAD. Only this status
-  follow-up is uncommitted. Git remains read-only; no stash/permission workaround.
+- Backlog recheck: 2026-10-15 14:39 UTC; main remains 5328b45, HEAD c986061.
+  Brief and current main FEATURES/QA/UI handoffs reviewed. Capture source/tests
+  still match main; no new capture defect or local implementation assignment.
+  Remaining CAP rows need consumer wiring/native acceptance as detailed below.
+  Rebase still awaits Lead checkpointing the status-only edit; prior Git denial
+  is unchanged. Existing validation remains current; no app launch or repeated
+  full-suite run. Capture is ready to address any new host failure report.
+- Latest integration audit: main 5328b45 includes capture implementation 9b0cadc;
+  capture source/tests match HEAD c986061 exactly. Main's new reference FEATURES
+  table lists GAP-CAP-1/3/6 as cross-team todo, CAP-2 hardware limited, CAP-4 an
+  implemented extra, CAP-5 device limited, and CAP-7 UI owned. The older no-todo
+  audit described the prior inventory. Capture APIs/tests for CAP-1/2/3/6 are ready;
+  their app/editor acceptance remains open. No new capture QA failure was found.
+- Rebase attempted as requested: git rebase main stopped on the uncommitted status
+  audit. Git metadata is still sandbox read-only; Lead must checkpoint this status
+  and rebase onto 5328b45. No stash or metadata workaround. Current main already
+  contains all capture code, so existing 136 capture-test / Rust / signed-build
+  evidence is unchanged; mixed full-suite/native gates remain, with no rerun.
+- Concrete UI integration handoff from main 5328b45:
+  * Engine.swift UIRecordingOptions and LiveEngine.Session still forward only the
+    audio Bool and camera ID. Add/forward systemAudioSelection and
+    cameraMaxResolution; AppSettings currently defaults systemAudio to true, so
+    new picker preferences still need the off default (preserve saved choices).
+  * RecordingController.addMarker currently appends elapsed*1e9 to a UI array;
+    EngineSession exposes no marker method. Forward a throwing marker action to
+    inner RecordingSession.addMarker and use its srcNs. Durable marker events
+    exist only when that capture API is called. PostRecording currently writes
+    a separate recording/markers.json {"markers_ns":[...]}, only at clean stop;
+    it cannot replace crash-safe events.jsonl markers. Lead/core/editor should
+    agree on the derived sidecar versus event query, using event source time as
+    authority and avoiding duplicate marks. No format was changed in this audit.
+  * Wire CapturePreflight.check and windowResizeIssue into the picker/resize flow.
+    CAP-7 still uses a 450 ms delay with no gain in RecordingController; UI owns
+    the documented completion/540 ms bound and gain 0.33 adjustment.
+  These are outside capture ownership. QA: update GAP-CAP statuses to distinguish
+  module-ready from consumer/native acceptance; no end-to-end completion claim.
 - CAP-2/M3 hardening follow-up: extracted the existing AV sample validation into
   AuxiliarySamples (same callback/writer queue) and tested the real SegmentWriter
   with genuine injected BGRA video/48 kHz PCM. Camera format changes larger OR
@@ -762,18 +793,16 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next / Lead requests
-1. Local capture implementation backlog is exhausted after the CAP-2/M3 sample
-   failure hardening above. Code/tests checkpointed as 9b0cadc, rebased onto icon
-   main badc4e4; checkpoint this status follow-up and integrate/push after review.
-   Review separate SC audio-stream lifetimes and camera negotiation. CAP-1/2/3/6
-   module work is ready; UI consumes the API/marker shortcut/preflight handoff above;
-   core/editor expose marker events through edited source-time mapping. Add public
-   options/APIs/marker event/device additions to SWIFT_API/FORMATS. QA runs the
-   native app-selection/camera/marker checks using self-test overrides; host full
-   Swift suite is required after local mixed-bundle signal 6. CAP-4 high-refresh /
-   numeric-quality difference is explicit; CAP-7 cue timing needs UI ownership.
-   USB hardware remains limited; F9/F8/lock cleanup are verified. Honor QA lock and
-   no-other-app-instance launch rule on every native check.
+1. Capture module changes are in main via 9b0cadc; status checkpoint c986061
+   predates main 5328b45. Checkpoint the current audit and rebase this worktree.
+   UI: consume audio-selection/camera-cap/preflight APIs and forward EngineSession
+   marker actions to capture; main's current UI-only marker sidecar is a distinct
+   clean-stop path (exact handoff above). Core/editor: map durable event markers
+   through edits; Lead: settle/document the optional UI sidecar and public additions
+   in SWIFT_API/FORMATS. QA: reconcile GAP-CAP-1/2/3/6 module status with the
+   implementation/tests, keep consumer/native acceptance open. CAP-4's fps choice
+   and encoder difference remain documented; CAP-7 is UI-owned. Hardware and host
+   acceptance below remain; honor QA lock/other-instance rules for every launch.
 2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
    the signed-app variants above plus static-tail/sync. Library kill/recover now
