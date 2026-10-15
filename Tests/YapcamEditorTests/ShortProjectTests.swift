@@ -97,7 +97,7 @@ import YapcamCore
         doc.model.seek(toNs: 0); doc.model.addZoomAtPlayhead()
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("short-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: out) }
-        doc.export.height = 720; doc.export.includeAudio = false
+        doc.export.height = 720; doc.export.includeAudio = true
         doc.export.start(to: out); await doc.export.waitUntilFinished()
         #expect(doc.export.state == .done(out), "\(doc.export.state)")
     }

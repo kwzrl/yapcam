@@ -12,7 +12,7 @@ READY b183151 editor on real core/render: EditorDocument, EditorWindows.open (re
 - **Inspector tabs**: Look (background solid/gradient/blur, aspect, padding, radius, shadow, inset, motion blur), Cursor (visible, size, smoothing, speed preset, hide idle, click effect, loop, hidden sections lane), Camera (visible, shape, size, radius, opacity, mirror, corners, layout lane; "no camera track" state), Audio (mute/volume per track, speed up typing, silence → cut/speed).
 - **Lanes**: camera layouts, cursor hidden ranges (drag/resize/delete). Crop controls (canvas.crop) and volume-over-time ranges accepted by real core (RealCoreRangesTests).
 - ⌘K command palette (also cheat sheet), copy current frame (⇧⌘C → PNG clipboard), export sheet (720/1080, 30/60, progress/cancel/error/Show in Finder).
-- Tests: `swift test` green, editor 134 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
+- Tests: `swift test` green, editor 135 tests (model, snapping, geometry, gestures, lanes, silence, palette, real-stack). Snapshots (real NSHostingView, light + dark) checked: selection states and lanes readable.
 
 - ZOM-04 per-zoom Auto/Manual switch (reaches core). EDT-05 verified: 100 mixed edits on real core undo to the exact initial state and redo to the exact final state. Short (<2 s) project: zoom clipped to project end; 3 h project: timeline fits, ruler steps ≥ 60 s.
 - Export sheet has an "Include audio" toggle (default on). Workaround for the render hang; the real-export test uses audio off.
@@ -82,7 +82,10 @@ After rebasing onto a core that changed `EditCommand`, an incremental `swift tes
 - **Live window** (real NSWindow + MTKView + GPU, `YAPCAM_LIVE_DIR=<dir> swift test --filter LiveWindowTests`): 120 scrub steps (model seek + `MTKView.draw()` incl. frame eval + Metal submit) median 16.5 ms, p95 20 ms, max 30 ms, i.e. one 60 Hz display frame (draw waits for the drawable); completion latency of the GPU/AVPlayer seek not separable. `cacheDisplay` does not capture the Metal layer, so preview pixels in that screenshot are not verified.
 - Scrub model path (model seek + core `yc_frame_at` geometry eval): ~3 µs per scrub step (no GPU). End-to-end scrub latency incl. Metal/AVPlayer seek is **not yet measured** (needs a live window).
 
-## Known issues / reported to render
+## Audio export hang: RESOLVED (re-verified on main 065a117)
+The fixture (two segments with system audio) now exports with audio through the editor's real path (`AudioExportProbeTests`, bounded by a 60 s watchdog; passes in 0.5 s). The real-export and sub-second-export tests now include audio and use the full fixture. Music/click overlays and voice clean-up are therefore exportable end to end; only audible/pixel correctness of those still needs a human or hardware check.
+
+## Known issues / reported to render (historical)
 - **Export with audio hangs** (render): `Exporter` with `includeAudio: true` never finishes when the timeline includes fixture seg-000 audio (3 s clip). Video-only export of the same project takes 0.4 s; audio of seg-001 only works. It is also nondeterministic: it stalled even with seg-000 cut away on a later run, so treat any audio export as unreliable. Repro: `Project.create(fixture)`, `Exporter(settings: includeAudio true)`, `run` → no progress after ~59 % (frame ~93/150) and stalls forever, ~1 % CPU. The editor's real-export test therefore exports without audio. This blocks the M1 path for recordings with system audio until render fixes it.
 
 ## Not implemented (no core/render support yet — will not fake)
