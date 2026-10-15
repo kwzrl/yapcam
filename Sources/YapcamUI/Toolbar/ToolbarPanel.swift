@@ -13,7 +13,7 @@ import SwiftUI
     private var bag = Set<AnyCancellable>()
     private let layout = ToolbarLayoutModel()
     private var isAdjusting = false
-    private let defaults = UserDefaults.standard
+    private let defaults = AppDefaults.store
 
     private override init() {
         super.init()

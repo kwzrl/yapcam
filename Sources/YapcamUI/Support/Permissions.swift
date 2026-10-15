@@ -82,7 +82,7 @@ enum AppPermissionState { case granted, denied, notDetermined }
     private func requestedKey(_ p: AppPermission) -> String { "permissionRequested.\(p.rawValue)" }
     /// Screen, accessibility and input monitoring report `.denied` both before and after the
     /// first ask, so we remember whether we already asked.
-    func hasRequested(_ p: AppPermission) -> Bool { UserDefaults.standard.bool(forKey: requestedKey(p)) }
+    func hasRequested(_ p: AppPermission) -> Bool { AppDefaults.store.bool(forKey: requestedKey(p)) }
 
     /// What the permission button does: the first press asks macOS, later presses open Settings.
     func act(_ p: AppPermission) {
@@ -91,7 +91,7 @@ enum AppPermissionState { case granted, denied, notDetermined }
 
     /// Triggers the system prompt where macOS has one.
     func request(_ p: AppPermission) {
-        UserDefaults.standard.set(true, forKey: requestedKey(p))
+        AppDefaults.store.set(true, forKey: requestedKey(p))
         switch p {
         case .screen: _ = CGRequestScreenCaptureAccess()
         case .microphone, .camera:

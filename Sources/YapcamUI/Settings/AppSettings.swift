@@ -70,8 +70,8 @@ struct KeyCombo: Codable, Equatable {
 /// All user preferences, persisted in UserDefaults. Plain stored properties with
 /// `didSet` persistence keep the view code trivial.
 @MainActor final class AppSettings: ObservableObject {
-    static let shared = AppSettings()
-    private let d = UserDefaults.standard
+    static let shared = AppSettings(store: AppDefaults.store)
+    private let d: UserDefaults
 
     @Published var sourceMode: SourceMode { didSet { d.set(sourceMode.rawValue, forKey: "sourceMode") } }
     @Published var displayID: UInt32 { didSet { d.set(Int(displayID), forKey: "displayID") } }
@@ -90,22 +90,23 @@ struct KeyCombo: Codable, Equatable {
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
     @Published var showMenuBarItem: Bool { didSet { d.set(showMenuBarItem, forKey: "showMenuBarItem") } }
     @Published var storageDirectory: URL { didSet { d.set(storageDirectory.path, forKey: "storageDirectory") } }
-    @Published var startStopShortcut: KeyCombo { didSet { Self.store(startStopShortcut, "shortcutStartStop") } }
-    @Published var pauseShortcut: KeyCombo { didSet { Self.store(pauseShortcut, "shortcutPause") } }
+    @Published var startStopShortcut: KeyCombo { didSet { store(startStopShortcut, "shortcutStartStop") } }
+    @Published var pauseShortcut: KeyCombo { didSet { store(pauseShortcut, "shortcutPause") } }
     @Published var hasCompletedOnboarding: Bool { didSet { d.set(hasCompletedOnboarding, forKey: "onboarded") } }
 
     static var defaultStorage: URL {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Movies/Yapcam", directoryHint: .isDirectory)
     }
 
-    private static func store(_ c: KeyCombo, _ key: String) {
-        UserDefaults.standard.set(try? JSONEncoder().encode(c), forKey: key)
+    private func store(_ c: KeyCombo, _ key: String) {
+        d.set(try? JSONEncoder().encode(c), forKey: key)
     }
-    private static func load(_ key: String, default def: KeyCombo) -> KeyCombo {
-        (UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(KeyCombo.self, from: $0) }) ?? def
+    private static func load(_ key: String, default def: KeyCombo, from d: UserDefaults) -> KeyCombo {
+        (d.data(forKey: key).flatMap { try? JSONDecoder().decode(KeyCombo.self, from: $0) }) ?? def
     }
 
-    private init() {
+    init(store: UserDefaults) {
+        d = store
         sourceMode = SourceMode(rawValue: d.string(forKey: "sourceMode") ?? "") ?? .display
         displayID = UInt32(d.integer(forKey: "displayID"))
         windowID = UInt32(d.integer(forKey: "windowID"))
@@ -124,8 +125,8 @@ struct KeyCombo: Codable, Equatable {
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
         storageDirectory = d.string(forKey: "storageDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) } ?? Self.defaultStorage
-        startStopShortcut = Self.load("shortcutStartStop", default: .startStop)
-        pauseShortcut = Self.load("shortcutPause", default: .pauseResume)
+        startStopShortcut = Self.load("shortcutStartStop", default: .startStop, from: store)
+        pauseShortcut = Self.load("shortcutPause", default: .pauseResume, from: store)
         hasCompletedOnboarding = d.bool(forKey: "onboarded")
     }
 

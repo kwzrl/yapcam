@@ -35,8 +35,8 @@ import SwiftUI
 struct TeleprompterView: View {
     let close: () -> Void
     @EnvironmentObject var rec: RecordingController
-    @AppStorage("teleprompterSize") private var size = 28.0
-    @AppStorage("teleprompterSpeed") private var speed = 0.0     // points per second, 0 = manual
+    @AppStorage("teleprompterSize", store: AppDefaults.store) private var size = 28.0
+    @AppStorage("teleprompterSpeed", store: AppDefaults.store) private var speed = 0.0     // points per second, 0 = manual
     @State private var position = ScrollPosition()
     @State private var offset = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

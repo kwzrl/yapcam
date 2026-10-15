@@ -620,3 +620,39 @@ import YapcamEditor
         catch { #expect(UserMessage.describe(error).contains("iPhone or iPad")) }
     }
 }
+
+@MainActor @Suite(.serialized) struct SelfTestIsolationTests {
+    @Test func everyDrivingFlagIsDetected() {
+        for f in AppDefaults.selfTestFlags { #expect(AppDefaults.isSelfTestLaunch(["Yapcam", f, "x"]), "\(f)") }
+        #expect(!AppDefaults.isSelfTestLaunch(["Yapcam"]))
+        #expect(!AppDefaults.isSelfTestLaunch(["Yapcam", "-NSDocumentRevisionsDebugMode", "YES"]))
+        // every flag the app actually handles must be on the list
+        for f in ["--capture-selftest", "--ui-record-selftest", "--drive-input-selftest", "--editor-selftest",
+                  "--editor-reopen-check", "--editor-export-selftest", "--live-e2e", "--snapshot-ui", "--probe-record"] {
+            #expect(AppDefaults.selfTestFlags.contains(f))
+        }
+    }
+
+    @Test func selfTestLaunchesWriteToAnIsolatedSuiteNeverTheUsersDefaults() {
+        let original = AppDefaults.store; defer { AppDefaults.store = original }
+        let key = "isolationProbe-\(UUID().uuidString)"
+        AppDefaults.isolateIfSelfTest(["Yapcam", "--editor-selftest", "/p"])
+        #expect(AppDefaults.store !== UserDefaults.standard)
+        AppDefaults.store.set(true, forKey: key)
+        #expect(UserDefaults.standard.object(forKey: key) == nil)
+        AppDefaults.store.removeObject(forKey: key)
+        // a normal launch leaves the store alone
+        AppDefaults.store = original
+        AppDefaults.isolateIfSelfTest(["Yapcam"])
+        #expect(AppDefaults.store === original)
+    }
+
+    @Test func freshSettingsOpenTheEditorAfterRecording() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
+        let s = AppSettings(store: suite)
+        #expect(s.openEditorAfterRecording == true)
+        #expect(s.countdown == 3)
+        s.openEditorAfterRecording = false          // persisted only into this suite
+        #expect(AppSettings(store: suite).openEditorAfterRecording == false)
+    }
+}

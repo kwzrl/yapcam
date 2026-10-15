@@ -6,6 +6,7 @@ import YapcamEditor
 @MainActor public enum YapcamAppMain {
     private static let delegate = AppDelegate()
     public static func run() -> Never {
+        AppDefaults.isolateIfSelfTest(CommandLine.arguments)   // before anything reads a preference
         let app = NSApplication.shared
         app.delegate = delegate
         app.run()
