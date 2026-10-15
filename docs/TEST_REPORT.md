@@ -73,15 +73,15 @@ Method: the app's own launch flags (`--capture-selftest N [--target window:<id>|
 | Completed window recording opens in core | **PASS after F9 fix** (was FAIL; retested on main badc4e4: session now has display_name, opens, edit+export 1080p with audio OK) |  (original failure: `Project.create` on a complete `--target window` package: `status(2, "missing field `display_name`")`; area and display packages open fine |
 | Editor UI sequence via real menu/model actions (`--editor-selftest`): split, delete clip, add zoom, padding, undo/redo | PASS | clips 1->2->1, duration 8085 -> 2695 ms, zoom added, padding 48->72, undo/redo 72->48->72 |
 | Source overlay + Start (`--drive-input-selftest 12 --source display`, main c1bf553) | PASS | overlay shown (1 window), recording started on Start, overlay gone while recording, stop -> package complete 12.19 s, editor opened; default countdown 0 (None) |
-| Editor opens in front after Stop | **FAIL (F10, low)** | `editorOpened=true editorInFront=false` in the self-test log; may be a self-test/activation artifact (headless launch) - ui to check |
+| Editor opens in front after Stop | **PASS after F10 fix** (was FAIL) | `--ui-record-selftest 5 --source display` on main 3dd0d3b: `editorOpened=true editorInFront=true` (LiveEngine.openEditor -> EditorBridge.bringEditorsToFront) |
 | Scripted input on the new build | PASS | 47/47 events, time error 0.27-8.67 ms (mean 1.95), position <= 0.98 pt, 5 clicks down+up |
 | Auto-zoom rule on a real recording (5 clicks every 2 s) | PASS | one merged range 2.176-11.390 s = first click -300 ms to duration -0.8 s, x2.0, auto, target = click point |
 | Area / window / pause on the redesigned controller (`--live-e2e area|window|pause`) | PASS | 800x500 video; window video 1626x1014 with session pixel_size [1626,1014] (F8 fixed); pause 2.17 s + 1.85 s |
 | Export option sets (library, `ExportOptionSetsTests`, 5 tests) | PASS | catalogs/defaults/quantisers, default MP4 h264 720p 60 fps, Both = paired h264 + hevc files, GIF 480p HQ and play-once (loop count 1 vs 0) |
 | Copy to clipboard (library) | PASS | exported FILE on a private pasteboard, previous-exports list, missing file rejected |
 | Inspector order and Cmd+1..0 (editor Swift Testing, model level) | PASS | InspectorSectionOrderTests / ReferenceAlignmentTests pass; no physical key presses |
-| Reference hotkey layout, live | NOT RUN | second Yapcam instance (main checkout) running: global hotkey collision; ui tests only |
-| After-recording choice buttons (create / copy / save), live | NOT RUN | no self-test hook; library clipboard export verified |
+| Reference hotkey layout, live | **BLOCKED: no in-app hook** | the existing `--live-e2e hotkey` scenario still uses the OLD API (`settings.startStopShortcut`, hardcoded Option-Command flags): it cannot press the new table (start Ctrl-Cmd-Return, display/window/area Opt-Cmd-3/4/5, pause Opt-Cmd-P, restart Opt-Cmd-Backspace). Needs ui hook `--hotkey-selftest` (see Requests). A second Yapcam instance of the main checkout also registers the same global hotkeys: collision risk |
+| After-recording choices (create project / export+copy / export+save) and quick-export widget, live | **BLOCKED: no in-app hook** | `--ui-record-selftest` always uses the default (create project); needs `--after-recording create|copy|save [--quick-widget]` that sets the choice and logs the clipboard file URL / saved file and widget state. Library-level clipboard and export verified |
 | Autosave then kill (exit 9) then reopen (`--editor-selftest --crash-after-autosave` + `--editor-reopen-check`) | PASS | save state clean before crash; reopened with clips=1 zooms=1 duration 2695 ms padding 72 |
 | Kill with only the journal (`--crash-now` + reopen check) | PASS | unsavedJournalPresent=true; restore path recovers clips=1 zooms=1 padding 72 (state dirty = unsaved restore) |
 | Editor export via the export model (`--editor-export-selftest`) | PASS | 1920x1080, 2.700 s (project 2.695 s), 1 audio track |
@@ -114,7 +114,7 @@ From docs/FEATURES.md (113 rows): verified 38, integrated 47, implemented 18, li
 | F6 | HIGH | render + core | export real recording with audio over the final ~100 ms | fixed, verified on main 529f208+ (10-min export, UI default flow) |
 | F8 | LOW | capture | window recording: session.json pixel_size 1627x1015, video 1626x1014 | fixed in 3b68bde, verified (201x151 window -> [200,150]) |
 | F7 | MEDIUM | process | other processes killed two long runs | resolved by .app-lock rule |
-| F10 | LOW | ui | `--drive-input-selftest 12 --source display`: log shows editorOpened=true editorInFront=false after Stop | open (may be a headless self-test artifact) |
+| F10 | LOW | ui | after Stop the editor was not in front | fixed, verified on 3dd0d3b |
 | F4 | LOW | editor | privacy-scan flags an absolute home path in docs/status/editor.md | open |
 Details and repros: docs/status/qa.md.
 
@@ -131,6 +131,7 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | Date | Main | What changed in this report |
 |---|---|---|
 | 2026-10-15 | b90ee0d | Structure only; Metal 86/86, M3 long-export/soak, fresh-checkout build recorded in docs/STATUS.md; live capture still blocked (TCC) |
+| 2026-10-15 19:55 | 3dd0d3b | F10 verified fixed (editor in front after Stop); hotkey and after-recording live checks blocked on missing in-app hooks |
 | 2026-10-15 19:45 | c1bf553 | Live DoD re-run on the integrated gap list: overlay+Start, scripted input, auto-zoom rule, area/window/pause, export option sets, clipboard, inspector order PASS; F10 editor not in front (low); hotkeys and after-recording buttons not run live |
 | 2026-10-15 14:00 | badc4e4 | F9 fixed and verified (window package opens, edit+export OK); default live flow still OK after ui/editor redesigns |
 | 2026-10-15 13:00 | 511f831 | F9 retested: still fails; only the decision doc is on main |
