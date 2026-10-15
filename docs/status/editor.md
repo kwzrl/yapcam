@@ -3,6 +3,8 @@
 READY 6855810 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
+- Structural edits (split, delete, zoom add/update, silence/typing processing) now use core's checked `timeline_edit` envelope; real-core test: a 50 ms zoom is rejected with state unchanged. 205 editor tests green.
+- Decision: gestures already commit once on release (one undo step), so `coalesced_edit` adds nothing; kept the 2 s save debounce instead of core's 30 s `ProjectAutosaver` because the editor's clean/dirty indicator depends on its own saves.
 - Typing suggestions now come from core (`typing_suggestions` query; apply/dismiss by source-stable id, `auto_speed_typing` for apply-all, `restore_typing_suggestions`); dismissals persist in the project; editor-side detection kept only for the fake backend. Not yet exercised against a real recording with a keystroke burst. 204 editor tests green.
 - Rebased on main eacbd4d: preset isolation merged — Lead's `PresetIsolation` task-locals / `EditorPresets.directory|globalDirectory|globalDefaults` API kept (ui depends on it), backed by `EditorStorage` and injectable `PresetStore`. Full suite (UISmokeTests skipped) 481 green.
 - Zoom "Start animation early" + default zoom level (`zoom_settings.start_early/default_scale`), voice preset (`audio.mic_preset`) in voice clean-up; round-trip test on real core. 204 editor tests green.

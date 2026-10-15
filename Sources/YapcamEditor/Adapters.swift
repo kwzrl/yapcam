@@ -177,7 +177,18 @@ public final class CoreEditingProject: EditingProject {
         }
     }
 
-    public func apply(_ command: EditorCommand) throws { try project.apply(map(command)); refresh() }
+    /// Structural timeline edits go through core's checked envelope (minimum clip/zoom lengths, atomic, history-safe).
+    private func isStructural(_ c: EditorCommand) -> Bool {
+        switch c {
+        case .split, .deleteRange, .addZoom, .updateZoom, .processSilence: true
+        case .batch(let cs): cs.contains(where: isStructural)
+        default: false
+        }
+    }
+    public func apply(_ command: EditorCommand) throws {
+        let mapped = map(command)
+        try project.apply(isStructural(command) ? .timelineEdit(mapped) : mapped); refresh()
+    }
     public func undo() throws { try project.undo(); refresh() }
     public func redo() throws { try project.redo(); refresh() }
     public func save() throws { try project.save() }
