@@ -1,4 +1,4 @@
-READY e598664 qa: temp cleanup + disk hygiene rule
+READY d302028 qa: audit vs 8600691
 
 # qa status
 
@@ -38,6 +38,8 @@ READY e598664 qa: temp cleanup + disk hygiene rule
 - docs/THIRD_PARTY_NOTICES.md generated (MIT texts of 6 shipped crates + Apache-2.0); THIRD_PARTY.md open item 1 closed. Main unchanged at 121d9de; privacy scan still flags docs/status/editor.md (F4).
 
 - Cleanup (Lead disk request): deleted my 2 tmp.*/e2e build copies, scratchpad e2e copy, 6 yapcam-e2e-* leftovers and ~/yapcam-ref-local/extract (893 MB); free space 25→27 GB. No qa script creates temp dirs now (run-e2e.sh simplified); TESTING.md has the trap rule.
+
+- Audit vs main 8600691: M3 hardening in capture (100 crash trials, hour sim), render (long export, analyzer), core (cursor catalog, key overlay perf) noted in rows; no status class changes.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
