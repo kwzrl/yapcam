@@ -8,7 +8,7 @@ if (( $# == 0 )); then
 fi
 
 run_dir="$(mktemp -d "${TMPDIR:-/private/tmp/}/yapcam-core-run.XXXXXXXX")"
-cleanup() { rm -rf -- "$run_dir"; }
+cleanup() { print -r -- "Core temp cleanup: $run_dir"; rm -rf -- "$run_dir"; }
 trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT

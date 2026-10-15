@@ -1009,6 +1009,7 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
             let old = try Project.open(package: package)
             #expect(try old.renderOptions().paddingRatio == nil)
             #expect(try old.renderOptions().cursorSizePoints == nil)
+            #expect(try old.renderOptions().cursorSetId == nil)
             #expect(try old.renderOptions().screenShadow?.style == "classic")
             let legacy = try old.frame(atNs: 0)
             #expect(legacy.canvas_w == 1920 && legacy.screen_corner_radius == 18)
@@ -1069,5 +1070,44 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         try p.redo(); try p.setMicrophonePreset(.voice)
         #expect(try !p.speechEnhancementPlan().enabled)
         #expect(throws: CoreError.self) { try p.apply(.set(path: "audio.mic_preset", value: .string("unavailable"))) }
+    }
+}
+
+@Test func explicitLegacyDefaultsRemainUnchangedOnOpenAndSave() throws {
+    try withFixture { package in
+        let fields: [String: Any] = [
+            "schema_version": 1, "id": "legacy-explicit-settings", "created_at": "", "modified_at": "",
+            "recording": "recording/session.json", "timeline": ["clips": [["id": "c", "src_start_ns": 0, "src_end_ns": 5_000_000_000 as Int64, "speed": 1]]],
+            "canvas": ["aspect": "4:3", "output_size": [1440, 900], "padding": 31, "radius": 11,
+                       "shadow": ["radius": 13, "opacity": 0.2, "offset_y": -4], "motion_blur": 0.4],
+            "cursor": ["set_id": NSNull(), "size": 1.7, "smoothing": 0.25, "motion_blur": 0.2],
+            "zoom_settings": ["spring": ["tension": 310, "friction": 31, "mass": 2, "allow_overshoot": false]]
+        ]
+        let url = package.appendingPathComponent("project.json")
+        let original = try JSONSerialization.data(withJSONObject: fields, options: .sortedKeys)
+        try original.write(to: url)
+        let p = try Project.open(package: package)
+        #expect(try Data(contentsOf: url) == original)
+        let state = try p.query("{\"q\":\"project\"}", as: [String: JSONValue].self)
+        #expect(state["defaults_revision"]?.integerValue == 0)
+        let decoded = try JSONSerialization.jsonObject(with: p.toJSON()) as! [String: Any]
+        let canvas = decoded["canvas"] as! [String: Any], cursor = decoded["cursor"] as! [String: Any]
+        let zoom = decoded["zoom_settings"] as! [String: Any], spring = zoom["spring"] as! [String: Any]
+        #expect(canvas["padding"] as? Double == 31 && canvas["motion_blur"] as? Double == 0.4)
+        #expect(cursor["size"] as? Double == 1.7 && cursor["smoothing"] as? Double == 0.25)
+        #expect(cursor["motion_blur"] as? Double == 0.2 && cursor["physics_version"] as? Int == 0)
+        #expect(spring["tension"] as? Double == 310 && spring["friction"] as? Double == 31 && spring["mass"] as? Double == 2)
+        #expect(zoom["physics_version"] as? Int == 0)
+        let options = try p.renderOptions(), frame = try p.frame(atNs: 0)
+        #expect(options.cursorSetId == nil && options.paddingRatio == nil && options.cursorSizePoints == nil)
+        #expect(options.screenShadow?.style == "classic")
+        #expect(frame.canvas_w == 1200 && frame.canvas_h == 900 && frame.screen_corner_radius == 11)
+        #expect(frame.shadow_radius == 13 && frame.shadow_offset_y == -4)
+        try p.save()
+        let reopened = try Project.open(package: package)
+        #expect(try reopened.renderOptions() == options)
+        let saved = try reopened.query("{\"q\":\"project\"}", as: [String: JSONValue].self)
+        for group in ["canvas", "cursor", "zoom_settings"] { #expect(saved[group] == state[group]) }
+        #expect(try reopened.frame(atNs: 0).cursor_scale == frame.cursor_scale)
     }
 }
