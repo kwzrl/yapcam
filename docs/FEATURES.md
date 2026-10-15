@@ -84,8 +84,8 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| CUR-01 | Cursor | Cursor recorded as data, rendered in editor | docs/technical | events.jsonl + cursors PNG, screen without cursor (M1) | capture | limited (no TCC: events + cursor image sidecar implemented) | Events count>0; video cursor-free |
-| CUR-02 | Cursor | Click/scroll/move capture | docs | CGEventTap listen-only | capture | implemented (capture InputTranslationTests pass; live event tap limited: no TCC) | Scripted CGEvent clicks appear at right times |
+| CUR-01 | Cursor | Cursor recorded as data, rendered in editor | docs/technical | events.jsonl + cursors PNG, screen without cursor (M1) | capture | verified live (events.jsonl + cursors sidecar recorded; screen video cursor-free by design; scripted moves/clicks round-trip, see CUR-02) | Events count>0; video cursor-free |
+| CUR-02 | Cursor | Click/scroll/move capture | docs | CGEventTap listen-only | capture | verified live (qa: --drive-input-selftest 10 with Accessibility+Input Monitoring: 38/38 scripted events found in events.jsonl, time error 0.4-15.4 ms (mean 2.3), position error <=0.98 pt, 4/4 clicks with down+up; scripts/qa/compare-input.py) | Scripted CGEvent clicks appear at right times |
 | CUR-03 | Cursor | Smooth cursor movement toggle | docs | cursor.smoothing; off = raw | core+render | integrated (editor toggle -> core spring -> render; Rust frame goldens; pixels unverified) | Off: frame cursor == raw event pos |
 | CUR-04 | Cursor | Cursor speed presets Slow/Mellow/Quick/Rapid + tension/friction/mass | docs | spring params; presets map to values | core | integrated (editor speed presets -> core spring params; Rust spring test) | Spring step response unit tests |
 | CUR-05 | Cursor | Cursor size, show/hide, hide when idle, hide in sections | docs | cursor.size/visible/hide_when_idle + range overrides | core+editor | integrated (editor cursor tab + hidden-sections lane -> core ranges) | Hidden section frame has no cursor |
@@ -100,7 +100,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
 |---|---|---|---|---|---|---|---|
-| ZOM-01 | Zoom | Auto zoom from clicks | docs | analyzer creates zoom regions at click clusters (zooms[] mode=auto) | core | integrated (core auto.rs tests + editor regenerate/follow; fixture clicks only, no real recording) | Fixture with 3 click clusters → 3 zooms |
+| ZOM-01 | Zoom | Auto zoom from clicks | docs | analyzer creates zoom regions at click clusters (zooms[] mode=auto) | core | verified live (qa: LiveRecordingTests.testAutoZoomFromRealClicks on a real recording with 4 scripted clicks: 4 auto zooms x2.0, 1.3 s each, target exactly the click point (0.5595, 0.4238), each starts before its click; mid-zoom crop narrower; 720p export 10.2 s with audio) | Fixture with 3 click clusters → 3 zooms |
 | ZOM-02 | Zoom | Manual zoom: add/move/resize on timeline, target point (M1) | docs | add_zoom command; target dot in preview | core+editor | verified (testM1OpenEditExport: crop changes at mid-zoom (core level; UI untested)) | Add zoom, frame at mid has zoom rect |
 | ZOM-03 | Zoom | Zoom level per zoom | docs | scale 1…N | core | integrated (editor scale slider -> core) | Scale applied exactly |
 | ZOM-04 | Zoom | Auto/Manual per zoom toggle | docs | mode switch | core+editor | integrated (editor per-zoom Auto/Manual -> core) | Switch changes target source |

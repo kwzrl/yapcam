@@ -1,4 +1,4 @@
-READY aae6ab2 qa: live backlog done except Accessibility-gated rows
+READY HEAD qa: scripted input + auto-zoom verified live
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
@@ -54,6 +54,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - Audit vs main 7d545a1: EXP-02/04 integrated via editor export sheet; TEST_REPORT update log extended.
 
 - Main fc29d18 includes my live results. Deleted my 10-min test package (F6 verified). Remaining NOT RUN: scripted input (needs Accessibility/Input Monitoring grant), UI-driven undo/redo/autosave (no hook), hotkey-driven recording (Accessibility).
+
+- Permissions granted (launch rule: `open -n -W`): scripted input PASS (38/38, max 15.4 ms, 0.98 pt), auto-zoom from real clicks PASS. Remaining NOT RUN: hotkey-driven recording, UI-driven undo/redo/autosave (no hook).
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
