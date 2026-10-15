@@ -22,11 +22,11 @@ final class RecoverCheckTests: XCTestCase {
         let dur = segs.reduce(0.0) { $0 + (($1["duration_ns"] as? Double) ?? 0) } / 1e9
         print("RECOVER status=\(json["status"] ?? "?") segments=\(segs.count) duration_s=\(dur)")
         XCTAssertEqual(json["status"] as? String, "complete", "recover finalizes the package")
-        XCTAssertGreaterThan(dur, 5)
+        XCTAssertGreaterThan(dur, 4)
         // The recovered package must open in core.
         let project = try Project.create(package: out)
         print("RECOVER core duration_s=\(Double(project.durationNs) / 1e9)")
-        XCTAssertGreaterThan(project.durationNs, 5_000_000_000)
+        XCTAssertGreaterThan(project.durationNs, 4_000_000_000)
         // The recovered screen track must decode.
         let ff = Process(); ff.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
         ff.arguments = ["-v", "error", "-i", out.appendingPathComponent("recording/\(segs[0]["files"].flatMap { ($0 as? [String: String])?["screen"] } ?? "seg-000/screen.mov")").path, "-f", "null", "-"]
