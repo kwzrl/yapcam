@@ -77,12 +77,21 @@ extension EditorModel {
 
     public static func cursorKey(_ i: Int) -> String { "cursor:\(i)" }
 
+    /// Shortest allowed duration per item: transcript captions are single words (tens of ms);
+    /// the 300 ms zoom minimum only applies to zooms and the coarse lanes.
+    public func minDurationNs(forKey key: String) -> Int64 {
+        if let t = textItem(key: key) { return t.kind == .caption ? 20_000_000 : 100_000_000 }
+        if music.contains(where: { $0.id == key }) { return 100_000_000 }
+        return minZoomDurationNs
+    }
+
     public func previewRange(key: String, current: TimeSpan, startNs: Int64? = nil, endNs: Int64? = nil, moveToStartNs: Int64? = nil) {
+        let minNs = minDurationNs(forKey: key)
         var s = current.startNs, e = current.endNs
         if let m = moveToStartNs { let len = e - s; s = min(max(m, 0), max(0, durationNs - len)); e = s + len }
         else {
-            if let startNs { s = max(0, min(startNs, e - minZoomDurationNs)) }
-            if let endNs { e = min(durationNs, max(endNs, s + minZoomDurationNs)) }
+            if let startNs { s = max(0, min(startNs, e - minNs)) }
+            if let endNs { e = min(durationNs, max(endNs, s + minNs)) }
         }
         zoomPreviewSet(key, (s, e))
     }

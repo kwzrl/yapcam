@@ -16,6 +16,11 @@ final class ProjectRenderSource: RenderProjectSource, @unchecked Sendable {
     // Core-driven effects (highlights, fades, cursor/camera options) and gain automation.
     func renderEffects(atNs: Int64, canvasSize: CGSize) throws -> RenderFrameEffects { try project.renderEffects(atNs: atNs, canvasSize: canvasSize) }
     func renderAudioRanges() throws -> [RenderAudioRange]? { try project.renderAudioRanges() }
+    /// Music tracks (built-in and files) and click sounds, evaluated by core (`audio_overlays`). Without this
+    /// forward the protocol default returns [] and all added audio is silently missing from preview and export.
+    func renderAudioOverlays() throws -> [AudioOverlay] { try project.renderAudioOverlays() }
+    var renderConfiguration: RenderConfiguration { project.renderConfiguration }
+    func renderLayers(atNs: Int64) throws -> [RenderLayer] { try project.renderLayers(atNs: atNs) }
     func renderClips() throws -> [RenderClip] {
         try project.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
             .map { RenderClip(srcStartNs: $0.srcStartNs, srcEndNs: $0.srcEndNs, speed: $0.speed) }

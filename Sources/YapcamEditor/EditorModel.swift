@@ -54,6 +54,21 @@ public final class EditorModel: ObservableObject {
     public enum SilenceState: Equatable { case idle, analyzing, found([TimeSpan]), failed(String) }
 
     private var autosaveTask: Task<Void, Never>?
+    /// True once the document window closed. Everything after that is inert: edits, saves and the
+    /// completion of background work (music import, wallpaper, transcript, silence) are refused so a
+    /// stale model can never journal over a reopened document's newer state.
+    public private(set) var isClosed = false
+    var musicTask: Task<Void, Never>?
+
+    /// Saves pending edits, cancels all background work and makes the model inert.
+    public func close() {
+        guard !isClosed else { return }
+        saveNow()
+        isClosed = true
+        autosaveTask?.cancel()
+        for t in [silenceTask, captionTask, wallpaperTask, musicTask] { t?.cancel() }
+        player.pause()
+    }
     public var autosaveDelay: Duration = .seconds(2)
 
     public init(project: EditingProject, player: PlaybackEngine) {
@@ -144,9 +159,13 @@ public final class EditorModel: ObservableObject {
             guard let self else { return }
             do {
                 let spans = try await project.silentSpans()
+                guard !isClosed, !Task.isCancelled else { return }
                 // Timeline coordinates are only valid for the revision they were measured on.
                 silenceState = revision == started ? .found(spans) : .idle
-            } catch { silenceState = revision == started ? .failed(error.localizedDescription) : .idle }
+            } catch {
+                guard !isClosed else { return }
+                silenceState = revision == started ? .failed(error.localizedDescription) : .idle
+            }
         }
     }
     /// Cut (`speed == nil`) or speed up the silences found by `findSilences()` in one undo step.
@@ -165,9 +184,14 @@ public final class EditorModel: ObservableObject {
         wallpaperBusy = id
         wallpaperTask = Task { [weak self] in
             guard let self else { return }
-            do { try await project.applyWallpaper(id: id); noteExternalEdit() }
-            catch { lastError = "Couldn't apply the wallpaper: \(error.localizedDescription)" }
-            wallpaperBusy = nil
+            defer { wallpaperBusy = nil }
+            guard !isClosed else { return }
+            do {
+                try Task.checkCancellation()
+                try await project.applyWallpaper(id: id)
+                if !isClosed { noteExternalEdit() }
+            } catch is CancellationError {
+            } catch { if !isClosed { lastError = "Couldn't apply the wallpaper: \(error.localizedDescription)" } }
         }
     }
     var wallpaperTask: Task<Void, Never>?
@@ -241,6 +265,7 @@ public final class EditorModel: ObservableObject {
     // MARK: editing
 
     func perform(_ command: EditorCommand) {
+        guard !isClosed else { return }
         do {
             try project.apply(command)
             didEdit()
@@ -357,11 +382,11 @@ public final class EditorModel: ObservableObject {
 
 
     public func undo() {
-        guard canUndo else { return }
+        guard !isClosed, canUndo else { return }
         do { try project.undo(); didEdit(); selection = .none } catch { lastError = error.localizedDescription }
     }
     public func redo() {
-        guard canRedo else { return }
+        guard !isClosed, canRedo else { return }
         do { try project.redo(); didEdit() } catch { lastError = error.localizedDescription }
     }
 
@@ -407,7 +432,7 @@ public final class EditorModel: ObservableObject {
     /// Immediate save: used by the debounce and on window close.
     public func saveNow() {
         autosaveTask?.cancel()
-        guard saveState != .clean else { return }
+        guard !isClosed, saveState != .clean else { return }
         do { try project.save(); saveState = .clean }
         catch { saveState = .failed(error.localizedDescription); lastError = "Couldn't save: \(error.localizedDescription)" }
     }

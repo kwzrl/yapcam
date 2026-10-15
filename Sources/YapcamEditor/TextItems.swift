@@ -117,11 +117,12 @@ extension EditorModel {
             guard let self else { return }
             do {
                 let data = try await source()
+                guard !isClosed, !Task.isCancelled else { return }
                 guard revision == started else { captionState = .failed("The timeline changed while transcribing; try again."); return }
                 try project.importTranscript(data)
                 noteExternalEdit()
                 captionState = .idle
-            } catch { captionState = .failed(error.localizedDescription) }
+            } catch { if !isClosed { captionState = .failed(error.localizedDescription) } }
         }
     }
     public func waitForCaptions() async { await captionTask?.value }

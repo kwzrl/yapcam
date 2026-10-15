@@ -120,7 +120,9 @@ public final class FakeProject: EditingProject {
     }
     public var wallpapers = [WallpaperInfo(id: "quiet-dawn", title: "Quiet Dawn", category: "gradients"), WallpaperInfo(id: "boreal-glow", title: "Boreal Glow", category: "landscapes")]
     public private(set) var appliedWallpapers: [String] = []
+    public var wallpaperDelay: Duration = .zero
     public func applyWallpaper(id: String) async throws {
+        try await Task.sleep(for: wallpaperDelay)
         guard wallpapers.contains(where: { $0.id == id }) else { throw NSError(domain: "Fake", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unknown wallpaper"]) }
         appliedWallpapers.append(id)
         let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
@@ -143,7 +145,9 @@ public final class FakeProject: EditingProject {
         undoStack.append(snap); redoStack.removeAll()
     }
     public private(set) var importedMusic: [(URL, Int64)] = []
+    public var importDelay: Duration = .zero
     public func importMusic(_ file: URL, startNs: Int64) async throws {
+        try await Task.sleep(for: importDelay)
         importedMusic.append((file, startNs))
         let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
         var rows: [JSONValue] = []
