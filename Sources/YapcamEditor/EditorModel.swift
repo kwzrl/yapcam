@@ -332,17 +332,17 @@ public final class EditorModel: ObservableObject {
         guard !isClosed else { return }
         do {
             try project.apply(command)
-            didEdit()
+            didEdit(visualOnly: command.isVisualOnly)
         } catch {
             lastError = error.localizedDescription
         }
     }
 
-    private func didEdit() {
+    private func didEdit(visualOnly: Bool = false) {
         revision += 1
         applySpeechToPlayer()
         if case .found = silenceState { silenceState = .idle }   // stale after any edit
-        requestPlayerRefresh()
+        requestPlayerRefresh(visualOnly: visualOnly)
         if playheadNs > durationNs { seek(toNs: durationNs) }
         saveState = .dirty
         scheduleAutosave()
@@ -501,10 +501,14 @@ public final class EditorModel: ObservableObject {
     private var lastInvalidate: ContinuousClock.Instant?
     private var pendingInvalidate: Task<Void, Never>?
 
-    func requestPlayerRefresh() {
+    /// `visualOnly`: a known appearance edit (background, padding, corners, shadow, cursor artwork, camera grading) that cannot
+    /// change clip mapping or audio, so the player keeps its audio and snapshots. Anything else needs a full rebuild; a burst
+    /// that mixes both is refreshed fully.
+    func requestPlayerRefresh(visualOnly: Bool = false) {
+        if !visualOnly { pendingFullRefresh = true }
         let now = ContinuousClock.now
         if pendingInvalidate == nil, lastInvalidate.map({ now - $0 >= invalidateInterval }) ?? true {
-            lastInvalidate = now; player.invalidate(); return
+            lastInvalidate = now; refreshPlayer(); return
         }
         guard pendingInvalidate == nil else { return }
         let wait = invalidateInterval - (lastInvalidate.map { now - $0 } ?? .zero)
@@ -512,8 +516,13 @@ public final class EditorModel: ObservableObject {
             try? await Task.sleep(for: max(wait, .milliseconds(1)))
             guard let self, !Task.isCancelled else { return }
             pendingInvalidate = nil; lastInvalidate = .now
-            if !isClosed { player.invalidate() }
+            if !isClosed { refreshPlayer() }
         }
+    }
+    private var pendingFullRefresh = false
+    private func refreshPlayer() {
+        let full = pendingFullRefresh; pendingFullRefresh = false
+        if full { player.invalidate() } else { player.invalidateVisuals() }
     }
     /// Test hook: wait for a trailing refresh.
     public func waitForPlayerRefresh() async { await pendingInvalidate?.value }
