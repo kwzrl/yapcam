@@ -1,6 +1,6 @@
 # editor status
 
-READY 46e9f8a editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY 88d3ba4 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Rebased on main 97b9d82. Autosave aligned with core's policy as core asked (no competing timer): save 30 s after the last edit, only if the revision is unchanged; closing the window still saves at once and core's recovery journal covers crashes. Kept the editor's own save path (not `ProjectAutosaver`) because the clean/dirty indicator tracks it. Full suite (UISmokeTests skipped) 499 green.
