@@ -1,4 +1,4 @@
-READY dd748a0 qa: F10 verified fixed; hotkey + after-recording live checks need ui hooks (Requests)
+READY HEAD qa: audit vs c565a93
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -73,6 +73,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 - Main eacbd4d: UI-5 window options complete (set size, saved sizes, ignore window); preset/default isolation under tests landed. Live recheck still blocked by the running instance (pid 74073).
 
 - Live DoD re-run on main c1bf553 done (see TEST_REPORT section 4): PASS except F10 (low). Not run live: hotkeys (second Yapcam instance running) and after-recording buttons (no hook). Request: ui hook for the after-recording choices; Lead: close other Yapcam instances for the hotkey run.
+
+- Main c565a93: editor markers on the timeline (CAP-3) and glass-loupe zoom style (ED-5/RND-5) landed -> rows re-statused. Hotkey and after-recording hooks still absent; another Yapcam instance (pid 94705) is running.
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
