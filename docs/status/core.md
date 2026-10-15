@@ -1,18 +1,41 @@
-READY uncommitted shared Core backlog: CAP-3 markers, ED-7 source restoration, ED-8 style/LUT, ED-9 layouts, RND-5 lens; Rust90/Core Swift65 + signed build PASS. Final FFI/scale checks running; Lead checkpointcf99f48 includes earlier work.
+READY 6511eb2 + working-tree follow-up: shared Core CAP-3/ED-7/8/9/RND-5/8 delivered; Rust91 debug/release + Core Swift66 + signed build PASS. UI68/71 environment-limited. Lead: checkpoint master-blur regression fix + docs before merge/push.
 
 # Core status
 
-Updated 2026-10-15 15:40 UTC. Branch team/core; Lead checkpoint 4c2db8d. Main last observed5328b45. Git metadata remains managed by Lead; no reset/stash/workaround or main push.
+Updated 2026-10-15 16:26 UTC. Branch team/core; Lead checkpoint6511eb2. Main last observed5328b45. Git metadata remains managed by Lead; no reset/stash/workaround or main push.
 
 ## Next
 
-Preset fix is checkpointed by Lead in 4c2db8d and pushed to origin/team/core.
-CORE-1 through CORE-10 and the exact defaults/migration handoff below remain
-delivered. Shared FEATURES rows also need Core contributions: CAP-3 marker query
-is READY; ED-8 camera-style model/LUT is READY; ED-9 layout evaluation is implemented and under final verification. RND-5 lens contract follows.
-RND-5 lens and ED-7 targeted restoration are READY; final fuzz/scale checks and handoff are in progress. This status-only follow-up
-awaits Lead checkpoint. Main last observed5328b45; no newer local integration to
-rebase onto. No main push or Git metadata workaround.
+INTEGRATION FREEZE: stopped at the verified Core stopping point. No new features,
+defaults/contracts changes, rebases or further work until Lead says "freeze lifted".
+Only final motion regression correction, README and this handoff await checkpoint.
+Freeze commit attempt failed: Git cannot create worktrees/core/index.lock
+(Operation not permitted). Lead must checkpoint core/src/motion.rs, core/README.md
+and docs/status/core.md. No metadata workaround attempted.
+
+
+No next Core implementation item remains after the broader shared-row audit.
+CORE-1...10, CAP-3 marker mapping, ED-2 aspects, ED-7 targeted restoration,
+ED-8 camera style/LUT, ED-9 camera layouts, ED-13 motion presets, RND-5 lens
+instructions and RND-8 master blur now have Core models/commands/evaluation.
+FEATURES' joint rows still need downstream/native acceptance; Core completion
+does not mean their pixels or UI are verified.
+
+Lead checkpoint6511eb2 contains the new implementations. The working tree adds
+the final master-blur regression correction, README and this status: checkpoint
+these before merging/pushing (6511eb2 alone has the earlier failing test sample).
+The tested worktree passes Rust91 debug/release, Core Swift66, Clippy/fmt/diff,
+canonical signed app build and strict codesign. Latest complete log:
+/private/tmp/yapcam-core-shared-backlog-master-ready.log. Remote team/core still
+has the previously tested preset checkpoint4c2db8d; do not push an incomplete
+checkpoint. Local main remains5328b45, already an ancestor; no new rebase needed.
+
+Remaining work belongs to consumers: Editor wires markers/targeted restore,
+camera style/layout controls and the master blur slider; Render consumes camera
+style/LUT/crop/sharpen/grain, cutout edge controls and lens instructions and applies
+actual render fps/60 to evaluated blur amounts. C ABI remains3. Contracts are in
+FORMATS.md; typed APIs and integration notes are in Core README. Lead must review
+the new critical paths and run native Metal/display acceptance.
 
 Integration action: clean Swift build artifacts once after Core enum additions
 before judging UI errors. `swift package clean` was necessary here: stale UI
@@ -32,14 +55,12 @@ LaunchServices-only launch rule. No Yapcam app launched or process signaled.
 No UI/Editor/Render tests or implementation edited.
 
 
-Backlog re-audit 2026-10-15 15:40 UTC: docs/briefs/core.md, the Core row in
-FEATURES' Backlog table and GAP-CORE-1...10 were checked against current source
-and the completed test logs. All assigned Core implementations are delivered.
-FEATURES still labels these rows todo/partial; QA owns that file and must reconcile
-the evidence below after integration. This audit changes only this status file;
-no new source change warrants repeating the already completed test runs. Local
-main remains5328b45 and is an ancestor of HEAD4c2db8d, so no new rebase is needed.
-No owned temporary verification roots remain.
+Backlog re-audit 2026-10-15 16:26 UTC: checked the brief, all Core-owned/shared FEATURES
+rows and the Next list against current source. CORE-1...10 are delivered, and the
+previously missed shared-row contributions listed above are now implemented.
+QA owns FEATURES.md and must reconcile its stale Core todo/partial labels, while
+keeping shared UI/pixel acceptance separate. The table below maps the original
+assignment to tests; the READY packages describe shared follow-ups.
 
 | FEATURES row | Delivered Core regression evidence |
 |---|---|
@@ -54,11 +75,9 @@ No owned temporary verification roots remain.
 | GAP-CORE-9 | capabilities.rs: gates_preserve_settings_and_frame_queries_remain_allocation_free; Swift capabilityGatesPreserveStoredAppearanceThroughABI |
 | GAP-CORE-10 | AutosaveTests.swift: stale revision, restart/cancel, disabled/closed state, manual-save timer suppression |
 
-All listed tests are included in the latest Rust82/Core Swift59 passing runs.
-Acceptance involving Editor wiring, Render pixels, microphones/cameras or the
-native Metal/display host remains with those owners. The integration requests
-below remain open. The original CORE-1...10 list is complete; the shared-row
-follow-up above supersedes the earlier assertion that all Core work was empty.
+All listed tests are included in the latest Rust91/Core Swift66 passing runs.
+Consumer/native acceptance remains open as described above. All verification
+scripts listed and removed their owned temporary roots; no roots remain.
 
 Integration assumptions: Editor must use timeline_edit for interactive minimums
 and coalesced_edit gesture keys for100ms history grouping. Precision commands keep
@@ -135,11 +154,13 @@ and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
 
+- RND-8 Core READY: optional canvas.global_motion_blur multiplier, factory1/legacy null, applied once to screen/zoom/pan/cursor Frame/FrameMotion/Extras/cold-option strengths. Null preserves independent stored amounts; master0/.5/1, legacy decode, bounds, presets/history/save/reopen covered. Rust91/Core Swift66 PASS. Frame geometry itself carries no blur amount: the regression samples evaluated Frame during a moving spring interval. Only this final test correction remains outside checkpoint6511eb2. Editor: single slider binds global_motion_blur; Render: apply actual fps/60 once to evaluated amounts, and may disable preview blur.
+
 - ED-7 Core READY: additive insert_source / EditCommand.insertSource at a clip boundary restores source bounds and original clip settings without undoing unrelated edits. Exact rational prefix mapping distinguishes start/end edges at insertion and covers every timed collection, including camera silence ranges. Screen/audio/input share clip time; no recording writes. Empty timeline restoration, invalid/beyond-source/minimum rollback, fractional long clocks, history/snapshot/reopen and audio-clock regressions pass. Rust90/Core Swift65 + Clippy + signed build/strict codesign PASS, /private/tmp/yapcam-core-shared-backlog-ready.log. Editor: retain original transcript source-word ranges, batch insertSource + add-caption for targeted restore; existing cut/hide/correct primitives remain available.
 
-- RND-5 Core READY: per-zoom style/lens parameters, inherited insertion style, shared classic/lens spring weight and active-zoom selection, local zoom_lens_at instruction and typed Swift CoreZoomLens/ZoomLens. Lens leaves base crop unchanged; camera sizing still follows zoom weight. Manual/auto pointer targets, crop clamping, null inactive endpoints and old classic defaults supported. Rust88 + Core Swift64 PASS; /private/tmp/yapcam-core-lens-ready.log (Rust/build) and /private/tmp/yapcam-core-lens-swift.log (final Swift). Earlier Swift syntax/build-input corrections resolved; native lens shading remains Render-owned.
+- RND-5 Core READY: per-zoom style/lens parameters, inherited insertion style, shared classic/lens spring weight and active-zoom selection, local zoom_lens_at instruction and typed Swift CoreZoomLens/ZoomLens. Lens leaves base crop unchanged; camera sizing still follows zoom weight. Manual/auto pointer targets, crop clamping, null inactive endpoints and old classic defaults supported. Rust88 + Core Swift64 PASS; /private/tmp/yapcam-core-lens-ready.log (Rust/build) and /private/tmp/yapcam-core-lens-swift.log (final Swift). Native lens shading remains Render-owned.
 
-- ED-9 Core implemented: additive layout_settings, cutout/split modes and per-range settings; exact frame fitting/orientation/flip/padding/corners, cutout matting flag, silence gating with remapping. Missing camera falls back to screen. Legacy geometry defaults retained and frame/extras allocate zero. Rust geometry/boundary/history tests pass; Swift full verification follows /private/tmp/yapcam-core-camera-layout-swift.log (first run had a corrected test syntax error). Softness/inset rendering and controls are Render/Editor handoffs.
+- ED-9 Core READY: additive layout_settings, cutout/split modes and per-range settings; exact frame fitting/orientation/flip/padding/corners, cutout matting flag, silence gating with remapping. Missing camera falls back to screen. Legacy geometry defaults retained and frame/extras allocate zero. Rust geometry/boundary/history tests and full Core Swift suite pass; /private/tmp/yapcam-core-camera-layout-swift.log and final shared-backlog log. Extreme positive camera crop ratios also stay finite. Softness/inset rendering and controls are Render/Editor handoffs.
 
 - ED-8 Core READY (awaiting Lead checkpoint): additive camera.style parameters,12 original scalar recipes, camera_style/library queries and typed Swift access; render_options includes camera_style. Strict CUBE parser/importMedia/preset embedding with fresh target LUT path and transactional staged-asset cleanup. Missing old fields choose original/no grading. Source reference defaults/strings/assets not copied. Rust85/Core Swift62 + Clippy + signed build/strict codesign PASS, /private/tmp/yapcam-core-camera-style-ready.log. Native shader/pixel/UI support remains Render/Editor-owned; metadata availability is not a pixel claim.
 
@@ -177,7 +198,9 @@ and owned Core regression tests only; no runtime default or Render test changed.
 
 ## Verification
 
-- Latest complete code checks at4c2db8d: Rust82 debug/release, Core Swift59, Clippy all-targets -D warnings, clean canonical signed build/strict codesign, fmt/diff PASS. Preset fix and UI environment results are recorded above. Earlier backlog baseline: Rust80/Core Swift58. Expanded four-seed10k FFI fuzz now includes checked/grouped edits, insert helpers, clip settings, device metadata and all new cold queries. Deterministic virtual-sleep autosave tests cover reset/cancel/off/closed/error and stale revisions; frame reads remain independent of save IO. Logs /private/tmp/yapcam-core-backlog-{final,ready}.log.
+- Latest complete code checks: Rust91 debug/release, Core Swift66, Clippy all-targets -Dwarnings, cargo fmt/diff, canonical signed build and strict codesign PASS. Four-seed10000-command FFI fuzz now exercises29 command families plus all new plain/time-specific queries; the query rotation was corrected to reach every family. Frozen v0/v1 migration, all-FFI panic guards, concurrent durable edits and zero-allocation frames remain green.
+- Final full log: /private/tmp/yapcam-core-shared-backlog-master-ready.log. Clean-build baseline before the final master addition: /private/tmp/yapcam-core-shared-backlog-final-swift-ui.log. UI71 run has68 passes and3 Metal/display issues; no clip/zoom ID errors. Direct-binary app launch excluded by Lead's LaunchServices rule. Native replay remains required.
+
 - Unity clip settings omit JSON to keep large projects compact; Swift ClipInfo.effectiveSettings supplies defaults. Key overlays reuse the immutable time index on gain/cursor-only clip edits. Frame audio uses the already resolved clip index, avoiding repeated source scans. Gain/mute/smoothing inheritance and allocation-free capability frames are tested.
 
 - Final debug/release Rust80 PASS plus the separately invoked ignored scale case. Includes frozen schema migration, 10,000 randomized FFI commands across four seeds, new typing/preset paths and queries, rollback/persistence checks, every-FFI top-level catch_unwind coverage, cropped first zoom-frame clamps, frame reads during durable edits, new/old defaults, preset extremes, early timing, fractional/repeated typing ranges and cursor Retina independence.
@@ -187,7 +210,33 @@ and owned Core regression tests only; no runtime default or Render test changed.
 
 ## M3 scale — READY
 
-60-minute synthetic source; 3,600,000 events at1kHz; 5000 clips; 1000 zooms; 36,000 keys/18,000 shortcuts; full aligned cursor smoothing enabled. Release C ABI calls, Instant clock, fixed seed0x19bc48, 2048 frame samples/1024 layer samples; 64 apply/undo samples per durability mode and eight samples per timeline automation operation. Final source run:
+Latest shared-backlog source (including master blur and source restoration), same
+60min/3.6M-events/5000-clips/1000-zooms workload, release C ABI. Frame p99
+.112250ms and worst sampled edit19.388542ms PASS; targeted restoration p99
+10.923167ms. Save12.803792ms; project.json1,136,434bytes. Complete current metrics:
+
+```text
+SCALE workload=60min events=3600000 rate_hz=1000 clips=5000 zooms=1000 build_s=0.144 clock=Instant profile=release seed=0x19bc48
+SCALE yc_frame_at n=2048 p50_ms=0.086916 p99_ms=0.112250 max_ms=0.132417
+SCALE key_overlay enabled=true captured_keys=36000 shortcuts=18000 yc_query_layers_at n=1024 p50_ms=0.101458 p99_ms=0.127000 max_ms=0.133875
+SCALE yc_apply durable=false n=64 p50_ms=1.880625 p99_ms=2.259333 max_ms=2.259333
+SCALE yc_undo durable=false n=64 p50_ms=0.145125 p99_ms=0.159833 max_ms=0.159833
+SCALE yc_apply durable=true n=64 p50_ms=11.796583 p99_ms=19.388542 max_ms=19.388542
+SCALE yc_undo durable=true n=64 p50_ms=8.956250 p99_ms=12.918458 max_ms=12.918458
+SCALE set_speed durable=true n=8 p50_ms=10.910000 p99_ms=12.071333 max_ms=12.071333
+SCALE split durable=true n=8 p50_ms=10.018375 p99_ms=11.018166 max_ms=11.018166
+SCALE insert_source durable=true n=8 p50_ms=9.904541 p99_ms=10.923167 max_ms=10.923167
+SCALE delete_30min durable=true n=8 p50_ms=9.791583 p99_ms=12.963959 max_ms=12.963959
+SCALE auto_zooms durable=true n=8 p50_ms=8.833042 p99_ms=9.037166 max_ms=9.037166
+SCALE typing_suggestions query_ms=2.576208
+SCALE auto_speed_typing durable=true n=8 p50_ms=12.042875 p99_ms=14.553833 max_ms=14.553833
+SCALE typing_undo durable=true n=8 p50_ms=9.076667 p99_ms=10.959791 max_ms=10.959791
+SCALE yc_project_save ms=12.803792 project_json_bytes=1136434
+```
+
+Earlier baseline below is retained for comparison (before style/lens fields).
+
+60-minute synthetic source; 3,600,000 events at1kHz; 5000 clips; 1000 zooms; 36,000 keys/18,000 shortcuts; full aligned cursor smoothing enabled. Release C ABI calls, Instant clock, fixed seed0x19bc48, 2048 frame samples/1024 layer samples; 64 apply/undo samples per durability mode and eight samples per timeline automation operation. Earlier baseline source run:
 
 | Operation | p50 ms | p99 ms |
 |---|---:|---:|
@@ -217,12 +266,15 @@ was removed and both current runs keep all edit samples below50ms.
 
 ## Requests / integration handoff
 
+- Editor: Project.markers() supplies timeline marker/snapping positions; insertSource restores original transcript source bounds at a cut boundary while preserving later edits (batch add-caption for the label). Adopt cameraLayout(atNs:)/layout_settings, typed camera style/importCameraLUT and global_motion_blur. Original CORE-1...10 consumer contracts remain below.
+- Render: CoreRenderOptions.cameraLayout / cameraStyle / zoomLens are optional typed cold outputs; base Frame already evaluates split/cutout geometry and visibility. Implement camera grading/LUT/crop/sharpen/grain, cutout softness/inset and lens sampling/bevel/chromatic shading. Do not apply master blur twice; Core has multiplied it. Actual preview/export fps/60 remains yours.
+
 - Render/Editor: ED-8 camera.style contract is in FORMATS.md. Consume CoreRenderOptions.cameraStyle / CameraStyle and cameraStyleLibrary(), implement grading/LUT at intensity, crop/sharpen/grain/blur and controls. CubeLUT parser + Project.cameraLUT()/importCameraLUT(from:) are provided; custom recipes are our own. No C ABI layout changed. CAP-3 Project.markers() is ready for timeline/snapping.
 
 - Editor/Lead: adopt checked timelineEdit envelopes, setClipSettings + ClipInfo.effectiveSettings, insertTimelineItem helpers, coalescedEdit gesture keys, insertionStyles/capabilities and ProjectAutosaver. The existing Editor timer is2s; remove/replace it when adopting the30s coordinator, and cancel the coordinator before final save/Project.close. Preserve saved choices behind capability gates. These integrations belong to Editor; no Editor source/tests changed.
-- Lead independent review: new critical paths are core/src/editing.rs (checked recursion/insertion/history policy), capabilities.rs/frame gates, and Sources/YapcamCore/Autosave.swift plus Project revision mutations. C ABI remains3 with no header/layout changes. Additive contracts are in FORMATS.md; publish Swift surface in SWIFT_API.md. Native integration/pixels remain owners' work.
+- Lead independent review before merge: new shared paths are source_insert.rs/time::InsertTimeMap, zoom_lens.rs/frame.rs, camera_layout.rs, camera_style.rs, preset.rs, motion master multiplication and Swift CubeLUT/asset staging. Also retain review of core/src/editing.rs (checked recursion/insertion/history policy), capabilities.rs/frame gates, and Sources/YapcamCore/Autosave.swift plus Project revision mutations. C ABI remains3 with no header/layout changes. Additive contracts are in FORMATS.md; publish Swift surface in SWIFT_API.md. Native integration/pixels remain owners' work.
 
-- Lead: source is checkpointed and pushed through4c2db8d; checkpoint this status follow-up and integrate Core+Render after a clean Swift build and native UI replay. Publish typed Swift additions in SWIFT_API.md from the contract in FORMATS.md/Core README. Independent review/native integration remains with Lead.
+- Lead: checkpoint the final master-blur regression correction/README/status after6511eb2, then push team/core and integrate Core+Render after a clean Swift build and native UI replay. Publish typed Swift additions in SWIFT_API.md from the contract in FORMATS.md/Core README. Independent review/native integration remains with Lead.
 - Render: consume cold screen_shadow.offset_x (and directional style) alongside already evaluated scalar y/radius/opacity. Swift CoreRenderOptions.ScreenShadow is available; no C header extension is needed. Wire stereo_mic preference where channel layout is chosen. DSP presets already flow via existing speech settings. Native pixel/audio acceptance is not claimed by Core.
 - QA/Lead: reconcile GAP-CORE-1...10 using the backlog audit evidence table above; all assigned Core implementations are delivered, with consumer/native acceptance separate. Other FEATURES evidence predates delivered Core work: PRJ-08 frozen v0/v1 migration is verified, EDT-07 output dimensions are covered, REC-16 owned-copy import/save/reopen passes (native export remains separate), and ZOM-01 must describe the new click-window/merge rules when Core integrates. FEATURES.md remains QA-owned.
 - Editor: wire typingSuggestions() and new apply/dismiss/restore commands, mic preset/stereo paths, ratio padding and directional-shadow paths, new screen/cursor presets and start_early. Keep our extras after reference sections; hotkey layout/UI ordering stay with UI/Editor owners. Existing logical cursor artwork categories remain an additional selection; do not double-apply the numeric size.
