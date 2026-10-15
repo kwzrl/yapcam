@@ -44,6 +44,9 @@ public struct RenderConfiguration: Sendable, Equatable {
     public var screenQuality: ScreenQualitySettings? = nil
     public var glassLoupe: GlassLoupeSettings? = nil
     public var cameraColor = CameraColorSettings()
+    public var cameraCrop = SIMD4<Float>(0,0,1,1)
+    public var cameraBackgroundPop: Float = 0
+    public var cameraBackgroundBlur: Float = 0
     public var cameraMatte: CameraMatteSettings? = nil
     public var cameraBackgroundRemoval = false
     public var cameraFaceFraming = false

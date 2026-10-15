@@ -8,12 +8,12 @@ public struct CubeLUT: Sendable {
     public let domainMinimum: SIMD3<Float>
     public let domainMaximum: SIMD3<Float>
     public let rgba: [Float]
-    private static let byteLimit = 16*1024*1024
+    private static let byteLimit = 32*1024*1024
     private init(dimension: Int, minimum: SIMD3<Float>, maximum: SIMD3<Float>, rgba: [Float]) {
         self.dimension = dimension; self.domainMinimum = minimum; self.domainMaximum = maximum; self.rgba = rgba
     }
     public init(data: Data) throws {
-        guard data.count <= Self.byteLimit, let text = String(data: data,encoding: .utf8) else { throw RenderError.invalidSettings("LUT must be UTF-8 and at most 16MiB") }
+        guard data.count <= Self.byteLimit, let text = String(data: data,encoding: .utf8) else { throw RenderError.invalidSettings("LUT must be UTF-8 and at most 32MiB") }
         var size: Int?, minimum = SIMD3<Float>.zero, maximum = SIMD3<Float>(repeating: 1), samples: [Float] = []
         var seen = Set<String>()
         for (index,line) in text.split(separator: "\n",omittingEmptySubsequences: false).enumerated() {
@@ -52,7 +52,7 @@ public struct CubeLUT: Sendable {
     private static func readData(_ url: URL) throws -> Data {
         guard url.isFileURL else { throw RenderError.invalidSettings("LUT must be a local file") }
         let values = try url.resourceValues(forKeys: [.fileSizeKey,.isRegularFileKey])
-        guard values.isRegularFile == true, (values.fileSize ?? .max) <= Self.byteLimit else { throw RenderError.invalidSettings("LUT must be a local regular file of at most 16MiB") }
+        guard values.isRegularFile == true, (values.fileSize ?? .max) <= Self.byteLimit else { throw RenderError.invalidSettings("LUT must be a local regular file of at most 32MiB") }
         let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
         var bytes = Data()
         while bytes.count <= byteLimit {
@@ -60,7 +60,7 @@ public struct CubeLUT: Sendable {
             let next = try file.read(upToCount: min(65_536,byteLimit+1-bytes.count)) ?? Data()
             if next.isEmpty { break }; bytes.append(next)
         }
-        guard bytes.count <= byteLimit else { throw RenderError.invalidSettings("LUT exceeds 16MiB") }
+        guard bytes.count <= byteLimit else { throw RenderError.invalidSettings("LUT exceeds 32MiB") }
         return bytes
     }
     public static func identity(dimension: Int = 2) throws -> CubeLUT {

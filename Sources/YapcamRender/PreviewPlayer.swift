@@ -33,7 +33,7 @@ struct PreviewSubmissionMetrics {
     private var player: AVPlayer?
     private var audioTimeline: AudioTimeline?
     private var audioTask: Task<Void, Never>?
-    private var audioGeneration = 0
+    private(set) var audioGeneration = 0
     private var audioLoading = false
     private var audioPreparationFailed = false
     private var seekGeneration = 0
@@ -134,6 +134,18 @@ struct PreviewSubmissionMetrics {
         let backing=view.convertToBacking(view.bounds).size
         guard let size=try? previewSettings.drawableSize(forBackingSize: backing), size != view.drawableSize else { return }
         view.drawableSize=size
+    }
+    /// Refresh after an appearance-only edit. The caller must know that clip
+    /// mapping, audio, source files and speech settings are unchanged; otherwise
+    /// use invalidate(). Snapshot failure leaves the current generation intact.
+    public func invalidateVisuals() throws {
+        let snapshot=try project.renderSnapshot()
+        guard snapshot.durationNs == renderProject.durationNs, !audioPreparationFailed else {
+            invalidate(); return
+        }
+        renderProject=snapshot
+        compositor.invalidateVisualAssets()
+        redrawRevision += 1; view?.needsDisplay=true
     }
     public func invalidate() {
         // Rebuild the same clip mapping after edits; keep the current timeline location.

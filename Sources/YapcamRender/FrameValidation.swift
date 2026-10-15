@@ -4,6 +4,7 @@ import CYapcamCore
 func validateFrame(_ f: YcFrame,configuration c: RenderConfiguration,layers: [RenderLayer] = []) throws {
     try c.glassLoupe?.validate()
     try c.cameraColor.validate()
+    try c.validateCameraGeometry()
     try c.screenQuality?.validate()
     try c.cameraMatte?.validate()
     guard c.screenShadowOffsetX.isFinite, (-1...1).contains(c.screenInsetOrigin.x), (-1...1).contains(c.screenInsetOrigin.y) else {

@@ -13,6 +13,7 @@ extension Project: RenderProjectSource {
     public func renderAudioRanges() throws -> [RenderAudioRange]? {
         try query("{\"q\":\"audio_ranges\"}",as: [RenderAudioRange].self)
     }
+    public func renderStereoMicrophone() throws -> Bool { try speechEnhancementPlan().stereoMic ?? true }
     public func renderAudioOverlays() throws -> [AudioOverlay] {
         try query("{\"q\":\"audio_overlays\"}",as: [EvaluatedAudioOverlay].self).map { try $0.overlay() }
     }
@@ -39,7 +40,9 @@ extension Project: RenderProjectSource {
         configuration.screenQuality=evaluated.screenQuality
         configuration.cameraMatte=evaluated.cameraMatte
         configuration.glassLoupe=evaluated.glassLoupe
-        configuration.cameraColor=try evaluated.cameraColor?.value(package: packageURL) ?? .init()
+        if let style=options.cameraStyle { try configuration.applyCameraStyle(style,package: packageURL) }
+        // Optional direct-source contract remains compatible; real Core uses camera_style.
+        if let color=evaluated.cameraColor { configuration.cameraColor=try color.value(package: packageURL) }
         configuration.cursorSetID=options.cursorSetId
         if let shape=options.cursorShape {
             switch shape {

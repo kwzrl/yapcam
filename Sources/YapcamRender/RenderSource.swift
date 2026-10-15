@@ -28,6 +28,9 @@ public protocol RenderProjectSource: AnyObject, Sendable {
     func renderAudioOverlays() throws -> [AudioOverlay]
     /// Package-relative, already-retimed recording intervals; nil selects legacy clip mapping.
     func renderAudioRanges() throws -> [RenderAudioRange]?
+    /// False folds stereo microphone media to mono before mixing. Other roles
+    /// retain their channel layout. Custom/older sources default to preservation.
+    func renderStereoMicrophone() throws -> Bool
 }
 
 public struct RenderClip: Sendable, Decodable {
@@ -79,4 +82,5 @@ public extension RenderProjectSource {
     }
     func renderAudioOverlays() throws -> [AudioOverlay] { [] }
     func renderAudioRanges() throws -> [RenderAudioRange]? { nil }
+    func renderStereoMicrophone() throws -> Bool { true }
 }
