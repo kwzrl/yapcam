@@ -213,7 +213,14 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     }
 }
 
-private final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
+/// Shared production fragmentation policy; tests can drive its clock without an encoder.
+enum CaptureMediaPolicy {
+    static let fragmentDurationNs: Int64 = 2_000_000_000
+    static var fragmentInterval: CMTime { CMTime(value: fragmentDurationNs, timescale: 1_000_000_000) }
+    static var keyFrameIntervalSeconds: Double { Double(fragmentDurationNs) / 1_000_000_000 }
+}
+
+final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
     let url: URL
     private(set) var firstNs: Int64
     private let writer: AVAssetWriter
@@ -226,7 +233,7 @@ private final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
         firstNs = CaptureClock.nanoseconds(sample.presentationTimeStamp)
         let video = key == "screen" || key == "camera"
         writer = try AVAssetWriter(outputURL: url, fileType: video ? .mov : .m4a)
-        writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
+        writer.movieFragmentInterval = CaptureMediaPolicy.fragmentInterval
         guard let format = sample.formatDescription else { throw CaptureError.writerFailed("Missing sample format") }
         var settings: [String: Any]
         if video {
@@ -234,7 +241,7 @@ private final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
             settings = [AVVideoCodecKey: AVVideoCodecType.hevc,
                         AVVideoWidthKey: Int(dimensions.width), AVVideoHeightKey: Int(dimensions.height),
                         AVVideoCompressionPropertiesKey: [AVVideoAllowFrameReorderingKey: false,
-                            AVVideoMaxKeyFrameIntervalDurationKey: 2]]
+                            AVVideoMaxKeyFrameIntervalDurationKey: CaptureMediaPolicy.keyFrameIntervalSeconds]]
         } else {
             guard let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee else {
                 throw CaptureError.writerFailed("Missing audio format")

@@ -1,4 +1,5 @@
-READY 5d7fe82 + WORKTREE round-2 C1 no-speech window recovery/warnings; 97 capture tests, native say host gate pending
+READY 4c5420b + WORKTREE M3 hour simulation / 100 crash trials / capture limits; native MOV hour host gate pending
+READY 4c5420b round-2 C1 no-speech window recovery/warnings; native say host gate pending
 READY a52fc4a AUD-06 groundwork / PCM file tests; native model host gate pending
 READY 63f4abb package 1 AUD-10 implementation/unit tests; real Speech host gate pending
 READY 63f4abb package 2 injected-fault verification; unit tests pass
@@ -7,27 +8,94 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Audit 2026-10-15 03:09 CEST: C1 remains ready in the worktree, awaiting checkpoint
-  and re-review; main remains 78a8a0e. No new capture finding or host Speech/isolation
-  result. Capture implementation is unchanged since validation; no tests/Git writes
-  repeated under the existing metadata restriction.
-- Round-2 C1 implemented/unit validated before new features: retain spoken windows
-  around no-speech errors and return/persist partial-result warnings. Only the exact
-  native no-speech domain/code is recoverable; other failures preserve previous JSON.
-- Validation 2026-10-15 03:02 CEST: main 78a8a0e export + owned changes builds/signs,
-  Rust 61 pass; isolated capture target 97 tests / 5 opt-in skips / zero failures.
-  Final main-based full Swift run also has no capture failure; host gates below.
-- AUD-06 Apple voice isolation groundwork implemented/unit validated. Prior AUD-10,
-  fault and geometry packages are implemented and integrated; native Speech remains
-  a host gate. Added VoiceIsolationService.swift, VoiceIsolationTests.swift and README.
-- Native Speech and isolation quality/alignment remain unverified; do not mark those
-  features verified from unit tests or the independent review's software results.
-- Package 1 files: Sources/YapcamCapture/{TranscriptionService,AppleOnDeviceSpeech}.swift,
-  Tests/YapcamCaptureTests/TranscriptionTests.swift, tests README and this status.
-- Observed local HEAD 5d7fe82 (parent 88f1995), main 78a8a0e. Lead continues to handle
-  commits/rebase/push under read-only Git. Pending C1 files: AppleOnDeviceSpeech.swift,
-  TranscriptionService.swift, TranscriptionTests.swift, tests README and this status.
-  Only capture-owned source/tests/status changed; no new dependencies.
+- Backlog audit 2026-10-15 03:39 CEST: main remains 121d9de; no new capture
+  assignment, review finding or native host result. M3's five files still await
+  Lead's checkpoint. Existing validation remains applicable; no repeat test run.
+- M3 implementation/unit validation complete. The one-hour 60 fps
+  writer/event simulation and 100 seeded crash trials pass; capture limits are below.
+  Native fragment probe compiles but remains a sandbox media-services host gate.
+- C1 is checkpointed in 4c5420b and integrated; no duplicate fix needed. Lead reports
+  main a02a89e green (256 Swift + 97 XCTest + 61 Rust; render 86/86 on Metal).
+- Validation uses main a02a89e source + owned changes. Latest main 121d9de adds only
+  docs/STATUS.md. Signed build and Rust 61 pass; isolated capture suite 100 tests /
+  6 media skips / zero failures. Final main-based run also passes the hour simulation
+  and capture tests; full-suite environment failures are recorded below.
+- Local HEAD 4c5420b (parent 78a8a0e). Clean-tree rebase was attempted before M3 edits;
+  Git still denies creating rebase-merge (Operation not permitted). Lead handles
+  checkpoint/rebase/push. Pending: SegmentWriter.swift, LongSessionTests.swift,
+  NativeFragmentTests.swift, tests README and this status; only capture-owned files.
+- Native Speech/isolation, real capture and long-session encoder/device behavior are
+  not established by simulation or the separate renderer Metal hardware results.
+
+## M3 long-session / crash hardening
+- LongSessionTests drives production SegmentWriter routing and InputEventRecorder
+  without SCStream/event taps: genuine reusable 64x64 video + 48kHz PCM buffers,
+  one hour of 60 Hz timestamps, 10 Hz pointer motion plus per-second click/up/key.
+- Observed: 216000 screen buffers; 215999 each mic/system buffers (stop clipping);
+  46800 events, 2380305 JSONL bytes. Per-track simulated ledgers contain 1800 bounded
+  fragment records / 43208 bytes each, with 2 s cadence and exact stop-time tails.
+  Ledgers are explicitly SIMCAP01 test doubles, NOT native MOV/AAC or bitrate estimates.
+- 100 deterministic crash points (seed 0x59415043414D), including zero, just before/
+  at/after the first fragment and near the hour end. Prefix snapshots contain torn
+  fragment/event tails, backwards/out-of-range rows and every-third torn manifest.
+  Production Recovery restores host origin/track offsets and exact bounded source
+  durations, trims events byte-for-byte, keeps crashed event bytes in events.jsonl.prev,
+  releases locks, and is
+  idempotent. 98 readable trials recover; 2 before any fragment preserve originals
+  and return an error. Completed-fragment loss is <2 s IN THE SIMULATOR ONLY.
+- The seeded hour test passed in 39.5 s initially, 23.5 s with the capture suite and
+  32.3 s in the final main-based run. It checks persisted-file sizes/counts and
+  recovery correctness; it is not an RSS, real-time encode or
+  power-loss benchmark. Scratch packages are removed after each trial/test.
+- Shared CaptureMediaPolicy supplies production's unchanged 2 s fragment/keyframe
+  target. MediaTrackWriter is internal for the native test wrapper (no public API
+  change). NativeFragmentTests adds a real HEVC hour clock with 1 Hz injected video,
+  compressed-sample monotonicity/keyframe checks, MOV moof count and file bounds.
+  This is sparse VFR, not a 60 fps throughput test; no screen grant is required.
+- Native probe was attempted: AVAssetWriter fails with writerFailed("The operation
+  could not be completed") after IOSurface sandbox errors. Lead must run the README
+  host command; native fragment cadence/size/duration is NOT verified by the ledger.
+- Final validation 2026-10-15 03:31 CEST: signed scripts/build-app.sh passes with
+  Yapcam Dev Signing / mov.yapcam.Yapcam; strict codesign passes. Rust 61 pass.
+  Full Swift attempted: Swift Testing 259 tests / 36 issues (34 Metal preview,
+  2 UI missing snapshots); XCTest 97 tests / 34 skips / 6 E2E Metal failures.
+  No capture failure, including persisted fragment sample totals and source-sidecar
+  checks. This is not a green full suite; Lead's earlier host baseline is separate.
+- Logs: /tmp/yapcam-m3-{app-build,capture-all,full-swift,rust,native}.log.
+  Source/test gitleaks scans and git diff --check pass. No generated media, credentials
+  or dependencies added. All three assigned M3 implementation items are handled;
+  native acceptance/re-review remains open. Suggested checkpoint:
+  test(capture): stress hour-long routing and 100 crash recoveries.
+
+## Capture limits / hardware acceptance
+- macOS 15+ / Apple Silicon product target. Screen maxFPS accepts 30 or 60 only;
+  ScreenCaptureKit uses that minimum frame interval, with half-frame jitter tolerance
+  in the writer limiter. VFR is preserved; backpressure drops samples rather than
+  queuing unbounded media. No promise of sustained 60 fps at every resolution/device.
+- Screen/camera: HEVC in MOV, no frame reordering; separate AAC M4A audio at 192 kb/s
+  requested per track. System audio requests 48 kHz stereo; mic requests 48 kHz mono;
+  writer audio settings use the actual incoming format. Capture offers no H.264/ProRes
+  or audio-codec choice (export settings are a separate subsystem). Camera uses the
+  active device format, requests 30/60 fps and falls back to 30 when 60 is unsupported.
+- Screen requests 8-bit NV12, native points×display scale, cursor excluded from video.
+  Geometry rejects nonfinite/nonpositive scale, rectangles below 2 logical points,
+  and >32768 pixels per dimension. That validation ceiling is NOT an encoder/GPU
+  capability guarantee. HDR capture is not configured/verified. Window resize keeps
+  the initial encoded surface with fitted content; area rectangles are display-local.
+- Movie fragment and maximum keyframe targets are 2 s. Real fragment closure depends
+  on delivered samples, encoder/backpressure and filesystem behavior: there is no
+  unconditional native 2 s crash-loss guarantee, especially for static/VFR sources.
+  Event JSONL streams incrementally and synchronizes at segment close; it is not
+  fsynced per event and has no power-loss durability claim.
+- No explicit one-hour duration cap is configured; nanosecond source ranges use
+  checked Int64 arithmetic. Only simulated one-hour behavior is established here;
+  real file growth is VBR/content/device dependent. Start/resume and ongoing checks
+  stop on <1 GB free; injected low-disk tests do not predict worst-case encoder bursts.
+- Real hardware/permission acceptance remains: Screen Recording for Yapcam Dev Signing;
+  native HEVC/AAC fragmented files and kill/relaunch recovery; live 30/60 fps, static
+  tails, event-to-video alignment and A/V drift; camera/mic sync/loss (no devices here);
+  Retina and multi-display capture (scale 1/2/negative-origin math is tested, only one
+  non-Retina display here). Also native Speech and AUSoundIsolation quality/latency.
 
 ## Round-2 C1 — no-speech window recovery / implementation verified
 - Preserve native NSError domain/code through SpeechRecognitionJob. Only
@@ -227,9 +295,9 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
 
 ## Existing capture handoffs retained
 - Main FORMATS.md now specifies import_transcript consuming RecordingTranscript JSON
-  and says track offsets must not be applied a second time. Editor's current worktree
-  reports caption import/list/lane implemented with EditorWindows.transcriber as the
-  app injection hook; real transcription/UI wiring and host permission remain pending.
+  and says track offsets must not be applied a second time. Main includes caption
+  import/list/lane, AppDelegate.installTranscriber wiring and the Speech usage key.
+  Real recognition and host permission acceptance remain pending.
   Editor now reports 226 full-suite tests green after a clean/rebuilt app; this is
   other-team validation and does not establish native Speech/isolation quality here.
 - Round-2 independent review confirms all round-1 capture fixes, including H2/H3,
@@ -248,16 +316,17 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   checks do not establish real device sync/loss, Retina or multi-display acceptance.
 
 ## Next / Lead requests
-1. Checkpoint C1's five owned files, rebase/advance this worktree to main and push
-   under the agreed read-only Git workflow. Prior packages are integrated. No other
+1. Checkpoint M3's five owned files listed above, rebase/advance to main and push
+   under the agreed read-only Git workflow. C1/prior packages are integrated. No other
    independent capture implementation item remains in the current assignment.
-2. Re-review C1's error classification and warning schema/clock mapping. Round-1
-   findings are confirmed fixed by round-2 review. Run the full Swift suite on the
-   host; sandbox editor/E2E/UI failures are not fixed or hidden by capture.
-3. Integrate UI's usage key and production transcriber hook, present C1 warnings,
-   then rerun the opt-in say tests on an authorized host with local models. UI already
-   implements permission request + JSON encoding in its worktree; real Speech remains
-   unverified. Append host results here; capture will address findings.
+2. Host: YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests.
+   Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run live
+   capture/static-tail/sync and kill/relaunch checks when permissions/devices exist.
+   Re-review C1 warnings and M3 policy/test boundaries; full host suite is still needed.
+3. Present C1 warnings and rerun the opt-in say tests on an authorized host with
+   local models. Main already includes UI's Speech usage key, production transcriber
+   hook, permission request and JSON encoding; real Speech remains unverified.
+   Append host results here; capture will address findings.
 4. Add transcript JSON including optional C1 warnings and existing timing sidecars/lock
    to FORMATS.md; expose the warnings in the app's caption flow.
    Core already documents source-time import; complete consumer integration is outside

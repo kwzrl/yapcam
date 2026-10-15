@@ -148,3 +148,30 @@ speech-region energy, preserves frame count and leaves the original unchanged.
 It fails when synthesis/effect support is unavailable. Listening quality and native
 latency alignment still need independent host acceptance; energy is not an
 intelligibility measurement.
+
+## M3 hour / crash hardening
+
+```sh
+swift test -j 4 --filter LongSessionTests
+YAPCAM_CAPTURE_MEDIA_TESTS=1 swift test -j 4 --filter NativeFragmentTests
+```
+
+The default hour test advances timestamps rather than sleeping: 216,000 screen
+buffers at 60 Hz, mic/system PCM, and 46,800 real event-log rows. Production routing,
+sidecars, event recording and recovery run unchanged. The injected media sink writes
+an explicitly tagged `SIMCAP01` fragment ledger, not fake playable media. Its sizes
+are exact test-record sizes, not HEVC/AAC bitrate estimates. One hundred seeded
+crash snapshots include torn fragments/events/manifests and check recovery duration,
+source/host offsets, exact event prefixes, `.prev`, locks and idempotence. Crashes
+before the first completed fragment preserve originals and fail explicitly.
+
+The opt-in native test injects a one-hour **media clock** at sparse 1 Hz into the
+actual HEVC writer, retrying test input on encoder backpressure. It checks the real
+MOV's fragment count, file bounds, duration, compressed-sample PTS and keyframes.
+It needs VideoToolbox/AVFoundation services but no Screen Recording grant. It is not
+a sustained 60 fps throughput test; the ordinary simulation cannot establish native
+fragment durability, power-loss behavior or real storage requirements. Native failures
+are explicit. No generated media is checked in; all fixtures use temporary storage.
+Apple's fragmentation and atom contracts:
+[AVAssetWriter fragments](https://developer.apple.com/documentation/avfoundation/avassetwriter/moviefragmentinterval),
+[QuickTime atoms](https://developer.apple.com/documentation/quicktime-file-format/atoms).
