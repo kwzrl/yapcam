@@ -1,4 +1,4 @@
-READY HEAD qa: F10 verified fixed; hotkey + after-recording live checks need ui hooks (Requests)
+READY dd748a0 qa: F10 verified fixed; hotkey + after-recording live checks need ui hooks (Requests)
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
