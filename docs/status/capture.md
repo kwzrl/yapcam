@@ -8,13 +8,13 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 06:22 CEST: main remains b90ee0d; no new capture review
+- Backlog audit 2026-10-15 06:42 CEST: main remains 7d545a1; no new capture review
   finding or host acceptance result. Remaining capture/Lead backlog is native Speech,
   native fragmented-media/live-device verification and termination of the stale runs
   below. lsof still reports all four listed PIDs using the two retained directories;
   no additional deletion is safe. No temporary copies or repeat builds/tests created.
-  Main adds signing setup/docs and UI polish; capture source and tests are unchanged.
-  Signing setup does not establish a new Screen Recording grant or native acceptance.
+  Main adds editor export options and documentation; capture source and tests are
+  unchanged. No new Screen Recording grant or native acceptance is reported.
 - Lead checkpointed M3 in 7383d08 and integrated it into main 0df4bbb. Capture source
   and Swift tests match main. Cleanup documentation/status is checkpointed in e83634c;
   cleanup is now integrated in main 8600691. This audit changes status only.
@@ -28,8 +28,8 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   pass; isolated capture suite 100 tests /
   6 media skips / zero failures. Final main-based run also passes the hour simulation
   and capture tests; full-suite environment failures are recorded below.
-- Local HEAD 29612d8, checkpointed/integrated by Lead. Clean-tree rebase onto main
-  b90ee0d attempted at 06:01 CEST; creating rebase-merge is still denied
+- Local HEAD 431d7d4, checkpointed/integrated by Lead. Clean-tree rebase onto main
+  7d545a1 attempted at 06:32 CEST; creating rebase-merge is still denied
   (Operation not permitted). Lead handles checkpoint/rebase/push. Pending: this
   status only; capture source/tests/README already match main.
 - Native Speech/isolation, real capture and long-session encoder/device behavior are
