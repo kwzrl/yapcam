@@ -8,13 +8,13 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Current handoff
-- Backlog audit 2026-10-15 05:20 CEST: main remains aa70d91; no new capture review
+- Backlog audit 2026-10-15 05:51 CEST: main remains e007d36; no new capture review
   finding or host acceptance result. Remaining capture/Lead backlog is native Speech,
   native fragmented-media/live-device verification and termination of the stale runs
   below. lsof still reports all four listed PIDs using the two retained directories;
   no additional deletion is safe. No temporary copies or repeat builds/tests created.
-  Main records fresh-checkout build verification and renderer fixes; capture source
-  and tests are unchanged. Neither establishes native capture/Speech acceptance.
+  Main adds editor audio-export tests and team status updates; capture source and
+  tests are unchanged. These do not establish native capture/Speech acceptance.
 - Lead checkpointed M3 in 7383d08 and integrated it into main 0df4bbb. Capture source
   and Swift tests match main. Cleanup documentation/status is checkpointed in e83634c;
   cleanup is now integrated in main 8600691. This audit changes status only.
@@ -28,8 +28,8 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
   pass; isolated capture suite 100 tests /
   6 media skips / zero failures. Final main-based run also passes the hour simulation
   and capture tests; full-suite environment failures are recorded below.
-- Local HEAD c90b240, checkpointed/integrated by Lead. Clean-tree rebase onto main
-  aa70d91 attempted at 05:10 CEST; creating rebase-merge is still denied
+- Local HEAD 771b071, checkpointed/integrated by Lead. Clean-tree rebase onto main
+  e007d36 attempted at 05:31 CEST; creating rebase-merge is still denied
   (Operation not permitted). Lead handles checkpoint/rebase/push. Pending: this
   status only; capture source/tests/README already match main.
 - Native Speech/isolation, real capture and long-session encoder/device behavior are
