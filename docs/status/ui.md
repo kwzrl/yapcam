@@ -150,6 +150,9 @@ Ran with `open -n -W`, no lock, no other instance, script aborts on any skip; I 
 - User guide updated (hotkeys verified, known audio-export issue removed, recovery wording).
 Still unverified: real mic/camera (no devices), VoiceOver, multi-display, Retina.
 
+## F10: editor must come to the front and be key after Stop — code done, live check pending
+`EditorBridge.bringEditorsToFront` now activates with `NSApp.activate(ignoringOtherApps: true)` + `NSRunningApplication.current.activate([.activateAllWindows])`, orders every editor window front (`orderFrontRegardless`) and makes the newest key, immediately and again 0.35 s later (after window creation/layout). All stop paths (toolbar, hotkey, menu bar, HUD) end in `RecordingController.stop` → `PostRecording.process` → `LiveEngine.openEditor` → this. The self-test logs `editorInFront` (= app active AND an editor window is the key window) and `appActive`. 483 tests pass. NOT yet verified live: a Yapcam instance (pid 90571, /Users/larry/yapcam build, started minutes ago) is running and I must not launch next to the user's instance. Needed: `open -n -W build/Yapcam.app --args --drive-input-selftest 12 --source display` ×3 → `editorInFront=true` in probe.log.
+
 ## UI-5 window sub-items finished
 Window card options now also have: Resize → Set size… (type "1280x720"; 150…8192 per side), Save current size and a list of saved sizes (last 8, most recent first, kept in settings), and Ignore this window (skipped when pointing, for this overlay session). Still needs Accessibility to resize. Tests `WindowSizeAndIgnoreTests`; 468 tests pass. Remaining not-done: hide Dock icon while recording, "Recording engine" item, Experimental tab, use-last-project-settings, max camera resolution, autosave toggle, separate preset folder setting.
 
