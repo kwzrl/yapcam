@@ -1,4 +1,4 @@
-READY HEAD qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
+READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 # qa status
