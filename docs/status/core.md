@@ -1,33 +1,33 @@
-READY working tree on b8575bc: AUD-06 explicit microphone media selection + relink invalidation; Rust95, Core Swift68, Clippy and signed build/codesign PASS. Lead checkpoint/rebase needed; UI TIS concurrency crash diagnosed below.
+READY b852c2c pushed to origin/team/core: AUD-06 microphone selection + relink invalidation; Rust95, Core Swift68, Clippy and signed build/codesign PASS. Core files match integrated main eacbd4d; backlog empty.
 
 # Core status
 
-Updated 2026-10-15 17:01 UTC. Branch team/core; Lead checkpoint b8575bc.
-Baseline main f611874 contained identical Core source/tests/contracts before this
-follow-up. Freeze explicitly
-lifted. `git rebase main` attempted on a clean tree; sandbox cannot create
-.git/worktrees/core/rebase-merge (Operation not permitted). Lead handles metadata;
-no workaround/reset/stash/main push. Lead reports integrated 465 Swift + 189 XCTest
-+ 91 Rust green on main.
+Updated 2026-10-15 17:12 UTC. Branch team/core; Lead checkpoint b852c2c.
+Main now eacbd4d. `git diff --quiet HEAD main -- core Sources/YapcamCore
+Tests/YapcamCoreTests docs/FORMATS.md` passes: the complete tested Core package is
+integrated. Pushed b852c2c to origin/team/core successfully (fast-forward from
+4c2db8d), and independently verified the remote SHA. Never pushed main.
+Clean-tree `git rebase main` still cannot create .git/worktrees/core/rebase-merge
+(Operation not permitted); Lead must rebase the branch metadata. No workaround.
 
 ## Next
 
-Continuation audit 17:01 UTC: main remains f611874; no new integration or Core
-request has arrived. Rechecked the brief, every Core-owned/shared FEATURES row
-and team handoffs. The todo labels on the gap rows are stale; their Core models,
-commands, queries and regression evidence are mapped below. Capture's outstanding
-enhanced-mic persistence request is covered by the READY working tree. No source
-changes or redundant test runs this cycle; the latest Rust95/Core Swift68/signed
-build results still apply, and diff --check passes. Preserve this uncommitted
-handoff for Lead's checkpoint/rebase rather than attempting a rebase with edits.
+No open Core implementation item remains. Re-audited the brief, all Core-owned
+and shared FEATURES rows, Core gap-list items and other-team handoffs at 17:12 UTC.
+CORE-1...10, shared CAP-3/ED-2/7/8/9/13/RND-5/8 and Capture's AUD-06 media-selection
+handoff are complete in the integrated/published package. The old Render request
+for glass_loupe/camera_color is superseded: current ProjectAdapter.swift directly
+consumes Core's zoom_lens/camera_style/camera_layout. No duplicate aliases needed.
+FEATURES still has stale Core todo/partial descriptions; QA owns reconciliation.
 
-No open Core implementation item remains after the gap-list/shared-row audit
-and Capture's AUD-06 persistence handoff. Lead: checkpoint/rebase this verified
-worktree, request the required other-family review of microphone.rs and the Swift
-import lifecycle, then integrate. Git metadata remains blocked as recorded above;
-no uncommitted implementation was pushed. UI/Editor own their preset/test isolation.
+Lead: rebase metadata onto main; arrange the required other-family review of
+microphone.rs and the Swift import lifecycle if not already completed. Editor/UI
+and native consumer acceptance remain their owners' work. Core source/tests are
+unchanged from the green b852c2c verification; no redundant tests rerun this cycle.
+Latest Rust95/Core Swift68/Clippy/signed-build results remain applicable to that
+checkpoint. diff --check passes. Only this status refresh awaits checkpoint.
 
-NEW UI failure evidence for Lead/UI: the broad UI command (direct-binary app test
+UI failure evidence on pre-integration Core test baseline for Lead/UI: the broad UI command (direct-binary app test
 excluded per launch rule) aborts with signal6. Diagnostic report
 ~/Library/Logs/DiagnosticReports/swiftpm-testing-helper-2026-10-15-184921.ips
 states HIToolbox TIS/TSM APIs were called concurrently from two threads. Triggered
@@ -171,7 +171,7 @@ and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
 
-### READY AUD-06 persisted enhanced microphone selection (2026-10-15 16:51 UTC)
+### READY b852c2c AUD-06 persisted enhanced microphone selection (2026-10-15 16:51 UTC; integrated/pushed 17:12 UTC)
 
 - Documented schema/commands/query first in FORMATS.md. Optional
   audio.mic_replacements defaults empty, validates source/asset bindings, and is
@@ -202,7 +202,7 @@ and owned Core regression tests only; no runtime default or Render test changed.
   quality/latency acceptance. No native isolation or live media success is claimed.
   Original gap-list CORE-6 preset behavior is unchanged. All finished verification
   roots were listed and deleted by with-temp.sh traps; no app launched/PID signaled.
-- Files for Lead checkpoint: Sources/YapcamCore/{MicrophoneMedia,SpeechEnhancement,
+- Files included in Lead checkpoint b852c2c: Sources/YapcamCore/{MicrophoneMedia,SpeechEnhancement,
   Types}.swift; Tests/YapcamCoreTests/SpeechEnhancementTests.swift; core/src/
   {microphone,commands,hardening,lib,model,preset,project,query}.rs; core/README.md;
   docs/FORMATS.md; docs/status/core.md. Header/other teams' files untouched.
