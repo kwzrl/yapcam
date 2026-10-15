@@ -41,6 +41,16 @@ extension Project: RenderProjectSource {
         configuration.cameraMatte=evaluated.cameraMatte
         configuration.glassLoupe=evaluated.glassLoupe
         if let style=options.cameraStyle { try configuration.applyCameraStyle(style,package: packageURL) }
+        if let layout=options.cameraLayout, layout.mode=="cutout" {
+            configuration.cameraMatte=CameraMatteSettings(edgeSoftness: Float(layout.settings.edgeSoftness),edgeInsetPixels: Float(layout.settings.edgeInset))
+        }
+        if let lens=options.zoomLens {
+            guard lens.center.count==2,lens.sourceCenter.count==2 else { throw RenderError.invalidSettings("Core returned invalid lens centers") }
+            configuration.glassLoupe=GlassLoupeSettings(bevel: Float(lens.bevel),chromaticAberration: Float(lens.chromaticAberration),
+                instruction: .init(center: SIMD2(Float(lens.center[0]),Float(lens.center[1])),sourceCenter: SIMD2(Float(lens.sourceCenter[0]),Float(lens.sourceCenter[1])),
+                                   scale: Float(lens.scale),radiusPixels: Float(lens.radiusPx),opacity: Float(lens.opacity)))
+            try configuration.glassLoupe?.validate()
+        }
         // Optional direct-source contract remains compatible; real Core uses camera_style.
         if let color=evaluated.cameraColor { configuration.cameraColor=try color.value(package: packageURL) }
         configuration.cursorSetID=options.cursorSetId

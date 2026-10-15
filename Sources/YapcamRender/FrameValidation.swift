@@ -28,9 +28,13 @@ func validateFrame(_ f: YcFrame,configuration c: RenderConfiguration,layers: [Re
     if f.screen.present != 0 {
         guard rect(f.screen_dest), rect(f.screen_crop,nonempty: true), f.screen_crop.x>=0, f.screen_crop.y>=0, f.screen_crop.x+f.screen_crop.w<=1.000_001, f.screen_crop.y+f.screen_crop.h<=1.000_001 else { throw RenderError.invalidSettings("Screen crop or destination is invalid") }
         if let loupe = c.glassLoupe {
-            let b = loupe.baseCrop, r = f.screen_crop
+            let b = loupe.samplingBase(f), r = f.screen_crop
             guard r.x >= Double(b.x)-0.000001, r.y >= Double(b.y)-0.000001,
                   r.x+r.w <= Double(b.x+b.z)+0.000001, r.y+r.h <= Double(b.y+b.w)+0.000001 else { throw RenderError.invalidSettings("Magnifier zoom lies outside the selected source crop") }
+            if let instruction=loupe.instruction {
+                let p=instruction.sourceCenter
+                guard p.x>=b.x-0.000001,p.y>=b.y-0.000001,p.x<=b.x+b.z+0.000001,p.y<=b.y+b.w+0.000001 else { throw RenderError.invalidSettings("Lens focus lies outside selected source crop") }
+            }
         }
     }
     if f.camera.present != 0 { guard rect(f.camera_dest), f.camera_shape<=2 else { throw RenderError.invalidSettings("Camera destination or shape is invalid") } }

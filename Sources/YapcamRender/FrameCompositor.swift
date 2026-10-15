@@ -197,11 +197,14 @@ public final class FrameCompositor: @unchecked Sendable {
         ]
         if let loupe = options.glassLoupe {
             let g = loupe.geometry(frame)
-            uniforms.append(SIMD4(1,g.radius,loupe.bevel,loupe.chromaticAberration))
+            let base=loupe.samplingBase(frame)
+            let span=SIMD2(base.z,base.w)/g.scale
+            let lensCrop=loupe.instruction == nil ? crop : SIMD4(g.focus.x-span.x*0.5,g.focus.y-span.y*0.5,span.x,span.y)
+            uniforms.append(SIMD4(loupe.instruction == nil ? 1 : 2,g.radius,loupe.bevel,loupe.chromaticAberration))
             uniforms.append(SIMD4(g.focus.x,g.focus.y,g.scale,g.opacity))
-            uniforms.append(crop)
-            uniforms.append(loupe.baseCrop)
-            uniforms[5] = loupe.baseCrop; uniforms[13] = loupe.baseCrop
+            uniforms.append(lensCrop)
+            uniforms.append(base)
+            uniforms[5] = base; uniforms[13] = base
             uniforms[16].x = 0 // The underlying screen stays unzoomed.
         } else {
             uniforms.append(.zero); uniforms.append(SIMD4(0.5,0.5,1,0)); uniforms.append(crop); uniforms.append(SIMD4(0,0,1,1))
@@ -215,6 +218,8 @@ public final class FrameCompositor: @unchecked Sendable {
         uniforms.append(options.screenQuality?.uniforms ?? .zero) // 34: improve, upscale, enabled
         uniforms.append(SIMD4(Float(target.width)/Float(frame.canvas_w),Float(target.height)/Float(frame.canvas_h),0,0))
         uniforms.append(SIMD4(options.cameraBackgroundPop,matte == nil ? 0 : 1,blurredCamera == nil ? 0 : 1,0)) // 36
+        let center=options.glassLoupe?.instruction?.center ?? .zero
+        uniforms.append(SIMD4(center.x,center.y,0,0)) // 37: evaluated local-lens center
         if cursorBlur > 0 && frame.tl_ns > 0 {
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
         }
@@ -360,7 +365,7 @@ public final class FrameCompositor: @unchecked Sendable {
         }
         float2 cursorPoint=p;
         if (u[25].x>0 && u[3].z>0 && all(u[4].zw>0) && u[25].y>0) {
-            float2 center=u[4].xy+(u[26].xy-u[28].xy)/u[28].zw*u[4].zw;
+            float2 center=u[25].x>1 ? u[37].xy : u[4].xy+(u[26].xy-u[28].xy)/u[28].zw*u[4].zw;
             float2 delta=p-center;
             float distance=length(delta), radius=u[25].y;
             float radial=clamp(distance/radius,0.0,1.0);
@@ -382,8 +387,13 @@ public final class FrameCompositor: @unchecked Sendable {
             // Reproject the evaluated classic cursor into the unzoomed base or
             // lens. It uses the same source position, scale and rotation there.
             float2 baseUV=u[28].xy+(p-u[4].xy)/u[4].zw*u[28].zw;
-            cursorPoint=u[4].xy+(baseUV-u[27].xy)/u[27].zw*u[4].zw;
-            if(distance<radius) cursorPoint=u[4].xy+u[4].zw*.5+delta*refraction;
+            if(u[25].x>1) {
+                // Core supplies cursor/click coordinates in the unzoomed base.
+                if(distance<radius) cursorPoint=center+delta/u[26].z*refraction;
+            } else {
+                cursorPoint=u[4].xy+(baseUV-u[27].xy)/u[27].zw*u[4].zw;
+                if(distance<radius) cursorPoint=u[4].xy+u[4].zw*.5+delta*refraction;
+            }
         }
         if (u[9].y >= 0 && u[9].y <= 1) {
             float radius=8+32*u[9].y; float ring=1-smoothstep(1,3,abs(length(cursorPoint-u[10].xy)-radius));
