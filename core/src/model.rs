@@ -437,6 +437,11 @@ settings!(SpeechEnhancementSettings {
     normalize_loudness: bool = true,
 });
 settings!(TextStyle {
+    font_family: String = "sans".into(),
+    reveal: String = "line".into(),
+    growth: String = "full".into(),
+    entrance: String = "appear".into(),
+    language: String = "auto".into(),
     font_size: f64 = 36.0,
     color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
     background: [f32; 4] = [0.0, 0.0, 0.0, 0.65],
@@ -444,6 +449,7 @@ settings!(TextStyle {
     opacity: f64 = 1.0,
 });
 settings!(TextRecord {
+    words: Vec<CaptionWord> = vec![],
     id: String = String::new(),
     tl_start_ns: i64 = 0,
     tl_end_ns: i64 = 1,
@@ -452,6 +458,44 @@ settings!(TextRecord {
     space: String = "canvas".into(),
     style: TextStyle = TextStyle::default(),
 });
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct CaptionWord {
+    pub text: String,
+    pub tl_start_ns: i64,
+    pub tl_end_ns: i64,
+}
+impl<'de> Deserialize<'de> for CaptionWord {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let object = raw
+            .as_object()
+            .ok_or_else(|| D::Error::custom("Caption word must be an object"))?;
+        if object
+            .keys()
+            .any(|key| !matches!(key.as_str(), "text" | "tl_start_ns" | "tl_end_ns"))
+        {
+            return Err(D::Error::custom("Unknown caption word field"));
+        }
+        let text = object
+            .get("text")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::custom("Missing caption word text"))?;
+        let start = object
+            .get("tl_start_ns")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| D::Error::custom("Missing integer caption word start"))?;
+        let end = object
+            .get("tl_end_ns")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| D::Error::custom("Missing integer caption word end"))?;
+        Ok(Self {
+            text: text.into(),
+            tl_start_ns: start,
+            tl_end_ns: end,
+        })
+    }
+}
 settings!(KeyOverlay {
     enabled: bool = false,
     duration_ns: i64 = 1_000_000_000,

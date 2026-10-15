@@ -82,5 +82,7 @@ mod source_insert;
 
 mod microphone;
 
+mod captions;
+
 #[cfg(test)]
 mod screen_quality_tests;

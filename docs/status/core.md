@@ -1,46 +1,62 @@
-READY 38743f2 pushed to origin/team/core; complete Core implementation matches main c565a93. Rust100/Core Swift71/Render13 portable +6 native skips, Clippy and signed build/codesign PASS. Core backlog empty; Lead metadata rebase only.
+READY working tree on fca4cda: ED-10 caption style + word timing/edit mapping + cold instructions/Swift APIs; Rust104/Core Swift74/Render11 portable +4 native skips, Clippy and signed build/codesign PASS. Lead checkpoint all tracked/untracked files; consumer handoff below.
 
 # Core status
 
-Updated 2026-10-15 18:32 UTC. Branch team/core; Lead checkpoint 38743f2
-adds status only; implementation remains the verified b2f5593 source. Complete
-owned source/tests/contracts match main c565a93. Pushed38743f2 to origin/team/core
-(fast-forward from b2f5593); independently verified remote SHA
-38743f20d0adc1ba06923bcad98bacd34b07e903. Never pushed main.
-Clean-tree git rebase main attempted at this stopping point; sandbox still rejects
-creation of .git/worktrees/core/rebase-merge (Operation not permitted). Lead must
-rebase branch metadata. No reset/stash/workaround or unrelated file changes.
+Updated 2026-10-15 19:00 UTC. Branch team/core; Lead checkpoint fca4cda; main97b9d82.
+The baseline matched main on Core implementation paths before this ED-10 follow-up.
+Clean-tree git rebase main failed creating .git/worktrees/core/rebase-merge
+(Operation not permitted); Lead handles checkpoint/rebase. No workaround/main push.
 
 ## Next
 
-No remaining assigned Core implementation item. Rechecked the brief, FEATURES'
-Core row and consumer handoffs at 18:32 UTC: no new request. CORE-1...10/shared
-features, microphone selection, screen_quality, inset_origin and toolbar sidecar
-markers are integrated/published. Current Render adapter already handles the old
-lens/color/matte alias requests through zoom_lens/camera_style/camera_layout.
-Caption font/reveal metadata remains conditional on a new concrete Editor request.
+No remaining assigned Core implementation item. Editor's new explicit ED-10 request
+(status c143346, Requests section) is now implemented in the working tree. The prior
+empty-backlog state was correct before that new request. New contract was written
+first in FORMATS.md; Core README includes Swift/API and Render integration notes.
 
-Continuation audit 18:32 UTC: main remains c565a93 and complete owned
-implementation still matches it. Re-read the brief, FEATURES Core backlog and
-consumer handoffs; no new Core request. The only dirty file is this status. Prior
-final gates still apply; no source changes, redundant tests or app activity this
-cycle. diff --check passes. Preserve the published38743f2 implementation; Lead's
-metadata rebase and external consumer/native acceptance remain as already noted.
+Lead: checkpoint ALL modified/untracked owned files, including NEW
+core/src/captions.rs, Sources/YapcamCore/Captions.swift and
+Tests/YapcamCoreTests/CaptionStyleTests.swift, then rebase onto main. Required
+other-family review should cover word mapping/patch handling and renderer timing.
+Mirror public API additions in Lead-owned SWIFT_API.md. No C header change.
+Do not push an intermediate checkpoint that omits the untracked implementation.
 
-External integration note for Lead/Editor: Editor status now explicitly keeps its
-2s save debounce. Core's delivered CORE-10 policy and ProjectAutosaver use30s after
-the last edit with revision guarding, as requested. That consumer policy divergence
-needs Editor/Lead reconciliation; Core must not install a competing timer. No Editor
-file edited, and no Core runtime change is needed for the existing30s API.
+Editor: canvas.captions records now carry style.font_family(sans/serif/mono),
+reveal(line/word), growth(full/expanding/centered), entrance(appear/fade/slide) and
+language(auto/tag). Use update_caption's whole style patch or typed TextStyle;
+merge old style values before updating a single control. caption_options and typed
+captionOptions()/enum cases expose the choices. Optional CaptionWord arrays use
+exact timeline Ns; metadata is preserved on structural edits/history/save. Text-only
+correction clears old timing; range-only retime scales it exactly. No array-index
+set paths. Existing line/full/appear sans pixels/defaults are retained.
 
-The previously pending final Swift DTO/default/preset/inset fixes are now in
-b2f5593; the earlier seven-file checkpoint warning is resolved. Source/tests are
-unchanged from the final verified worktree below, so no redundant tests rerun this
-cycle. diff --check passes. Only this status refresh awaits the next checkpoint.
-Lead: rebase metadata, arrange required other-family review if outstanding, and
-mirror new public Swift APIs in Lead-owned SWIFT_API.md. Editor/Render own controls
-and native pixel acceptance. No app launched/PID signaled or other-team file edited.
+Render request: existing text layers now append font_family and caption metadata.
+Core already supplies visible text and applies line opacity/slide into layer opacity/
+rect (do not multiply again). Consume caption full/visible text + growth for glyph/
+background fitting, and per-word opacity/offset after shaping. The old adapter ignores
+these new font/growth/word instructions; DO NOT claim them rendered or enable those
+visual controls before adapter/shader support. Defaults remain compatible, and old
+adapter regression suites pass. Core does not approximate glyph widths.
 
+Capture/Editor request: expose actual native supported locales for the recognition
+language picker; Core cannot truthfully provide a static supported-language list.
+It validates common language/locale tags and preserves valid transcript.locale on
+import when the style is auto. No recognition/translation capability is claimed.
+No other team's source/tests, icon, header or frozen fixtures were edited.
+
+Final ED-10 gate: Rust104 PASS/1 intentional scale ignore, Core Swift74 PASS,
+ProjectAdapterTests/CoreLensLayoutTests15 =11 portable PASS/4 explicit native skips,
+Clippy all-targets -D warnings, fmt/diff, CLEAN canonical signed app + strict
+codesign PASS. Log /private/tmp/yapcam-core-caption-ready.log. Four new Rust/three
+new Swift regressions cover old-style defaults, all enums/language validation,
+word gap/reveal/fade/slide metadata, Unicode, >2^53 clocks, cuts/speeds/insertions,
+retiming/text correction, snapshot/history/reopen and invalid-batch rollback.
+Allocation-counted frame/frameExtras still allocate zero with advanced captions.
+Four-seed10,000-command FFI fuzz now covers33 families including word/style mutations
+and caption_options. No app launched/PID signaled; every wrapper listed/removed its
+own root. Native font/growth/word-animation pixels remain outside Core acceptance.
+
+Prior baseline gate (before ED-10):
 Final gate: Rust100 PASS/1 intentional scale ignore, Core Swift71 PASS, renderer
 contract suites19 =13 portable PASS/6 explicit native skips; Clippy all-targets
 -D warnings/fmt/diff; CLEAN canonical app + strict codesign PASS. Rust log:
@@ -193,6 +209,27 @@ Verification: Rust76 and Core Swift58 PASS, strict codesign PASS; log
 and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
+
+### READY ED-10 caption models and evaluation (2026-10-15 19:00 UTC)
+
+- Optional schema1 TextStyle fields font_family/reveal/growth/entrance/language,
+  exact CaptionWord timing on caption records, typed Swift enums/decoders/options
+  query and CoreRenderLayer instruction DTOs. Existing styles/records migrate via
+  missing-field defaults without factory appearance changes. C ABI remains3.
+- Transcript import preserves existing one-record-per-word grouping and source-map
+  timing, while retaining valid recognized locale. Manual untimed multiword captions
+  use documented uniform reveal slots; these are not inferred speech timings.
+- Exact shared edit maps preserve word clocks; cut words disappear, all-cut captions
+  disappear, insertion keeps a gap, range patches scale timestamps with integer
+  arithmetic, text corrections invalidate stale alignment. Undo/redo/snapshots and
+  atomic journal/save/reopen carry all metadata. Captions remain excluded from presets.
+- Cold layer evaluation emits full/visible text, font/layout/language choices and
+  per-word visibility/progress/opacity/offset; line fade/slide are evaluated once.
+  No C fields, hot-path allocations, file IO or native font-shaping claims.
+- Rust104/Core Swift74/Render11 portable+4 native skips, Clippy/fmt, clean signed
+  build/codesign PASS. Exact log/handoff/consumer limitations are in Next. Lead
+  must checkpoint tracked and untracked files together before integration/push.
+
 
 ### READY b2f5593 final consumer handoffs (verified 2026-10-15 17:37 UTC; integrated/pushed 17:52 UTC)
 

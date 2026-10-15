@@ -26,7 +26,8 @@ fn color(c: &[f32; 4]) -> bool {
     c.iter().all(|v| (0.0..=1.0).contains(v))
 }
 fn style(s: &TextStyle) -> bool {
-    (1.0..=1024.0).contains(&s.font_size)
+    crate::captions::valid_style(s)
+        && (1.0..=1024.0).contains(&s.font_size)
         && color(&s.color)
         && color(&s.background)
         && (0.0..=16384.0).contains(&s.radius)
@@ -36,10 +37,10 @@ fn id(id: &str) -> bool {
     !id.is_empty() && id != "canvas-fade" && !id.starts_with("core:")
 }
 pub fn validate(p: &ProjectData) -> Result<()> {
-    for records in [
-        &p.canvas.annotations,
-        &p.canvas.reactions,
-        &p.canvas.captions,
+    for (records, caption) in [
+        (&p.canvas.annotations, false),
+        (&p.canvas.reactions, false),
+        (&p.canvas.captions, true),
     ] {
         let mut ids = std::collections::HashSet::new();
         for r in records {
@@ -50,6 +51,11 @@ pub fn validate(p: &ProjectData) -> Result<()> {
                 || !rect(&r.rect)
                 || !matches!(r.space.as_str(), "source" | "canvas")
                 || !style(&r.style)
+                || if caption {
+                    !crate::captions::valid_words(r)
+                } else {
+                    !r.words.is_empty()
+                }
             {
                 return Err(bad("Invalid text record or duplicate id"));
             }
@@ -157,6 +163,7 @@ pub fn collection_command(p: &mut ProjectData, v: &Value, cs: &mut ChangeSet) ->
             if verb == "remove" {
                 records.remove(i);
             } else {
+                let previous = records[i].clone();
                 let patch = v["patch"]
                     .as_object()
                     .ok_or_else(|| bad("Missing patch object"))?;
@@ -168,6 +175,9 @@ pub fn collection_command(p: &mut ProjectData, v: &Value, cs: &mut ChangeSet) ->
                         return Err(bad("Unknown record patch field"));
                     }
                     records[i][k] = val.clone();
+                }
+                if kind == "caption" {
+                    crate::captions::did_patch(&mut records[i], &previous, patch)?;
                 }
             }
         }
@@ -190,12 +200,20 @@ pub fn import_transcript(
     let words = transcript["words"]
         .as_array()
         .ok_or_else(|| bad("Missing transcript words"))?;
-    let style: TextStyle = match v.get("style") {
+    let mut style: TextStyle = match v.get("style") {
         Some(s) => serde_json::from_value(s.clone())?,
         None => TextStyle::default(),
     };
     if !self::style(&style) {
         return Err(bad("Invalid caption style"));
+    }
+    if style.language == "auto" {
+        if let Some(locale) = transcript["locale"]
+            .as_str()
+            .filter(|s| crate::captions::valid_language(s))
+        {
+            style.language = locale.into();
+        }
     }
     let replace = match v.get("replace") {
         Some(s) => s.as_bool().ok_or_else(|| bad("replace must be boolean"))?,
@@ -245,6 +263,11 @@ pub fn import_transcript(
                 tl_end_ns: end,
                 text: text.into(),
                 style: style.clone(),
+                words: vec![CaptionWord {
+                    text: text.into(),
+                    tl_start_ns: start,
+                    tl_end_ns: end,
+                }],
                 ..TextRecord::default()
             });
         }

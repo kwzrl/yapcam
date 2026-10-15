@@ -1182,3 +1182,66 @@ append `inset_origin:[x,y]`, which Render already consumes. CoreRenderOptions
 exposes `insetOrigin`. This portable style setting supports normal presets,
 batch validation, undo/redo and persistence. No frame geometry, timing, ABI or
 factory pixel changes; Core only supplies metadata for the existing renderer.
+
+### ED-10 caption typography and timed reveal
+
+Schema 1 / ABI 3 remain unchanged. Caption records in `canvas.captions` gain the
+following `style` fields. The same TextStyle shape is accepted by add_caption,
+update_caption's whole style patch, import_transcript.style, and the existing
+whole-array set path `canvas.captions`. Array indices and nested record leaves
+are not set paths; use update_caption by id. Annotation/reaction/key-overlay
+styles share the typography fields, but only captions evaluate word reveal.
+
+| Style field | Values / missing-field default |
+|---|---|
+| `font_family` | sans, serif, mono / sans (the existing sans-serif appearance) |
+| `reveal` | line, word / line |
+| `growth` | full, expanding, centered / full (preserves existing full-box layout) |
+| `entrance` | appear, fade, slide / appear |
+| `language` | auto or a bounded language/locale tag / auto |
+
+A language tag is 2...8 ASCII letters followed by optional '-' or '_' separated
+1...8 alphanumeric subtags, at most63 bytes. It records caption/recognition
+language, not translation or recognition availability. Capture's actual on-device
+speech service decides supported locales. No static list claims platform support.
+If import style language is auto and transcript.locale is a valid tag, imported
+records retain that recognized locale; otherwise they keep auto. The cold query
+`{"q":"caption_options"}` lists font/reveal/growth/entrance choices and the
+language-tag capability; UI can also use the typed Swift enum cases. Native
+supported-language discovery belongs to Capture/Editor, not Core.
+
+Optional record `words` defaults to `[]`. Entries are
+`{text,tl_start_ns,tl_end_ns}` with exact absolute timeline Int64 clocks, positive
+half-open ranges inside their caption, ordered without overlap. Their texts joined
+with spaces must match the caption after whitespace normalization. Transcript import
+continues creating one caption per retained word, with its actual mapped word timing;
+no existing grouping behavior changes. A manually authored record without timings
+uses uniformly spaced whitespace-delimited words across its range; this fallback is
+an animation choice, not inferred speech alignment. Other effect kinds require words
+empty. Timed entries follow the same exact edit mapping as caption bounds. Removed
+words disappear from their caption text; a caption whose timed words are all cut
+is removed. update_caption retiming without a words patch scales existing timings
+with integer arithmetic. A text-only correction without a words patch clears old
+word timing, avoiding mismatched transcription metadata. Supply explicit words to
+retain corrected alignment.
+
+The existing captions query returns these fields. layers_at/effects_at text layers
+append font_family and a caption instruction:
+`{full_text,visible_text,font_family,reveal,growth,entrance,language,line_opacity,
+line_offset_y,words:[{text,tl_start_ns,tl_end_ns,visible,progress,opacity,offset_y}]}`.
+Word mode accumulates words at their starts until the caption end. Entrance progress
+runs over min(200ms, word duration); line mode animates the whole line from its start.
+Fade opacity equals progress, slide offset_y is 0.25*(1-progress) of text box height,
+and appear is immediate. Core evaluates line opacity/slide into existing layer
+opacity/rect; the compatible text field is the visible text. For word animation,
+Render consumes per-word opacity/offset after shaping. Full growth reserves full-line
+layout; expanding fits the visible prefix with a stable left edge; centered fits
+around the original center. Glyph measurements/font selection/background fitting
+belong to Render; Core never approximates glyph widths. Default line/full/appear
+keeps old pixels. Native font, growth and per-word animation require Render wiring;
+metadata persistence alone is not pixel acceptance. No new C struct or hot-path IO.
+
+Swift TextStyle adds typed FontFamily/Reveal/Growth/Entrance plus language;
+TextEffectRecord adds [CaptionWord], both decoding older records with defaults.
+CoreRenderLayer exposes optional fontFamily/caption evaluation. Presets continue
+omitting caption records/timing, while shared style preferences remain portable.

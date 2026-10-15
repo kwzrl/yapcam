@@ -566,3 +566,33 @@ CoreRenderOptions.insetOrigin expose it. Render's existing screenInsetOrigin
 consumer weights the inner border while retaining its total size. It is a portable
 style setting with normal validation/history/save behavior; Core frame geometry
 and C ABI remain unchanged. Editor owns the X/Y controls.
+
+### Caption typography and reveal (ED-10)
+
+Caption records now carry style.font_family(sans/serif/mono), reveal(line/word),
+growth(full/expanding/centered), entrance(appear/fade/slide) and language(auto/tag).
+Defaults retain existing full-line sans/appear pixels; opening old records does
+not select a new caption factory preset. Use typed TextStyle enum properties,
+add/update caption or whole canvas.captions set; captionOptions() lists the choices.
+There are no array-index set paths. A style patch replaces that style object;
+merge existing values in Editor when changing one control.
+
+Optional CaptionWord entries carry exact timeline clocks. Transcript import keeps
+one caption per retained word and records timing plus valid transcript.locale when
+style language is auto. Structural edits map these clocks with media; removing a
+word also removes its text. Retiming a caption scales word timings; a text-only
+correction clears old alignment unless an explicit words patch supplies it.
+Manual multiword captions without entries use uniform reveal slots, not inferred
+speech timings. Older Swift records default to empty timings and old style values.
+
+CoreRenderLayer.caption supplies full/visible text, layout choices, language,
+line opacity/offset and evaluated per-word visibility/progress/opacity/offset.
+Core already applies line opacity/slide to the layer: do not multiply them again.
+Render must shape/font-fit the full/visible text, fit growth backgrounds, and apply
+per-word fade/slide after shaping. Metadata persistence is not native font/pixel
+acceptance; Render's prior adapter ignores these new instruction fields. It still
+uses the compatible visible text and already evaluated line opacity/rect.
+No new C ABI fields; frame/frameExtras remain allocation-free. See FORMATS.md
+for exact enums, timing/validation rules and half-open ranges. Core stores locale
+preferences but cannot enumerate available on-device Speech languages; Capture/
+Editor should expose native supported-locale discovery rather than a fake list.

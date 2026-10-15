@@ -719,6 +719,7 @@ pub(crate) fn remap_effect_edges(
         for r in records.iter_mut() {
             r.tl_start_ns = map(r.tl_start_ns);
             r.tl_end_ns = end(r.tl_end_ns);
+            crate::captions::remap_words(r, &map, &end);
         }
         records.retain(|r| r.tl_end_ns > r.tl_start_ns);
     }
