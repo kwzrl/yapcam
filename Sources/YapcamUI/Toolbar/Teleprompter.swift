@@ -36,7 +36,8 @@ struct TeleprompterView: View {
     let close: () -> Void
     @EnvironmentObject var rec: RecordingController
     @AppStorage("teleprompterSize", store: AppDefaults.store) private var size = 28.0
-    @AppStorage("teleprompterSpeed", store: AppDefaults.store) private var speed = 0.0     // points per second, 0 = manual
+    @AppStorage("teleprompterSpeed", store: AppDefaults.store) private var speed = 0.0     // 0…25, 0 = manual (×4 = points per second)
+    @AppStorage("teleprompterOpacity", store: AppDefaults.store) private var notepadOpacity = 1.0
     @State private var position = ScrollPosition()
     @State private var offset = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -53,9 +54,11 @@ struct TeleprompterView: View {
                 Slider(value: $size, in: 16...64).frame(width: 90).accessibilityLabel("Text size")
                 Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
                 Image(systemName: "tortoise").foregroundStyle(.secondary)
-                Slider(value: $speed, in: 0...120).frame(width: 80).help(speed == 0 ? "Auto-scroll off" : "Auto-scroll speed")
-                    .accessibilityLabel("Auto-scroll speed").accessibilityValue(speed == 0 ? "Off" : "\(Int(speed)) points per second")
+                Slider(value: $speed, in: 0...25).frame(width: 80).help(speed == 0 ? "Auto-scroll off" : "Auto-scroll speed")
+                    .accessibilityLabel("Auto-scroll speed").accessibilityValue(speed == 0 ? "Off" : "speed \(Int(speed)) of 25")
                 Image(systemName: "hare").foregroundStyle(.secondary)
+                Image(systemName: "circle.lefthalf.filled").foregroundStyle(.secondary).accessibilityHidden(true)
+                Slider(value: $notepadOpacity, in: 0.4...1).frame(width: 60).help("Notepad opacity").accessibilityLabel("Notepad opacity")
                 Button { offset = 0; position.scrollTo(y: 0) } label: { Image(systemName: "arrow.up.to.line") }.help("Back to top").accessibilityLabel("Back to top")
                 Button(action: close) { Image(systemName: "xmark") }.help("Close")
             }
@@ -72,9 +75,10 @@ struct TeleprompterView: View {
             .onScrollGeometryChange(for: Double.self, of: { $0.contentOffset.y }) { _, new in offset = new }
         }
         .panelSurface(cornerRadius: 14)
+        .opacity(notepadOpacity)
         .onReceive(tick) { _ in
-            guard speed > 0, rec.phase == .recording else { return }
-            offset += speed * 0.05
+            guard speed > 0, rec.prompterPlaying, rec.phase == .recording else { return }
+            offset += speed * 4 * 0.05
             // Reduce Motion: move in one step per second instead of continuously.
             tickCount += 1
             if !reduceMotion || tickCount % 20 == 0 { position.scrollTo(y: offset) }

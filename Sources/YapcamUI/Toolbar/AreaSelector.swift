@@ -57,8 +57,8 @@ private struct AspectPreset: Equatable {
     let name: String
     let ratio: CGFloat?   // width / height; nil = free
     static let all: [AspectPreset] = [
-        .init(name: "Free", ratio: nil), .init(name: "16:9", ratio: 16.0 / 9), .init(name: "4:3", ratio: 4.0 / 3),
-        .init(name: "1:1", ratio: 1), .init(name: "9:16", ratio: 9.0 / 16),
+        .init(name: "Any", ratio: nil), .init(name: "16:9", ratio: 16.0 / 9), .init(name: "4:3", ratio: 4.0 / 3),
+        .init(name: "1:1", ratio: 1), .init(name: "3:4", ratio: 3.0 / 4), .init(name: "9:16", ratio: 9.0 / 16),
     ]
 }
 
@@ -72,7 +72,7 @@ private final class AreaOverlayView: NSView {
     private var drag = Drag.none
     private var bar: NSHostingView<AreaBar>?
 
-    func confirm() { if let r = rect { onFinish?(r.integral) } }
+    func confirm() { if let r = rect, AreaGeometry.canRecord(r) { onFinish?(r.integral) } }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -227,7 +227,7 @@ private final class AreaOverlayView: NSView {
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 53: onFinish?(nil)                                  // esc
-        case 36, 76: if let r = rect { onFinish?(r.integral) }   // return / enter
+        case 36, 76: confirm()                                    // return / enter
         case 123, 124, 125, 126: nudge(event)                    // arrows: move; ⇧ resizes; ⌥ moves by 10
         default: super.keyDown(with: event)
         }
@@ -263,7 +263,8 @@ private final class AreaOverlayView: NSView {
 
     private func updateBar() {
         let view = AreaBar(
-            preset: preset.name, hasRect: rect != nil,
+            preset: preset.name, rect: rect, bounds: bounds.size,
+            setRect: { [weak self] r in self?.setNumeric(r) },
             choose: { [weak self] name in self?.preset = AspectPreset.all.first { $0.name == name } ?? AspectPreset.all[0] },
             confirm: { [weak self] in if let r = self?.rect { self?.onFinish?(r.integral) } },
             cancel: { [weak self] in self?.onFinish?(nil) })
@@ -279,35 +280,86 @@ private final class AreaOverlayView: NSView {
 
     override func viewDidMoveToWindow() { updateBar() }
 
+    /// Numeric entry: clamp into the display, keep at least the drag minimum.
+    private func setNumeric(_ r: CGRect) {
+        var n = r
+        n.size.width = min(max(AreaGeometry.minSide, n.width), bounds.width)
+        n.size.height = min(max(AreaGeometry.minSide, n.height), bounds.height)
+        n.origin.x = min(max(0, n.origin.x), bounds.width - n.width)
+        n.origin.y = min(max(0, n.origin.y), bounds.height - n.height)
+        rect = n
+    }
+
 }
 
 private struct AreaBar: View {
     let preset: String
-    let hasRect: Bool
+    let rect: CGRect?
+    let bounds: CGSize
+    let setRect: (CGRect) -> Void
     let choose: (String) -> Void
     let confirm: () -> Void
     let cancel: () -> Void
 
+    private var valid: Bool { AreaGeometry.canRecord(rect) }
+
     var body: some View {
-        HStack(spacing: 10) {
-            Picker("Aspect", selection: Binding(get: { preset }, set: choose)) {
-                ForEach(AspectPreset.all, id: \.name) { Text($0.name).tag($0.name) }
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Picker("Aspect", selection: Binding(get: { preset }, set: choose)) {
+                    ForEach(AspectPreset.all, id: \.name) { Text($0.name).tag($0.name) }
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 300).accessibilityLabel("Aspect ratio")
+                Divider().frame(height: 18)
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+                Button(action: confirm) {
+                    Text(AppSettings.shared.afterRecording.recordLabel).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                        .padding(.horizontal, 14).frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(valid ? Color.red : Color.gray))
+                }
+                .buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(!valid)
+                .accessibilityLabel("Start recording")
             }
-            .pickerStyle(.segmented).labelsHidden().frame(width: 260).accessibilityLabel("Aspect ratio")
-            Divider().frame(height: 18)
-            Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
-            Button(action: confirm) {
-                Text("Start recording").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                    .padding(.horizontal, 14).frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hasRect ? Color.red : Color.gray))
+            HStack(spacing: 8) {
+                NumberField(label: "X", value: rect?.minX) { v in update { $0.origin.x = v } }
+                NumberField(label: "Y", value: rect?.minY) { v in update { $0.origin.y = v } }
+                NumberField(label: "W", value: rect?.width) { v in update { $0.size.width = v } }
+                NumberField(label: "H", value: rect?.height) { v in update { $0.size.height = v } }
+                Spacer(minLength: 0)
+                if rect != nil && !valid {
+                    Label("At least \(Int(AreaGeometry.recordMin)) × \(Int(AreaGeometry.recordMin))", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
-            .buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(!hasRect)
-            .accessibilityLabel("Start recording")
+            .disabled(rect == nil)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .panelSurface(cornerRadius: 12)
         .padding(4)
     }
+
+    private func update(_ change: (inout CGRect) -> Void) {
+        guard var r = rect else { return }
+        change(&r); setRect(r)
+    }
+}
+
+private struct NumberField: View {
+    let label: String
+    let value: CGFloat?
+    let commit: (CGFloat) -> Void
+    @State private var text = ""
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(label).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
+            TextField("", text: $text, onCommit: { if let v = Double(text) { commit(CGFloat(v)) } else { sync() } })
+                .textFieldStyle(.roundedBorder).frame(width: 58).font(.system(size: 12).monospacedDigit())
+                .accessibilityLabel(label == "W" ? "Width" : label == "H" ? "Height" : label == "X" ? "Left" : "Top")
+        }
+        .onAppear { sync() }
+        .onChange(of: value) { _, _ in sync() }
+    }
+    private func sync() { text = value.map { String(Int($0.rounded())) } ?? "" }
 }
 
 /// Where the Start-recording card goes relative to the selection (view coordinates, top-left origin).

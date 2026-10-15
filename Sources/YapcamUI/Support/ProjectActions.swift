@@ -74,6 +74,22 @@ import YapcamCore
         try project.save()
     }
 
+    /// Newest .yapcam package in the recordings folder.
+    static func newestPackage() -> URL? {
+        let dir = AppSettings.shared.storageDirectory
+        let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        func date(_ u: URL) -> Date { (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast }
+        return urls.filter { $0.pathExtension == "yapcam" }.max { date($0) < date($1) }
+    }
+
+    static func openLast() {
+        guard let pkg = RecordingController.shared.lastPackage ?? newestPackage() else {
+            RecordingController.shared.alert = AppAlert(title: "No recordings yet", message: "Record something first; it then opens here.")
+            return
+        }
+        RecordingController.shared.engine.openEditor(package: pkg)
+    }
+
     // MARK: Import
 
     static func importVideo() {

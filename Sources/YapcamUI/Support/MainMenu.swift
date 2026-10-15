@@ -11,6 +11,13 @@ import AppKit
             i.target = t
             return i
         }
+        /// A menu item whose key equivalent follows the user's shortcut for `action`.
+        func shortcutItem(_ title: String, _ sel: Selector, _ action: HotkeyAction) -> NSMenuItem {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            if let k = s.combo(for: action)?.menuKey { i.keyEquivalent = k.key; i.keyEquivalentModifierMask = k.flags }
+            i.target = target
+            return i
+        }
         func add(_ title: String, _ items: [NSMenuItem]) {
             let m = NSMenu(title: title)
             items.forEach(m.addItem)
@@ -59,8 +66,16 @@ import AppKit
             item("Start Recording", #selector(AppDelegate.toggleRecording)),
             item("Pause Recording", #selector(AppDelegate.togglePause)),
             .separator(),
-            item("Speaker Notes…", #selector(AppDelegate.showNotes)),
+            item("Add Marker", #selector(AppDelegate.addMarker)),
+            item("Restart Recording…", #selector(AppDelegate.restartRecording)),
+            item("Cancel Recording…", #selector(AppDelegate.cancelRecording)),
+            .separator(),
+            shortcutItem("Speaker Notes…", #selector(AppDelegate.showNotes), .toggleNotes),
             item("Show Toolbar", #selector(AppDelegate.toggleToolbar)),
+            .separator(),
+            shortcutItem("Open Last Recording", #selector(AppDelegate.openLastRecording), .openLast),
+            shortcutItem("Quick Export: Copy to Clipboard", #selector(AppDelegate.quickExportCopy), .quickExportCopy),
+            shortcutItem("Quick Export: Save to File…", #selector(AppDelegate.quickExportSave), .quickExportSave),
         ])
         add("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: nil),

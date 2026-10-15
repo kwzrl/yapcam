@@ -7,6 +7,8 @@ import SwiftUI
     static let shared = NotesWindow()
     private var window: NSPanel?
 
+    func toggle() { if window?.isVisible == true { window?.orderOut(nil) } else { show() } }
+
     func show() {
         if window == nil {
             let p = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 332, height: 340),

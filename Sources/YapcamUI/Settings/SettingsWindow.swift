@@ -26,6 +26,8 @@ struct SettingsView: View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             RecordingSettings().tabItem { Label("Recording", systemImage: "record.circle") }
+            EditingSettings().tabItem { Label("Editing", systemImage: "slider.horizontal.3") }
+            QuickExportSettings().tabItem { Label("Quick export", systemImage: "square.and.arrow.up") }
             ShortcutSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }
             StorageSettings().tabItem { Label("Storage", systemImage: "internaldrive") }
             AdvancedSettings().tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
@@ -39,14 +41,15 @@ struct GeneralSettings: View {
     var body: some View {
         Form {
             Picker("Countdown", selection: $s.countdown) {
-                Text("None").tag(0); Text("3 seconds").tag(3); Text("5 seconds").tag(5)
+                Text("None").tag(0); Text("3 seconds").tag(3); Text("5 seconds").tag(5); Text("10 seconds").tag(10)
             }
             Section("Appearance of the app") {
+                Toggle("Show recording widget while recording", isOn: $s.showRecordingWidget)
                 Toggle("Show in Dock", isOn: $s.showInDock)
                 Toggle("Show menu bar item", isOn: $s.showMenuBarItem)
             }
             Section("Permissions") {
-                Button("Review permissions…") { OnboardingWindow.shared.show(reason: nil) }
+                Button("Review permissions…") { OnboardingWindow.shared.show(reason: nil, all: true) }
             }
         }.formStyle(.grouped)
     }
@@ -61,6 +64,9 @@ struct RecordingSettings: View {
             Text("Restarts Finder briefly. Icons are restored when recording ends, and on the next launch if Yapcam quit unexpectedly.")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Play start and stop sounds", isOn: $s.playSounds)
+            Toggle("Highlight the recorded area", isOn: $s.highlightRecordedArea)
+            Text("While recording an area, the rest of the display is dimmed. The dimming is never part of the recording.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Record keystrokes", isOn: $s.recordKeystrokes)
             Text("Keystrokes are stored with the recording to show key overlays in the editor. Needs Input Monitoring permission. Never uploaded anywhere.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -68,14 +74,57 @@ struct RecordingSettings: View {
     }
 }
 
-struct ShortcutSettings: View {
+struct EditingSettings: View {
     @EnvironmentObject var s: AppSettings
     var body: some View {
         Form {
-            LabeledContent("Start / stop recording") { ShortcutRecorder(combo: $s.startStopShortcut) }
-            LabeledContent("Pause / resume") { ShortcutRecorder(combo: $s.pauseShortcut) }
+            Toggle("Create zooms automatically", isOn: $s.createAutoZooms)
+            Text("New recordings get zooms placed from your clicks. You can change or remove them in the editor.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Edits are saved automatically while you work.").font(.caption).foregroundStyle(.secondary)
+        }.formStyle(.grouped)
+    }
+}
+
+struct QuickExportSettings: View {
+    @EnvironmentObject var s: AppSettings
+    var body: some View {
+        Form {
+            Picker("After recording", selection: $s.afterRecording) { ForEach(AfterRecording.allCases) { Text($0.title).tag($0) } }
+            Toggle("Show quick export widget after recording", isOn: $s.showQuickExportWidget)
+            Text("The widget offers Copy, Save and Edit instead of opening the editor right away. Quick export makes a 1080p MP4 with audio.")
+                .font(.caption).foregroundStyle(.secondary)
+        }.formStyle(.grouped)
+    }
+}
+
+struct ShortcutSettings: View {
+    @EnvironmentObject var s: AppSettings
+    @ObservedObject private var hotkeys = HotkeyManager.shared
+
+    var body: some View {
+        let conflicts = HotkeyManager.conflicts(in: s)
+        Form {
+            Section("Recording (work from any app)") { ForEach(HotkeyAction.allCases.filter(\.isGlobal)) { row($0, conflicts) } }
+            Section("In Yapcam") { ForEach(HotkeyAction.allCases.filter { !$0.isGlobal }) { row($0, conflicts) } }
             Button("Restore defaults") { s.resetShortcuts() }
         }.formStyle(.grouped)
+        .onChange(of: s.shortcuts) { _, _ in hotkeys.rebind() }
+    }
+
+    private func row(_ a: HotkeyAction, _ conflicts: Set<HotkeyAction>) -> some View {
+        LabeledContent(a.title) {
+            HStack(spacing: 8) {
+                if hotkeys.failed.contains(a) || conflicts.contains(a) {
+                    Label(conflicts.contains(a) ? "Already used" : "Not able to register", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange).labelStyle(.titleAndIcon)
+                }
+                ShortcutRecorder(combo: Binding(get: { s.combo(for: a) ?? .none }, set: { s.setCombo($0.isNone ? nil : $0, for: a) }))
+                Button { s.setCombo(nil, for: a) } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("Clear shortcut").accessibilityLabel("Clear \(a.title) shortcut")
+                    .disabled(s.combo(for: a) == nil)
+            }
+        }
     }
 }
 
@@ -137,11 +186,11 @@ struct ShortcutRecorder: View {
     @State private var monitor: Any?
 
     var body: some View {
-        Button(recording ? "Press shortcut…" : combo.display) { toggle() }
+        Button(recording ? "Press shortcut…" : (combo.isNone ? "Not set" : combo.display)) { toggle() }
             .frame(minWidth: 120)
             .onDisappear { stop() }
             .accessibilityLabel("Shortcut")
-            .accessibilityValue(recording ? "Recording: press the new key combination, or Escape to cancel" : combo.display)
+            .accessibilityValue(recording ? "Recording: press the new key combination, or Escape to cancel" : (combo.isNone ? "Not set" : combo.display))
             .accessibilityHint("Activate, then press the new key combination")
     }
 

@@ -17,6 +17,7 @@ enum RecordingPhase: Equatable {
 
     @Published private(set) var phase: RecordingPhase = .idle {
         didSet {
+            phaseChanged(from: oldValue)
             switch (oldValue, phase) {
             case (_, .recording) where oldValue != .paused: Announcer.say("Recording started")
             case (_, .paused): Announcer.say("Recording paused")
@@ -30,6 +31,17 @@ enum RecordingPhase: Equatable {
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var warnings: [String] = []
     @Published private(set) var lowDisk = false
+    /// Fills 0…1 over the countdown (the ring on the Get-ready card).
+    @Published private(set) var countdownProgress = 0.0
+    /// True when starting/finishing takes longer than 3 s: the widget then says "Working…".
+    @Published private(set) var workingLong = false
+    /// Markers added with the flag button or shortcut, in recording time (pauses excluded).
+    @Published private(set) var markers: [Int64] = []
+    @Published var prompterPlaying = true
+    /// The package of the last finished recording (quick export and "open last").
+    private(set) var lastPackage: URL?
+    private var skipRequested = false
+    private var hidToolbarForRecording = false
     /// Speaker notes typed before or during a recording; saved into the project on stop.
     @Published var notes = ""
     @Published var alert: AppAlert?
@@ -46,7 +58,26 @@ enum RecordingPhase: Equatable {
     var isBusy: Bool { phase != .idle }
     var isRecording: Bool { phase == .recording || phase == .paused }
 
+    private func phaseChanged(from old: RecordingPhase) {
+        // Dock badge while recording, like the reference.
+        NSApp?.dockTile.badgeLabel = (phase == .recording || phase == .paused) ? "●" : nil
+        workingLong = false
+        if phase == .starting || phase == .finishing {
+            let marker = phase
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                if let self, self.phase == marker { self.workingLong = true }
+            }
+        }
+        // "Show recording widget" off: the toolbar steps aside while recording and returns afterwards.
+        if phase == .recording, old != .paused, !settings.showRecordingWidget, ToolbarPanelController.shared.isVisible {
+            ToolbarPanelController.shared.hide(); hidToolbarForRecording = true
+        }
+        if phase == .idle, hidToolbarForRecording { hidToolbarForRecording = false; ToolbarPanelController.shared.show() }
+    }
+
     /// UI snapshot tooling only: forces a phase without a session.
+    func debugSetCountdownProgress(_ v: Double) { countdownProgress = v }
     func debugSetPhase(_ p: RecordingPhase) { phase = p; if p == .recording || p == .paused { elapsed = 754 } }
 
     // MARK: Entry points (toolbar button, menu, global shortcut)
@@ -76,6 +107,8 @@ enum RecordingPhase: Equatable {
             OnboardingWindow.shared.show(reason: "Screen recording permission is required to record.")
             return
         }
+        // Clicks need Input Monitoring: ask the first time instead of up front.
+        if perms.state(.inputMonitoring) != .granted, !perms.hasRequested(.inputMonitoring) { perms.request(.inputMonitoring) }
         let options: UIRecordingOptions
         do { options = try makeOptions() } catch {
             alert = AppAlert(title: "Can't start recording", error: error)
@@ -110,6 +143,7 @@ enum RecordingPhase: Equatable {
             guard let saved = settings.areaRect, let display = Displays.info(for: settings.areaDisplayID) else {
                 throw EngineError.failed("Select an area to record first, or pick Display instead.")
             }
+            guard AreaGeometry.canRecord(saved) else { throw EngineError.failed("The area must be at least \(Int(AreaGeometry.recordMin)) × \(Int(AreaGeometry.recordMin)) points. Choose it again.") }
             // The display may have changed resolution or arrangement since the area was chosen.
             guard let rect = AreaGeometry.fit(saved, in: display.frame.size) else {
                 throw EngineError.failed("The saved area no longer fits on “\(display.name)”. Choose the area again.")
@@ -143,19 +177,29 @@ enum RecordingPhase: Equatable {
     private func runCountdown(then options: UIRecordingOptions) {
         let n = settings.countdown
         guard n > 0 else { startSession(options); return }
+        skipRequested = false
+        countdownProgress = 0
         phase = .countdown(n)
         countdownTask = Task { [weak self] in
             guard let self else { return }
-            for i in stride(from: n, through: 1, by: -1) {
-                self.phase = .countdown(i)
-                self.countdownWindow.show(i, on: self.screenForCountdown(options), engine: self.engine)
-                try? await Task.sleep(for: .seconds(1))
+            self.countdownWindow.show(on: self.screenForCountdown(options), engine: self.engine)
+            let total = Double(n), started = Date()
+            while true {
+                let elapsed = Date().timeIntervalSince(started)
+                self.countdownProgress = min(1, elapsed / total)
+                let remaining = max(1, Int((total - elapsed).rounded(.up)))
+                if case .countdown(let r) = self.phase, r != remaining { self.phase = .countdown(remaining) }
+                if self.skipRequested || elapsed >= total { break }
+                try? await Task.sleep(for: .milliseconds(50))
                 if Task.isCancelled { return }
             }
             self.countdownWindow.hide()
             self.startSession(options)
         }
     }
+
+    /// "Continue" on the Get-ready card (or Return): start now.
+    func skipCountdown() { if case .countdown = phase { skipRequested = true } }
 
     func cancelCountdown() {
         countdownTask?.cancel(); countdownTask = nil
@@ -226,18 +270,60 @@ enum RecordingPhase: Equatable {
             guard let self else { return }
             do {
                 let url = try await s.stop()
+                let (notesText, marks) = (notes, markers)
+                lastPackage = url
                 finish()
-                if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    do { try ProjectActions.attachNotes(notes, to: url); notes = "" }
-                    catch { alert = AppAlert(title: "Notes were not saved", message: "The recording is fine, but its speaker notes could not be stored: \(UserMessage.describe(error))") }
+                if settings.openEditorAfterRecording {
+                    await PostRecording.process(package: url, notes: notesText, markers: marks, controller: self)
+                } else {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])      // self-tests only (isolated settings)
                 }
-                if settings.openEditorAfterRecording { engine.openEditor(package: url) }
-                else { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             } catch {
                 finish()
                 alert = AppAlert(title: "Recording could not be saved", error: error)
             }
         }
+    }
+
+    func clearNotes() { notes = "" }
+
+    // MARK: Recording widget actions: markers, restart and cancel with confirmation
+
+    func addMarker() {
+        guard phase == .recording else { return }
+        markers.append(Int64(elapsed * 1_000_000_000))
+        Announcer.say("Marker added")
+    }
+
+    /// Confirmation dialogs are Yapcam windows: keep them out of the recording.
+    private func confirm(_ title: String, _ message: String, ok: String) -> Bool {
+        let a = NSAlert()
+        a.messageText = title; a.informativeText = message
+        a.addButton(withTitle: ok); a.addButton(withTitle: "Keep Recording")
+        a.layout()
+        engine.registerExcluded(a.window)
+        defer { engine.unregisterExcluded(a.window) }
+        return a.runModal() == .alertFirstButtonReturn
+    }
+
+    func confirmRestart() {
+        guard isRecording else { return }
+        if confirm("Restart entire recording?", "Everything recorded so far is discarded and a new recording starts right away.", ok: "Restart") { restart() }
+    }
+
+    func confirmCancel() {
+        guard isRecording else { cancel(); return }
+        if confirm("Are you sure you want to cancel recording?", "The recording is deleted. This can't be undone.", ok: "Cancel Recording") { cancel() }
+    }
+
+    /// Dock click or Finish from the menu while recording.
+    func confirmFinish() {
+        guard isRecording else { return }
+        let a = NSAlert()
+        a.messageText = "Finish recording?"; a.informativeText = "The recording is saved and opens in the editor."
+        a.addButton(withTitle: "Finish"); a.addButton(withTitle: "Keep Recording")
+        a.layout(); engine.registerExcluded(a.window); defer { engine.unregisterExcluded(a.window) }
+        if a.runModal() == .alertFirstButtonReturn { stop() }
     }
 
     /// Discards the recording in progress (or countdown).
@@ -271,6 +357,7 @@ enum RecordingPhase: Equatable {
     }
 
     private func finish() {
+        markers = []
         TeleprompterController.shared.hide()
         DesktopIcons.restoreIfNeeded()
         if settings.playSounds, session != nil { NSSound(named: "Pop")?.play() }
@@ -321,45 +408,89 @@ struct AppAlert: Identifiable {
     var permission: AppPermission?
 }
 
-// MARK: - Countdown overlay
+// MARK: - Get-ready card
 
 @MainActor final class CountdownWindow {
-    private var window: NSPanel?
-    private var model = CountdownModel()
+    private var window: ReadyPanel?
 
-    final class CountdownModel: ObservableObject { @Published var value = 0 }
-
-    func show(_ n: Int, on screen: NSScreen?, engine: RecordingEngine) {
-        model.value = n
+    func show(on screen: NSScreen?, engine: RecordingEngine) {
         guard let screen = screen ?? NSScreen.main else { return }
         if window == nil {
-            let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false
-            p.level = .screenSaver; p.ignoresMouseEvents = true
-            p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-            p.contentView = NSHostingView(rootView: CountdownView(model: model))
-            p.isReleasedWhenClosed = false
+            let p = ReadyPanel()
+            p.contentView = NSHostingView(rootView: GetReadyCard(cancel: { RecordingController.shared.cancelCountdown() },
+                                                                  skip: { RecordingController.shared.skipCountdown() })
+                .environmentObject(RecordingController.shared))
+            p.onEscape = { RecordingController.shared.cancelCountdown() }
+            p.onReturn = { RecordingController.shared.skipCountdown() }
             engine.registerExcluded(p)
             window = p
         }
-        let size = CGSize(width: 160, height: 160)
-        window?.setFrame(CGRect(x: screen.frame.midX - size.width / 2, y: screen.frame.midY - size.height / 2,
+        let size = CGSize(width: 340, height: 120)
+        window?.setFrame(CGRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - size.height - 90,
                                 width: size.width, height: size.height), display: true)
         window?.orderFrontRegardless()
+        window?.makeKey()
     }
 
     func hide() { window?.orderOut(nil) }
 }
 
-private struct CountdownView: View {
-    @ObservedObject var model: CountdownWindow.CountdownModel
+final class ReadyPanel: NSPanel {
+    var onEscape: (() -> Void)?
+    var onReturn: (() -> Void)?
+    init() {
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        isOpaque = false; backgroundColor = .clear; hasShadow = false
+        level = .screenSaver; isReleasedWhenClosed = false
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+    }
+    override var canBecomeKey: Bool { true }
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 53: onEscape?()
+        case 36, 76: onReturn?()
+        default: super.keyDown(with: event)
+        }
+    }
+}
+
+/// "Get ready. Recording will start soon." with a ring that fills over the countdown and a Continue button.
+struct GetReadyCard: View {
+    let cancel: () -> Void
+    let skip: () -> Void
+    @EnvironmentObject var rec: RecordingController
+
     var body: some View {
-        Text("\(model.value)")
-            .font(.system(size: 84, weight: .semibold, design: .rounded).monospacedDigit())
-            .foregroundStyle(.primary)
-            .frame(width: 148, height: 148)
-            .panelSurface(cornerRadius: 28)
-            .frame(width: 160, height: 160)
-            .accessibilityLabel("Recording starts in \(model.value) seconds")
+        HStack(spacing: 16) {
+            ZStack {
+                Circle().stroke(Color.primary.opacity(0.15), lineWidth: 5)
+                Circle().trim(from: 0, to: rec.countdownProgress).stroke(Color.red, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                if case .countdown(let n) = rec.phase, n < 9 {
+                    Text("\(n)").font(.system(size: 22, weight: .semibold, design: .rounded).monospacedDigit())
+                }
+            }
+            .frame(width: 56, height: 56)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Get ready").font(.system(size: 15, weight: .semibold))
+                Text("Recording will start soon.").font(.system(size: 12)).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Continue", action: skip).keyboardShortcut(.defaultAction)
+                    Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+                }.controlSize(.small)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(width: 340, height: 120)
+        .panelSurface(cornerRadius: 16)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(countdownLabel)
+    }
+
+    private var countdownLabel: String {
+        if case .countdown(let n) = rec.phase { return "Recording starts in \(n) seconds" }
+        return "Recording starts soon"
     }
 }

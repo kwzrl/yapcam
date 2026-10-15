@@ -23,7 +23,8 @@ struct ProjectEntry: Identifiable, Equatable {
         let engine = RecordingController.shared.engine
         interrupted = engine.interruptedPackages(in: dir)
         let intr = Set(interrupted)
-        projects = urls.filter { $0.pathExtension == "yapcam" && !intr.contains($0) }.map { u in
+        let removed = AppSettings.shared.removedRecents
+        projects = urls.filter { $0.pathExtension == "yapcam" && !intr.contains($0) && !removed.contains($0.path) }.map { u in
             ProjectEntry(url: u,
                          modified: (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
                          bytes: Self.size(of: u))
@@ -71,6 +72,12 @@ struct ProjectEntry: Identifiable, Equatable {
         catch { RecordingController.shared.alert = AppAlert(title: "Could not extract files", error: error) }
     }
 
+    /// Hides a recording from the lists without deleting it.
+    func removeFromRecents(_ p: ProjectEntry) {
+        AppSettings.shared.removedRecents.insert(p.url.path)
+        reload()
+    }
+
     func trash(_ p: ProjectEntry) {
         try? FileManager.default.trashItem(at: p.url, resultingItemURL: nil)
         reload()
@@ -103,10 +110,16 @@ struct ProjectEntry: Identifiable, Equatable {
 struct RecentProjectsView: View {
     @ObservedObject var model: RecentProjectsModel
     @State private var message: String?
+    @State private var query = ""
+    private var filtered: [ProjectEntry] { query.isEmpty ? model.projects : model.projects.filter { $0.name.localizedCaseInsensitiveContains(query) } }
 
     var body: some View {
         VStack(spacing: 0) {
             if !model.interrupted.isEmpty { interruptedBanner }
+            if !model.projects.isEmpty {
+                TextField("Search recordings", text: $query).textFieldStyle(.roundedBorder)
+                    .padding(.horizontal, 12).padding(.vertical, 8).accessibilityLabel("Search recordings")
+            }
             if model.projects.isEmpty && model.interrupted.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "film.stack").font(.system(size: 32)).foregroundStyle(.tertiary)
@@ -115,10 +128,10 @@ struct RecentProjectsView: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(model.projects) { p in
+                List(filtered) { p in
                     Row(entry: p, thumbnail: model.thumbnails[p.url], open: { open(p) },
                         reveal: { NSWorkspace.shared.activateFileViewerSelecting([p.url]) },
-                        rename: { model.rename(p) }, duplicate: { model.duplicate(p) },
+                        rename: { model.rename(p) }, duplicate: { model.duplicate(p) }, removeFromRecents: { model.removeFromRecents(p) },
                         extract: { model.extractRaw(p) }, trash: { model.trash(p) })
                         .onAppear { model.loadThumbnail(p) }
                 }
@@ -169,6 +182,7 @@ struct RecentProjectsView: View {
         let reveal: () -> Void
         let rename: () -> Void
         let duplicate: () -> Void
+        let removeFromRecents: () -> Void
         let extract: () -> Void
         let trash: () -> Void
         var body: some View {
@@ -195,6 +209,7 @@ struct RecentProjectsView: View {
                 Button("Show in Finder", action: reveal)
                 Button("Rename…", action: rename)
                 Button("Duplicate", action: duplicate)
+                Button("Remove from Recents", action: removeFromRecents)
                 Button("Extract Raw Files…", action: extract)
                 Divider()
                 Button("Move to Trash", role: .destructive, action: trash)
@@ -212,5 +227,60 @@ struct RecentProjectsView: View {
         a.addButton(withTitle: "OK"); a.addButton(withTitle: "Cancel")
         a.window.initialFirstResponder = f
         return a.runModal() == .alertFirstButtonReturn ? f.stringValue : nil
+    }
+}
+
+
+/// The toolbar's Folder button: a short list of recent recordings with search.
+struct RecentsPopover: View {
+    let dismiss: () -> Void
+    @ObservedObject var model = RecentProjectsWindow.shared.model
+    @State private var query = ""
+    private var shown: [ProjectEntry] {
+        let all = query.isEmpty ? model.projects : model.projects.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        return Array(all.prefix(8))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PopoverHeader(title: "Recent recordings")
+            TextField("Search", text: $query).textFieldStyle(.roundedBorder).accessibilityLabel("Search recordings")
+            if shown.isEmpty {
+                Text(model.projects.isEmpty ? "No recordings yet." : "Nothing matches.").font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 60)
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(shown) { p in
+                        HStack {
+                            Button {
+                                RecordingController.shared.engine.openEditor(package: p.url); dismiss()
+                            } label: {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    Text(p.name).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                                    Text(p.modified.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Button { model.removeFromRecents(p) } label: { Image(systemName: "xmark.circle") }
+                                .buttonStyle(.borderless).foregroundStyle(.secondary).help("Remove from Recents")
+                                .accessibilityLabel("Remove \(p.name) from recents")
+                        }
+                        .padding(.vertical, 3).padding(.horizontal, 6)
+                    }
+                }
+            }
+            Divider()
+            HStack {
+                Button("All Recordings…") { RecentProjectsWindow.shared.show(); dismiss() }
+                Spacer()
+                Button("Show Folder") {
+                    try? FileManager.default.createDirectory(at: AppSettings.shared.storageDirectory, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(AppSettings.shared.storageDirectory); dismiss()
+                }
+            }.controlSize(.small)
+        }
+        .padding(14).frame(width: 300)
+        .onAppear { model.reload() }
     }
 }

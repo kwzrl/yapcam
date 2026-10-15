@@ -10,8 +10,8 @@ import YapcamEditor
 
 @Suite struct KeyComboTests {
     @Test func defaultsDisplay() {
-        #expect(KeyCombo.startStop.display == "⌥⌘R")
-        #expect(KeyCombo.pauseResume.display == "⌥⌘P")
+        #expect(HotkeyAction.startStop.defaultCombo?.display == "⌃⌘↩")
+        #expect(HotkeyAction.pauseResume.defaultCombo?.display == "⌥⌘P")
     }
     @Test func codableRoundTrip() throws {
         let c = KeyCombo(keyCode: UInt32(kVK_F5), modifiers: UInt32(controlKey | shiftKey))
@@ -659,7 +659,7 @@ import YapcamEditor
         let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
         let s = AppSettings(store: suite)
         #expect(s.openEditorAfterRecording == true)
-        #expect(s.countdown == 3)
+        #expect(s.countdown == 0)      // None by default (reference)
         s.openEditorAfterRecording = false          // persisted only into this suite
         #expect(AppSettings(store: suite).openEditorAfterRecording == false)
     }
@@ -733,5 +733,141 @@ import YapcamEditor
         // Whole display selected: still inside the bounds.
         let f4 = AreaOverlayBarLayout.frame(size: size, selection: bounds, in: bounds)
         #expect(bounds.contains(f4))
+    }
+}
+
+// MARK: - Reference-aligned shortcuts, countdown, recording widget, after-recording action
+
+@MainActor @Suite struct ReferenceFlowTests {
+    private func settings() -> AppSettings { AppSettings(store: UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!) }
+
+    @Test func defaultShortcutsFollowTheReferenceLayout() {
+        // Physical keys (ANSI codes) and modifiers; the printed character depends on the keyboard layout.
+        let cmdOpt = UInt32(cmdKey | optionKey)
+        let want: [HotkeyAction: (Int, UInt32)] = [
+            .startStop: (kVK_Return, UInt32(cmdKey | controlKey)), .recordDisplay: (kVK_ANSI_3, cmdOpt), .recordWindow: (kVK_ANSI_4, cmdOpt),
+            .recordArea: (kVK_ANSI_5, cmdOpt), .pauseResume: (kVK_ANSI_P, cmdOpt), .restart: (kVK_Delete, cmdOpt),
+            .marker: (kVK_ANSI_F, cmdOpt | UInt32(controlKey)), .toggleWidget: (kVK_ANSI_Quote, cmdOpt), .prompterPlay: (kVK_ANSI_Period, cmdOpt),
+            .toggleNotes: (kVK_ANSI_Slash, cmdOpt), .quickExportCopy: (kVK_ANSI_C, cmdOpt), .quickExportSave: (kVK_ANSI_S, cmdOpt),
+            .openLast: (kVK_ANSI_Z, cmdOpt),
+        ]
+        for (a, d) in want { #expect(a.defaultCombo == KeyCombo(keyCode: UInt32(d.0), modifiers: d.1), "\(a)") }
+        #expect(HotkeyAction.startStop.defaultCombo?.display == "⌃⌘↩")
+        #expect(HotkeyAction.restart.defaultCombo?.display == "⌥⌘⌫")
+        #expect(HotkeyAction.cancel.defaultCombo == nil)
+        #expect(Set(HotkeyAction.allCases.compactMap(\.defaultCombo)).count == HotkeyAction.allCases.compactMap(\.defaultCombo).count)   // no clashes
+    }
+
+    @Test func rebindingStoresOnlyChangesAndResets() {
+        let s = settings()
+        #expect(s.combo(for: .pauseResume) == HotkeyAction.pauseResume.defaultCombo)
+        let mine = KeyCombo(keyCode: 0x23, modifiers: 0x100)
+        s.setCombo(mine, for: .pauseResume)
+        #expect(s.combo(for: .pauseResume) == mine && s.shortcuts.count == 1)
+        s.setCombo(HotkeyAction.pauseResume.defaultCombo, for: .pauseResume)
+        #expect(s.shortcuts.isEmpty)                                   // back to the default stores nothing
+        s.setCombo(nil, for: .marker)
+        #expect(s.combo(for: .marker) == nil)                          // cleared
+        s.resetShortcuts()
+        #expect(s.combo(for: .marker) == HotkeyAction.marker.defaultCombo)
+    }
+
+    @Test func clashesAreFlagged() {
+        let s = settings()
+        s.setCombo(HotkeyAction.recordDisplay.defaultCombo, for: .recordWindow)
+        let c = HotkeyManager.conflicts(in: s)
+        #expect(c == [.recordWindow])
+    }
+
+    @Test func menuKeyEquivalents() {
+        #expect(HotkeyAction.openLast.defaultCombo?.menuKey?.key.count == 1)       // the layout's character for that key
+        #expect(HotkeyAction.openLast.defaultCombo?.menuKey?.flags == [.command, .option])
+        #expect(HotkeyAction.startStop.defaultCombo?.menuKey?.key == "\r")
+        #expect(KeyCombo.none.menuKey == nil)
+    }
+
+    @Test func countdownOptionsAndDefault() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
+        #expect(AppSettings(store: suite).countdown == 0)              // None by default
+        for n in [0, 3, 5, 10] { suite.set(n, forKey: "countdown"); #expect(AppSettings(store: suite).countdown == n) }
+        suite.set(7, forKey: "countdown"); #expect(AppSettings(store: suite).countdown == 0)
+    }
+
+    @Test func afterRecordingDefaultsAndLabels() {
+        let s = settings()
+        #expect(s.afterRecording == .createProject && s.createAutoZooms && !s.showQuickExportWidget && s.showRecordingWidget)
+        #expect(AfterRecording.createProject.recordLabel == "Start recording")
+        #expect(AfterRecording.exportCopy.recordLabel == "Record & Copy" && AfterRecording.exportSave.recordLabel == "Record & Save")
+        s.afterRecording = .exportSave
+        #expect(AppSettings(store: s.debugStore).afterRecording == .exportSave)
+    }
+
+    @Test func markersAreWrittenNextToTheRecording() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-markers-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let pkg = dir.appending(path: "M.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pkg.appending(path: "recording"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        PostRecording.writeMarkers([1_500_000_000, 4_000_000_000], to: pkg)
+        let obj = try JSONSerialization.jsonObject(with: Data(contentsOf: pkg.appending(path: "recording/markers.json"))) as? [String: [Int64]]
+        #expect(obj?["markers_ns"] == [1_500_000_000, 4_000_000_000])
+        // no recording folder → nothing is created
+        PostRecording.writeMarkers([1], to: dir.appending(path: "none.yapcam"))
+        #expect(!FileManager.default.fileExists(atPath: dir.appending(path: "none.yapcam").path))
+    }
+
+    @Test func markerOnlyWhileRecordingAndNotWhenIdle() {
+        let rec = RecordingController.shared
+        rec.debugSetPhase(.idle); rec.addMarker()
+        #expect(rec.markers.isEmpty)
+        rec.debugSetPhase(.paused); rec.addMarker()
+        #expect(rec.markers.isEmpty)
+        rec.debugSetPhase(.idle)
+    }
+}
+
+@MainActor @Suite struct ReferenceExtrasTests {
+    @Test func areaMinimumIs150() {
+        #expect(!AreaGeometry.canRecord(nil))
+        #expect(!AreaGeometry.canRecord(CGRect(x: 0, y: 0, width: 149, height: 400)))
+        #expect(!AreaGeometry.canRecord(CGRect(x: 0, y: 0, width: 400, height: 149)))
+        #expect(AreaGeometry.canRecord(CGRect(x: 0, y: 0, width: 150, height: 150)))
+    }
+
+    @Test func areaTooSmallToRecordExplainsItself() {
+        let s = AppSettings.shared
+        let saved = (s.sourceMode, s.areaRect, s.areaDisplayID); defer { (s.sourceMode, s.areaRect, s.areaDisplayID) = saved }
+        guard let d = Displays.resolve(0) else { return }
+        s.sourceMode = .area; s.areaDisplayID = d.id; s.areaRect = CGRect(x: 10, y: 10, width: 100, height: 100)
+        do { _ = try RecordingController.shared.makeOptions(); Issue.record("100×100 must not record") }
+        catch { #expect(UserMessage.describe(error).contains("150")) }
+    }
+
+    @Test func removedRecentsPersistAndHideEntries() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.test-\(UUID().uuidString)")!
+        let s = AppSettings(store: suite)
+        #expect(s.removedRecents.isEmpty && s.highlightRecordedArea)
+        s.removedRecents.insert("/x/A.yapcam")
+        #expect(AppSettings(store: suite).removedRecents == ["/x/A.yapcam"])
+    }
+}
+
+@MainActor @Suite struct WindowExtrasTests {
+    @Test func resizePresetsKeepTheRatioAndFitTheDisplay() {
+        let display = CGSize(width: 1680, height: 1050)
+        for p in WindowAX.Preset.allCases {
+            let s = WindowAX.fit(CGSize(width: 800, height: 600), preset: p, limit: display)
+            #expect(abs(s.width / s.height - p.ratio) < 0.01, "\(p)")
+            #expect(s.width <= display.width && s.height <= display.height)
+        }
+        // A tall preset on a small display shrinks instead of overflowing.
+        let t = WindowAX.fit(CGSize(width: 1600, height: 900), preset: .tall, limit: CGSize(width: 1280, height: 800))
+        #expect(t.height <= 800 && abs(t.width / t.height - 9.0 / 16) < 0.01)
+        // Never below 150.
+        #expect(WindowAX.fit(CGSize(width: 100, height: 100), preset: .wide, limit: display).height >= 150)
+    }
+
+    @Test func displayFrameInCGCoordinates() {
+        let f = CGRect(x: 0, y: 1050, width: 1512, height: 982)        // display above the primary
+        #expect(OverlayGeometry.cgFrame(of: f, primaryMaxY: 1050) == CGRect(x: 0, y: -982, width: 1512, height: 982))
     }
 }

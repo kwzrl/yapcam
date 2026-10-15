@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum ToolbarPopover: Hashable { case audio, microphone, camera }
+enum ToolbarPopover: Hashable { case audio, microphone, camera, afterRecording, recents }
 
 
 struct ToolbarView: View {
@@ -67,14 +67,19 @@ struct ToolbarView: View {
 
             Divider().padding(.vertical, 3)
 
-            ToolbarButton(symbol: "folder", label: "Folder", help: "Show recordings in Finder", active: false) {
-                try? FileManager.default.createDirectory(at: settings.storageDirectory, withIntermediateDirectories: true)
-                NSWorkspace.shared.open(settings.storageDirectory)
-            }
+            ToolbarButton(symbol: "folder", label: "Recent", help: "Recent recordings", active: open == .recents) { toggle(.recents) }
+                .popover(isPresented: binding(.recents), arrowEdge: edge) { RecentsPopover(dismiss: { open = nil }) }
             settingsMenu
 
             RecordButton(recording: false, large: true, action: rec.toggleStartStop)
-                .help("Start recording (\(settings.startStopShortcut.display))")
+                .help("\(settings.afterRecording.recordLabel) (\(settings.startStopShortcut.display))")
+                .overlay(alignment: .topTrailing) {
+                    Button { toggle(.afterRecording) } label: {
+                        Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).frame(width: 16, height: 16).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("After recording…").accessibilityLabel("After recording options")
+                }
+                .popover(isPresented: binding(.afterRecording), arrowEdge: edge) { AfterRecordingPopover().environmentObject(settings) }
                 .padding(.top, 2)
         }
     }
@@ -145,10 +150,29 @@ struct ToolbarView: View {
             func add(_ title: String, _ action: @escaping () -> Void) {
                 let item = ClosureMenuItem(title: title, handler: action); menu.addItem(item)
             }
+            func check(_ title: String, _ on: Bool, _ toggle: @escaping () -> Void) {
+                let item = ClosureMenuItem(title: title, handler: toggle); item.state = on ? .on : .off; menu.addItem(item)
+            }
+            func header(_ title: String) { let h = NSMenuItem(title: title, action: nil, keyEquivalent: ""); h.isEnabled = false; menu.addItem(h) }
+            header("While recording")
+            check("Hide Desktop Icons", settings.hideDesktopIcons) { settings.hideDesktopIcons.toggle() }
+            check("Highlight Recorded Area", settings.highlightRecordedArea) { settings.highlightRecordedArea.toggle() }
+            add("Speaker Notes…") { NotesWindow.shared.show() }
+            menu.addItem(.separator())
+            header("After recording")
+            check("Open Quick Export Widget", settings.showQuickExportWidget) { settings.showQuickExportWidget.toggle() }
+            menu.addItem(.separator())
+            let countdown = NSMenu()
+            for (label, n) in [("None", 0), ("3 seconds", 3), ("5 seconds", 5), ("10 seconds", 10)] {
+                let item = ClosureMenuItem(title: label) { settings.countdown = n }
+                item.state = settings.countdown == n ? .on : .off
+                countdown.addItem(item)
+            }
+            let cd = NSMenuItem(title: "Countdown", action: nil, keyEquivalent: ""); cd.submenu = countdown; menu.addItem(cd)
+            menu.addItem(.separator())
             add("Settings…") { SettingsWindow.shared.show() }
             add("Recordings…") { RecentProjectsWindow.shared.show() }
-            add("Speaker Notes…") { NotesWindow.shared.show() }
-            add("Permissions…") { OnboardingWindow.shared.show(reason: nil) }
+            add("Permissions…") { OnboardingWindow.shared.show(reason: nil, all: true) }
             menu.addItem(.separator())
             add("Hide Toolbar") { ToolbarPanelController.shared.hide() }
             add("Quit Yapcam") { NSApp.terminate(nil) }
@@ -173,8 +197,12 @@ struct ToolbarView: View {
     }
 
     private var busyControls: some View {
-        ProgressView().controlSize(.small).frame(width: 44, height: 90)
-            .accessibilityLabel(rec.phase == .finishing ? "Saving recording" : "Starting recording")
+        VStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            if rec.workingLong { Text("Working…").font(.system(size: 9.5)).foregroundStyle(.secondary) }
+        }
+        .frame(width: 48, height: 90)
+        .accessibilityLabel(rec.phase == .finishing ? "Saving recording" : "Starting recording")
     }
 
     // MARK: Recording
@@ -201,8 +229,10 @@ struct ToolbarView: View {
                           help: "\(paused ? "Resume" : "Pause") (\(settings.pauseShortcut.display))", active: false, action: rec.togglePause)
             RecordButton(recording: true, action: rec.toggleStartStop)
                 .help("Stop recording (\(settings.startStopShortcut.display))")
-            ToolbarButton(symbol: "arrow.counterclockwise", label: "Restart", help: "Discard this take and start over", active: false, action: rec.restart)
-            ToolbarButton(symbol: "trash", label: "Cancel", help: "Discard recording", active: false, action: rec.cancel)
+            ToolbarButton(symbol: "flag", label: "Marker", help: "Add a marker here (\(settings.combo(for: .marker)?.display ?? ""))", active: false,
+                          enabled: !paused, action: rec.addMarker)
+            ToolbarButton(symbol: "arrow.counterclockwise", label: "Restart", help: "Discard this take and start over (asks first)", active: false, action: rec.confirmRestart)
+            ToolbarButton(symbol: "trash", label: "Cancel", help: "Cancel and delete the recording (asks first)", active: false, action: rec.confirmCancel)
         }
     }
 

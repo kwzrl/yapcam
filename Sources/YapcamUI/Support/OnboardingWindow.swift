@@ -6,10 +6,12 @@ import SwiftUI
     private var window: NSWindow?
     private let model = OnboardingModel()
 
-    final class OnboardingModel: ObservableObject { @Published var reason: String? }
+    final class OnboardingModel: ObservableObject { @Published var reason: String?; @Published var showAll = false }
 
-    func show(reason: String?) {
+    /// `all: false` is the first-run list (Screen Recording and Accessibility); the full list is for review.
+    func show(reason: String?, all: Bool = false) {
         model.reason = reason
+        model.showAll = all
         if window == nil {
             let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 480),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -37,6 +39,8 @@ struct OnboardingView: View {
     var close: () -> Void
     @EnvironmentObject var perms: PermissionsModel
     @Environment(\.contrastOpacity) private var contrast
+    /// First run asks only for what recording needs; the rest is asked for the first time it is used.
+    private var shown: [AppPermission] { model.showAll ? AppPermission.allCases : [.screen, .accessibility] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -46,12 +50,16 @@ struct OnboardingView: View {
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             VStack(spacing: 0) {
-                ForEach(AppPermission.allCases) { p in
+                ForEach(shown) { p in
                     PermissionRow(permission: p)
-                    if p != AppPermission.allCases.last { Divider() }
+                    if p != shown.last { Divider() }
                 }
             }
             .background(Color.primary.opacity(contrast.subtleFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            if !model.showAll {
+                Text("Microphone, camera and input monitoring are asked for the first time you use them.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Text("After changing a permission in System Settings, macOS may ask you to quit and reopen Yapcam. Screen recording changes only apply after a restart.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {

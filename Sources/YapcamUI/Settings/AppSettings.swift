@@ -2,6 +2,18 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
+/// What happens when a recording stops.
+enum AfterRecording: String, CaseIterable, Identifiable {
+    case createProject, exportCopy, exportSave
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .createProject: "Create project"; case .exportCopy: "Export and copy to clipboard"; case .exportSave: "Export and save to file" }
+    }
+    var recordLabel: String {
+        switch self { case .createProject: "Start recording"; case .exportCopy: "Record & Copy"; case .exportSave: "Record & Save" }
+    }
+}
+
 enum SourceMode: String, CaseIterable, Identifiable {
     case display, window, area, device
     var id: String { rawValue }
@@ -14,12 +26,9 @@ enum SourceMode: String, CaseIterable, Identifiable {
 }
 
 /// A global key combination (Carbon key code + Carbon modifier mask).
-struct KeyCombo: Codable, Equatable {
+struct KeyCombo: Codable, Equatable, Hashable {
     var keyCode: UInt32
     var modifiers: UInt32
-
-    static let startStop = KeyCombo(keyCode: UInt32(kVK_ANSI_R), modifiers: UInt32(cmdKey | optionKey))
-    static let pauseResume = KeyCombo(keyCode: UInt32(kVK_ANSI_P), modifiers: UInt32(cmdKey | optionKey))
 
     init(keyCode: UInt32, modifiers: UInt32) { self.keyCode = keyCode; self.modifiers = modifiers }
 
@@ -95,8 +104,14 @@ struct KeyCombo: Codable, Equatable {
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
     @Published var showMenuBarItem: Bool { didSet { d.set(showMenuBarItem, forKey: "showMenuBarItem") } }
     @Published var storageDirectory: URL { didSet { d.set(storageDirectory.path, forKey: "storageDirectory") } }
-    @Published var startStopShortcut: KeyCombo { didSet { store(startStopShortcut, "shortcutStartStop") } }
-    @Published var pauseShortcut: KeyCombo { didSet { store(pauseShortcut, "shortcutPause") } }
+    /// Only the shortcuts the user changed; everything else uses `HotkeyAction.defaultCombo`.
+    @Published var shortcuts: [String: KeyCombo] { didSet { d.set(try? JSONEncoder().encode(shortcuts), forKey: "shortcuts.v2") } }
+    @Published var highlightRecordedArea: Bool { didSet { d.set(highlightRecordedArea, forKey: "highlightRecordedArea") } }
+    @Published var removedRecents: Set<String> { didSet { d.set(Array(removedRecents), forKey: "removedRecents") } }
+    @Published var showRecordingWidget: Bool { didSet { d.set(showRecordingWidget, forKey: "showRecordingWidget") } }
+    @Published var createAutoZooms: Bool { didSet { d.set(createAutoZooms, forKey: "createAutoZooms") } }
+    @Published var afterRecording: AfterRecording { didSet { d.set(afterRecording.rawValue, forKey: "afterRecording") } }
+    @Published var showQuickExportWidget: Bool { didSet { d.set(showQuickExportWidget, forKey: "showQuickExportWidget") } }
     @Published var hasCompletedOnboarding: Bool { didSet { d.set(hasCompletedOnboarding, forKey: "onboarded") } }
 
     static var defaultStorage: URL {
@@ -109,6 +124,9 @@ struct KeyCombo: Codable, Equatable {
     private static func load(_ key: String, default def: KeyCombo, from d: UserDefaults) -> KeyCombo {
         (d.data(forKey: key).flatMap { try? JSONDecoder().decode(KeyCombo.self, from: $0) }) ?? def
     }
+
+    /// The defaults this instance persists into (tests reopen settings from the same store).
+    var debugStore: UserDefaults { d }
 
     init(store: UserDefaults) {
         d = store
@@ -124,8 +142,8 @@ struct KeyCombo: Codable, Equatable {
         systemAudio = d.object(forKey: "systemAudio") as? Bool ?? true
         microphoneID = d.string(forKey: "microphoneID")
         cameraID = d.string(forKey: "cameraID")
-        let cd = d.object(forKey: "countdown") as? Int ?? 3
-        countdown = [0, 3, 5].contains(cd) ? cd : 3
+        let cd = d.object(forKey: "countdown") as? Int ?? 0
+        countdown = [0, 3, 5, 10].contains(cd) ? cd : 0
         recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? false
         maxFPS = d.object(forKey: "maxFPS") as? Int == 30 ? 30 : 60
         openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
@@ -134,10 +152,26 @@ struct KeyCombo: Codable, Equatable {
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
         storageDirectory = d.string(forKey: "storageDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) } ?? Self.defaultStorage
-        startStopShortcut = Self.load("shortcutStartStop", default: .startStop, from: store)
-        pauseShortcut = Self.load("shortcutPause", default: .pauseResume, from: store)
+        shortcuts = (store.data(forKey: "shortcuts.v2").flatMap { try? JSONDecoder().decode([String: KeyCombo].self, from: $0) }) ?? [:]
+        highlightRecordedArea = store.object(forKey: "highlightRecordedArea") as? Bool ?? true
+        removedRecents = Set(store.stringArray(forKey: "removedRecents") ?? [])
+        showRecordingWidget = store.object(forKey: "showRecordingWidget") as? Bool ?? true
+        createAutoZooms = store.object(forKey: "createAutoZooms") as? Bool ?? true
+        afterRecording = AfterRecording(rawValue: store.string(forKey: "afterRecording") ?? "") ?? .createProject
+        showQuickExportWidget = store.object(forKey: "showQuickExportWidget") as? Bool ?? false
         hasCompletedOnboarding = d.bool(forKey: "onboarded")
     }
 
-    func resetShortcuts() { startStopShortcut = .startStop; pauseShortcut = .pauseResume }
+    func combo(for action: HotkeyAction) -> KeyCombo? {
+        if let c = shortcuts[action.rawValue] { return c.isNone ? nil : c }
+        return action.defaultCombo
+    }
+    func setCombo(_ combo: KeyCombo?, for action: HotkeyAction) {
+        if combo == action.defaultCombo { shortcuts[action.rawValue] = nil }
+        else { shortcuts[action.rawValue] = combo ?? KeyCombo.none }   // not `.none`: that would mean Optional.none
+    }
+    func resetShortcuts() { shortcuts = [:] }
+
+    var startStopShortcut: KeyCombo { combo(for: .startStop) ?? .none }
+    var pauseShortcut: KeyCombo { combo(for: .pauseResume) ?? .none }
 }
