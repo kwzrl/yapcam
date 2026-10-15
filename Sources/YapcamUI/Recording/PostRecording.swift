@@ -51,6 +51,8 @@ import YapcamRender
     enum State: Equatable { case idle, working(Double), done(String), failed(String) }
     @Published private(set) var state: State = .idle
     private var running = false
+    /// Self-tests save here instead of showing the save panel (a panel would block a headless run).
+    nonisolated(unsafe) static var testSaveURL: URL?
 
     static var cacheDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Caches/Yapcam/QuickExport", directoryHint: .isDirectory)
@@ -87,6 +89,13 @@ import YapcamRender
                 pb.writeObjects([out as NSURL])
                 state = .done("Copied \(name).mp4 to the clipboard")
             case .save:
+                if let dest = Self.testSaveURL {
+                    try? FileManager.default.removeItem(at: dest)
+                    try FileManager.default.copyItem(at: out, to: dest)
+                    state = .done("Saved \(dest.lastPathComponent)")
+                    QuickExportWidget.shared.refresh()
+                    return
+                }
                 let panel = NSSavePanel()
                 panel.nameFieldStringValue = "\(name).mp4"
                 panel.directoryURL = AppSettings.shared.storageDirectory
@@ -120,6 +129,8 @@ import YapcamRender
         model.loadThumbnail()
         present()
     }
+
+    var isVisible: Bool { panel?.isVisible ?? false }
 
     func showProgress() { if model.package == nil { model.package = RecordingController.shared.lastPackage }; present() }
     func refresh() { model.objectWillChange.send() }

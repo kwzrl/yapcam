@@ -914,3 +914,46 @@ import YapcamEditor
         #expect(AppSettings(store: suite).savedWindowSizes == ["1280x720", "800x600"])
     }
 }
+
+// MARK: - QA hooks: hotkey scripts and after-recording choices
+
+@MainActor @Suite struct HotkeyScriptTests {
+    private func parse(_ t: String) -> ([HotkeyStep]?, String?) { var e: String?; let r = HotkeyStep.parse(t, error: &e); return (r, e) }
+
+    @Test func parsesActionsWaitsKeysAndExpectations() {
+        let (steps, err) = parse("recordDisplay, wait:1.5,return,wait:3,marker,pauseResume,expect:paused,restart,return,startStop")
+        #expect(err == nil)
+        #expect(steps == [.hotkey(.recordDisplay), .wait(1.5), .key("return"), .wait(3), .hotkey(.marker), .hotkey(.pauseResume),
+                          .expect("paused"), .hotkey(.restart), .key("return"), .hotkey(.startStop)])
+    }
+
+    @Test func everyActionNameIsAcceptedAndBadStepsExplainThemselves() {
+        for a in HotkeyAction.allCases { #expect(parse(a.rawValue).0 == [.hotkey(a)], "\(a)") }
+        for bad in ["", " , ", "nope", "wait:abc", "wait:-1", "wait:9999", "startStop,whatever"] {
+            let (r, e) = parse(bad)
+            #expect(r == nil && !(e ?? "").isEmpty, "\(bad)")
+        }
+        #expect(parse("nope").1?.contains("startStop") == true)       // lists what is valid
+    }
+
+    @Test func carbonModifiersBecomeEventFlags() {
+        let f = SelfTestKeys.flags(for: UInt32(cmdKey | controlKey))
+        #expect(f.contains(.maskCommand) && f.contains(.maskControl) && !f.contains(.maskAlternate) && !f.contains(.maskShift))
+        let all = SelfTestKeys.flags(for: UInt32(cmdKey | optionKey | controlKey | shiftKey))
+        #expect(all.contains([.maskCommand, .maskAlternate, .maskControl, .maskShift]))
+        #expect(SelfTestKeys.flags(for: 0).isEmpty)
+        // the default start/stop shortcut posts ⌃⌘ + Return
+        let c = HotkeyAction.startStop.defaultCombo!
+        #expect(Int(c.keyCode) == kVK_Return && SelfTestKeys.flags(for: c.modifiers).contains([.maskCommand, .maskControl]))
+    }
+
+    @Test func phaseNamesForExpectations() {
+        #expect(SelfTestKeys.matches(.recording, "recording") && SelfTestKeys.matches(.paused, "paused") && SelfTestKeys.matches(.idle, "idle"))
+        #expect(SelfTestKeys.matches(.countdown(3), "countdown") && !SelfTestKeys.matches(.recording, "paused"))
+    }
+
+    @Test func afterRecordingChoicesAreTheDocumentedFour() {
+        #expect(SelfTestOptions.afterRecordingChoices == ["create", "widget", "copy", "save"])
+        #expect(SelfTestOptions() == SelfTestOptions(hotkeyScript: nil, afterRecording: nil, saveTo: nil))
+    }
+}
