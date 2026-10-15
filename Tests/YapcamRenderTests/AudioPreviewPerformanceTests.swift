@@ -31,6 +31,7 @@ final class AudioPreviewPerformanceTests: XCTestCase {
             }
             try await Task.sleep(for: .seconds(2)) // Decode/shader/audio warm-up.
             let initial=player.metricSnapshot()
+            let initialSubmissions=player.submissionSnapshot()
             let audioStart=try XCTUnwrap(player.audioClockSeconds)
             let clockStart=player.currentNs
             let monitor=try RenderMemoryMonitor()
@@ -40,6 +41,7 @@ final class AudioPreviewPerformanceTests: XCTestCase {
             let rate=player.audioClockRate, ready=player.audioClockReady
             player.pause()
             let final=player.metricSnapshot(), memory=try monitor.finish()
+            let finalSubmissions=player.submissionSnapshot()
             let elapsed=final.elapsedSeconds-initial.elapsedSeconds
             let frames=final.renderedFrames-initial.renderedFrames
             let dropped=final.droppedFrames-initial.droppedFrames
@@ -50,10 +52,14 @@ final class AudioPreviewPerformanceTests: XCTestCase {
                 "nominal_refresh_hz":60,"wall_seconds":elapsed,"completed_frames":frames,
                 "fps":Double(frames)/max(elapsed,0.000_001),
                 "dropped_submissions":dropped,"missed_nominal_refresh_opportunities":max(0,nominal-frames),
+                "busy_encode_or_gpu_drops":finalSubmissions.busy-initialSubmissions.busy,
+                "unavailable_drawable_drops":finalSubmissions.unavailableDrawable-initialSubmissions.unavailableDrawable,
+                "failed_submissions":finalSubmissions.failed-initialSubmissions.failed,
+                "frames_in_flight_limit":PreviewRenderQueue.capacity,
                 "audio_clock_advance_s":audioEnd-audioStart,"audio_ready":ready,"audio_rate":rate,
                 "timeline_advance_s":Double(clockEnd-clockStart)/1e9,
                 "sampled_peak_rss_bytes":memory.peak,"process_highwater_rss_bytes":memory.processPeak,
-                "drop_definition":"dropped_submissions counts busy GPU/no drawable; nominal misses also include callbacks never delivered; do not add the counts",
+                "drop_definition":"dropped_submissions counts full bounded encode/GPU queue, unavailable drawable or failure; nominal misses also include callbacks never delivered; do not add the counts",
                 "resolution_scope":"1080p/4K drawable output; 320x200 source decode; visible 640x360 window",
                 "rss_scope":"measured interval after warm-up; process highwater spans fixture generation and both resolutions"
             ]
@@ -61,6 +67,8 @@ final class AudioPreviewPerformanceTests: XCTestCase {
             XCTAssertNil(player.error)
             XCTAssertTrue(ready); XCTAssertGreaterThan(rate,0)
             XCTAssertGreaterThan(frames,0)
+            XCTAssertEqual(dropped,(finalSubmissions.busy-initialSubmissions.busy)+(finalSubmissions.unavailableDrawable-initialSubmissions.unavailableDrawable)+(finalSubmissions.failed-initialSubmissions.failed))
+            if height==1080 { XCTAssertLessThan(dropped,10,"1080p audio preview must drop fewer than 10 submissions in 30 seconds") }
             XCTAssertGreaterThan(audioEnd-audioStart,seconds*0.9,"Benchmark must exercise a running audio clock")
             XCTAssertEqual(Int(view.drawableSize.height),height)
             // Clock drift is reported separately from render drops; both use the

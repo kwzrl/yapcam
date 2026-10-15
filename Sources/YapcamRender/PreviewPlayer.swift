@@ -10,6 +10,12 @@ public struct PreviewMetrics: Sendable {
     public var framesPerSecond: Double { Double(renderedFrames) / max(elapsedSeconds, 0.000_001) }
 }
 
+struct PreviewSubmissionMetrics {
+    var busy = 0
+    var unavailableDrawable = 0
+    var failed = 0
+}
+
 @MainActor public final class PreviewPlayer: ObservableObject {
     @Published public private(set) var currentNs: Int64 = 0
     @Published public private(set) var isPlaying = false
@@ -37,7 +43,8 @@ public struct PreviewMetrics: Sendable {
     private var lastMetricUpdate = 0.0
     private var frameCount = 0
     private var dropped = 0
-    private var drawPending = false
+    private let renderQueue = PreviewRenderQueue()
+    private var submissions = PreviewSubmissionMetrics()
     private var redrawRevision = 0
     weak var view: MTKView?
 
@@ -62,6 +69,7 @@ public struct PreviewMetrics: Sendable {
         isPlaying = true
         if !audioLoading && !seeking { player?.play() }
         metricStart = anchorHost; frameCount = 0; dropped = 0
+        submissions = PreviewSubmissionMetrics()
         metrics = PreviewMetrics(); lastMetricUpdate = anchorHost
         view?.enableSetNeedsDisplay = false; view?.isPaused = false
     }
@@ -161,6 +169,7 @@ public struct PreviewMetrics: Sendable {
     var audioClockReady: Bool { !audioLoading && !seeking && player?.currentItem?.status == .readyToPlay }
     var audioClockSeconds: Double? { player?.currentTime().seconds }
     var audioClockRate: Float { player?.rate ?? 0 }
+    func submissionSnapshot() -> PreviewSubmissionMetrics { submissions }
     private func finishMetrics() {
         if let start = metricStart {
             metrics = PreviewMetrics(renderedFrames: frameCount,droppedFrames: dropped,elapsedSeconds: ProcessInfo.processInfo.systemUptime-start)
@@ -169,31 +178,36 @@ public struct PreviewMetrics: Sendable {
     }
     func draw(in view: MTKView) {
         updateClock()
-        guard !drawPending else { dropped += 1; return }
-        guard let drawable = view.currentDrawable, let cb = queue.makeCommandBuffer() else { dropped += 1; return }
-        drawPending = true
+        guard let ticket = renderQueue.reserve() else { dropped += 1; submissions.busy += 1; return }
+        guard let drawable = view.currentDrawable, let cb = queue.makeCommandBuffer() else {
+            ticket.finish(); dropped += 1; submissions.unavailableDrawable += 1; return
+        }
         let ns = currentNs, revision = redrawRevision
         let source = renderProject, compositor = compositor
         let resources = PreviewDrawResources(drawable: drawable,commandBuffer: cb)
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let receiver = self else { return }
+        renderQueue.submit(ticket) { [weak self] ticket in
+            guard let receiver = self else { ticket.finish(); return }
             do {
                 let frame = try source.frame(atNs: ns)
                 try compositor.encode(frame,from: source,to: resources.drawable.texture,in: resources.commandBuffer)
                 resources.commandBuffer.present(resources.drawable)
                 resources.commandBuffer.addCompletedHandler { buffer in
+                    // Return admission before scheduling UI bookkeeping. A busy
+                    // main actor must not hold the renderer's next frame hostage.
+                    ticket.finish()
                     let message = buffer.status == .error ? (buffer.error?.localizedDescription ?? "Preview GPU failed") : nil
                     Task { @MainActor in receiver.drawFinished(ns: ns,revision: revision,error: message) }
                 }
                 resources.commandBuffer.commit()
             } catch {
-                await receiver.drawFinished(ns: ns,revision: revision,error: error.localizedDescription)
+                ticket.finish()
+                let message=error.localizedDescription
+                Task { @MainActor in receiver.drawFinished(ns: ns,revision: revision,error: message) }
             }
         }
     }
     private func drawFinished(ns: Int64,revision: Int,error: String?) {
-        drawPending = false
-        if let error { self.error = error; dropped += 1; pause() }
+        if let error { self.error = error; dropped += 1; submissions.failed += 1; pause() }
         else { frameCount += 1 }
         let now = ProcessInfo.processInfo.systemUptime
         if let start = metricStart, now-lastMetricUpdate >= 0.5 {
