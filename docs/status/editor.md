@@ -1,6 +1,6 @@
 # editor status
 
-READY e255871 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
+READY d56c9b4 editor on real core/render: camera style panel, camera layout settings (overlay/cutout/split, hide in silence), per-clip volume + hide cursor/smoothing off
 
 ## Done (verified)
 - Rebased on main 3dd0d3b (render APIs landed). ED-15 preview controls: Preview menu above the preview (size 480p…2160p/automatic, resolution full/half/quarter, playback speed 0.25×…8×, motion blur in preview) → `PreviewPlayer.setPreviewSettings`/`setMotionBlurEnabled`, remembered in defaults and re-applied on open; real player accepts all 90 combinations. `ProjectRenderSource.renderStereoMicrophone()` forwarded (render's request) + "Keep stereo microphone" toggle (`audio.stereo_mic`). 209 editor tests green.
