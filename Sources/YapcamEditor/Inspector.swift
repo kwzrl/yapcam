@@ -401,6 +401,7 @@ struct InspectorView: View {
                 Picker("Layout", selection: Binding(get: { l.mode }, set: { model.setLayoutMode(id: l.id, $0) })) {
                     ForEach(layoutModes, id: \.value) { Text($0.label).tag($0.value) }
                 }
+                if ["overlay", "cutout", "split"].contains(l.mode) { LayoutOwnSettings(model: model, layout: l) }
                 LabeledContent("Time") { Text("\(formatTimecode(l.startNs)) – \(formatTimecode(l.endNs))").monospacedDigit() }
                 Button("Remove layout", role: .destructive) { model.deleteSelection() }
             }

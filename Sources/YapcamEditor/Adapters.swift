@@ -164,6 +164,7 @@ public final class CoreEditingProject: EditingProject {
             if let en { patch["enabled"] = .bool(en) }
             if let mode { patch["mode"] = .string(mode.rawValue) }
             return .updateZoom(id: id, patch: patch)
+        case .insertZoom(let s, let e): return .insertTimelineItem(.zoom, startNs: s, durationNs: e - s)
         case .removeZoom(let id): return .removeZoom(id: id)
         case .set(let path, let v): return .set(path: path, value: v)
         case .autoZooms: return .autoZooms
@@ -177,7 +178,18 @@ public final class CoreEditingProject: EditingProject {
         }
     }
 
-    public func apply(_ command: EditorCommand) throws { try project.apply(map(command)); refresh() }
+    /// Structural timeline edits go through core's checked envelope (minimum clip/zoom lengths, atomic, history-safe).
+    private func isStructural(_ c: EditorCommand) -> Bool {
+        switch c {
+        case .split, .deleteRange, .addZoom, .insertZoom, .updateZoom, .processSilence: true
+        case .batch(let cs): cs.contains(where: isStructural)
+        default: false
+        }
+    }
+    public func apply(_ command: EditorCommand) throws {
+        let mapped = map(command)
+        try project.apply(isStructural(command) ? .timelineEdit(mapped) : mapped); refresh()
+    }
     public func undo() throws { try project.undo(); refresh() }
     public func redo() throws { try project.redo(); refresh() }
     public func save() throws { try project.save() }

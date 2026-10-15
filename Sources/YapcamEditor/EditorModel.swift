@@ -392,7 +392,7 @@ public final class EditorModel: ObservableObject {
             return
         }
         let before = Set(zooms.map(\.id))
-        perform(.addZoom(startNs: start, endNs: end, scale: 2, focusX: 0.5, focusY: 0.5))
+        perform(.insertZoom(startNs: start, endNs: end))
         if let new = zooms.first(where: { !before.contains($0.id) }) { selection = .zoom(new.id) }
     }
 

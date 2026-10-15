@@ -120,3 +120,41 @@ extension EditorModel {
     }
     public func waitForCameraSilence() async { await silenceRangesTask?.value }
 }
+
+/// Per-section camera layout settings: off = the section uses the camera layout settings above; on = its own copy.
+struct LayoutOwnSettings: View {
+    @ObservedObject var model: EditorModel
+    let layout: LayoutSegment
+    private func num(_ k: String, _ d: Double) -> Double { if case .number(let v)? = layout.settings?[k] { v } else { d } }
+    private func flag(_ k: String) -> Bool { if case .bool(let v)? = layout.settings?[k] { v } else { false } }
+    private func slider(_ title: String, _ key: String, _ range: ClosedRange<Double>, _ d: Double, pct: Bool = false) -> some View {
+        LabeledContent(title) {
+            Slider(value: Binding(get: { num(key, d) }, set: { model.setLayoutSetting(id: layout.id, key: key, .number($0)) }), in: range)
+                .accessibilityLabel(title)
+        }
+    }
+    var body: some View {
+        Toggle("Own settings for this section", isOn: Binding(get: { layout.settings != nil }, set: { model.setLayoutOwnSettings(id: layout.id, $0) }))
+        if layout.settings != nil {
+            switch layout.mode {
+            case "cutout":
+                slider("Size", "cutout_size", 0.2...1, 0.5)
+                slider("Edge softness", "edge_softness", 0...1, 0.2)
+                slider("Edge inset", "edge_inset", 0...8, 0)
+            case "split":
+                Picker("Ratio", selection: Binding(get: { ratioKey }, set: { k in
+                    model.setLayoutSetting(id: layout.id, key: "split_ratio", k == "auto" ? .null : .number(k == "half" ? 0.5 : 2.0 / 3)) })) {
+                    Text("Auto").tag("auto"); Text("½").tag("half"); Text("⅔").tag("twoThirds")
+                }.pickerStyle(.segmented)
+                Toggle("Flip sides", isOn: Binding(get: { flag("split_flip") }, set: { model.setLayoutSetting(id: layout.id, key: "split_flip", .bool($0)) }))
+                Toggle("Padded", isOn: Binding(get: { flag("split_padded") }, set: { model.setLayoutSetting(id: layout.id, key: "split_padded", .bool($0)) }))
+            default:
+                Text("Overlay position and size use the camera settings.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+    private var ratioKey: String {
+        guard case .number(let v)? = layout.settings?["split_ratio"] else { return "auto" }
+        return abs(v - 0.5) < 0.01 ? "half" : "twoThirds"
+    }
+}

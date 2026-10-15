@@ -107,6 +107,8 @@ public final class FakeProject: EditingProject {
             clips[i].speed = speed
         case .addZoom(let s, let e, let scale, let fx, let fy):
             zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: scale, focusX: fx, focusY: fy))
+        case .insertZoom(let s, let e):
+            zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: 2, focusX: 0.5, focusY: 0.5))
         case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en, let mode):
             guard let i = zooms.firstIndex(where: { $0.id == id }) else { return }
             if let s { zooms[i].startNs = s }; if let e { zooms[i].endNs = e }
