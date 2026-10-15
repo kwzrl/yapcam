@@ -17,6 +17,7 @@ APP="$ROOT/build/Yapcam.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Yapcam"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 # Optional dedicated signing keychain; unlock it if a password file exists.
 KEYCHAIN="${YAPCAM_SIGN_KEYCHAIN:-$HOME/Library/Keychains/yapcam-signing.keychain-db}"

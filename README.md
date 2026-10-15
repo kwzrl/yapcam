@@ -1,3 +1,5 @@
+<img src="docs/assets/yapcam-icon.png" width="128" alt="Yapcam icon">
+
 # Yapcam
 
 A native macOS app for recording your screen, camera and audio and editing the result locally. Apple Silicon, no account, no cloud, no watermark. Apache 2.0.
