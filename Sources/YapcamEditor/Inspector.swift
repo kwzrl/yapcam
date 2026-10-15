@@ -238,6 +238,8 @@ struct InspectorView: View {
             PickerRow(model: model, title: "Transition speed", path: "zoom_settings.speed_preset", options: speedPresets)
             PickerRow(model: model, title: "Screen animation", path: "zoom_settings.animation_style",
                       options: [("Custom", "custom"), ("Focused (settles fast)", "focused"), ("Smooth (fluid)", "smooth")])
+            ToggleRow(model: model, title: "Start animation early", path: "zoom_settings.start_early")
+            NumberRow(model: model, title: "Default zoom level", path: "zoom_settings.default_scale", range: 1...4, unit: "×", format: "%.1f", defaultValue: 2)
             Button("Regenerate automatic zooms") { model.regenerateAutoZooms() }
         }
         Section("Motion blur") {
@@ -805,6 +807,8 @@ struct VoiceCleanupSection: View {
     var body: some View {
         ToggleRow(model: model, title: "Clean up voice", path: "audio.speech_enhancement")
         if model.bool("audio.speech_enhancement") {
+            PickerRow(model: model, title: "Voice preset", path: "audio.mic_preset",
+                      options: [("Voice", "voice"), ("Noise reduction", "noise_reduction"), ("Podcast", "podcast")])
             NumberRow(model: model, title: "Noise reduction", path: p + "noise_reduction_db", range: 0...60, unit: "dB", format: "%.0f")
             NumberRow(model: model, title: "Noise gate", path: p + "noise_threshold_db", range: -70 ... -15, unit: "dB", format: "%.0f")
             NumberRow(model: model, title: "Low cut", path: p + "high_pass_hz", range: 20...300, unit: "Hz", format: "%.0f")
