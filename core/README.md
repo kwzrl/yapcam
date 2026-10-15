@@ -242,7 +242,8 @@ beyond the segment produce no retained interval. No project/history mutation occ
 
 REC-21 notes persist as a UTF-8 string through set/undo/redo/journal/save. The
 explicit field/path contract and all new paths/queries were documented first in
-FORMATS.md. Schema and ABI versions remain 1 and 2; old projects default to empty
+FORMATS.md. Schema remains 1; old frame/extras layouts remain intact (ABI v3 motion below).
+Old projects default to empty
 collections and disabled new effects. Existing frame/extras structs stay fixed.
 
 Canvas annotations/reactions/captions are timeline text records with normalized

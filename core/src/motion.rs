@@ -361,3 +361,96 @@ mod tests {
         drop(f);
     }
 }
+
+#[cfg(test)]
+mod pan_and_camera_regressions {
+    use super::*;
+    use crate::{
+        input::InputCache,
+        model::{CameraTrack, Event},
+        project::tests::Fixture,
+    };
+    use serde_json::json;
+    #[test]
+    fn focused_and_smooth_pan_settle_differently_with_crop_and_clamp_bounds() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        let event = |t, x| Event {
+            t,
+            kind: "move".into(),
+            x: Some(x),
+            y: Some(100.0),
+            id: None,
+            details: Default::default(),
+        };
+        p.events[0] = vec![
+            event(0, 160.0),
+            event(400_000_000, 160.0),
+            event(500_000_000, 250.0),
+            event(1_000_000_000, 250.0),
+        ];
+        p.input[0] = InputCache::new(&p.events[0]);
+        p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"canvas.crop","value":[0.1,0.1,0.7,0.7]},{"op":"add_zoom","zoom":{"tl_start_ns":0,"tl_end_ns":2_000_000_000,"mode":"auto","scale":3,"target":[0.5,0.5],"ease_in_ns":0,"ease_out_ns":0}},{"op":"set","path":"canvas.motion_blur_settings.pan","value":0.8},{"op":"set","path":"canvas.motion_blur_settings.zoom","value":0}]})).unwrap();
+        p.apply(&json!({"op":"set","path":"zoom_settings.animation_style","value":"focused"}))
+            .unwrap();
+        let focused = p.frame(550_000_000).unwrap();
+        p.apply(&json!({"op":"set","path":"zoom_settings.animation_style","value":"smooth"}))
+            .unwrap();
+        let smooth = p.frame(550_000_000).unwrap();
+        assert!((focused.screen_crop.x - smooth.screen_crop.x).abs() > 1e-5);
+        let motion = p.frame_motion(550_000_000).unwrap();
+        assert_eq!(motion.pan_motion_blur, 0.8);
+        assert_eq!(motion.zoom_motion_blur, 0.0);
+        assert_eq!(smooth.motion_blur, motion.pan_motion_blur);
+        assert_eq!(p.frame_motion(1_200_000_000).unwrap().pan_motion_blur, 0.0);
+        for style in ["custom", "focused", "smooth"] {
+            p.apply(&json!({"op":"set","path":"zoom_settings.animation_style","value":style}))
+                .unwrap();
+            for t in [0, 1, 500_000_000, 550_000_000, 1_200_000_000] {
+                let frame = p.frame(t).unwrap();
+                assert!(
+                    frame.screen_crop.x >= 0.1
+                        && frame.screen_crop.x + frame.screen_crop.w <= 0.8 + 1e-15
+                );
+                assert!(
+                    frame.screen_crop.y >= 0.1
+                        && frame.screen_crop.y + frame.screen_crop.h <= 0.8 + 1e-15
+                );
+            }
+        }
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                p.frame(550_000_000).unwrap();
+                p.frame_motion(550_000_000).unwrap();
+            }),
+            0
+        );
+    }
+    #[test]
+    fn camera_zoom_respects_fitted_layouts_and_remains_in_canvas() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.session.tracks.camera = Some(CameraTrack {
+            device_name: "procedural".into(),
+            pixel_size: [1280, 800],
+            fps: 30.0,
+            mirrored: false,
+        });
+        let file = p.session.segments[0].files["screen"].clone();
+        p.session.segments[0].files.insert("camera".into(), file);
+        p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"canvas.aspect","value":"custom"},{"op":"set","path":"canvas.output_size","value":[1280,768]},{"op":"set","path":"camera.size","value":1},{"op":"set","path":"camera.position","value":[1,1]},{"op":"set","path":"camera.zoom_scale","value":4},{"op":"add_zoom","zoom":{"tl_start_ns":0,"tl_end_ns":2_000_000_000,"target":[0.5,0.5],"scale":2,"mode":"manual","ease_in_ns":0,"ease_out_ns":0}}]})).unwrap();
+        for t in [0, 1, 1_000_000_000] {
+            let d = p.frame(t).unwrap().camera_dest;
+            assert!(d.x >= 0.0 && d.y >= 0.0 && d.x + d.w <= 1280.0 && d.y + d.h <= 768.0);
+        }
+        for mode in ["camera", "side_by_side"] {
+            p.apply(&json!({"op":"set","path":"camera.layouts","value":[{"id":"fit","tl_start_ns":0,"tl_end_ns":2_000_000_000,"mode":mode}]})).unwrap();
+            let large = p.frame(1_000_000_000).unwrap().camera_dest;
+            p.apply(&json!({"op":"set","path":"camera.zoom_scale","value":1}))
+                .unwrap();
+            assert_eq!(p.frame(1_000_000_000).unwrap().camera_dest, large);
+            p.apply(&json!({"op":"set","path":"camera.zoom_scale","value":4}))
+                .unwrap();
+        }
+    }
+}
