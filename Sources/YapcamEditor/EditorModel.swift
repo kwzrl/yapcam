@@ -10,6 +10,8 @@ public enum EditorSelection: Equatable, Sendable {
     case layout(String)
     case cursorHide(Int)
     case highlight(String)
+    case text(TextKind, String)
+    case music(String)
 }
 
 public let minZoomDurationNs: Int64 = 300_000_000
@@ -29,6 +31,14 @@ public final class EditorModel: ObservableObject {
     @Published public private(set) var playheadNs: Int64 = 0
     @Published public private(set) var isPlaying = false
     @Published public var paletteVisible = false
+    @Published public var textRectPreview: (key: String, rect: [Double])?
+    public enum CaptionState: Equatable { case idle, working, failed(String) }
+    @Published public var captionState: CaptionState = .idle
+    /// Supplies transcript JSON (RecordingTranscript). Set by the document; nil = transcription unavailable.
+    public var captionSource: (@Sendable () async throws -> Data)?
+    var captionTask: Task<Void, Never>?
+    /// Project changed through a path that bypassed `perform` (transcript import, music import).
+    func noteExternalEdit() { didEdit() }
     /// Rect drag in progress on the preview (normalized rect), committed once on release.
     @Published public var highlightRectPreview: (id: String, rect: [Double])?
     @Published public var snapGuideNs: Int64?
@@ -146,6 +156,22 @@ public final class EditorModel: ObservableObject {
     }
     public func dismissSilences() { silenceState = .idle }
 
+    public var wallpapers: [WallpaperInfo] { project.wallpapers }
+    @Published public var wallpaperBusy: String?
+    /// Applies a library wallpaper (gradients set colors; artwork imports a generated image) as one undo step.
+    public func applyWallpaper(id: String) {
+        guard wallpaperBusy == nil else { return }
+        wallpaperBusy = id
+        wallpaperTask = Task { [weak self] in
+            guard let self else { return }
+            do { try await project.applyWallpaper(id: id); noteExternalEdit() }
+            catch { lastError = "Couldn't apply the wallpaper: \(error.localizedDescription)" }
+            wallpaperBusy = nil
+        }
+    }
+    var wallpaperTask: Task<Void, Never>?
+    public func waitForWallpaper() async { await wallpaperTask?.value }
+
     public func regenerateAutoZooms() { perform(.autoZooms) }
 
     public var selectedZoom: TimelineZoom? {
@@ -234,6 +260,8 @@ public final class EditorModel: ObservableObject {
         case .layout(let id): removeLayout(id: id); selection = .none
         case .cursorHide(let i): removeCursorHide(index: i); selection = .none
         case .highlight(let id): removeHighlight(id: id); selection = .none
+        case .text(let kind, let id): removeText(kind, id: id); selection = .none
+        case .music(let id): removeMusic(id: id); selection = .none
         case .clip(let id):
             guard let entry = clipStarts().first(where: { $0.clip.id == id }) else { return }
             if clips.count == 1 { lastError = "Can't delete the only clip."; return }

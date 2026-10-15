@@ -93,6 +93,10 @@ extension EditorModel {
            case .object(var o) = rows[i] {
             o["tl_start_ns"] = .number(Double(r.start)); o["tl_end_ns"] = .number(Double(r.end)); rows[i] = .object(o)
             set("cursor.ranges", .array(rows))
+        } else if let t = textItem(key: key) {
+            updateText(t.kind, id: t.id) { $0.startNs = r.start; $0.endNs = r.end }
+        } else if music.contains(where: { $0.id == key }) {
+            commitMusicSpan(id: key, start: r.start, end: r.end)
         } else if highlights.contains(where: { $0.id == key }) {
             updateHighlight(id: key) { $0.startNs = r.start; $0.endNs = r.end }
         } else if layouts.contains(where: { $0.id == key }) {

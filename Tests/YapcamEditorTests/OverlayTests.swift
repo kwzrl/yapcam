@@ -122,3 +122,60 @@ private func pkgCopy() throws -> URL {
         #expect(m.zooms[0].easeInNs == 0 && m.lastError == nil)
     }
 }
+
+@MainActor @Suite struct WallpaperTests {
+    @Test func applyingWallpaperGoesThroughTheProjectAsOneStep() async throws {
+        let p = FakeProject(), m = EditorModel(project: p, player: FakePlayer())
+        #expect(m.wallpapers.map(\.id) == ["quiet-dawn", "boreal-glow"])
+        m.applyWallpaper(id: "boreal-glow"); #expect(m.wallpaperBusy == "boreal-glow")
+        await m.waitForWallpaper()
+        #expect(p.appliedWallpapers == ["boreal-glow"] && m.wallpaperBusy == nil && m.string("canvas.background.kind") == "image")
+        m.undo(); #expect(m.string("canvas.background.kind") == "solid")
+        m.applyWallpaper(id: "nope"); await m.waitForWallpaper()
+        #expect(m.lastError != nil && m.wallpaperBusy == nil)
+    }
+
+    @Test func realLibraryAppliesGradientAndImageWallpapers() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d).model
+        #expect(m.wallpapers.count == 12)
+        m.applyWallpaper(id: "quiet-dawn"); await m.waitForWallpaper()
+        #expect(m.string("canvas.background.kind") == "gradient" && m.lastError == nil, "\(m.lastError ?? "")")
+        m.applyWallpaper(id: "boreal-glow"); await m.waitForWallpaper()
+        #expect(m.string("canvas.background.kind") == "image" && m.lastError == nil, "\(m.lastError ?? "")")
+        let thumb = await m.project.wallpaperThumbnail(id: "sediment")
+        #expect(thumb?.width == 192 && thumb?.height == 108)
+        m.undo(); #expect(m.string("canvas.background.kind") == "gradient")
+    }
+}
+
+@MainActor @Suite struct GuideOptionTests {
+    @Test func realCoreAcceptsEveryCursorMotionAndCameraOption() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d); let m = doc.model
+        for (path, on) in [("cursor.always_default", true), ("cursor.rotate_on_move", true), ("cursor.remove_shakes", true), ("cursor.optimize_types", true)] {
+            m.set(path, bool: on); #expect(m.bool(path) == on, "\(path): \(m.lastError ?? "")")
+        }
+        m.set("cursor.stop_before_end_ns", number: 1_000_000_000)
+        for style in ["focused", "smooth", "custom"] { m.set("zoom_settings.animation_style", string: style); #expect(m.string("zoom_settings.animation_style") == style) }
+        m.set("camera.zoom_scale", number: 1.5)
+        m.set("canvas.motion_blur", number: 0.3)
+        m.set("canvas.motion_blur_settings.zoom", number: 0.8); m.set("canvas.motion_blur_settings.pan", .null)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.number("camera.zoom_scale") == 1.5 && m.number("canvas.motion_blur_settings.zoom") == 0.8)
+        #expect(m.value("canvas.motion_blur_settings.pan") == .null)
+        // Out-of-range values are rejected by core and leave state unchanged.
+        m.set("camera.zoom_scale", number: 9); #expect(m.lastError != nil && m.number("camera.zoom_scale") == 1.5)
+        // Core evaluates them: the held cursor and motion data are queryable at a valid time.
+        #expect((try? doc.project.motion(atNs: 500_000_000)) != nil)
+    }
+
+    @Test func inheritedBlurAndHoldToggleSemantics() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        #expect(m.value("canvas.motion_blur_settings.zoom") == nil)       // absent = inherits
+        m.set("canvas.motion_blur_settings.zoom", number: 0.5)
+        if case .number(0.5)? = m.value("canvas.motion_blur_settings.zoom") {} else { Issue.record("expected explicit value") }
+        m.set("canvas.motion_blur_settings.zoom", .null)
+        if case .number? = m.value("canvas.motion_blur_settings.zoom") { Issue.record("expected inherit") }
+    }
+}

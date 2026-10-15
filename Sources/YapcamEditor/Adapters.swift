@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import Combine
 import YapcamCore
 import YapcamRender
@@ -110,6 +111,21 @@ public final class CoreEditingProject: EditingProject {
     public func undo() throws { try project.undo(); refresh() }
     public func redo() throws { try project.redo(); refresh() }
     public func save() throws { try project.save() }
+    public var wallpapers: [WallpaperInfo] {
+        BackgroundLibrary.presets.map { WallpaperInfo(id: $0.id, title: $0.title, category: $0.category.rawValue) }
+    }
+    public func applyWallpaper(id: String) async throws {
+        guard let preset = BackgroundLibrary.preset(id: id) else { throw RenderError.invalidSettings("Unknown wallpaper") }
+        try await BackgroundLibrary.apply(preset, to: project); refresh()
+    }
+    public func wallpaperThumbnail(id: String) async -> CGImage? {
+        guard let preset = BackgroundLibrary.preset(id: id) else { return nil }
+        return await Task.detached(priority: .utility) { try? BackgroundLibrary.image(for: preset, width: 192, height: 108) }.value
+    }
+    public func importTranscript(_ data: Data) throws { try project.importTranscript(data); refresh() }
+    public func importMusic(_ file: URL, startNs: Int64) async throws {
+        try await project.importMusic(file, startNs: startNs, endNs: nil, gainDb: -18, loop: true); refresh()
+    }
 
     private struct AudioRangeRow: Decodable {
         var track: String, path: String

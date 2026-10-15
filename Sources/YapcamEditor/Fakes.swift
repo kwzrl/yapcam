@@ -1,5 +1,6 @@
 import Foundation
 import YapcamCore
+import CoreGraphics
 
 /// In-memory project used for development and tests until the Rust-backed `Project` lands.
 /// Mirrors core semantics: split creates clips, deleteRange ripples, each command = one undo step.
@@ -116,6 +117,41 @@ public final class FakeProject: EditingProject {
         guard let s = redoStack.popLast() else { return }
         undoStack.append(Snapshot(clips: clips, zooms: zooms, settings: settings))
         clips = s.clips; zooms = s.zooms; settings = s.settings
+    }
+    public var wallpapers = [WallpaperInfo(id: "quiet-dawn", title: "Quiet Dawn", category: "gradients"), WallpaperInfo(id: "boreal-glow", title: "Boreal Glow", category: "landscapes")]
+    public private(set) var appliedWallpapers: [String] = []
+    public func applyWallpaper(id: String) async throws {
+        guard wallpapers.contains(where: { $0.id == id }) else { throw NSError(domain: "Fake", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unknown wallpaper"]) }
+        appliedWallpapers.append(id)
+        let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
+        settings = Self.setting(settings, ["canvas", "background", "kind"][...], .string(id == "quiet-dawn" ? "gradient" : "image"))
+        undoStack.append(snap); redoStack.removeAll()
+    }
+    public func wallpaperThumbnail(id: String) async -> CGImage? { nil }
+    public var importedTranscripts = 0
+    public func importTranscript(_ data: Data) throws {
+        guard let o = try JSONSerialization.jsonObject(with: data) as? [String: Any], let words = o["words"] as? [[String: Any]] else {
+            throw NSError(domain: "Fake", code: 3, userInfo: [NSLocalizedDescriptionKey: "bad transcript"])
+        }
+        importedTranscripts += 1
+        let rows: [JSONValue] = words.enumerated().map { i, w in
+            .object(["id": .string("cap-\(i)"), "tl_start_ns": .number((w["src_start_ns"] as? Double) ?? 0), "tl_end_ns": .number((w["src_end_ns"] as? Double) ?? 1),
+                     "text": .string(w["text"] as? String ?? "")])
+        }
+        let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
+        settings = Self.setting(settings, ["canvas", "captions"][...], .array(rows))
+        undoStack.append(snap); redoStack.removeAll()
+    }
+    public private(set) var importedMusic: [(URL, Int64)] = []
+    public func importMusic(_ file: URL, startNs: Int64) async throws {
+        importedMusic.append((file, startNs))
+        let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
+        var rows: [JSONValue] = []
+        if case .object(let a)? = Optional(settings), case .object(let audio)? = a["audio"], case .array(let r)? = audio["music"] { rows = r }
+        rows.append(.object(["id": .string("music-\(rows.count)"), "tl_start_ns": .number(Double(startNs)), "tl_end_ns": .number(Double(durationNs)),
+                             "source": .string("file"), "path": .string("assets/\(file.lastPathComponent)"), "gain_db": .number(-18), "loop": .bool(true)]))
+        settings = Self.setting(settings, ["audio", "music"][...], .array(rows))
+        undoStack.append(snap); redoStack.removeAll()
     }
     public func silentSpans() async throws -> [TimeSpan] { try await Task.sleep(for: silenceDelay); return silences }
     public func save() throws {
