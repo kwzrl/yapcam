@@ -90,3 +90,6 @@ Notes button in idle + recording toolbar (popover editor; visible while recordin
 
 ## Backlog check (earlier)
 Main unchanged (35ba7c5), branch already rebased. Re-ran `--capture-selftest 3`: still SCStream -3801 (no screen-recording grant for `Yapcam Dev Signing`). Every remaining ui item depends on something outside my files: live record/stop verification (TCC grant), editor hand-off (`EditorWindows.open`), speaker notes (core field). Nothing else open in docs/briefs/ui.md or FEATURES.md rows owned by ui.
+
+## Temp cleanup (Lead request, main 0df4bbb)
+Listed `$TMPDIR` for ui-created dirs (`yapcam-ui-*`, `yapcam-notes-*`, `yapcam-preset-*`, `yapcam-r2-*`, `yapcam-smoke*`, `yapcam-case-*`): none left (every test removes its temp dir with `defer`). Deleted my scratchpad snapshot dir (548 KB). I create no repo copies or harness dirs and have no scripts; any future script gets an `EXIT` trap. Did not touch other teams' dirs, `~/Movies/Yapcam/{Probes,QA}` (not mine) or my worktree `.build` (468 MB, in use).
