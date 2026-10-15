@@ -42,16 +42,12 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             if case .cancelled = export.state { Text("Export cancelled.").foregroundStyle(.secondary) }
             Picker("Format", selection: $export.format) { ForEach(ExportFormat.allCases) { Text($0.label).tag($0) } }.pickerStyle(.menu)
-            Picker("Resolution", selection: $export.height) { ForEach(ExportModel.heights, id: \.self) { Text($0 == 2160 ? "4K" : "\($0)p").tag($0) } }
-            Picker("Frame rate", selection: $export.fps) { ForEach(ExportModel.fpsOptions, id: \.self) { Text("\($0) fps").tag($0) } }
+            Picker("Resolution", selection: $export.height) { ForEach(export.options.heights, id: \.self) { Text($0 == 2160 ? "4K" : "\($0)p").tag($0) } }
+            Picker("Frame rate", selection: $export.fps) { ForEach(export.options.fps, id: \.self) { Text("\($0) fps").tag($0) } }
             if export.format.supportsAudio { Toggle("Include audio", isOn: $export.includeAudio) }
-            if export.format != .gif {
-                LabeledContent("Quality") {
-                    HStack {
-                        Slider(value: $export.quality, in: 0.3...1).accessibilityLabel("Quality").accessibilityValue("\(Int(export.quality * 100)) percent")
-                        Text("\(Int(export.quality * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
-                    }
-                }
+            if !export.availablePresets.isEmpty {
+                Picker("Compression", selection: $export.preset) { ForEach(export.availablePresets) { Text($0.label).tag($0) } }.pickerStyle(.menu)
+                Text(export.preset.hint).font(.caption).foregroundStyle(.secondary)
             }
             HStack {
                 Spacer()

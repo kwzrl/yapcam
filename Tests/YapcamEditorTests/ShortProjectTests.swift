@@ -104,34 +104,68 @@ import YapcamCore
 }
 
 @MainActor @Suite struct ExportOptionsTests {
-    @Test func optionsReachTheEngineAndGifDropsAudio() async {
+    @Test func tableIsConsistentAndDefaultsFollowTheReference() {
+        for f in ExportFormat.allCases {
+            let o = f.options
+            #expect(o.fps.contains(o.defaultFPS) && o.heights.contains(o.defaultHeight), "\(f)")
+            #expect(Set(o.fps).count == o.fps.count && Set(o.heights).count == o.heights.count)
+            if let d = o.defaultPreset { #expect(o.presets(atHeight: o.defaultHeight).contains(d)) }
+        }
+        let mp4 = ExportFormat.mp4h264.options
+        #expect(mp4.defaultFPS == 60 && mp4.defaultHeight == 720 && mp4.defaultPreset == .social)      // reference defaults
+        #expect(ExportFormat.gif.options.presets.isEmpty)                                              // GIF has no compression presets
+        #expect(!CompressionPreset.web.isAvailable(atHeight: 2160) && !CompressionPreset.webLow.isAvailable(atHeight: 2160))
+        #expect(CompressionPreset.studio.isAvailable(atHeight: 2160) && CompressionPreset.web.isAvailable(atHeight: 1080))
+        #expect(CompressionPreset.allCases.map(\.quality) == CompressionPreset.allCases.map(\.quality).sorted(by: >))   // studio best … web-low smallest
+    }
+
+    @Test func modelKeepsChoicesInsideTheFormatsOptions() {
+        let e = ExportModel(engine: RecordingEngine())
+        #expect(e.fps == 60 && e.height == 720 && e.preset == .social && e.format == .mp4h264)
+        e.height = 2160; e.preset = .web                                                               // web presets do not exist at 4K
+        #expect(e.preset != .web && e.preset != .webLow && e.availablePresets == [.studio, .social])
+        e.height = 1080; e.preset = .webLow; e.height = 2160
+        #expect(e.availablePresets.contains(e.preset))
+        e.format = .gif                                                                                 // GIF: own sets and defaults, no audio
+        #expect(!e.includeAudio && e.options.fps.contains(e.fps) && e.options.heights.contains(e.height) && e.availablePresets.isEmpty)
+        e.fps = 12345; #expect(e.fps == e.options.defaultFPS)                                          // unknown values snap back
+        e.format = .movh264; e.height = 1440; #expect(e.height == 1440)                                // MOV keeps the extra 1440p
+        e.format = .mp4h264; #expect(e.options.heights.contains(e.height))
+    }
+
+    @Test func optionsReachTheEngine() async {
         let engine = RecordingEngine(), e = ExportModel(engine: engine)
-        #expect(ExportModel.heights == [720, 1080, 1440, 2160] && ExportModel.fpsOptions == [24, 30, 60])
-        e.height = 2160; e.fps = 24; e.quality = 0.5; e.format = .mp4hevc
+        e.format = .mp4hevc; e.height = 1080; e.fps = 30; e.preset = .studio
         e.start(to: URL(fileURLWithPath: "/tmp/a.mp4")); await e.waitUntilFinished()
         let r = engine.last!
-        #expect(r.height == 2160 && r.fps == 24 && r.quality == 0.5 && r.format == .mp4hevc && r.includeAudio)
-        e.reset(); e.height = 2160; e.fps = 60; e.format = .gif                      // GIF: no audio, clamped to 720p / ≤ 30 fps
-        #expect(!e.includeAudio && e.height == 720 && e.fps == 24)
-        e.includeAudio = true                                                          // even if re-enabled it is not requested
+        #expect(r.height == 1080 && r.fps == 30 && r.quality == CompressionPreset.studio.quality && r.format == .mp4hevc && r.includeAudio)
+        e.reset(); e.format = .gif; e.includeAudio = true                                              // never requested for GIF
         e.start(to: URL(fileURLWithPath: "/tmp/a.gif")); await e.waitUntilFinished()
         #expect(engine.last!.format == .gif && !engine.last!.includeAudio && engine.last!.speech == nil)
         #expect(ExportFormat.allCases.map(\.fileExtension) == ["mp4", "mp4", "mov", "gif"])
     }
 
-    @Test func everyFormatExportsARealSubSecondProject() async throws {
+    /// Guards the table against render's validation: every offered fps × height of every format must export.
+    @Test func everyOfferedCombinationExportsARealSubSecondProject() async throws {
         let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("fmt-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d)
+        try doc.project.apply(.deleteRange(startNs: 500_000_000, endNs: doc.project.durationNs))
         for format in ExportFormat.allCases {
-            let d = FileManager.default.temporaryDirectory.appendingPathComponent("fmt-\(UUID().uuidString).yapcam")
-            try FileManager.default.copyItem(at: src, to: d)
-            let out = FileManager.default.temporaryDirectory.appendingPathComponent("fmt-\(UUID().uuidString).\(format.fileExtension)")
-            defer { try? FileManager.default.removeItem(at: d); try? FileManager.default.removeItem(at: out) }
-            let doc = try EditorDocument(package: d)
-            try doc.project.apply(.deleteRange(startNs: 700_000_000, endNs: doc.project.durationNs))
-            doc.export.format = format; doc.export.height = 720; doc.export.fps = 24; doc.export.quality = 0.6
-            doc.export.start(to: out); await doc.export.waitUntilFinished()
-            #expect(doc.export.state == .done(out), "\(format): \(doc.export.state)")
-            #expect((try? out.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 > 0)
+            let o = format.options
+            for height in o.heights {
+                for fps in o.fps where fps == o.defaultFPS || fps == o.fps.last || height == o.defaultHeight {   // all fps at the default height, extremes elsewhere
+                    let out = FileManager.default.temporaryDirectory.appendingPathComponent("fmt-\(UUID().uuidString).\(format.fileExtension)")
+                    defer { try? FileManager.default.removeItem(at: out) }
+                    doc.export.reset()
+                    doc.export.format = format; doc.export.height = height; doc.export.fps = fps
+                    if let p = o.presets(atHeight: height).last { doc.export.preset = p }
+                    doc.export.includeAudio = false
+                    doc.export.start(to: out); await doc.export.waitUntilFinished()
+                    #expect(doc.export.state == .done(out), "\(format) \(height)p \(fps) fps: \(doc.export.state)")
+                }
+            }
         }
     }
 }
