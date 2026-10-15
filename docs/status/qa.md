@@ -1,4 +1,4 @@
-READY d01c99b qa: audit vs 065a117
+READY HEAD qa: regression on aa70d91
 
 # qa status
 
@@ -12,7 +12,7 @@ READY d01c99b qa: audit vs 065a117
 - F2 [lead/env, HIGH] Real capture cannot be tested in this session: `CGPreflightScreenCaptureAccess()` is false for the build signed `Yapcam Dev Signing` (cert is CSSMERR_TP_NOT_TRUSTED, designated requirement uses cert leaf hash). `~/Library/Logs/Yapcam/probe.log` shows SCStream -3801 (TCC denied). The grant for `mov.yapcam.Yapcam` seems to belong to the earlier identity ("Yapcam Local Dev"). I must not reset/grant TCC; user must re-grant Screen Recording for this build once.
 - F3 [qa] Library-level M1 verified: fixture → Project → canvas.padding + manual zoom (crop changes mid-zoom) → Exporter 1080p MP4 → ffprobe: height 1080, audio track present, duration 5.0±0.1 s. Cut/undo/redo exact; 300 random cuts then full undo restores duration (no drift); save → reopen → `.prev` kept; missing screen.mov → `CoreError.missingMedia`.
 
-- F4 [editor now, formerly core/render; LOW privacy] `scripts/qa/privacy-scan.sh` flags absolute `/Users/<name>/` home paths in docs/status/editor.md (core/render fixed; personal paths, rule 7). Replace with `~/`.
+- F4 [editor now, formerly core/render; LOW privacy] `scripts/qa/privacy-scan.sh` flags absolute `/Users/<name>/` home paths in docs/status/render.md as of aa70d91 (editor/core fixed; personal paths, rule 7). Replace with `~/`.
 
 - F5 E2E now 11 tests green (formats HEVC/MOV/GIF, 60 fps, cut/duration, A/V duration agreement after cut, cancel removes partial file, export crop at zoom). FEATURES.md rows EXP-01/03/05/06/07, EDT-02/05, PRJ-01/05, ZOM-02 marked verified (library level; UI and live capture not covered).
 - run-e2e.sh simplified (E2E is a real target on main).
@@ -44,6 +44,8 @@ READY d01c99b qa: audit vs 065a117
 - Audit vs main 25f2b97: CUR-06 now integrated (editor cursor picker); KNOWN_LIMITATIONS updated.
 
 - Audit vs main 065a117: M3 long-export/soak/preview results folded into FEATURES (EXP-09 verified), KNOWN_LIMITATIONS.
+
+- Regression on main aa70d91: E2E 11/11 green after core rebuild; fresh-checkout build verified by Lead (05:05). Privacy scan flags docs/status/render.md (absolute home path, F4).
 
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
