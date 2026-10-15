@@ -183,6 +183,7 @@ import YapcamEditor
     /// Skipped while QA owns the app (~/Movies/Yapcam/QA/.app-lock): never start a second Yapcam then.
     nonisolated static let qaOwnsApp = FileManager.default.fileExists(
         atPath: FileManager.default.homeDirectoryForCurrentUser.appending(path: "Movies/Yapcam/QA/.app-lock").path)
+        || !NSRunningApplication.runningApplications(withBundleIdentifier: "mov.yapcam.Yapcam").isEmpty   // any instance running
 
     @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: UISmokeTests.appBinary.path) && !UISmokeTests.qaOwnsApp))
     func appLaunchedWithSnapshotFlagRendersEverything() async throws {
