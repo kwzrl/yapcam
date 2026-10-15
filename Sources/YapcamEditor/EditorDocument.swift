@@ -73,7 +73,7 @@ public struct EditorView: View {
     @ObservedObject private var document: EditorDocument
     public init(document: EditorDocument) { self.document = document }
     public var body: some View {
-        EditorContent(model: document.model, export: document.export, title: document.title) {
+        EditorContent(model: document.model, export: document.export, title: document.title, packageURL: document.project.packageURL) {
             PreviewView(player: document.player)
         }
     }

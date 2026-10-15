@@ -165,6 +165,9 @@ public final class CoreEditingProject: EditingProject {
         guard let preset = BackgroundLibrary.preset(id: id) else { return nil }
         return await Task.detached(priority: .utility) { try? BackgroundLibrary.image(for: preset, width: 192, height: 108) }.value
     }
+    public func importBackgroundImage(_ file: URL) throws { try project.importBackgroundImage(file); refresh() }
+    public func exportPreset(to url: URL) throws { try project.exportPreset(to: url) }
+    public func importPreset(from url: URL) throws { try project.importPreset(from: url); refresh() }
     public func importTranscript(_ data: Data) throws { try project.importTranscript(data); refresh() }
     public func importMusic(_ file: URL, startNs: Int64) async throws {
         try await project.importMusic(file, startNs: startNs, endNs: nil, gainDb: -18, loop: true); refresh()

@@ -118,7 +118,10 @@ public final class EditorModel: ObservableObject {
     /// RGBA color stored as [r,g,b,a] 0…1 under `path`.
     public func color(_ path: String) -> [Double] { let n = numbers(path); return n.count == 4 ? n : [0, 0, 0, 1] }
 
-    public func set(_ path: String, _ value: JSONValue) { perform(.set(path: path, value: value)) }
+    public func set(_ path: String, _ value: JSONValue) {
+        if path == "canvas.background.kind" { selectedWallpaperID = nil }
+        perform(.set(path: path, value: value))
+    }
     public func set(_ path: String, number v: Double) { set(path, .number(v)) }
     public func set(_ path: String, bool v: Bool) { set(path, .bool(v)) }
     public func set(_ path: String, string v: String) { set(path, .string(v)) }
@@ -194,6 +197,31 @@ public final class EditorModel: ObservableObject {
     public func dismissSilences() { silenceState = .idle }
 
     public var wallpapers: [WallpaperInfo] { project.wallpapers }
+    /// The wallpaper applied in this session (not persisted: core stores colors/image, not the library id).
+    @Published public var selectedWallpaperID: String?
+    /// Split-on-click mode of the scissors tool.
+    @Published public var cutToolActive = false
+    /// Preview view magnification (1 = fit) and pan offset in points; purely a view setting.
+    @Published public var previewZoom = 1.0
+    @Published public var previewPan = CGSize.zero
+
+    public func zoomPreview(by factor: Double) {
+        previewZoom = min(max(previewZoom * factor, 1), 4)
+        if previewZoom == 1 { previewPan = .zero }
+    }
+    public func resetPreviewZoom() { previewZoom = 1; previewPan = .zero }
+
+    /// Uses an image file as the background (copied into the package; one undo step).
+    public func importBackgroundImage(_ url: URL) {
+        guard !isClosed else { return }
+        do { try project.importBackgroundImage(url); selectedWallpaperID = nil; noteExternalEdit() }
+        catch { lastError = "Couldn't use the image: \(error.localizedDescription)" }
+    }
+
+    public func applyRandomWallpaper() {
+        let options = wallpapers.filter { $0.id != selectedWallpaperID }
+        if let pick = options.randomElement() { applyWallpaper(id: pick.id) }
+    }
     @Published public var wallpaperBusy: String?
     /// Applies a library wallpaper (gradients set colors; artwork imports a generated image) as one undo step.
     public func applyWallpaper(id: String) {
@@ -206,7 +234,7 @@ public final class EditorModel: ObservableObject {
             do {
                 try Task.checkCancellation()
                 try await project.applyWallpaper(id: id)
-                if !isClosed { noteExternalEdit() }
+                if !isClosed { selectedWallpaperID = id; noteExternalEdit() }
             } catch is CancellationError {
             } catch { if !isClosed { lastError = "Couldn't apply the wallpaper: \(error.localizedDescription)" } }
         }

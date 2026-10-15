@@ -9,6 +9,7 @@ struct NumberRow: View {
     let title: String, path: String
     let range: ClosedRange<Double>
     var unit = "", format = "%.2f", scale = 1.0      // scale: display = stored * scale
+    var defaultValue: Double? = nil                  // shows a reset button when the value differs
     @State private var value = 0.0
     @State private var editing = false
 
@@ -23,6 +24,11 @@ struct NumberRow: View {
                     .accessibilityValue(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
                 Text(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
                     .monospacedDigit().frame(width: 62, alignment: .trailing).accessibilityHidden(true)
+                if let d = defaultValue {
+                    Button { value = d; model.set(path, number: d) } label: { Image(systemName: "arrow.counterclockwise") }
+                        .buttonStyle(.borderless).help("Reset to default").accessibilityLabel("Reset \(title)")
+                        .opacity(abs(value - d) > 1e-9 ? 1 : 0.25).disabled(abs(value - d) <= 1e-9)
+                }
             }
         }
         .onAppear { value = model.number(path) }
@@ -76,39 +82,87 @@ public enum AspectPreset: String, CaseIterable {
     }
 }
 
+public enum InspectorSection: String, CaseIterable, Identifiable {
+    case background, cursor, camera, overlays, audio, keys, motion
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .background: "Background"; case .cursor: "Cursor"; case .camera: "Camera"; case .overlays: "Text, regions & captions"
+        case .audio: "Audio"; case .keys: "Keyboard shortcuts"; case .motion: "Zoom & motion"
+        }
+    }
+    public var symbol: String {
+        switch self {
+        case .background: "photo.on.rectangle.angled"; case .cursor: "cursorarrow"; case .camera: "video"; case .overlays: "textformat"
+        case .audio: "speaker.wave.2"; case .keys: "keyboard"; case .motion: "wand.and.stars"
+        }
+    }
+}
+
+/// Vertical icon rail (right of the preview) that picks the inspector section.
+struct InspectorRail: View {
+    @Binding var section: InspectorSection
+    var body: some View {
+        VStack(spacing: 4) {
+            ForEach(InspectorSection.allCases) { s in
+                Button { section = s } label: {
+                    Image(systemName: s.symbol).font(.system(size: 15)).frame(width: 34, height: 34)
+                        .background(section == s ? Color.accentColor.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                        .foregroundStyle(section == s ? Color.accentColor : .secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(s.title)
+                .accessibilityLabel(s.title)
+                .accessibilityAddTraits(section == s ? [.isButton, .isSelected] : .isButton)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 8).padding(.horizontal, 5)
+        .frame(width: 44)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
 struct InspectorView: View {
     @ObservedObject var model: EditorModel
-    @State private var tab: Tab
-    init(model: EditorModel, initialTab: Tab = .appearance) { self.model = model; _tab = State(initialValue: initialTab) }
-    enum Tab: String, CaseIterable { case appearance = "Look", overlays = "Overlays", cursor = "Cursor", camera = "Camera", audio = "Audio" }
+    @State private var section: InspectorSection
+    init(model: EditorModel, initialSection: InspectorSection = .background) { self.model = model; _section = State(initialValue: initialSection) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Inspector section", selection: $tab) { ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
-                .pickerStyle(.segmented).labelsHidden().padding(10).accessibilityLabel("Inspector section")
-            Form {
-                switch tab {
-                case .appearance: appearance
-                case .overlays: overlays
-                case .cursor: cursor
-                case .camera: camera
-                case .audio: audio
-                }
-            }.formStyle(.grouped)
+        HStack(spacing: 0) {
+            InspectorRail(section: $section)
+            Divider()
+            VStack(spacing: 0) {
+                HStack { Text(section.title).font(.headline); Spacer() }.padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(Color(nsColor: .windowBackgroundColor))
+                Divider()
+                Form {
+                    switch section {
+                    case .background: BackgroundPanel(model: model)
+                    case .overlays: overlays
+                    case .cursor: cursor
+                    case .camera: camera
+                    case .audio: audio
+                    case .keys: keys
+                    case .motion: motion
+                    }
+                }.formStyle(.grouped)
+            }
         }
         .onChange(of: model.selection) { _, s in
             switch s {
-            case .zoom, .clip: tab = .appearance
-            case .layout: tab = .camera
-            case .cursorHide: tab = .cursor
-            case .highlight, .text: tab = .overlays
-            case .music: tab = .audio
+            case .zoom, .clip: section = .motion
+            case .layout: section = .camera
+            case .cursorHide: section = .cursor
+            case .highlight, .text: section = .overlays
+            case .music: section = .audio
             case .none: break
             }
         }
     }
 
-    @ViewBuilder private var appearance: some View {
+    @ViewBuilder private var motion: some View {
         if let z = model.selectedZoom { zoomSection(z) }
         if case .clip(let id) = model.selection, let c = model.clips.first(where: { $0.id == id }) { speedSection(c) }
         Section("Zooms") {
@@ -119,37 +173,42 @@ struct InspectorView: View {
                       options: [("Custom", "custom"), ("Focused (settles fast)", "focused"), ("Smooth (fluid)", "smooth")])
             Button("Regenerate automatic zooms") { model.regenerateAutoZooms() }
         }
-        Section("Background") {
-            PickerRow(model: model, title: "Type", path: "canvas.background.kind",
-                      options: [("Solid", "solid"), ("Gradient", "gradient"), ("Blurred screen", "blurred_screen")])
-            ColorRow(model: model, title: model.string("canvas.background.kind") == "gradient" ? "From" : "Color", path: "canvas.background.color")
-            if model.string("canvas.background.kind") == "gradient" {
-                ColorRow(model: model, title: "To", path: "canvas.background.color2")
-                NumberRow(model: model, title: "Angle", path: "canvas.background.angle_deg", range: 0...360, unit: "°", format: "%.0f")
-            }
-            if model.string("canvas.background.kind") == "blurred_screen" {
-                NumberRow(model: model, title: "Blur", path: "canvas.background.blur", range: 0...80, format: "%.0f")
-            }
-        }
-        Section("Wallpapers") { WallpaperGrid(model: model) }
-        Section("Frame") {
-            Picker("Aspect ratio", selection: Binding(get: { AspectPreset(rawValue: model.string("canvas.aspect")) ?? .custom },
-                                                       set: { model.setAspect($0) })) {
-                ForEach(AspectPreset.allCases, id: \.self) { Text($0.label).tag($0) }
-            }
-            NumberRow(model: model, title: "Padding", path: "canvas.padding", range: 0...200, unit: "pt", format: "%.0f")
-            NumberRow(model: model, title: "Corner radius", path: "canvas.radius", range: 0...64, unit: "pt", format: "%.0f")
-            NumberRow(model: model, title: "Shadow", path: "canvas.shadow.opacity", range: 0...1)
-            NumberRow(model: model, title: "Shadow blur", path: "canvas.shadow.radius", range: 0...80, unit: "pt", format: "%.0f")
-            NumberRow(model: model, title: "Inset", path: "canvas.inset", range: 0...24, unit: "pt", format: "%.0f")
-            if model.number("canvas.inset") > 0 { ColorRow(model: model, title: "Inset color", path: "canvas.inset_color") }
+        Section("Motion blur") {
             NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1)
             InheritedBlurRow(model: model, title: "Zoom blur", path: "canvas.motion_blur_settings.zoom")
             InheritedBlurRow(model: model, title: "Screen move blur", path: "canvas.motion_blur_settings.pan")
-            ToggleRow(model: model, title: "Window frame", path: "canvas.window_chrome")
-            NumberRow(model: model, title: "Background noise", path: "canvas.background.noise", range: 0...1)
         }
-        CropSection(model: model)
+        Section("Intro and outro") {
+            Picker("Intro", selection: Binding(get: { model.string("canvas.animation.entrance", default: "none") }, set: { model.set("canvas.animation.entrance", string: $0) })) {
+                ForEach(animationModes(intro: true), id: \.value) { Text($0.label).tag($0.value) }
+            }
+            if model.string("canvas.animation.entrance", default: "none") != "none" {
+                DurationRow(model: model, title: "Intro length", path: "canvas.animation.entrance_duration_ns")
+            }
+            Picker("Outro", selection: Binding(get: { model.string("canvas.animation.exit", default: "none") }, set: { model.set("canvas.animation.exit", string: $0) })) {
+                ForEach(animationModes(intro: false), id: \.value) { Text($0.label).tag($0.value) }
+            }
+            if model.string("canvas.animation.exit", default: "none") != "none" {
+                DurationRow(model: model, title: "Outro length", path: "canvas.animation.exit_duration_ns")
+            }
+        }
+    }
+
+    @ViewBuilder private var keys: some View {
+        Section("Key overlay") {
+            ToggleRow(model: model, title: "Show typed keys", path: "cursor.key_overlay.enabled")
+            if model.bool("cursor.key_overlay.enabled") {
+                ToggleRow(model: model, title: "Shortcuts only", path: "cursor.key_overlay.shortcuts_only", defaultValue: true)
+                DurationRow(model: model, title: "Stays visible", path: "cursor.key_overlay.duration_ns", default: 1_000_000_000)
+                RectRow(model: model, title: "Position", path: "cursor.key_overlay.rect", fallback: [0.3, 0.82, 0.4, 0.12])
+                NumberRow(model: model, title: "Font size", path: "cursor.key_overlay.style.font_size", range: 12...120, unit: "px", format: "%.0f")
+                ColorRow(model: model, title: "Text", path: "cursor.key_overlay.style.color")
+                ColorRow(model: model, title: "Background", path: "cursor.key_overlay.style.background", opacity: true)
+                NumberRow(model: model, title: "Corner radius", path: "cursor.key_overlay.style.radius", range: 0...48, unit: "px", format: "%.0f")
+                NumberRow(model: model, title: "Opacity", path: "cursor.key_overlay.style.opacity", range: 0...1)
+            }
+            Text("Needs “Record keystrokes” turned on before recording.").font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder private var overlays: some View {
@@ -174,20 +233,6 @@ struct InspectorView: View {
             Text("Drag the text box in the preview to place it.").font(.caption).foregroundStyle(.secondary)
         }
         CaptionSection(model: model)
-        Section("Intro and outro") {
-            Picker("Intro", selection: Binding(get: { model.string("canvas.animation.entrance", default: "none") }, set: { model.set("canvas.animation.entrance", string: $0) })) {
-                ForEach(animationModes(intro: true), id: \.value) { Text($0.label).tag($0.value) }
-            }
-            if model.string("canvas.animation.entrance", default: "none") != "none" {
-                DurationRow(model: model, title: "Intro length", path: "canvas.animation.entrance_duration_ns")
-            }
-            Picker("Outro", selection: Binding(get: { model.string("canvas.animation.exit", default: "none") }, set: { model.set("canvas.animation.exit", string: $0) })) {
-                ForEach(animationModes(intro: false), id: \.value) { Text($0.label).tag($0.value) }
-            }
-            if model.string("canvas.animation.exit", default: "none") != "none" {
-                DurationRow(model: model, title: "Outro length", path: "canvas.animation.exit_duration_ns")
-            }
-        }
     }
 
     private func animationModes(intro: Bool) -> [(label: String, value: String)] {
@@ -247,20 +292,6 @@ struct InspectorView: View {
             PickerRow(model: model, title: "Cursor size", path: "cursor.logical_size", options: cursorSizes)
             NumberRow(model: model, title: "Motion blur", path: "cursor.motion_blur", range: 0...1)
             NumberRow(model: model, title: "Spotlight radius", path: "cursor.spotlight_radius", range: 0...600, unit: "px", format: "%.0f")
-        }
-        Section("Key overlay") {
-            ToggleRow(model: model, title: "Show typed keys", path: "cursor.key_overlay.enabled")
-            if model.bool("cursor.key_overlay.enabled") {
-                ToggleRow(model: model, title: "Shortcuts only", path: "cursor.key_overlay.shortcuts_only", defaultValue: true)
-                DurationRow(model: model, title: "Stays visible", path: "cursor.key_overlay.duration_ns", default: 1_000_000_000)
-                RectRow(model: model, title: "Position", path: "cursor.key_overlay.rect", fallback: [0.3, 0.82, 0.4, 0.12])
-                NumberRow(model: model, title: "Font size", path: "cursor.key_overlay.style.font_size", range: 12...120, unit: "px", format: "%.0f")
-                ColorRow(model: model, title: "Text", path: "cursor.key_overlay.style.color")
-                ColorRow(model: model, title: "Background", path: "cursor.key_overlay.style.background", opacity: true)
-                NumberRow(model: model, title: "Corner radius", path: "cursor.key_overlay.style.radius", range: 0...48, unit: "px", format: "%.0f")
-                NumberRow(model: model, title: "Opacity", path: "cursor.key_overlay.style.opacity", range: 0...1)
-            }
-            Text("Needs “Record keystrokes” turned on before recording.").font(.caption).foregroundStyle(.secondary)
         }
         Section("Hidden sections") {
             if case .cursorHide(let i) = model.selection, let h = model.cursorHides.first(where: { $0.index == i }) {
@@ -635,29 +666,11 @@ struct MusicControls: View {
     }
 }
 
-struct WallpaperGrid: View {
-    @ObservedObject var model: EditorModel
-    var body: some View {
-        let all = model.wallpapers
-        let categories = Array(NSOrderedSet(array: all.map(\.category))) as? [String] ?? []
-        ForEach(categories, id: \.self) { cat in
-            Text(cat.capitalized).font(.caption).foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
-                ForEach(all.filter { $0.category == cat }) { w in
-                    Button { model.applyWallpaper(id: w.id) } label: {
-                        WallpaperThumb(model: model, info: w, busy: model.wallpaperBusy == w.id)
-                    }.buttonStyle(.plain).disabled(model.wallpaperBusy != nil)
-                    .help(w.title).accessibilityLabel("Wallpaper \(w.title)")
-                }
-            }
-        }
-    }
-}
-
 struct WallpaperThumb: View {
     @ObservedObject var model: EditorModel
     let info: WallpaperInfo
     let busy: Bool
+    var selected = false
     @State private var image: CGImage?
     var body: some View {
         ZStack {
@@ -665,8 +678,8 @@ struct WallpaperThumb: View {
             else { Rectangle().fill(Color.primary.opacity(0.08)) }
             if busy { ProgressView().controlSize(.small) }
         }
-        .frame(height: 44).clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.2)))
+        .frame(height: 50).clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.2), lineWidth: selected ? 3 : 1))
         .task { image = await model.project.wallpaperThumbnail(id: info.id) }
     }
 }

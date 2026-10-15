@@ -131,6 +131,22 @@ public final class FakeProject: EditingProject {
         undoStack.append(snap); redoStack.removeAll()
     }
     public func wallpaperThumbnail(id: String) async -> CGImage? { nil }
+    public private(set) var importedBackgrounds: [URL] = []
+    public func importBackgroundImage(_ file: URL) throws {
+        importedBackgrounds.append(file)
+        let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
+        settings = Self.setting(settings, ["canvas", "background", "kind"][...], .string("image"))
+        undoStack.append(snap); redoStack.removeAll()
+    }
+    public private(set) var exportedPresets: [URL] = []
+    public func exportPreset(to url: URL) throws { exportedPresets.append(url); try Data("{}".utf8).write(to: url) }
+    public private(set) var importedPresets: [URL] = []
+    public func importPreset(from url: URL) throws {
+        importedPresets.append(url)
+        let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
+        settings = Self.setting(settings, ["canvas", "padding"][...], .number(99))
+        undoStack.append(snap); redoStack.removeAll()
+    }
     public var importedTranscripts = 0
     public func importTranscript(_ data: Data) throws {
         guard let o = try JSONSerialization.jsonObject(with: data) as? [String: Any], let words = o["words"] as? [[String: Any]] else {

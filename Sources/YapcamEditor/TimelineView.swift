@@ -1,29 +1,55 @@
 import SwiftUI
 
+enum TimelineLane: CaseIterable { case camera, cursor, highlight, text, caption, music }
+
+/// Vertical layout of the timeline. Only lanes that have content are present (no empty rows);
+/// the clip and zoom tracks are always there.
 struct TimelineLayout {
     static let rulerHeight: CGFloat = 24
-    static let clipTrackHeight: CGFloat = 52
-    static let zoomTrackHeight: CGFloat = 36
+    static let clipTrackHeight: CGFloat = 56
+    static let zoomTrackHeight: CGFloat = 38
     static let laneHeight: CGFloat = 28
     static let gap: CGFloat = 6
     static let edgeHandle: CGFloat = 7
-    var hasCamera: Bool
+    var lanes: [TimelineLane]
+    init(lanes: [TimelineLane]) { self.lanes = lanes }
+    init(hasCamera: Bool) { self.init(lanes: hasCamera ? [.camera] : []) }
     var clipTop: CGFloat { Self.rulerHeight + Self.gap }
     var zoomTop: CGFloat { clipTop + Self.clipTrackHeight + Self.gap }
-    var cameraTop: CGFloat { zoomTop + Self.zoomTrackHeight + Self.gap }
-    var cursorTop: CGFloat { hasCamera ? cameraTop + Self.laneHeight + Self.gap : cameraTop }
-    var highlightTop: CGFloat { cursorTop + Self.laneHeight + Self.gap }
-    var textTop: CGFloat { highlightTop + Self.laneHeight + Self.gap }
-    var captionTop: CGFloat { textTop + Self.laneHeight + Self.gap }
-    var musicTop: CGFloat { captionTop + Self.laneHeight + Self.gap }
-    var totalHeight: CGFloat { musicTop + Self.laneHeight + 8 }
+    /// First y below the zoom track: everything at or below is an overlay lane.
+    var lanesTop: CGFloat { zoomTop + Self.zoomTrackHeight + Self.gap }
+    func top(of lane: TimelineLane) -> CGFloat? {
+        guard let i = lanes.firstIndex(of: lane) else { return nil }
+        return lanesTop + CGFloat(i) * (Self.laneHeight + Self.gap)
+    }
+    var cameraTop: CGFloat { top(of: .camera) ?? lanesTop }
+    var cursorTop: CGFloat { top(of: .cursor) ?? lanesTop }
+    var highlightTop: CGFloat { top(of: .highlight) ?? lanesTop }
+    var textTop: CGFloat { top(of: .text) ?? lanesTop }
+    var captionTop: CGFloat { top(of: .caption) ?? lanesTop }
+    var musicTop: CGFloat { top(of: .music) ?? lanesTop }
+    var totalHeight: CGFloat { lanes.isEmpty ? lanesTop + 4 : lanesTop + CGFloat(lanes.count) * (Self.laneHeight + Self.gap) + 2 }
+}
+
+extension EditorModel {
+    /// Overlay lanes that currently have content.
+    var visibleLanes: [TimelineLane] {
+        var out: [TimelineLane] = []
+        if !layouts.isEmpty { out.append(.camera) }
+        if !cursorHides.isEmpty { out.append(.cursor) }
+        if !highlights.isEmpty { out.append(.highlight) }
+        if !textItems(.annotation).isEmpty || !textItems(.reaction).isEmpty { out.append(.text) }
+        if !textItems(.caption).isEmpty { out.append(.caption) }
+        if !music.isEmpty { out.append(.music) }
+        return out
+    }
 }
 
 struct TimelineView: View {
     @ObservedObject var model: EditorModel
     @State private var viewportWidth: CGFloat = 800
     @State private var drag: DragKind?
-    private var layout: TimelineLayout { TimelineLayout(hasCamera: model.hasCamera) }
+    private var layout: TimelineLayout { TimelineLayout(lanes: model.visibleLanes) }
 
     private enum DragKind {
         case scrub
@@ -39,18 +65,18 @@ struct TimelineView: View {
     var body: some View {
         let g = model.geometry
         let contentW = max(g.contentWidth(durationNs: model.durationNs) + 40, viewportWidth)
-        ScrollView(.horizontal, showsIndicators: true) {
+        ScrollView([.horizontal, .vertical], showsIndicators: true) {
             ZStack(alignment: .topLeading) {
                 Ruler(geometry: g, width: contentW)
                     .frame(width: contentW, height: TimelineLayout.rulerHeight)
                 clipTrack(g)
                 zoomTrack(g)
-                if model.hasCamera { cameraLane(g) }
-                cursorLane(g)
-                highlightLane(g)
-                textLane(g, top: layout.textTop, kinds: [.annotation, .reaction])
-                textLane(g, top: layout.captionTop, kinds: [.caption])
-                musicLane(g)
+                if layout.lanes.contains(.camera) { cameraLane(g) }
+                if layout.lanes.contains(.cursor) { cursorLane(g) }
+                if layout.lanes.contains(.highlight) { highlightLane(g) }
+                if layout.lanes.contains(.text) { textLane(g, top: layout.textTop, kinds: [.annotation, .reaction]) }
+                if layout.lanes.contains(.caption) { textLane(g, top: layout.captionTop, kinds: [.caption]) }
+                if layout.lanes.contains(.music) { musicLane(g) }
                 if let snap = model.snapGuideNs {
                     Rectangle().fill(Color.yellow.opacity(0.9)).frame(width: 1, height: layout.totalHeight)
                         .offset(x: g.x(forNs: snap) + g.scrollOffsetPx)
@@ -63,7 +89,6 @@ struct TimelineView: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Timeline")
         }
-        .frame(height: layout.totalHeight + 16)
         .background(GeometryReader { p in Color.clear.onAppear { viewportWidth = p.size.width }
             .onChange(of: p.size.width) { _, w in viewportWidth = w } })
         .background(Color(nsColor: .controlBackgroundColor))
@@ -80,7 +105,7 @@ struct TimelineView: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor.opacity(selected ? 1 : 0.5), lineWidth: selected ? 2 : 1))
                 .overlay(alignment: .leading) {
                     HStack(spacing: 4) {
-                        Text("Clip \(idx + 1)").font(.caption.weight(.medium))
+                        Text(clipLabel(entry.clip)).font(.callout.weight(.medium))
                         if entry.clip.speed != 1 { Text(String(format: "%.2g×", entry.clip.speed)).font(.caption2).foregroundStyle(.secondary) }
                     }.padding(.leading, 8).lineLimit(1)
                 }
@@ -92,6 +117,12 @@ struct TimelineView: View {
                 .accessibilityAction(named: "Select") { model.selection = .clip(entry.clip.id); model.seek(toNs: entry.startNs) }
                 .accessibilityAction(named: "Delete") { model.selection = .clip(entry.clip.id); model.deleteSelection() }
         }
+    }
+
+    private func clipLabel(_ c: TimelineClip) -> String {
+        let secs = Double(c.timelineDurationNs) / 1e9
+        let d = secs >= 1 ? String(format: "%.0fs", secs.rounded()) : String(format: "%.0f ms", secs * 1000)
+        return "\(d) · " + (c.speed == 1 ? "1x" : String(format: "%.2gx", c.speed))
     }
 
     private func zoomTrack(_ g: TimelineGeometry) -> some View {
@@ -107,7 +138,7 @@ struct TimelineView: View {
                     .fill(tint.opacity(selected ? 0.6 : 0.32))
                     .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
                     .overlay(alignment: .leading) {
-                        Label(String(format: "%.1f×", z.scale), systemImage: "plus.magnifyingglass")
+                        Label(String(format: "%.1fx · ", z.scale).replacingOccurrences(of: ".0x", with: "x") + (z.mode == .auto ? "Auto" : "Manual"), systemImage: "plus.magnifyingglass")
                             .font(.caption2.weight(.medium)).labelStyle(.titleAndIcon).padding(.leading, 8).lineLimit(1)
                     }
                     .overlay(alignment: .leading) { Capsule().fill(tint).frame(width: 3, height: 16).padding(.leading, 2).opacity(selected ? 1 : 0) }
@@ -273,13 +304,13 @@ struct TimelineView: View {
     }
 
     private func begin(at p: CGPoint, _ g: TimelineGeometry) -> DragKind {
-        if !(p.y >= layout.zoomTop && p.y < layout.cameraTop) { model.extraZoomSelection = [] }
+        if !(p.y >= layout.zoomTop && p.y < layout.lanesTop) { model.extraZoomSelection = [] }
         if p.y < layout.clipTop {
             model.selection = .none
             return .scrub
         }
-        if p.y >= layout.cameraTop, let kind = hitRange(at: p, g) { return kind }
-        if p.y >= layout.zoomTop, p.y < layout.cameraTop, let (z, kind) = hitZoom(at: p.x, g) {
+        if p.y >= layout.lanesTop, let kind = hitRange(at: p, g) { return kind }
+        if p.y >= layout.zoomTop, p.y < layout.lanesTop, let (z, kind) = hitZoom(at: p.x, g) {
             if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
                 // Multi-select: toggle membership; no drag.
                 if case .zoom(let primary) = model.selection {
@@ -296,6 +327,12 @@ struct TimelineView: View {
         }
         if p.y < layout.zoomTop - TimelineLayout.gap,
            let hit = model.clipStarts().first(where: { p.x >= g.x(forNs: $0.startNs) && p.x < g.x(forNs: $0.startNs + $0.clip.timelineDurationNs) }) {
+            if model.cutToolActive {
+                // Scissors: a click on a clip splits it there (snapped to edit points).
+                model.seek(toNs: model.snapped(g.ns(forX: p.x), includePlayhead: false), precise: true)
+                model.splitAtPlayhead()
+                return .inert
+            }
             model.selection = .clip(hit.clip.id)
         } else {
             model.selection = .none
