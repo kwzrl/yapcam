@@ -581,6 +581,8 @@ mod tests {
         let mut project = Project::create(&fixture.0).unwrap();
         project.data.canvas.crop = [0.1, 0.1, 0.7, 0.7];
         project.data.zooms.push(Zoom {
+            style: "classic".into(),
+            lens: Default::default(),
             id: "crop".into(),
             tl_start_ns: 0,
             tl_end_ns: 1_000_000_000,

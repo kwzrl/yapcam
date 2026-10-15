@@ -247,6 +247,40 @@ impl BulkSpeedTimeMap {
         .round()
     }
 }
+/// Insert at a known clip boundary; preserve exact existing boundary fractions.
+pub(crate) struct InsertTimeMap {
+    at: i64,
+    delta: Fraction,
+    boundaries: Vec<Fraction>,
+}
+impl InsertTimeMap {
+    pub(crate) fn new(clips: &[Clip], inserted: &Clip, at: i64) -> Self {
+        Self {
+            at,
+            delta: exact_duration(inserted),
+            boundaries: ClipTimeIndex::new(clips).starts,
+        }
+    }
+    pub(crate) fn start(&self, t: i64) -> i64 {
+        self.map(t, false)
+    }
+    pub(crate) fn end(&self, t: i64) -> i64 {
+        self.map(t, true)
+    }
+    fn map(&self, t: i64, end: bool) -> i64 {
+        if t < self.at || end && t == self.at {
+            return t;
+        }
+        let index = self.boundaries.partition_point(|b| b.round() < t);
+        let exact = self
+            .boundaries
+            .get(index)
+            .filter(|b| b.round() == t)
+            .copied()
+            .unwrap_or(Fraction::integer(t));
+        exact.add(self.delta).round()
+    }
+}
 /// Actual quantized source intervals removed by a cut, expressed on the old
 /// rational timeline. Effects shift by media actually removed, not a Double sum.
 /// Cold prefix table reuses the same rational sums as the allocation-free map.
@@ -255,6 +289,9 @@ pub(crate) struct ClipTimeIndex {
     starts: Vec<Fraction>,
 }
 impl ClipTimeIndex {
+    pub(crate) fn boundary_index(&self, t: i64) -> Option<usize> {
+        self.starts.iter().position(|s| s.round() == t)
+    }
     pub(crate) fn new(clips: &[Clip]) -> Self {
         let mut starts = Vec::with_capacity(clips.len() + 1);
         let mut start = Fraction::integer(0);

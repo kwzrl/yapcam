@@ -693,6 +693,7 @@ reset values on open. Save/reopen and snapshots keep the selected mode.
 | canvas.background.kind / color | `solid` / [0.12,0.14,0.18,1] | unchanged; our own calm dark background |
 | canvas.background.blur | 24 | 0 (inactive for solid backgrounds) |
 | canvas.motion_blur | 0 | 1 |
+| canvas.global_motion_blur | absent/null, independent strengths | 1 master multiplier; initial pixels unchanged |
 | cursor.set_id | null, recorded cursor artwork | `classic`, our authored palette |
 | cursor.style / shape / logical_size | `recorded` / null / `regular` | unchanged; a nonnull palette selects authored artwork |
 | cursor.size / size_points | multiplier1 / null | stored multiplier1 remains inactive; 48 logical points on our 32pt authored canvas |
@@ -971,14 +972,14 @@ always the segment's mode when active. Missing fields retain legacy geometry.
 | camera.layout_settings | full settings object with fields below |
 | camera.layout_settings.mode | overlay / cutout / split; overlay |
 | camera.layout_settings.aspect | null (source aspect) or 16/9,4/3,1,3/4,9/16; null |
-| camera.layout_settings.split_ratio | null (fit source/camera aspects, clamp .25...75), .5 or 2/3; null |
+| camera.layout_settings.split_ratio | null (fit source/camera aspects, clamp 0.25...0.75), .5 or 2/3; null |
 | camera.layout_settings.split_flip | bool / false |
 | camera.layout_settings.split_padded | bool / false |
 | camera.layout_settings.cutout_position | normalized center [x,y] / [1,1] |
 | camera.layout_settings.cutout_size | .2...1 / .5 of canvas width |
 | camera.layout_settings.edge_softness | 0...1 / .2 |
 | camera.layout_settings.edge_inset | 0...8 output pixels / 0 |
-| camera.layout_settings.corner_ratio | null (legacy pixel radius) or0...5 times shorter camera edge; null |
+| camera.layout_settings.corner_ratio | null (legacy pixel radius) or0...0.5 times shorter camera edge; null |
 | camera.hide_during_silence | bool / false |
 | camera.min_silence_ns | 2...15s / 5s |
 | camera.silence_ranges | sorted, nonoverlapping `{tl_start_ns,tl_end_ns}` array / [] |
@@ -1002,3 +1003,78 @@ returns `{mode,settings,visible}`; time-specific render options agree. Swift
 cameraLayout(atNs:) returns CoreCameraLayout, and CoreRenderOptions.cameraLayout
 is optional for older libraries. Root layout settings/hide preference/minimum are
 portable style; per-range records and silence ranges remain project-specific.
+
+
+## Magnifying lens zoom (GAP-RND-5, Core contract)
+
+Zoom records and remembered zoom insertion style append `style` (`classic` or
+`lens`, default classic) and `lens:{radius,bevel,chromatic_aberration}`. Generic
+update_zoom.patch accepts style, whole lens or existing zoom fields. Radius is
+0.25...0.75 (default .35), bevel0...1 (default .2), chromatic_aberration0...1 (default
+.5). add_zoom and insert_zoom inherit last-edited style/lens settings; automatic
+zoom generation stays classic. Old projects decode classic and keep their crop.
+No zoom records or source IDs enter portable presets.
+
+Classic transforms the whole screen crop. Lens leaves the screen crop unchanged
+and emits a local circular magnification instruction. `{"q":"zoom_lens_at",
+"tl_ns":...}` returns null when inactive, otherwise
+`{zoom_id,center:[canvasX,canvasY],source_center:[normalizedX,normalizedY],scale,
+radius_px,bevel,chromatic_aberration,opacity}`. Center is clamped to visible source
+bounds and follows filtered input for auto/follow-cursor zooms, independently of
+cursor overlay visibility. Radius_px = radius * shorter screen destination edge.
+Scale and opacity use the same early-start/ease/spring weight as classic; the
+latest-start enabled active zoom wins. Camera-only/absent-screen frames emit null.
+
+Time-specific render_options append optional zoom_lens with the same record;
+untimed render_options emit null. Swift zoomLens(atNs:) returns CoreZoomLens?,
+CoreRenderOptions.zoomLens is optional, ZoomSpec appends style/lens and ZoomLens
+is Codable. These are cold drawing instructions; Render owns lens pixel sampling,
+bevel and chromatic shading. Existing C ABI structs stay unchanged.
+
+
+## Targeted transcript restoration (GAP-ED-7)
+
+`insert_source {src_start_ns,src_end_ns,at_tl_ns,speed?:1,settings?:ClipSettings}`
+inserts an original recording span as a new clip. Source bounds must be nonnegative,
+positive length and inside the recording; speed uses existing .05...32 bounds.
+At_tl_ns must be an existing rounded clip boundary (including0/end), otherwise the
+whole command fails. To insert inside retained content, split first in one batch.
+Repeated source spans are allowed. The new clip ID is returned in createdIDs.
+All media tracks and input/marker events share the inserted clip mapping, so the
+restored screen/camera/audio/events stay synchronized. Per-clip settings default to
+unity/false; pass the original settings to preserve restored-word volume/cursor.
+
+Later timeline-attached effect starts/ends shift by the inserted rational duration;
+ends exactly at the insertion remain before it, starts exactly there move after it.
+Effects spanning the boundary extend across the new interval. Existing clip IDs,
+source ranges, settings and speeds stay unchanged. Clips/effects/history update in
+one validated durable transaction. Undo/redo reverses only this insertion; it does
+not undo unrelated edits made since the original deletion. Empty timelines can be
+restored at0. Wrapped timeline_edit also enforces the100ms clip minimum; precision
+insert_source supports shorter transcript spans.
+
+Swift EditCommand.insertSource(startNs:endNs:atNs:speed:settings:) appends to the
+existing enum. Editor can retain original source-word bounds from the immutable
+capture transcript and restore a word at its cut boundary, optionally batching
+add_caption to restore the label. Existing delete_range/remove_caption/
+update_caption and batch primitives handle cut/hide/correct/filler/pause actions.
+Core does not infer which deleted word a UI selection refers to; history remains
+available for whole-action undo. No media is copied or recording files rewritten.
+
+
+## Master motion-blur amount (GAP-RND-8, Core contribution)
+
+`canvas.global_motion_blur` is null (legacy independent amounts) or0...1 (master
+multiplier). New projects store1; old projects with missing/null fields retain
+exactly their stored screen/zoom/pan/cursor amounts. No visible default changes.
+Existing canvas.motion_blur, motion_blur_settings and cursor.motion_blur remain
+available as extras. A master0 disables all blur; a master.5 scales every kind by
+.5. The master is portable style and follows normal set/preset/history/save rules.
+
+Frame.motion_blur, FrameMotion's three blur amounts, legacy Extras' cursor amount
+and cold render options already include this multiplier. Render must not apply it
+a second time. Untimed render_options append global_motion_blur as descriptive
+metadata (Swift CoreRenderOptions.globalMotionBlur?). Renderer applies actual
+preview/export fps divided by60 to the evaluated blur amounts, because Core's
+recording max_fps is not necessarily the render rate. Preview may disable blur.
+Editor should bind its single blur slider to canvas.global_motion_blur.

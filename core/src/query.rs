@@ -152,6 +152,20 @@ impl Project {
                 json!({"undo_steps":self.undo.len(),"redo_steps":self.redo.len(),"limit":1000,"coalesce_ms":100}),
             ),
             "timeline_constraints" => Ok(crate::editing::constraints()),
+            "zoom_lens_at" => crate::zoom_lens::query(
+                self,
+                query["tl_ns"]
+                    .as_i64()
+                    .ok_or_else(|| Error::new(1, "Missing integer tl_ns"))?,
+            ),
+            "camera_layout_at" => crate::camera_layout::query(
+                self,
+                Some(
+                    query["tl_ns"]
+                        .as_i64()
+                        .ok_or_else(|| Error::new(1, "Missing integer tl_ns"))?,
+                ),
+            ),
             "camera_style" => Ok(serde_json::to_value(&self.data.camera.style)?),
             "camera_style_library" => Ok(crate::camera_style::library()),
             "markers" => Ok(crate::markers::query(self)),

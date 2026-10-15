@@ -1,4 +1,4 @@
-READY uncommitted CAP-3 markers + ED-8 Core camera style/LUT: Rust85/Core Swift62, Clippy, signed build/strict codesign PASS. Preset4c2db8d pushed. ED-9 layout evaluation follows; Render/Editor consumption required.
+READY uncommitted shared Core backlog: CAP-3 markers, ED-7 source restoration, ED-8 style/LUT, ED-9 layouts, RND-5 lens; Rust90/Core Swift65 + signed build PASS. Final FFI/scale checks running; Lead checkpointcf99f48 includes earlier work.
 
 # Core status
 
@@ -9,8 +9,8 @@ Updated 2026-10-15 15:40 UTC. Branch team/core; Lead checkpoint 4c2db8d. Main la
 Preset fix is checkpointed by Lead in 4c2db8d and pushed to origin/team/core.
 CORE-1 through CORE-10 and the exact defaults/migration handoff below remain
 delivered. Shared FEATURES rows also need Core contributions: CAP-3 marker query
-is READY; ED-8 camera-style model/LUT is READY; ED-9 layout evaluation is in progress.
-ED-7 restore semantics and RND-5 lens metadata will be audited next. This status-only follow-up
+is READY; ED-8 camera-style model/LUT is READY; ED-9 layout evaluation is implemented and under final verification. RND-5 lens contract follows.
+RND-5 lens and ED-7 targeted restoration are READY; final fuzz/scale checks and handoff are in progress. This status-only follow-up
 awaits Lead checkpoint. Main last observed5328b45; no newer local integration to
 rebase onto. No main push or Git metadata workaround.
 
@@ -86,6 +86,7 @@ the previous defaults. `defaults_revision` is provenance, not a migration trigge
 | canvas.background.kind / color | `solid` / [0.12,0.14,0.18,1] | unchanged; our own calm dark background |
 | canvas.background.blur | 24 | 0 (inactive for solid backgrounds) |
 | canvas.motion_blur | 0 | 1 |
+| canvas.global_motion_blur | absent/null, independent strengths | 1 master multiplier; initial pixels unchanged |
 | cursor.set_id | null, recorded cursor artwork | `classic`, our authored palette |
 | cursor.style / shape / logical_size | `recorded` / null / `regular` | unchanged; a nonnull palette selects authored artwork |
 | cursor.size / size_points | multiplier1 / null | stored multiplier1 remains inactive; 48 logical points on our 32pt authored canvas |
@@ -133,6 +134,12 @@ Verification: Rust76 and Core Swift58 PASS, strict codesign PASS; log
 and owned Core regression tests only; no runtime default or Render test changed.
 
 ## READY work packages
+
+- ED-7 Core READY: additive insert_source / EditCommand.insertSource at a clip boundary restores source bounds and original clip settings without undoing unrelated edits. Exact rational prefix mapping distinguishes start/end edges at insertion and covers every timed collection, including camera silence ranges. Screen/audio/input share clip time; no recording writes. Empty timeline restoration, invalid/beyond-source/minimum rollback, fractional long clocks, history/snapshot/reopen and audio-clock regressions pass. Rust90/Core Swift65 + Clippy + signed build/strict codesign PASS, /private/tmp/yapcam-core-shared-backlog-ready.log. Editor: retain original transcript source-word ranges, batch insertSource + add-caption for targeted restore; existing cut/hide/correct primitives remain available.
+
+- RND-5 Core READY: per-zoom style/lens parameters, inherited insertion style, shared classic/lens spring weight and active-zoom selection, local zoom_lens_at instruction and typed Swift CoreZoomLens/ZoomLens. Lens leaves base crop unchanged; camera sizing still follows zoom weight. Manual/auto pointer targets, crop clamping, null inactive endpoints and old classic defaults supported. Rust88 + Core Swift64 PASS; /private/tmp/yapcam-core-lens-ready.log (Rust/build) and /private/tmp/yapcam-core-lens-swift.log (final Swift). Earlier Swift syntax/build-input corrections resolved; native lens shading remains Render-owned.
+
+- ED-9 Core implemented: additive layout_settings, cutout/split modes and per-range settings; exact frame fitting/orientation/flip/padding/corners, cutout matting flag, silence gating with remapping. Missing camera falls back to screen. Legacy geometry defaults retained and frame/extras allocate zero. Rust geometry/boundary/history tests pass; Swift full verification follows /private/tmp/yapcam-core-camera-layout-swift.log (first run had a corrected test syntax error). Softness/inset rendering and controls are Render/Editor handoffs.
 
 - ED-8 Core READY (awaiting Lead checkpoint): additive camera.style parameters,12 original scalar recipes, camera_style/library queries and typed Swift access; render_options includes camera_style. Strict CUBE parser/importMedia/preset embedding with fresh target LUT path and transactional staged-asset cleanup. Missing old fields choose original/no grading. Source reference defaults/strings/assets not copied. Rust85/Core Swift62 + Clippy + signed build/strict codesign PASS, /private/tmp/yapcam-core-camera-style-ready.log. Native shader/pixel/UI support remains Render/Editor-owned; metadata availability is not a pixel claim.
 

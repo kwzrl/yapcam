@@ -211,7 +211,8 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     }
     ids.clear();
     for z in &p.zooms {
-        if z.tl_start_ns < 0
+        if !crate::zoom_lens::valid(&z.style, &z.lens)
+            || z.tl_start_ns < 0
             || z.tl_end_ns <= z.tl_start_ns
             || !(1.0..=16.0).contains(&z.scale)
             || z.target.iter().any(|t| !(0.0..=1.0).contains(t))
@@ -224,7 +225,8 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         }
     }
     if let Some(style) = &p.insertion_styles.zoom {
-        if !matches!(style.mode.as_str(), "auto" | "manual")
+        if !crate::zoom_lens::valid(&style.style, &style.lens)
+            || !matches!(style.mode.as_str(), "auto" | "manual")
             || !(1.0..=16.0).contains(&style.scale)
             || style.ease_in_ns < 0
             || style.ease_out_ns < 0
@@ -285,6 +287,8 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         || !c.background.angle_deg.is_finite()
         || !(0.0..=1.0).contains(&c.shadow.opacity)
         || !(0.0..=1.0).contains(&c.motion_blur)
+        || c.global_motion_blur
+            .is_some_and(|v| !(0.0..=1.0).contains(&v))
         || !(0.0..=1.0).contains(&c.background.noise)
         || !matches!(
             c.background.kind.as_str(),
@@ -347,6 +351,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         return invalid("Invalid cursor settings");
     }
     crate::camera_style::validate(p)?;
+    crate::camera_layout::validate(p)?;
     let cam = &p.camera;
     if !(0.01..=1.0).contains(&cam.size)
         || cam.position.iter().any(|v| !(0.0..=1.0).contains(v))
@@ -364,7 +369,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             || l.tl_end_ns <= l.tl_start_ns
             || !matches!(
                 l.mode.as_str(),
-                "screen" | "camera" | "overlay" | "side_by_side"
+                "screen" | "camera" | "overlay" | "side_by_side" | "cutout" | "split"
             )
             || l.camera_position
                 .is_some_and(|p| p.iter().any(|v| !(0.0..=1.0).contains(v)))
