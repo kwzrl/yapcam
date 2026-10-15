@@ -45,11 +45,14 @@ windows are excluded from the recording.
 
 Top to bottom:
 
-- **Display / Window / Area / Device**: pick what to record; the selected one is highlighted. Display
-  opens a list when you have several displays. Window opens a grid of windows with thumbnails at once.
-  Area starts the selection overlay at once: drag a rectangle, pick an aspect ratio (Free, 16:9, 4:3,
-  1:1, 9:16), then Return (arrow keys move it, Shift+arrows resize, Option moves by 10). Device records an
-  iPhone or iPad connected by USB: unlock it and tap Trust; it appears in the list when ready.
+- **Display / Window / Area**: one click picks the source and shows its overlay with a big
+  **Start recording** button (the chevron next to it has frame rate, countdown and system audio).
+  *Display* dims the display under your pointer and shows its name and size (move to another display and
+  the card follows). *Window* highlights the window under the pointer; click it or press Start recording.
+  *Area* lets you drag a rectangle (aspect presets Free, 16:9, 4:3, 1:1, 9:16; arrow keys move it,
+  Shift+arrows resize, Option moves by 10); Start recording or Return begins. Esc cancels any overlay.
+  The toolbar's own Record button starts with the last used source. Recording a USB iPhone/iPad exists in
+  the code but has no toolbar entry until it has been tested with a real device.
 - **Camera**, **Mic**, **System**: toggles (blue = on). The small chevron opens the device menu in a
   side popover; with no device it says "No camera" / "No microphone" and recording continues without.
   Not tested with real mic/camera devices **(untested live)**.
@@ -61,9 +64,9 @@ Speaker notes (Settings menu or Recording → Speaker Notes…) open a small win
 button shows the notes large in a floating window that never appears in the recording, with text size
 and auto-scroll speed. Notes are saved into the project when you stop.
 
-Press Record: a 3-second countdown runs (0, 3 or 5 s in Settings → General), then the toolbar
+Press Start recording: a 3-second countdown runs (0, 3 or 5 s in Settings → General), then the toolbar
 turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Restart** (discard this take
-and start over) and **Cancel** (discard). Stop saves the recording and opens the editor.
+and start over) and **Cancel** (discard). Stop (button, hotkey or menu bar) saves the recording and opens the editor at once, in front, on the new recording.
 
 Verified live on this Mac (display, window and area capture, pause/resume, system audio): Record → countdown → recording → Stop → the editor
 opens on the new recording, and the toolbar, countdown and timer are **not** in the recorded video.
@@ -85,7 +88,7 @@ Other menu shortcuts: ⌘, Settings · ⇧⌘R Recordings window · ⌘O Open Re
 
 ## Settings
 
-- **General**: countdown, open the editor after recording, Dock icon, menu bar item.
+- **General**: countdown, Dock icon, menu bar item.
 - **Recording**: frame rate (30/60), hide desktop icons while recording, start/stop sounds, keystroke
   recording. Hiding icons restarts Finder briefly and restores icons afterwards, even after a crash
   **(untested live)**. Sounds play before capture starts and after it stops, never inside the recording.

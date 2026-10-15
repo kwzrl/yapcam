@@ -23,6 +23,14 @@ import YapcamEditor
         return nil
     }
 
+    /// After a recording stops the editor must be in front, not behind the app that was recorded.
+    static func bringEditorsToFront() {
+        NSApp.activate()
+        for w in NSApp.windows where w.isVisible {
+            if let c = w.windowController, find(EditorDocument.self, labeled: "editorDocument", in: c) != nil { w.makeKeyAndOrderFront(nil) }
+        }
+    }
+
     static func keyEditor() -> EditorModel? { keyDocument()?.model }
 
     /// True while a text field is being edited: ⌘Z must undo typing, not the timeline.

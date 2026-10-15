@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum ToolbarPopover: Hashable { case display, window, device, audio, microphone, camera }
+enum ToolbarPopover: Hashable { case audio, microphone, camera }
 
 
 struct ToolbarView: View {
@@ -50,13 +50,7 @@ struct ToolbarView: View {
 
     private var idleControls: some View {
         VStack(spacing: 3) {
-            sourceButton(.display)
-                .popover(isPresented: binding(.display), arrowEdge: edge) { DisplayPopover(dismiss: { open = nil }).environmentObject(settings) }
-            sourceButton(.window)
-                .popover(isPresented: binding(.window), arrowEdge: edge) { WindowPopover(dismiss: { open = nil }).environmentObject(settings) }
-            sourceButton(.area)
-            sourceButton(.device)
-                .popover(isPresented: binding(.device), arrowEdge: edge) { DevicePopover(dismiss: { open = nil }).environmentObject(settings) }
+            ForEach(SourceMode.toolbarModes) { sourceButton($0) }
 
             Divider().padding(.vertical, 3)
 
@@ -85,27 +79,25 @@ struct ToolbarView: View {
         }
     }
 
-    /// Display / Window / Area / Device: selecting one makes it the source; Window and Area open their picker at once.
+    /// Display / Window / Area: one click picks the source and shows its overlay with **Start recording**.
     private func sourceButton(_ mode: SourceMode) -> some View {
-        let selected = settings.sourceMode == mode
-        return ToolbarButton(symbol: mode.symbol, label: mode.title, help: sourceHelp(mode), active: selected) {
+        ToolbarButton(symbol: mode.symbol, label: mode.title, help: sourceHelp(mode), active: settings.sourceMode == mode) {
+            open = nil
             settings.sourceMode = mode
             switch mode {
-            case .display:
-                // One display needs no picker; several do.
-                if Displays.all().count > 1 { toggle(.display) } else { open = nil }
-            case .window: toggle(.window)
-            case .area: open = nil; AreaPicker.begin()
-            case .device: DeviceScreensModel.shared.startPolling(); toggle(.device)
+            case .display: SourceOverlay.shared.show(.display)
+            case .window: SourceOverlay.shared.show(.window)
+            case .area: AreaPicker.begin()
+            case .device: break
             }
         }
     }
 
     private func sourceHelp(_ mode: SourceMode) -> String {
         switch mode {
-        case .display: return "Record a display" + (Displays.all().count > 1 ? " (\(Displays.resolve(settings.displayID)?.name ?? "main"))" : "")
-        case .window: return "Record one window"
-        case .area: return settings.areaRect == nil ? "Record an area: drag a rectangle" : "Record an area (click to adjust)"
+        case .display: return "Record a display: shows the display with a Start recording button"
+        case .window: return "Record one window: point at it, then Start recording"
+        case .area: return settings.areaRect == nil ? "Record an area: drag a rectangle, then Start recording" : "Record an area (adjust the rectangle, then Start recording)"
         case .device: return "Record an iPhone or iPad connected by USB"
         }
     }

@@ -57,7 +57,10 @@ import YapcamEditor
     }
     func unregisterExcluded(_ window: NSWindow) { CaptureExclusions.unregister(window) }
 
-    func openEditor(package: URL) { EditorWindows.open(package: package) }
+    func openEditor(package: URL) {
+        EditorWindows.open(package: package)
+        EditorBridge.bringEditorsToFront()
+    }
 
     func interruptedPackages(in directory: URL) -> [URL] { RecordingSession.interruptedPackages(in: directory) }
     func recover(_ package: URL) throws -> URL { try RecordingSession.recover(package) }

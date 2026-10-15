@@ -41,7 +41,6 @@ struct GeneralSettings: View {
             Picker("Countdown", selection: $s.countdown) {
                 Text("None").tag(0); Text("3 seconds").tag(3); Text("5 seconds").tag(5)
             }
-            Toggle("Open the editor when a recording stops", isOn: $s.openEditorAfterRecording)
             Section("Appearance of the app") {
                 Toggle("Show in Dock", isOn: $s.showInDock)
                 Toggle("Show menu bar item", isOn: $s.showMenuBarItem)

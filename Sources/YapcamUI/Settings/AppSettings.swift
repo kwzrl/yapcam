@@ -5,6 +5,8 @@ import SwiftUI
 enum SourceMode: String, CaseIterable, Identifiable {
     case display, window, area, device
     var id: String { rawValue }
+    /// Modes offered in the toolbar. Device recording stays in the code but has no UI entry until a real device is tested.
+    static let toolbarModes: [SourceMode] = [.display, .window, .area]
     var title: String { switch self { case .display: "Display"; case .window: "Window"; case .area: "Area"; case .device: "Device" } }
     var symbol: String {
         switch self { case .display: "display"; case .window: "macwindow"; case .area: "rectangle.dashed"; case .device: "iphone" }
@@ -110,7 +112,8 @@ struct KeyCombo: Codable, Equatable {
 
     init(store: UserDefaults) {
         d = store
-        sourceMode = SourceMode(rawValue: d.string(forKey: "sourceMode") ?? "") ?? .display
+        let saved = SourceMode(rawValue: d.string(forKey: "sourceMode") ?? "") ?? .display
+        sourceMode = SourceMode.toolbarModes.contains(saved) ? saved : .display
         displayID = UInt32(d.integer(forKey: "displayID"))
         windowID = UInt32(d.integer(forKey: "windowID"))
         areaDisplayID = UInt32(d.integer(forKey: "areaDisplayID"))
