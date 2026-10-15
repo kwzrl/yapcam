@@ -1,16 +1,18 @@
 // A/V sync marker for QA: every 2 s a white flash on the main display together with a
 // 1 kHz beep (60 ms). Capture the screen + system audio while this runs, then compare the
 // flash frame times with the beep onsets (scripts/qa/analyze-sync.sh).
-// usage: sync-marker <seconds> ; logs "flash <seconds since start>" lines to stdout.
+// usage: sync-marker <seconds> [width height] ; logs "flash <seconds since start>" lines to stdout.
 import AppKit
 import AVFoundation
 
 let total = Double(CommandLine.arguments.dropFirst().first ?? "20") ?? 20
+let argv = CommandLine.arguments
+let winW = argv.count > 3 ? Double(argv[2]) ?? 200 : 200, winH = argv.count > 3 ? Double(argv[3]) ?? 200 : 200
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let screen = NSScreen.main!
 // Small corner window keeps the desktop usable; the flash is a 200x200 white square.
-let win = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 200, height: 200), styleMask: .borderless, backing: .buffered, defer: false)
+let win = NSWindow(contentRect: NSRect(x: 40, y: 40, width: winW, height: winH), styleMask: .borderless, backing: .buffered, defer: false)
 win.level = .screenSaver; win.backgroundColor = .black; win.isOpaque = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]; win.orderFrontRegardless()
 

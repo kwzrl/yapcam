@@ -1,4 +1,4 @@
-# Known limitations (2026-10-15, main b90ee0d)
+# Known limitations (2026-10-15, main 3b68bde)
 
 Honest list of what was **not** verified or **not** built. Details per row: `docs/FEATURES.md`.
 
@@ -14,7 +14,10 @@ Honest list of what was **not** verified or **not** built. Details per row: `doc
   realtime; 10-min export with audio 4.4x (A/V offset <0.05 ms, RSS 137 MB); 30-min soak 2.2x
   (no leak); preview ~58 fps. Real 1080p/4K screen recordings and thermal behaviour are unmeasured.
 
-## Live capture not verified (TCC)
+## Live capture
+All permissions are granted now and live capture was verified (docs/TEST_REPORT.md section 4). Open: **window recordings cannot be opened in core (F9, `display_name`)**. Still unverified: physical mouse clicking in the toolbar/editor (self-tests call the same actions), real camera/mic, Retina/multi-display. The paragraph below is the historical limitation before the grant.
+
+## Live capture not verified (TCC, historical)
 - macOS Screen Recording was not re-granted for the `Yapcam Dev Signing` build, so every real
   `ScreenCaptureKit` run fails with -3801. Unverified live: display/window/area capture,
   pause/resume on real streams, system-audio capture, event-tap cursor/click capture,
