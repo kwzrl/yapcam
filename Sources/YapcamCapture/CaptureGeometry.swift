@@ -24,6 +24,14 @@ struct CaptureGeometry: Sendable {
     }
     func local(_ global: CGPoint) -> CGPoint { CGPoint(x: global.x - rect.minX, y: global.y - rect.minY) }
 
+    func sourceMetadata(kind: String, displayID: UInt32?, displayNames: [UInt32: String],
+                        windowTitle: String? = nil, appBundleID: String? = nil) -> SourceMetadata {
+        SourceMetadata(kind: kind, displayID: displayID,
+            displayName: displayID.flatMap { displayNames[$0] } ?? "Display",
+            contentRectPoints: [rect.minX, rect.minY, rect.width, rect.height], scale: scale,
+            windowTitle: windowTitle, appBundleID: appBundleID)
+    }
+
     /// UI selection is display-local points; persisted/input geometry is global
     /// top-left-origin points. Scale applies to output pixels, never the origin.
     static func area(displayBounds: CGRect, localRect: CGRect, scale: CGFloat) throws -> CaptureGeometry {
@@ -69,6 +77,10 @@ struct CaptureCoordinateMapping: Sendable {
     static func resolve(_ options: RecordingOptions) async throws -> ResolvedCapture {
         guard options.maxFPS == 30 || options.maxFPS == 60 else { throw CaptureError.writerFailed("Frame rate must be 30 or 60") }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let displayNames = Dictionary(uniqueKeysWithValues: NSScreen.screens.compactMap { screen -> (UInt32, String)? in
+            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else { return nil }
+            return (id, screen.localizedName)
+        })
         let filter: SCContentFilter
         let geometry: CaptureGeometry
         let source: SourceMetadata
@@ -78,23 +90,19 @@ struct CaptureCoordinateMapping: Sendable {
             guard let display = content.displays.first(where: { $0.displayID == id }) else { throw CaptureError.sourceUnavailable }
             let bounds = CGDisplayBounds(id)
             let scale = CGFloat(SCContentFilter(display: display, excludingWindows: []).pointPixelScale)
-            var rect = bounds
             let kind: String
             if case .area(_, let area) = options.target {
                 geometry = try CaptureGeometry.area(displayBounds: bounds, localRect: area, scale: scale)
                 crop = area
-                rect = geometry.rect
                 kind = "area"
             } else {
                 kind = "display"
-                geometry = try CaptureGeometry(rect: rect, scale: scale)
+                geometry = try CaptureGeometry(rect: bounds, scale: scale)
             }
             // Exclude the application as well as registered windows, so newly opened
             // Yapcam overlays cannot leak into an already-running display stream.
             filter = CaptureFilterPolicy(options: options).filter(display: display, content: content)
-            let name = NSScreen.screens.first { ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32) == id }?.localizedName ?? "Display"
-            source = SourceMetadata(kind: kind, displayID: id, displayName: name,
-                contentRectPoints: [rect.minX, rect.minY, rect.width, rect.height], scale: scale)
+            source = geometry.sourceMetadata(kind: kind, displayID: id, displayNames: displayNames)
         case .window(let id):
             guard let window = content.windows.first(where: { $0.windowID == id }),
                   !options.excludeYapcamWindows || (window.owningApplication?.processID != ProcessInfo.processInfo.processIdentifier
@@ -105,8 +113,7 @@ struct CaptureCoordinateMapping: Sendable {
             let display = content.displays.max { a, b in
                 a.frame.intersection(window.frame).area < b.frame.intersection(window.frame).area
             }
-            source = SourceMetadata(kind: "window", displayID: display?.displayID,
-                contentRectPoints: [window.frame.minX, window.frame.minY, window.frame.width, window.frame.height], scale: scale,
+            source = geometry.sourceMetadata(kind: "window", displayID: display?.displayID, displayNames: displayNames,
                 windowTitle: window.title, appBundleID: window.owningApplication?.bundleIdentifier)
         }
         let config = SCStreamConfiguration()

@@ -71,6 +71,19 @@ struct SourceMetadata: Codable, Sendable {
         case kind, displayID = "display_id", displayName = "display_name", contentRectPoints = "content_rect_points"
         case scale, windowTitle = "window_title", appBundleID = "app_bundle_id"
     }
+
+    // Older window packages may omit this field when decoded, but every new
+    // manifest write (including recovery) publishes a display name for all kinds.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(displayID, forKey: .displayID)
+        try container.encode(displayName ?? "Display", forKey: .displayName)
+        try container.encode(contentRectPoints, forKey: .contentRectPoints)
+        try container.encode(scale, forKey: .scale)
+        try container.encodeIfPresent(windowTitle, forKey: .windowTitle)
+        try container.encodeIfPresent(appBundleID, forKey: .appBundleID)
+    }
 }
 struct TrackMetadata: Codable, Sendable {
     var screen: ScreenMetadata
