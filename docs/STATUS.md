@@ -51,6 +51,15 @@ architecture, A/V sync debugging, platform problems and independent reviews.
 - Reviews round 2: 14/15 ui/editor round-1 findings fixed, 6/6 core/capture fixed; new
   findings (7 ui/editor, 2 render/capture) handed to owners. M3 hardening started 03:15.
 
+- M3 render on hardware (04:40, debug build, Apple M4):
+  - 10-min export 1080p30 with audio (procedural flash + beep): A/V offset start 0.04 ms,
+    middle 0.02 ms, end 0.02 ms; 4.4× realtime; peak RSS 137 MB.
+  - 30-min export soak (looping 320×200 decoded source + PCM, 1080p30): 2.2× realtime,
+    peak RSS 183 MB, steady RSS growth −2.5 MB (no leak).
+  - Preview with audio, 30 s: 1080p 58.3 fps (45 dropped submissions), 4K 58.9 fps (31).
+  Limitation: sources are synthetic/low-resolution; real 1080p/4K screen recordings are not
+  measured yet (needs the screen-recording grant).
+
 ## Open
 Everything in `docs/FEATURES.md` (being written by qa). First integration target: M1
 (see `docs/briefs/common.md`).
