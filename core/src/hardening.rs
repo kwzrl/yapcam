@@ -87,6 +87,8 @@ fn scale_60_minutes() {
     p.input = vec![crate::input::InputCache::new(&events)];
     p.events = vec![events];
     p.data.cursor.key_overlay.enabled = true;
+    p.data.cursor.smoothing = 1.0;
+    p.data.cursor.speed_preset = "rapid".into();
     p.rebuild_key_overlay_index();
     crate::project::validate_data(&p.data).unwrap();
     let path = CString::new(fixture.0.to_str().unwrap()).unwrap();
@@ -226,6 +228,46 @@ fn scale_60_minutes() {
     worst_edit = worst_edit.max(stats.2);
     println!(
         "SCALE auto_zooms durable=true n=8 p50_ms={:.6} p99_ms={:.6} max_ms={:.6}",
+        stats.0, stats.1, stats.2
+    );
+    let query = CString::new(r#"{"q":"typing_suggestions"}"#).unwrap();
+    let start = Instant::now();
+    let mut rows = std::ptr::null_mut();
+    assert_eq!(unsafe { yc_query(handle, query.as_ptr(), &mut rows) }, 0);
+    assert!(!rows.is_null());
+    unsafe {
+        yc_string_free(rows);
+    }
+    println!(
+        "SCALE typing_suggestions query_ms={:.6}",
+        start.elapsed().as_secs_f64() * 1000.0
+    );
+    let command = CString::new(r#"{"op":"auto_speed_typing","speed":3}"#).unwrap();
+    let mut typing = Vec::new();
+    let mut typing_undo = Vec::new();
+    for _ in 0..8 {
+        let start = Instant::now();
+        assert_eq!(
+            unsafe { yc_apply(handle, command.as_ptr(), std::ptr::null_mut()) },
+            0
+        );
+        typing.push(start.elapsed().as_nanos() as u64);
+        let start = Instant::now();
+        let mut did = 0;
+        assert_eq!(unsafe { yc_undo(handle, &mut did) }, 0);
+        assert_eq!(did, 1);
+        typing_undo.push(start.elapsed().as_nanos() as u64);
+    }
+    let stats = percentiles(typing);
+    worst_edit = worst_edit.max(stats.2);
+    println!(
+        "SCALE auto_speed_typing durable=true n=8 p50_ms={:.6} p99_ms={:.6} max_ms={:.6}",
+        stats.0, stats.1, stats.2
+    );
+    let stats = percentiles(typing_undo);
+    worst_edit = worst_edit.max(stats.2);
+    println!(
+        "SCALE typing_undo durable=true n=8 p50_ms={:.6} p99_ms={:.6} max_ms={:.6}",
         stats.0, stats.1, stats.2
     );
     let start = Instant::now();
@@ -414,7 +456,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 .as_str()
                 .unwrap_or("missing");
             let random = arbitrary_json(&mut seed, 4);
-            let mut command = match n % 12 {
+            let mut command = match n % 17 {
                 0 => random.clone(),
                 1 => json!({"op":"set","path":"canvas.padding","value":random}),
                 2 => json!({"op":"set","path":"notes","value":format!("fuzz-{n} ☕\0字幕")}),
@@ -436,7 +478,14 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                     json!({"op":"set","path":(["camera.position","cursor.stop_before_end_ns","audio.speech_enhancement_settings","canvas.animation","cursor.spring","audio.music","canvas.captions"][n as usize%7]),"value":random})
                 }
                 10 => json!({"op":"add_media","role":"asset","path":"../../escape"}),
-                _ => json!({"op":"add_caption","caption":random}),
+                11 => json!({"op":"add_caption","caption":random}),
+                12 => json!({"op":"auto_speed_typing","speed":random}),
+                13 => json!({"op":"apply_typing_suggestion","id":random,"speed":3}),
+                14 => json!({"op":"dismiss_typing_suggestion","id":random}),
+                15 => json!({"op":"restore_typing_suggestions"}),
+                _ => {
+                    json!({"op":"set","path":(["audio.mic_preset","audio.stereo_mic","canvas.padding_ratio","cursor.size_points","zoom_settings.start_early","typing.speed","typing.dismissed"][n as usize%7]),"value":random})
+                }
             };
             if step % 97 == 0 {
                 for _ in 0..40 {

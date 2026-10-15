@@ -576,10 +576,10 @@ fn apply_inner(
                         p.cursor.smoothing = 1.0;
                     }
                 }
-                "cursor.smoothing" => {
-                    if p.cursor.smoothing > 0.0 && p.cursor.speed_preset == "none" {
-                        p.cursor.speed_preset = "custom".into();
-                    }
+                "cursor.smoothing"
+                    if p.cursor.smoothing > 0.0 && p.cursor.speed_preset == "none" =>
+                {
+                    p.cursor.speed_preset = "custom".into();
                 }
                 "zoom_settings.speed_preset" | "zoom_settings.animation_style" => {
                     p.zoom_settings.physics_version = 1;
