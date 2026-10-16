@@ -137,6 +137,8 @@ struct CameraPopover: View {
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.8)))
                 }
             }
+            Divider()
+            CameraResolutionRow()
         }
         .padding(14).frame(width: 280)
         .onAppear { devices.reload(); devices.startPreview(deviceID: settings.cameraID) }

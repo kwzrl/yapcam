@@ -18,6 +18,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Yapcam"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+# Third-party notices travel with the app (Help menu and About open this file). Plain text so any viewer shows it.
+cp "$ROOT/docs/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt"
+test -s "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt" || { echo "build-app: THIRD_PARTY_NOTICES missing from bundle" >&2; exit 1; }
 
 # Optional dedicated signing keychain; unlock it if a password file exists.
 KEYCHAIN="${YAPCAM_SIGN_KEYCHAIN:-$HOME/Library/Keychains/yapcam-signing.keychain-db}"

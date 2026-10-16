@@ -77,11 +77,15 @@ import AppKit
             shortcutItem("Quick Export: Copy to Clipboard", #selector(AppDelegate.quickExportCopy), .quickExportCopy),
             shortcutItem("Quick Export: Save to File…", #selector(AppDelegate.quickExportSave), .quickExportSave),
         ])
+        add("Help", [
+            item("Third-Party Notices", #selector(AppDelegate.showThirdPartyNotices)),
+        ])
+        NSApp.helpMenu = main.items.last?.submenu
         add("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: nil),
             item("Zoom", #selector(NSWindow.performZoom(_:)), target: nil),
         ])
-        NSApp.windowsMenu = main.items.last?.submenu
+        NSApp.windowsMenu = main.items.first { $0.title == "Window" }?.submenu
         _ = s
         return main
     }

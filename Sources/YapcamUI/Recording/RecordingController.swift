@@ -50,6 +50,11 @@ enum RecordingPhase: Equatable {
     nonisolated(unsafe) static var autoConfirm = false
 
     var engine: RecordingEngine = LiveEngine()
+    var cuePlayer: CuePlayer = ChimePlayer()
+    /// After-recording work (project prep, editor, quick export). Replaceable in tests.
+    lazy var postProcess: (URL, String, [Int64]) async -> Void = { [unowned self] url, notes, marks in
+        await PostRecording.process(package: url, notes: notes, markers: marks, controller: self)
+    }
     private let settings = AppSettings.shared
     private var session: EngineSession?
     private var countdownTask: Task<Void, Never>?
@@ -163,6 +168,7 @@ enum RecordingPhase: Equatable {
             systemAudio: settings.systemAudio,
             microphoneID: PermissionsModel.shared.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) ? settings.microphoneID : nil,
             cameraID: PermissionsModel.shared.state(.camera) == .granted && DeviceModel.shared.isAvailable(camera: settings.cameraID) ? settings.cameraID : nil,
+            cameraMaxResolution: settings.cameraMaxResolution,
             recordKeystrokes: settings.recordKeystrokes && PermissionsModel.shared.state(.inputMonitoring) == .granted,
             maxFPS: settings.maxFPS,
             outputDirectory: settings.storageDirectory)
@@ -212,17 +218,18 @@ enum RecordingPhase: Equatable {
 
     // MARK: Session
 
-    private func startSession(_ options: UIRecordingOptions) {
+    func startSession(_ options: UIRecordingOptions) {
         phase = .starting
-        // Sound first: it must be finished before capture starts so it never reaches the recording.
-        let lead: Duration = settings.playSounds ? .milliseconds(450) : .zero
-        if settings.playSounds { NSSound(named: "Tink")?.play() }
+        // Order: countdown (if any) → start sound (≤ 540 ms) → capture. The sound is finished or
+        // cut off before capture starts, and Yapcam's own audio is excluded from system-audio capture.
+        let playSound = settings.playSounds
+        let player = cuePlayer
         if settings.hideDesktopIcons { DesktopIcons.hide() }
         let s = engine.makeSession(options)
         session = s
         elapsed = 0
         Task {
-            try? await Task.sleep(for: lead)
+            if playSound { await StartSoundGate.run(player: player) }
             do {
                 try await s.start()
                 phase = .recording
@@ -277,7 +284,12 @@ enum RecordingPhase: Equatable {
                 lastPackage = url
                 finish()
                 if settings.openEditorAfterRecording {
-                    await PostRecording.process(package: url, notes: notesText, markers: marks, controller: self)
+                    // Not part of the capture queue: a long export or a save panel must never delay
+                    // pause/stop/cancel of the next recording.
+                    Task { [weak self] in
+                        guard let self else { return }
+                        await self.postProcess(url, notesText, marks)
+                    }
                 } else {
                     NSWorkspace.shared.activateFileViewerSelecting([url])      // self-tests only (isolated settings)
                 }
@@ -365,7 +377,10 @@ enum RecordingPhase: Equatable {
         markers = []
         TeleprompterController.shared.hide()
         DesktopIcons.restoreIfNeeded()
-        if settings.playSounds, session != nil { NSSound(named: "Pop")?.play() }
+        if settings.playSounds, session != nil {
+            let player = cuePlayer
+            Task.detached { try? await player.play(.stop, gain: StartSoundGate.gain) }
+        }
         session = nil; phase = .idle; elapsed = 0; micLevel = 0; warnings = []; lowDisk = false
     }
 

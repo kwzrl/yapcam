@@ -1,4 +1,5 @@
 import AppKit
+import YapcamCapture
 import Carbon.HIToolbox
 import SwiftUI
 
@@ -95,6 +96,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var systemAudio: Bool { didSet { d.set(systemAudio, forKey: "systemAudio") } }
     @Published var microphoneID: String? { didSet { d.set(microphoneID, forKey: "microphoneID") } }
     @Published var cameraID: String? { didSet { d.set(cameraID, forKey: "cameraID") } }
+    @Published var cameraMaxResolution: CameraMaxResolution { didSet { d.set(cameraMaxResolution.rawValue, forKey: "cameraMaxResolution") } }
     @Published var countdown: Int { didSet { d.set(countdown, forKey: "countdown") } }
     @Published var recordKeystrokes: Bool { didSet { d.set(recordKeystrokes, forKey: "recordKeystrokes") } }
     @Published var maxFPS: Int { didSet { d.set(maxFPS, forKey: "maxFPS") } }
@@ -143,6 +145,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         systemAudio = d.object(forKey: "systemAudio") as? Bool ?? true
         microphoneID = d.string(forKey: "microphoneID")
         cameraID = d.string(forKey: "cameraID")
+        cameraMaxResolution = CameraMaxResolution(rawValue: d.integer(forKey: "cameraMaxResolution")) ?? .hd1080
         let cd = d.object(forKey: "countdown") as? Int ?? 0
         countdown = [0, 3, 5, 10].contains(cd) ? cd : 0
         recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? false
