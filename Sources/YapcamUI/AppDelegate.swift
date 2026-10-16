@@ -1,4 +1,5 @@
 import AppKit
+import Speech
 import Combine
 import YapcamCapture
 import YapcamEditor
@@ -84,6 +85,7 @@ import YapcamEditor
         ToolbarPanelController.shared.show()
         DesktopIcons.restoreIfNeeded()
         installTranscriber()
+        PresetsFolder.apply(AppSettings.shared.presetsDirectory)
         AreaOutline.shared.start()
         offerRecovery()
         if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {
@@ -151,12 +153,12 @@ import YapcamEditor
     /// Editor's "Generate captions from speech" runs capture's on-device transcription.
     func installTranscriber() {
         EditorWindows.transcriber = { package in
-            if TranscriptionService.authorizationState == .notDetermined {
-                try await TranscriptionService.requestAuthorization()
-            }
-            let transcript = try await TranscriptionService().transcribe(package: package)
-            return try JSONEncoder().encode(transcript)
+            try await TranscriptionWiring.transcribe(package: package, options: TranscriptionOptions(), using: TranscriptionWiring.live)
         }
+        EditorWindows.transcriberWithOptions = { package, options in
+            try await TranscriptionWiring.transcribe(package: package, options: options, using: TranscriptionWiring.live)
+        }
+        EditorWindows.languageProvider = { TranscriptionWiring.languages(from: Array(SFSpeechRecognizer.supportedLocales())) }
     }
 
     /// Interrupted recordings from a previous run: offer recovery instead of silently ignoring them.

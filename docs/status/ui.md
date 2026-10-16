@@ -1,3 +1,4 @@
+READY ui-final: AUD-10 integrated (keyterms + language reach transcription; 4 tests), GAP-UI-6 custom ratio, GAP-UI-9 (engine shown read-only, why in row), GAP-UI-10 (Experimental tab, reuse last look, presets folder; autosave toggle blocked on editor hook), GAP-RND-9 (VFR toggle drives quick export; editor dialog needs hook). Debug 592 tests: 3 editor-owned cursor-default failures, none in ui; release app builds; NOT run live.
 READY ui GAP-CAP-1 + GAP-CAP-6: per-app system audio picker (Off/All/Selected + checklist, bundle-id persistence, forwarded) and pre-flight prompts before countdown/start sound. Debug 580 tests green, release app builds; NOT run live (QA), capture checks need camera/mic hardware (untested, no hardware). Notes: default stays All apps for existing users; 'camera without mic' asks every recording by design; window-resize condition has no trigger in Yapcam UI.
 READY ui F16: first Return after a hotkey-opened overlay could go to another app (one-shot activation request lost) → overlay now re-claims the keyboard until it is key + global Return/Esc fallback; 3 new tests. Commit: see git log; debug tests green after build-core; release app builds; NOT verified live (QA owns live; please re-run f11-display-repeat).
 READY ui: start-sound tests deterministic (injected clock) + gate can no longer be held by a player that ignores cancellation (555 tests green ×2)
@@ -80,6 +81,8 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - Default storage `~/Movies/Yapcam`.
 
 ## Requests (to Lead)
+- Editor (GAP-UI-10 autosave, GAP-RND-9): (1) a global switch for autosave, e.g. `EditorWindows.autosaveEnabled` read by `EditorModel.scheduleAutosave` (ui then adds the Settings toggle, default on); (2) `RenderExportEngine.settings(for:)` should set `variableFrameRate` from a hook, e.g. `EditorWindows.variableFrameRate: () -> Bool`, which ui sets from Settings > Experimental. Until then the toggle affects quick export only.
+- Editor tests failing on rebased main (not ui): CursorLibraryTests (selectionsReachTheRenderConfigurationAndInvalidateTheCache, pickerListsMatchCoreLibrary) and FactoryDefaultsContractTests.newProjectsMatchTheDocumentedFactoryTable expect cursor set "classic" but core now defaults to "original".
 - Grant screen recording (and mic/camera/input monitoring/accessibility as wanted) to the `Yapcam Dev Signing` build, then run `open -n build/Yapcam.app --args --capture-selftest 3`.
 - Editor: provide `EditorWindows.open(package:)` per SWIFT_API.md.
 - Core: a `notes` field in project.json (+ `set(path:)` support) for REC-21 speaker notes.

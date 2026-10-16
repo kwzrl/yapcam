@@ -172,6 +172,10 @@ import YapcamRender
         }
     }
 
+    static func quickExportSettings(variableFrameRate: Bool) -> ExportSettings {
+        ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, quality: 0.8, includeAudio: true, variableFrameRate: variableFrameRate)
+    }
+
     /// The export runs off the main thread and races a watchdog, so neither a slow encoder nor a hung one can
     /// freeze the app or leave the widget "working" forever.
     private static func runGuarded(package: URL, name: String) async throws -> URL {
@@ -179,6 +183,7 @@ import YapcamRender
         // A new file per run: a cancelled worker that is still writing can never collide with the next export.
         let runDir = dir.appending(path: UUID().uuidString.prefix(8).description, directoryHint: .isDirectory)
         let out = runDir.appending(path: "\(name).mp4")
+        let exportSettings = quickExportSettings(variableFrameRate: await MainActor.run { AppSettings.shared.experimentalVariableFrameRate })
         let tracker = ProgressTracker()
         let result: Result<URL, Error> = await withCheckedContinuation { continuation in
             let once = ResumeOnce(continuation)
@@ -189,7 +194,7 @@ import YapcamRender
                         : try await MainActor.run { try ProjectActions.openOrCreateProject(package) }
                     try FileManager.default.createDirectory(at: runDir, withIntermediateDirectories: true)
                     let exporter = try Exporter(project: project,
-                                                settings: ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, quality: 0.8, includeAudio: true),
+                                                settings: exportSettings,
                                                 destination: out)
                     _ = try await exporter.run(progress: { p in
                         tracker.update(p)

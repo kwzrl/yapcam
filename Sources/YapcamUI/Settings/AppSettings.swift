@@ -97,6 +97,14 @@ struct KeyCombo: Codable, Equatable, Hashable {
     /// With `systemAudio` on: record only the apps in `systemAudioApps` (bundle ids) instead of all apps.
     @Published var systemAudioSelectedOnly: Bool { didSet { d.set(systemAudioSelectedOnly, forKey: "systemAudioSelectedOnly") } }
     @Published var systemAudioApps: [String] { didSet { d.set(systemAudioApps, forKey: "systemAudioApps") } }
+    @Published var areaCustomRatioW: CGFloat { didSet { d.set(Double(areaCustomRatioW), forKey: "areaCustomRatioW") } }
+    @Published var areaCustomRatioH: CGFloat { didSet { d.set(Double(areaCustomRatioH), forKey: "areaCustomRatioH") } }
+    /// New projects start from the look of the most recent one instead of the default preset.
+    @Published var reuseLastProjectSettings: Bool { didSet { d.set(reuseLastProjectSettings, forKey: "reuseLastProjectSettings") } }
+    /// Folder for look presets; nil = the standard folder.
+    @Published var presetsDirectory: URL? { didSet { d.set(presetsDirectory?.path, forKey: "presetsDirectory") } }
+    /// Experimental: exports (quick export) omit exact duplicate frames (variable frame rate).
+    @Published var experimentalVariableFrameRate: Bool { didSet { d.set(experimentalVariableFrameRate, forKey: "experimentalVariableFrameRate") } }
     @Published var microphoneID: String? { didSet { d.set(microphoneID, forKey: "microphoneID") } }
     @Published var cameraID: String? { didSet { d.set(cameraID, forKey: "cameraID") } }
     @Published var cameraMaxResolution: CameraMaxResolution { didSet { d.set(cameraMaxResolution.rawValue, forKey: "cameraMaxResolution") } }
@@ -148,6 +156,11 @@ struct KeyCombo: Codable, Equatable, Hashable {
         systemAudio = d.object(forKey: "systemAudio") as? Bool ?? true
         systemAudioSelectedOnly = d.object(forKey: "systemAudioSelectedOnly") as? Bool ?? false
         systemAudioApps = d.stringArray(forKey: "systemAudioApps") ?? []
+        areaCustomRatioW = CGFloat(d.object(forKey: "areaCustomRatioW") as? Double ?? 16)
+        areaCustomRatioH = CGFloat(d.object(forKey: "areaCustomRatioH") as? Double ?? 10)
+        reuseLastProjectSettings = d.object(forKey: "reuseLastProjectSettings") as? Bool ?? false
+        presetsDirectory = d.string(forKey: "presetsDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) }
+        experimentalVariableFrameRate = d.object(forKey: "experimentalVariableFrameRate") as? Bool ?? false
         microphoneID = d.string(forKey: "microphoneID")
         cameraID = d.string(forKey: "cameraID")
         cameraMaxResolution = CameraMaxResolution(rawValue: d.integer(forKey: "cameraMaxResolution")) ?? .hd1080
