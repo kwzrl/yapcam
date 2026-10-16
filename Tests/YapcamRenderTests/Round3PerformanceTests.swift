@@ -56,7 +56,9 @@ final class Round3PerformanceTests: XCTestCase {
         }
         let root=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam/QA/render/round3-generator-\(UUID().uuidString)")
         defer { print("Cleanup render-owned generated media: \(root.lastPathComponent)"); try? FileManager.default.removeItem(at: root) }
-        try Round3Synthetic.create(at: root,seconds: 0.2)
+        let seconds=Double(ProcessInfo.processInfo.environment["YAPCAM_RENDER_ROUND3_GENERATOR_SECONDS"] ?? "0.2") ?? 0
+        guard seconds.isFinite,(0.1...120).contains(seconds) else { throw RenderError.invalidSettings("Round3 generator check duration must be 0.1...120 seconds") }
+        try Round3Synthetic.create(at: root,seconds: seconds)
         let movie=root.appendingPathComponent("recording/screen.mov")
         let result=try Round3Child().run("/opt/homebrew/bin/ffprobe",["-v","error","-count_frames","-show_entries",
             "stream=codec_name,width,height,r_frame_rate,nb_read_frames,codec_type","-of","json",movie.path],in: root)
@@ -65,11 +67,18 @@ final class Round3PerformanceTests: XCTestCase {
         let video=try XCTUnwrap(streams.first { $0["codec_type"] as? String == "video" })
         XCTAssertEqual(video["codec_name"] as? String,"hevc")
         XCTAssertEqual(video["width"] as? Int,3840); XCTAssertEqual(video["height"] as? Int,2160)
-        XCTAssertEqual(video["r_frame_rate"] as? String,"60/1"); XCTAssertEqual(video["nb_read_frames"] as? String,"12")
+        XCTAssertEqual(video["r_frame_rate"] as? String,"60/1")
+        XCTAssertEqual(video["nb_read_frames"] as? String,String(Int((seconds*60).rounded())))
         XCTAssertTrue(streams.contains { $0["codec_type"] as? String == "audio" })
         let project=try Project.create(package: root)
-        XCTAssertEqual(project.durationNs,200_000_000)
+        XCTAssertEqual(project.durationNs,Int64((seconds*1e9).rounded()))
         XCTAssertFalse(try XCTUnwrap(project.renderAudioRanges()).isEmpty)
+        let metadata: [String:Any] = ["procedure":"software input generation and independent ffprobe; not a Render performance result",
+            "revision":ProcessInfo.processInfo.environment["YAPCAM_RENDER_ROUND3_REVISION"] ?? "unspecified",
+            "source":"synthetic 4K","width":3840,"height":2160,"fps":60,"seconds":seconds,
+            "frames":Int((seconds*60).rounded()),"audio":true,
+            "file_bytes":try movie.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0]
+        print("RENDER_ROUND3_INPUT \(String(decoding: try JSONSerialization.data(withJSONObject: metadata,options: [.sortedKeys]),as: UTF8.self))")
     }
     func testAvailableRealRecordingIsCopiedBeforeCoreEditsAndOriginalStaysIntactWhenOptedIn() throws {
         guard ProcessInfo.processInfo.environment["YAPCAM_RENDER_ROUND3_REAL_COPY"]=="1" else {
@@ -77,7 +86,10 @@ final class Round3PerformanceTests: XCTestCase {
         }
         let media=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam")
         let packages=try FileManager.default.contentsOfDirectory(at: media,includingPropertiesForKeys: nil).filter {
-            $0.lastPathComponent.hasPrefix("Recording-") && $0.pathExtension=="yapcam"
+            guard $0.lastPathComponent.hasPrefix("Recording-"),$0.pathExtension=="yapcam",
+                  let data=try? Data(contentsOf: $0.appendingPathComponent("recording/session.json")),
+                  let row=try? JSONSerialization.jsonObject(with: data) as? [String:Any] else { return false }
+            return row["status"] as? String == "complete"
         }
         let original=try XCTUnwrap(packages.first)
         let before=try Round3Data.fingerprints(original)

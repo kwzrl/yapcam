@@ -104,12 +104,14 @@ import YapcamCore
         let session=try JSONSerialization.jsonObject(with: Data(contentsOf: package.appendingPathComponent("recording/session.json"))) as? [String:Any]
         let track=(session?["tracks"] as? [String:Any])?["screen"] as? [String:Any]
         sourceInfo["decoded_pixel_size"]=track?["pixel_size"] ?? []
+        sourceInfo["source_codec"]=track?["codec"] ?? "unknown"
+        sourceInfo["source_declared_max_fps"]=track?["max_fps"] ?? NSNull()
         sourceInfo["physical_source_seconds"]=Double(physical.durationNs)/1e9
         sourceInfo["timeline_seconds"]=Double(source.durationNs)/1e9
         sourceInfo["timeline_scope"]="repeated unchanged source; not a long capture"
         sourceInfo["output_scope"]="1920x1080 or 3840x2160 drawable; visible 640x360 window on one non-Retina display"
-        sourceInfo["av_sync"]="unmeasured: no identified ten-minute real source/flash-beep marker manifest; no content inference"
-        try write("inputs",["status":"prepared","audio":true,"codec":"HEVC","fps":60,"compression":"social","canvas_aspect":"16:9"])
+        sourceInfo["av_sync"]="unmeasured: requires identified flash/beep markers and a marked-source analyzer run; this harness does not infer markers from content"
+        try write("inputs",["status":"prepared","audio":true,"export_codec":"HEVC","export_fps":60,"compression":"social","canvas_aspect":"16:9"])
         if config.mode=="all" || config.mode=="smoke" || config.mode=="preview" {
             for height in [1080,2160] { try await preview(source,height: height,seconds: config.previewSeconds,name: "preview") }
         }
@@ -150,6 +152,8 @@ import YapcamCore
         try await withView(source,height: height) { player,view in
             player.play(); try await ready(player); try await Task.sleep(for: .seconds(2))
             let baseline=player.metricSnapshot(), drops=player.submissionSnapshot(), presented=view.presentations.total
+            guard let audioStart=player.audioClockSeconds,audioStart.isFinite else { throw RenderError.verification("Round3 audio clock is invalid") }
+            let timelineStart=player.currentNs
             let start=CACurrentMediaTime(); var previous=start, previousFrames=presented
             var rows: [[String:Any]]=[]
             while CACurrentMediaTime()-start<seconds {
@@ -162,6 +166,9 @@ import YapcamCore
                 previous=now; previousFrames=frames
             }
             let elapsed=CACurrentMediaTime()-start, final=player.metricSnapshot(), submission=player.submissionSnapshot()
+            guard let audioEnd=player.audioClockSeconds,audioEnd.isFinite else { throw RenderError.verification("Round3 audio clock became invalid") }
+            let audioAdvance=audioEnd-audioStart, timelineAdvance=Double(player.currentNs-timelineStart)/1e9
+            let clockValid=player.audioClockReady && player.audioClockRate>0 && audioAdvance>=elapsed*0.9 && abs(timelineAdvance-audioAdvance)<0.1
             player.pause()
             let fps=Double(view.presentations.total-presented)/elapsed
             let first=rows.prefix(max(1,rows.count/4)), last=rows.suffix(max(1,rows.count/4))
@@ -175,10 +182,12 @@ import YapcamCore
                 "busy_drops":submission.busy-drops.busy,"drawable_drops":submission.unavailableDrawable-drops.unavailableDrawable,
                 "failed_submissions":submission.failed-drops.failed,"sampled_peak_rss_bytes":peak,
                 "process_lifetime_peak_rss_bytes":try Round3Data.processPeak(),"rss_median_growth_bytes":growth,
+                "audio_clock_advance_s":audioAdvance,"timeline_advance_s":timelineAdvance,"audio_playback_valid":clockValid,
                 "fps_first_quarter":first.compactMap { $0["presented_fps"] as? Double }.reduce(0,+)/Double(first.count),
                 "fps_last_quarter":last.compactMap { $0["presented_fps"] as? Double }.reduce(0,+)/Double(last.count),
                 "samples":rows,"target_55fps_met":height != 1080 || fps>=55,
                 "drop_scope":"submission reasons; nominal display callbacks missed are separate from submissions"])
+            guard clockValid else { throw RenderError.verification("Presented FPS cannot count as playback acceptance: audio/timeline clock stalled or diverged") }
         }
     }
     private func scrub(_ source: any RenderProjectSource,height: Int) async throws {
