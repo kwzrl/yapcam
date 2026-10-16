@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import YapcamCore
 
 // Window chrome of the editor: top bar, controls above the preview, mini rail, transport row.
 
@@ -25,6 +26,15 @@ public enum PresetIsolation {
     }
     /// The store for the current isolation context (new models and documents pick this up).
     public static var currentStore: PresetStore { PresetStore(directory: directory, defaults: defaults) }
+    /// Applies the preset marked "use as default for new projects" (if any) to a freshly created project. Whoever creates a
+    /// project (after-recording processing, quick export, import, the editor itself) calls this once, BEFORE adding automatic
+    /// zooms or saving, so every new project starts from the same look. Returns whether a preset was applied.
+    @discardableResult
+    public static func applyDefaultPreset(to project: Project, from store: PresetStore? = nil) -> Bool {
+        let store = store ?? currentStore
+        guard let name = store.defaultName, FileManager.default.fileExists(atPath: store.url(name).path) else { return false }
+        return (try? project.importPreset(from: store.url(name))) != nil
+    }
     static func names() -> [String] { currentStore.names() }
     static func url(_ name: String) -> URL { currentStore.url(name) }
     static func clean(_ name: String) -> String { currentStore.clean(name) }
@@ -146,7 +156,8 @@ struct EditorTopBar: View {
             Button("Move to Trash", role: .destructive) {
                 guard let url = packageURL else { return }
                 // Close the window first (it saves), then trash, so nothing is written into a moved package.
-                NSApp.keyWindow?.close()
+                // This document's own window (not whichever window happens to be key).
+                EditorWindows.close(package: url)
                 NSWorkspace.shared.recycle([url])
             }
             Button("Cancel", role: .cancel) {}

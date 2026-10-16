@@ -26,10 +26,8 @@ import UniformTypeIdentifiers
         let hasProject = ["project.json", "project.json.prev", "autosave/project.json"]
             .contains { fm.fileExists(atPath: package.appendingPathComponent($0).path) }
         project = hasProject ? try Project.open(package: package) : try Project.create(package: package)
-        if !hasProject, let name = presets.defaultName, FileManager.default.fileExists(atPath: presets.url(name).path) {
-            // New projects start from the preset marked "use as default for new projects", if there is one.
-            try? project.importPreset(from: presets.url(name))
-        }
+        // New projects start from the preset marked "use as default for new projects", if there is one.
+        if !hasProject { EditorPresets.applyDefaultPreset(to: project, from: presets) }
         let source = ProjectRenderSource(project)
         player = try PreviewPlayer(project: source)
         adapter = PreviewPlayerAdapter(player: player)
@@ -44,6 +42,13 @@ import UniformTypeIdentifiers
         model.fitTimeline(width: 900)
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
         let transcriptURL = package.appendingPathComponent("recording/transcript.json")
+        model.captionSourceWithOptions = { options, force in
+            // An existing transcript is reused unless the user asked to regenerate it.
+            if !force, let data = try? Data(contentsOf: transcriptURL) { return data }
+            if let t = EditorWindows.transcriberWithOptions { return try await t(package, options) }
+            guard let t = EditorWindows.transcriber else { throw EditorError.transcriptionUnavailable }
+            return try await t(package)
+        }
         model.captionSource = {
             // An existing transcript is used as is; otherwise the app-provided on-device transcriber runs.
             if let data = try? Data(contentsOf: transcriptURL) { return data }

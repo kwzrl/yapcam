@@ -243,7 +243,9 @@ import YapcamCore
     @Test func hideAndCorrectOnlyTouchTheCaption() {
         let m = model(); let dur = m.durationNs
         m.correctWord(id: m.transcriptWords[0].id, text: "Hallo"); #expect(m.transcriptWords[0].text == "Hallo")
-        m.hideWord(id: m.transcriptWords[1].id); #expect(m.transcriptWords.count == 4 && m.durationNs == dur)
+        let hid = m.transcriptWords[1].id
+        m.hideWord(id: hid); #expect(m.transcriptWords.count == 5 && m.durationNs == dur && m.isHidden(m.transcriptWords[1]))
+        m.unhideWord(id: hid); #expect(!m.isHidden(m.transcriptWords[1]) && m.durationNs == dur)
     }
     @Test func cuttingEverythingIsRefused() {
         let m = EditorModel(project: FakeProject(durationNs: 2_000_000_000), player: FakePlayer())

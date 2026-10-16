@@ -51,6 +51,7 @@ struct TimelineView: View {
     @ObservedObject var model: EditorModel
     @State private var viewportWidth: CGFloat = 800
     @State private var drag: DragKind?
+    @State private var dragMoved = false
     private var layout: TimelineLayout { TimelineLayout(lanes: model.visibleLanes) }
 
     private enum DragKind {
@@ -300,7 +301,10 @@ struct TimelineView: View {
     private func timelineDrag(_ g: TimelineGeometry) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { v in
-                if drag == nil { drag = begin(at: v.startLocation, g) }
+                if drag == nil { drag = begin(at: v.startLocation, g); dragMoved = false }
+                // A click is not a drag: nothing previews or snaps until the pointer actually moved.
+                if !dragMoved { dragMoved = abs(v.translation.width) >= 3 || abs(v.translation.height) >= 3 }
+                if !dragMoved, case .scrub = drag! {} else if !dragMoved { return }
                 let ns = g.ns(forX: v.location.x)
                 switch drag! {
                 case .inert: break
