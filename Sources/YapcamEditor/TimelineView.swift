@@ -143,9 +143,9 @@ struct TimelineView: View {
                 let tint: Color = z.mode == .auto ? .purple : .orange
                 let r = model.displayedRange(of: z)
                 let w = max(g.contentWidth(durationNs: r.end - r.start), 6)
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: 6)
                     .fill(tint.opacity(selected ? 0.6 : 0.32))
-                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
                     .overlay(alignment: .leading) {
                         Label(String(format: "%.1fx · ", z.scale).replacingOccurrences(of: ".0x", with: "x") + (z.mode == .auto ? "Auto" : "Manual"), systemImage: "plus.magnifyingglass")
                             .font(.caption2.weight(.medium)).labelStyle(.titleAndIcon).padding(.leading, 8).lineLimit(1)
@@ -173,9 +173,9 @@ struct TimelineView: View {
     private func rangeChip(_ g: TimelineGeometry, key: String, span: TimeSpan, top: CGFloat, tint: Color, title: String, sel: EditorSelection) -> some View {
         let selected = model.selection == sel
         let r = model.zoomPreview[key] ?? (span.startNs, span.endNs)
-        return RoundedRectangle(cornerRadius: 5)
+        return RoundedRectangle(cornerRadius: 6)
             .fill(tint.opacity(selected ? 0.6 : 0.32))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
             .overlay(alignment: .leading) { Text(title).font(.caption2.weight(.medium)).lineLimit(1).padding(.leading, 8) }
             .frame(width: max(g.contentWidth(durationNs: r.1 - r.0), 6), height: TimelineLayout.laneHeight - 4)
             .offset(x: g.x(forNs: r.0), y: top + 2)
@@ -190,8 +190,8 @@ struct TimelineView: View {
         ZStack(alignment: .topLeading) {
             laneBackground(g, top: layout.typingTop, label: "")
             ForEach(model.typingSuggestions, id: \.startNs) { sp in
-                RoundedRectangle(cornerRadius: 5).fill(Color.orange.opacity(0.35))
-                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.orange.opacity(0.7)))
+                RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.35))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.orange.opacity(0.7)))
                     .overlay(alignment: .leading) { Label("Typing", systemImage: "keyboard").font(.caption2.weight(.medium)).padding(.leading, 6).lineLimit(1) }
                     .frame(width: max(g.contentWidth(durationNs: sp.durationNs), 6), height: TimelineLayout.laneHeight - 4)
                     .offset(x: g.x(forNs: sp.startNs), y: layout.typingTop + 2)
