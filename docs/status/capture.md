@@ -16,9 +16,18 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 # capture status
 
 ## Reference gap work (2026-10-15)
-- Latest continuation check: 2026-10-15 19:23 UTC; main 01f05df, local HEAD 87ce75d
-  (based on 97b9d82). Capture source/tests match main; Lead's next rebase is pending.
-  No new capture implementation assignment or defect appeared; local Next is empty.
+- Latest continuation check: 2026-10-15 22:57 UTC; main 66d4166, local HEAD c86f263
+  (based on 01f05df). Capture source/tests match main; Lead's next rebase is pending.
+  Local Next is empty; no new capture defect or implementation assignment appeared.
+- NEW FULL-SUITE HOST EVIDENCE: QA reran main 97b9d82 outside the sandbox at 21:05:
+  Rust 100 passed / 1 ignored; XCTest 207 run / 10 skipped / zero failures; Swift
+  Testing 501 tests / 99 suites passed. This supersedes the earlier baseline's
+  full-suite sandbox limitations. Optional speech/native-media/hardware acceptance
+  is still separate. These are QA results, not reruns by capture.
+- Main's new controller changes are self-test auto-confirm hooks (F11 support),
+  not capture option/marker forwarding. F13 is an editor autosave-hook wait mismatch
+  and UI-owned. F12 remains UI's intermittent post-recording save finding. Capture
+  sources/contracts/defaults are unchanged; no app launch or tests repeated here.
 - NEW QA HOST EVIDENCE on 97b9d82: start/stop, marker shortcut delivery and pause /
   resume PASS; 15 shortcuts register with zero refusals. Completed hotkey recording
   4.72 s, editor front. Marker observation is UI count 0 -> 1, not event persistence.
@@ -842,7 +851,7 @@ Dispatch note for Lead: capture needs a new concrete assignment or native failur
 report to continue implementation; the unchanged consumer rows are already handed off.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint this status refresh and rebase capture 87ce75d onto main 01f05df
+1. Lead: checkpoint this status refresh and rebase capture c86f263 onto main 66d4166
    (Git remains read-only here). UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
    event marker query/TimelineMarker and editor presentation/snapping are complete;
@@ -853,7 +862,8 @@ report to continue implementation; the unchanged consumer rows are already hande
    Record CAPTURE_NATIVE_HOUR output (actual bytes/moofs/duration) here. Also run
    the signed-app variants above plus static-tail/sync. Library kill/recover now
    passes in QA; app-level recovery prompt still needs acceptance.
-   Re-review C1 warnings and M3 policy/test boundaries; full host suite is still needed.
+   QA's full host suite is green (evidence above); the opt-in native-media and
+   C1 speech acceptance checks remain pending.
 3. Present C1 warnings and rerun the opt-in say tests on an authorized host with
    local models. Main already includes UI's Speech usage key, production transcriber
    hook, permission request and JSON encoding; real Speech remains unverified.
