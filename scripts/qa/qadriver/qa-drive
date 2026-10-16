@@ -1,0 +1,6 @@
+#!/bin/zsh
+# usage: qa-drive '{"op":"click","x":10,"y":10}'  -> prints result JSON (QADriver must be running)
+spool=~/Movies/Yapcam/QA/round3/spool; mkdir -p $spool
+id=$(date +%s%N)$RANDOM; print -r -- "$1" > $spool/cmd-$id.tmp; mv $spool/cmd-$id.tmp $spool/cmd-$id.json
+for i in {1..300}; do [[ -f $spool/res-$id.json ]] && { cat $spool/res-$id.json; echo; rm -f $spool/res-$id.json; exit 0 }; sleep 0.1; done
+echo '{"ok":false,"err":"driver not running or timed out"}'; exit 1

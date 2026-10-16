@@ -1,3 +1,5 @@
+BLOCKED round3 Q1: real-input driver built (scripts/qa/qadriver, app at ~/yapcam-ref-local/QADriver.app, running, ad-hoc signed) but it has NO Accessibility / Screen Recording permission (status: ax=false screen=false); my shell has none either (CGEvent post dropped, screencapture fails). REQUEST user: System Settings > Privacy & Security > Accessibility AND Screen & System Audio Recording > add/enable "QADriver" (~/yapcam-ref-local/QADriver.app). Grant is persistent as long as I do not rebuild it. Then Q1 starts immediately (F11 build b9c0b08 noted).
+
 READY c45398b qa: F12 20/20 pass, F11 narrowed (display/area pick+Return), exclusive window released
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
