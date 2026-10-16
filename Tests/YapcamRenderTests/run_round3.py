@@ -73,6 +73,10 @@ def original():
 
 def build():
     env = dict(os.environ, CARGO_BUILD_JOBS="4")
+    # Swift's incremental cache can retain an outlined value destructor from
+    # before a public struct layout change (F15). Benchmark an internally
+    # consistent fresh build; --skip-build still reuses a completed signed app.
+    run(["/usr/bin/swift", "package", "--disable-sandbox", "clean"], env=env)
     run([ROOT / "scripts/build-core.sh"], env=env)
     run(["/usr/bin/swift", "build", "--disable-sandbox", "-c", "release", "-j", "4", "-Xswiftc", "-enable-testing"], env=env)
     binary_dir = Path(subprocess.check_output(["/usr/bin/swift", "build", "--disable-sandbox", "-c", "release", "--show-bin-path"], cwd=ROOT, text=True).strip())

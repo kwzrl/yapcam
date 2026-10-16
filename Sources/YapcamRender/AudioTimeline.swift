@@ -174,8 +174,17 @@ final class AudioTimeline: @unchecked Sendable {
                     parameter=AVMutableAudioMixInputParameters(track: destination)
                 }
                 try insert(selection, of: source, into: destination!, unitRate: unitRate)
-                // AVAudioMix ramps amplitude linearly; short segments approximate the dB curve.
-                // Restart at every Core boundary to preserve abrupt mute/automation changes.
+                // AVAudioMix stores every ramp; inserting tens of thousands of
+                // identical 20ms ramps makes preparation superlinear. A constant
+                // Core interval is represented exactly by one range, including mute.
+                // Keep a separate call at every Core boundary for abrupt changes.
+                if row.gainStart == row.gainEnd {
+                    parameter!.setVolumeRamp(fromStartVolume: row.gainStart,toEndVolume: row.gainEnd,
+                        timeRange: CMTimeRange(start: CMTime(value: outputStart-range.lowerBound,timescale: 1_000_000_000),
+                                              duration: CMTime(value: outputEnd-outputStart,timescale: 1_000_000_000)))
+                    continue
+                }
+                // Nonconstant dB curves retain the existing 20ms approximation.
                 var time=outputStart
                 while time<outputEnd {
                     try Task.checkCancellation()
