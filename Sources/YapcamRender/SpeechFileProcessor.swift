@@ -102,7 +102,8 @@ public extension SpeechEnhancer {
     private static func processFile(_ source: SpeechSourceTrack,to destination: URL,settings: SpeechEnhancementSettings?,mono: Bool,cancellation: SpeechReadCancellation,progress: @Sendable (Double) -> Void) throws -> SpeechEnhancementReport? {
         let directory=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-speech-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        defer { print("Cleanup render-owned speech scratch: \(directory.lastPathComponent)"); try? FileManager.default.removeItem(at: directory) }
+        let decoded=directory.appendingPathComponent("decoded.caf")
         let intermediate=directory.appendingPathComponent("processed.caf")
         let partial=destination.deletingLastPathComponent().appendingPathComponent(".yapcam-speech-\(UUID().uuidString).\(destination.pathExtension)")
         defer { try? FileManager.default.removeItem(at: partial) }
@@ -121,20 +122,19 @@ public extension SpeechEnhancer {
             reader=value; nativeOutput=output
         }
         defer { reader?.cancelReading() }
-        var processor=try settings.map { try SpeechProcessor48k(channels: channels,settings: $0) }
+        var learner=settings.map { $0.noiseReductionDB>0 ? SpeechNoiseLearner48k(channels: channels) : nil } ?? nil
         var meter=try LoudnessMeter48k(channels: channels), written: Int64=0, decodedFrames: Int64=0
         try autoreleasepool {
-            let file=try AVAudioFile(forWriting: intermediate,settings: fileSettings,commonFormat: .pcmFormatFloat32,interleaved: false)
+            let file=try AVAudioFile(forWriting: decoded,settings: fileSettings,commonFormat: .pcmFormatFloat32,interleaved: false)
             func write(_ samples: [Float]) throws {
                 let selected: [Float]
                 if mono && inputChannels==2 {
                     selected=stride(from: 0,to: samples.count,by: 2).map { samples[$0]*0.5+samples[$0+1]*0.5 }
                 } else { selected=samples }
                 guard selected.allSatisfy(\.isFinite) else { throw RenderError.decode("Microphone PCM contains nonfinite samples") }
-                let processed=try processor?.process(selected) ?? selected
-                if settings != nil { try meter.process(interleaved: processed) }
-                try writePCM(processed,channels: channels,format: format,to: file)
-                written+=Int64(processed.count/channels)
+                learner?.process(selected)
+                try writePCM(selected,channels: channels,format: format,to: file)
+                written+=Int64(selected.count/channels)
             }
             if let output=nativeOutput {
             while let sample=output.copyNextSampleBuffer() {
@@ -156,7 +156,7 @@ public extension SpeechEnhancer {
                 let skip=Int(min(Int64(pcm.count/inputChannels),max(0,written-time.value)))
                 let count=Int(min(Int64(pcm.count/inputChannels-skip),max(0,source.endFrame-written)))
                 if count>0 { try write(Array(pcm[skip*inputChannels..<(skip+count)*inputChannels])) }
-                progress(min(0.5,Double(written)/Double(source.endFrame)*0.5))
+                progress(min(0.3,Double(written)/Double(source.endFrame)*0.3))
             }
             try cancellation.check()
             guard reader?.status == .completed else { throw RenderError.decode(reader?.error?.localizedDescription ?? "Speech decoder stopped") }
@@ -166,7 +166,7 @@ public extension SpeechEnhancer {
                     try cancellation.check(); decodedFrames+=Int64(pcm.count/inputChannels)
                     let count=Int(min(Int64(pcm.count/inputChannels),max(0,source.endFrame-written)))
                     if count>0 { try write(Array(pcm.prefix(count*inputChannels))) }
-                    progress(min(0.5,Double(written)/Double(source.endFrame)*0.5))
+                    progress(min(0.3,Double(written)/Double(source.endFrame)*0.3))
                 }
             }
             guard decodedFrames>0 else { throw RenderError.decode("Speech decoder returned no audio samples") }
@@ -174,13 +174,39 @@ public extension SpeechEnhancer {
         }
         guard let settings else {
             try cancellation.check()
-            let verified=try AVAudioFile(forReading: intermediate)
+            let verified=try AVAudioFile(forReading: decoded)
             guard verified.length==written,verified.fileFormat.sampleRate==48_000,Int(verified.fileFormat.channelCount)==channels else { throw RenderError.verification("Microphone channel conversion changed timing/format") }
-            try FileManager.default.moveItem(at: intermediate,to: destination); progress(1)
+            try FileManager.default.moveItem(at: decoded,to: destination); progress(1)
             return nil // Channel conversion alone must not claim enhancement or normalization.
         }
+        // Learn only from the input. A second, bounded-memory pass removes noise
+        // before compression/normalization; the original file is never rewritten.
+        let profile=learner?.profile
+        var reducer=profile.map { SpeechNoiseReducer48k(channels: channels,profile: $0,settings: settings) }
+        var processor=try SpeechProcessor48k(channels: channels,settings: settings,denoised: profile != nil)
+        try autoreleasepool {
+            let input=try SpeechPCMReader(url: decoded,format: format)
+            let output=try AVAudioFile(forWriting: intermediate,settings: fileSettings,commonFormat: .pcmFormatFloat32,interleaved: false)
+            var processedFrames: Int64=0
+            func emit(_ samples: [Float]) throws {
+                guard !samples.isEmpty else { return }
+                let processed=try processor.process(samples)
+                try meter.process(interleaved: processed)
+                try writePCM(processed,channels: channels,format: format,to: output)
+                processedFrames+=Int64(processed.count/channels)
+            }
+            while let pcm=try input.next() {
+                try cancellation.check()
+                try emit(reducer?.process(pcm) ?? pcm)
+                progress(0.3+min(1,Double(processedFrames)/Double(written))*0.2)
+            }
+            if let tail=reducer?.finish() { try emit(tail) }
+            guard processedFrames==written else { throw RenderError.verification("Speech reduction changed file-local sample count") }
+        }
         let before=meter.integratedLUFS
-        var gainDB=settings.normalizeLoudness ? before.map { min(60,settings.targetLUFS-$0) } ?? 0 : 0
+        // Noise-only material must never be normalized up to speech loudness.
+        let normalize=settings.normalizeLoudness && (profile?.containsSpeech ?? true)
+        var gainDB=normalize ? before.map { min(60,settings.targetLUFS-$0) } ?? 0 : 0
         var final: Double?, finalPeak=0.0, limited=false
         for attempt in 0..<4 {
             try cancellation.check()
@@ -203,7 +229,7 @@ public extension SpeechEnhancer {
                 }
             }
             final=result.integratedLUFS; finalPeak=limiter.peak; limited=limiter.limited
-            guard attempt<3,settings.normalizeLoudness,let final,abs(final-settings.targetLUFS)>=0.2,gainDB<60 else { break }
+            guard attempt<3,normalize,let final,abs(final-settings.targetLUFS)>=0.2,gainDB<60 else { break }
             gainDB=min(60,gainDB+settings.targetLUFS-final)
             try FileManager.default.removeItem(at: partial)
         }

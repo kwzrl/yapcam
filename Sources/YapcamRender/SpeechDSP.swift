@@ -74,41 +74,47 @@ public struct LoudnessMeter48k {
     }
 }
 
-/// Stateful zero-added-latency high-pass, linked downward expansion and soft-knee compression.
-/// Noise reduction is downward expansion in quiet regions, not a speech-separation model.
+/// Linked dynamics. Without a learned profile the legacy high-pass/expander is
+/// retained; denoised material already has a phase-preserving spectral high-pass.
 struct SpeechProcessor48k {
     let settings: SpeechEnhancementSettings
     let channels: Int
     private var filters: [AudioBiquad]
     private var working: [Double]
     private var envelope=0.0, gate=1.0, compressor=1.0
-    init(channels: Int,settings: SpeechEnhancementSettings) throws {
+    private let denoised: Bool
+    init(channels: Int,settings: SpeechEnhancementSettings,denoised: Bool = false) throws {
         try settings.validate(); guard (1...2).contains(channels) else { throw RenderError.invalidSettings("Speech processing supports mono/stereo") }
-        self.channels=channels; self.settings=settings
+        self.channels=channels; self.settings=settings; self.denoised=denoised
         filters=Array(repeating: .highPass(hz: settings.highPassHz),count: channels); working=Array(repeating: 0,count: channels)
     }
     mutating func process(_ samples: [Float]) throws -> [Float] {
         guard samples.count%channels==0 else { throw RenderError.invalidSettings("Incomplete PCM frame") }
         var output=[Float](repeating: 0,count: samples.count)
         let attack=exp(-1/(0.008*48_000)), release=exp(-1/(0.12*48_000))
+        // Slow RMS leveling avoids following individual speech cycles/phonemes,
+        // which distorted the noisy speech even when normalization was disabled.
+        let levelAttack=denoised ? exp(-1/(0.5*48_000)) : attack
+        let levelRelease=denoised ? exp(-1/(2*48_000)) : release
+        let compressionSmoothing=exp(-1/(0.1*48_000))
         for offset in stride(from: 0,to: samples.count,by: channels) {
             var power=0.0
             for channel in 0..<channels {
                 let x=Double(samples[offset+channel]); guard x.isFinite else { throw RenderError.decode("Nonfinite speech sample") }
-                working[channel]=filters[channel].process(x); power=max(power,working[channel]*working[channel])
+                working[channel]=denoised ? x : filters[channel].process(x); power=max(power,working[channel]*working[channel])
             }
-            let coefficient=power>envelope ? attack : release
+            let coefficient=power>envelope ? levelAttack : levelRelease
             envelope=coefficient*envelope+(1-coefficient)*power
             let level=10*log10(max(envelope,1e-20))
             let reduction=max(-settings.noiseReductionDB,min(0,(level-settings.noiseThresholdDB)*2))
-            let desiredGate=pow(10,reduction/20), gateCoefficient=desiredGate>gate ? attack : release
+            let desiredGate=denoised ? 1 : pow(10,reduction/20), gateCoefficient=desiredGate>gate ? attack : release
             gate=gateCoefficient*gate+(1-gateCoefficient)*desiredGate
             let over=level-settings.compressorThresholdDB, knee=6.0
             let compressed: Double
             if over <= -knee/2 { compressed=0 }
             else if over >= knee/2 { compressed=over*(1-1/settings.compressorRatio) }
             else { compressed=pow(over+knee/2,2)/(2*knee)*(1-1/settings.compressorRatio) }
-            let desiredCompressor=pow(10,-compressed/20), compCoefficient=desiredCompressor<compressor ? attack : release
+            let desiredCompressor=pow(10,-compressed/20), compCoefficient=denoised ? compressionSmoothing : (desiredCompressor<compressor ? attack : release)
             compressor=compCoefficient*compressor+(1-compCoefficient)*desiredCompressor
             for channel in 0..<channels { output[offset+channel]=Float(working[channel]*gate*compressor) }
         }
@@ -156,17 +162,35 @@ public struct SpeechEnhancementReport: Sendable {
 public enum SpeechEnhancer {
     /// Convenience for short interleaved 48kHz test/preview buffers; processFile streams recordings.
     public static func process(interleaved samples: [Float],channels: Int,settings: SpeechEnhancementSettings = .init()) throws -> (samples: [Float],report: SpeechEnhancementReport) {
-        var processor=try SpeechProcessor48k(channels: channels,settings: settings)
-        let processed=try processor.process(samples)
+        try settings.validate()
+        guard (1...2).contains(channels),samples.count%channels==0 else { throw RenderError.invalidSettings("Incomplete mono/stereo PCM") }
+        guard samples.allSatisfy(\.isFinite) else { throw RenderError.decode("Nonfinite speech sample") }
+        var learner=SpeechNoiseLearner48k(channels: channels)
+        if settings.noiseReductionDB>0 {
+            for start in stride(from: 0,to: samples.count,by: 4096*channels) {
+                learner.process(Array(samples[start..<min(samples.count,start+4096*channels)]))
+            }
+        }
+        let profile=settings.noiseReductionDB>0 ? learner.profile : nil
+        var processor=try SpeechProcessor48k(channels: channels,settings: settings,denoised: profile != nil)
+        var processed: [Float]=[]
+        if let profile {
+            var reducer=SpeechNoiseReducer48k(channels: channels,profile: profile,settings: settings)
+            for start in stride(from: 0,to: samples.count,by: 4096*channels) {
+                processed.append(contentsOf: try processor.process(reducer.process(Array(samples[start..<min(samples.count,start+4096*channels)]))))
+            }
+            processed.append(contentsOf: try processor.process(reducer.finish()))
+        } else { processed=try processor.process(samples) }
         var meter=try LoudnessMeter48k(channels: channels); try meter.process(interleaved: processed)
         let before=meter.integratedLUFS
-        var gainDB=settings.normalizeLoudness ? before.map { min(60,settings.targetLUFS-$0) } ?? 0 : 0
+        let normalize=settings.normalizeLoudness && (profile?.containsSpeech ?? true)
+        var gainDB=normalize ? before.map { min(60,settings.targetLUFS-$0) } ?? 0 : 0
         var output=processed, final: Double?, limiter=SpeechPeakLimiter(channels: channels,ceilingDBFS: settings.peakCeilingDBFS)
         for attempt in 0..<4 {
             limiter=SpeechPeakLimiter(channels: channels,ceilingDBFS: settings.peakCeilingDBFS)
             output=limiter.process(processed,normalizationGain: pow(10,gainDB/20))
             var result=try LoudnessMeter48k(channels: channels); try result.process(interleaved: output); final=result.integratedLUFS
-            guard attempt<3,settings.normalizeLoudness,let final,abs(final-settings.targetLUFS)>=0.2,gainDB<60 else { break }
+            guard attempt<3,normalize,let final,abs(final-settings.targetLUFS)>=0.2,gainDB<60 else { break }
             gainDB=min(60,gainDB+settings.targetLUFS-final)
         }
         return (output,SpeechEnhancementReport(frames: Int64(samples.count/channels),channels: channels,targetLUFS: settings.targetLUFS,processedLUFS: before,outputLUFS: final,normalizationGainDB: gainDB,samplePeakDBFS: limiter.peak>0 ? 20*log10(limiter.peak) : nil,peakLimited: limiter.limited))
