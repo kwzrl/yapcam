@@ -15,7 +15,7 @@ import YapcamCore
         _ = NSApplication.shared
         var hosts: [NSView] = []
         for scheme in [ColorScheme.light, .dark] {
-            let host = NSHostingView(rootView: make().frame(width: size.width, height: size.height).environment(\.colorScheme, scheme))
+            let host = NSHostingView(rootView: make().frame(width: size.width, height: size.height).background(Color(nsColor: .windowBackgroundColor)).environment(\.colorScheme, scheme))
             let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
             window.appearance = NSAppearance(named: scheme == .light ? .aqua : .darkAqua)
             window.contentView = host; window.orderBack(nil)
@@ -49,7 +49,7 @@ import YapcamCore
         }
 
         // 0) empty / fresh project
-        let empty = EditorModel(project: FakeProject(durationNs: 12_000_000_000), player: FakePlayer())
+        let empty = EditorModel(project: FakeProject(durationNs: 0), player: FakePlayer())
         try await Self.shoot("01-empty-project", in: dir) {
             EditorContent(model: empty, export: ExportModel(engine: FakeExporter()), title: "Recording 2026-10-17") { Color.clear }
         }

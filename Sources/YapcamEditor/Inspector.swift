@@ -14,7 +14,7 @@ struct NumberRow: View {
     @State private var editing = false
 
     var body: some View {
-        LabeledContent(title) {
+        SliderRow(title) {
             HStack {
                 Slider(value: $value, in: range) { isEditing in
                     editing = isEditing
@@ -514,7 +514,7 @@ struct ZoomScaleRow: View {
     @State private var value = 2.0
     @State private var editing = false
     var body: some View {
-        LabeledContent("Level") {
+        SliderRow("Level") {
             HStack {
                 Slider(value: $value, in: zoomLevelRange) { e in editing = e; if !e { model.setZoomScale(id: zoom.id, value) } }
                     .accessibilityLabel("Zoom level").accessibilityValue("\(Int((value * 100).rounded())) percent")
@@ -575,7 +575,7 @@ struct CropSection: View {
     }
     private func load() { let c = model.cropInsets(path: path); l = c.left; t = c.top; r = c.right; b = c.bottom }
     private func row(_ title: String, _ v: Binding<Double>) -> some View {
-        LabeledContent(title) {
+        SliderRow(title) {
             HStack {
                 Slider(value: v, in: 0...0.9) { e in editing = e; if !e { model.setCrop(path: path, left: l, top: t, right: r, bottom: b) } }
                     .accessibilityLabel("Crop \(title.lowercased())").accessibilityValue("\(Int(v.wrappedValue * 100)) percent")
@@ -593,7 +593,7 @@ struct DurationRow: View {
     @State private var seconds = 0.4
     @State private var editing = false
     var body: some View {
-        LabeledContent(title) {
+        SliderRow(title) {
             HStack {
                 Slider(value: $seconds, in: range) { e in editing = e; if !e { model.set(path, number: (seconds * 1e9).rounded()) } }
                     .accessibilityLabel(title).accessibilityValue(String(format: "%.1f seconds", seconds))
@@ -642,7 +642,7 @@ struct BlurStrengthRow: View {
     @State private var drag: Double?
     var body: some View {
         let range = HighlightRegion.blurRadiusRange
-        LabeledContent("Blur strength") {
+        SliderRow("Blur strength") {
             HStack {
                 Slider(value: Binding(get: { drag ?? region.blurRadius }, set: { drag = $0 }), in: range, step: 1) { editing in
                     if !editing, let v = drag { drag = nil; if v != region.blurRadius { model.updateHighlight(id: region.id) { $0.blurRadius = v } } }
@@ -789,7 +789,7 @@ struct MusicControls: View {
     @State private var editing = false
     var body: some View {
         let id = item.id
-        LabeledContent("Volume") {
+        SliderRow("Volume") {
             HStack {
                 Slider(value: $gain, in: -48...6) { e in editing = e; if !e { model.setMusicGain(id: id, gain) } }
                     .accessibilityLabel("Music volume").accessibilityValue("\(Int(gain)) decibels")
@@ -905,7 +905,7 @@ struct ClipVolumeRow: View {
     @State private var value = 100.0
     @State private var editing = false
     var body: some View {
-        LabeledContent(title) {
+        SliderRow(title) {
             HStack {
                 Slider(value: $value, in: 0...100, step: 5) { e in editing = e; if !e { model.setVolume(percent: Int(value), system: system) } }
                     .accessibilityLabel(title).accessibilityValue("\(Int(value)) percent")
@@ -926,10 +926,14 @@ struct ZoomLensRows: View {
     let lens: ZoomLensParams
     @State private var drag: ZoomLensParams?          // local value while a slider is held; committed once on release
     private func row(_ title: String, _ range: ClosedRange<Double>, _ get: @escaping (ZoomLensParams) -> Double, _ set: @escaping (inout ZoomLensParams, Double) -> Void) -> some View {
-        LabeledContent(title) {
-            Slider(value: Binding(get: { get(drag ?? lens) }, set: { v in var l = drag ?? lens; set(&l, v); drag = l }), in: range) { editing in
-                if !editing, let l = drag { drag = nil; model.setZoomLens(id: zoomID, l) }
-            }.accessibilityLabel(title)
+        SliderRow(title) {
+            HStack {
+                Slider(value: Binding(get: { get(drag ?? lens) }, set: { v in var l = drag ?? lens; set(&l, v); drag = l }), in: range) { editing in
+                    if !editing, let l = drag { drag = nil; model.setZoomLens(id: zoomID, l) }
+                }.accessibilityLabel(title)
+                Text(String(format: "%.2f", get(drag ?? lens))).sliderValueLabel()
+                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
+            }
         }
     }
     var body: some View {

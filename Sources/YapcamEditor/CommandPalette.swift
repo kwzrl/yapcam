@@ -48,7 +48,8 @@ extension EditorModel {
             PaletteCommand(title: "Redo", shortcut: "⇧⌘Z", enabled: canRedo) { [self] in redo() },
             PaletteCommand(title: "Zoom timeline in", shortcut: "⌘=", enabled: true) { [self] in zoomTimeline(by: 1.25) },
             PaletteCommand(title: "Zoom timeline out", shortcut: "⌘-", enabled: true) { [self] in zoomTimeline(by: 0.8) },
-            PaletteCommand(title: "Fit timeline to window", shortcut: "⇧Z", enabled: true) { [self] in fitTimeline(width: 900) },
+            PaletteCommand(title: "Fit timeline to window", shortcut: "⇧Z", enabled: true) { [self] in fitTimeline(width: timelineViewportWidth) },
+            PaletteCommand(title: "Move recording to Trash…", shortcut: "", enabled: true) { [self] in trashRequested = true },
             PaletteCommand(title: "Toggle snapping", shortcut: "", enabled: true) { [self] in snappingEnabled.toggle() },
         ]
     }

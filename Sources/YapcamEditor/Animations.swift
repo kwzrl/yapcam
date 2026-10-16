@@ -96,7 +96,7 @@ struct SpringSliders: View {
     }
     private func load() { v = model.springValues(screen: screen) }
     private func slider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>, step: Double) -> some View {
-        LabeledContent(title) {
+        SliderRow(title) {
             HStack {
                 Slider(value: value, in: range, step: step) { e in
                     editing = e

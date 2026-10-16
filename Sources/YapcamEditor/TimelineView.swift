@@ -77,6 +77,7 @@ struct TimelineView: View {
                         .offset(x: g.x(forNs: ns) - 2, y: 1).allowsHitTesting(false)
                         .accessibilityLabel("Marker at \(formatTimecode(ns))")
                 }
+                outsideEnd(g, contentW: contentW)
                 clipTrack(g)
                 zoomTrack(g)
                 if layout.lanes.contains(.typing) { typingLane(g) }
@@ -98,9 +99,27 @@ struct TimelineView: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Timeline")
         }
-        .background(GeometryReader { p in Color.clear.onAppear { viewportWidth = p.size.width }
-            .onChange(of: p.size.width) { _, w in viewportWidth = w } })
+        .background(GeometryReader { p in Color.clear.onAppear { viewportChanged(p.size.width) }
+            .onChange(of: p.size.width) { _, w in viewportChanged(w) } })
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    /// Remembers the visible width; the first real width fits the whole project with a small margin.
+    private func viewportChanged(_ w: CGFloat) {
+        viewportWidth = w
+        // Content is the fitted width plus 40 pt of scroll margin; fitting to (w − 16) makes it exactly the viewport (no scrollbar).
+        model.timelineViewportWidth = Double(w) - 16
+        if !model.timelineFitted, w > 100 { model.timelineFitted = true; model.fitTimeline(width: Double(w) - 16) }
+    }
+
+    /// Time after the project end: lanes stop there, the ruler goes on, and this dimmed area says "outside".
+    private func outsideEnd(_ g: TimelineGeometry, contentW: CGFloat) -> some View {
+        let x = g.x(forNs: model.durationNs)
+        return Rectangle().fill(Color.primary.opacity(0.06))
+            .overlay(alignment: .leading) { Rectangle().fill(Color.primary.opacity(0.25)).frame(width: 1) }
+            .frame(width: max(contentW - x, 0), height: max(layout.totalHeight - TimelineLayout.rulerHeight, 0))
+            .offset(x: x, y: TimelineLayout.rulerHeight)
+            .allowsHitTesting(false).accessibilityHidden(true)
     }
 
     // x positions use scrollOffsetPx = 0 inside the scroll view (scrolling is native).
@@ -150,8 +169,7 @@ struct TimelineView: View {
                         Label(String(format: "%.1fx · ", z.scale).replacingOccurrences(of: ".0x", with: "x") + (z.mode == .auto ? "Auto" : "Manual"), systemImage: "plus.magnifyingglass")
                             .font(.caption2.weight(.medium)).labelStyle(.titleAndIcon).padding(.leading, 8).lineLimit(1)
                     }
-                    .overlay(alignment: .leading) { Capsule().fill(tint).frame(width: 3, height: 16).padding(.leading, 2).opacity(selected ? 1 : 0) }
-                    .overlay(alignment: .trailing) { Capsule().fill(tint).frame(width: 3, height: 16).padding(.trailing, 2).opacity(selected ? 1 : 0) }
+                    .modifier(TrimHandles(tint: tint, selected: selected))
                     .frame(width: w, height: TimelineLayout.zoomTrackHeight - 4)
                     .offset(x: g.x(forNs: r.start), y: 2)
                     .accessibilityElement(children: .ignore)
@@ -176,7 +194,8 @@ struct TimelineView: View {
         return RoundedRectangle(cornerRadius: 6)
             .fill(tint.opacity(selected ? 0.6 : 0.32))
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
-            .overlay(alignment: .leading) { Text(title).font(.caption2.weight(.medium)).lineLimit(1).padding(.leading, 8) }
+            .overlay(alignment: .leading) { Text(title).font(.caption2.weight(.medium)).lineLimit(1).padding(.leading, 12) }
+            .modifier(TrimHandles(tint: tint, selected: selected))
             .frame(width: max(g.contentWidth(durationNs: r.1 - r.0), 6), height: TimelineLayout.laneHeight - 4)
             .offset(x: g.x(forNs: r.0), y: top + 2)
             .accessibilityElement(children: .ignore)
@@ -383,6 +402,16 @@ struct Ruler: View {
     let geometry: TimelineGeometry
     let width: CGFloat
 
+    /// Whole seconds ("0:01") unless the label spacing needs a fraction ("0:01.5", "0:01.25" for very fine steps).
+    static func label(_ t: Double, step: Double) -> String {
+        let ns = Int64((t * 1e9).rounded())
+        if step >= 1 { return formatTimecode(ns, showFraction: false) }
+        let base = formatTimecode(ns - ns % 1_000_000_000, showFraction: false)
+        let frac = Double(ns % 1_000_000_000) / 1e9
+        let digits = step >= 0.1 ? 1 : 2
+        return base + String(format: "%.\(digits)f", frac).dropFirst(1)      // "0.5" → ".5"
+    }
+
     var body: some View {
         Canvas { ctx, size in
             let step = geometry.rulerStepSeconds()
@@ -393,16 +422,31 @@ struct Ruler: View {
                 let x = t * geometry.pixelsPerSecond
                 let isMajor = i % 5 == 0
                 if isMajor {
-                    ctx.fill(Path(CGRect(x: x, y: size.height - 10, width: 1, height: 10)), with: .color(.secondary))
-                    let label = formatTimecode(Int64((t * 1e9).rounded()), showFraction: step < 1)
-                    ctx.draw(Text(label).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary),
+                    ctx.fill(Path(CGRect(x: x, y: size.height - 8, width: 1, height: 8)), with: .color(.secondary.opacity(0.7)))
+                    ctx.draw(Text(Self.label(t, step: step)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary),
                              at: CGPoint(x: x + 4, y: 8), anchor: .leading)
                 } else if minor * geometry.pixelsPerSecond >= 6 {
-                    ctx.fill(Path(CGRect(x: x, y: size.height - 5, width: 1, height: 5)), with: .color(.secondary.opacity(0.5)))
+                    ctx.fill(Path(CGRect(x: x, y: size.height - 4, width: 1, height: 4)), with: .color(.secondary.opacity(0.3)))
                 }
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// Grips at both ends of a chip, visible while the pointer is over it or it is selected (the edges are the trim hit areas).
+struct TrimHandles: ViewModifier {
+    let tint: Color
+    let selected: Bool
+    @State private var hovering = false
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .leading) { grip.padding(.leading, 3) }
+            .overlay(alignment: .trailing) { grip.padding(.trailing, 3) }
+            .onHover { hovering = $0 }
+    }
+    private var grip: some View {
+        Capsule().fill(tint).frame(width: 3, height: 14).opacity(selected || hovering ? 1 : 0).allowsHitTesting(false)
     }
 }
 
@@ -434,7 +478,9 @@ struct PlayheadMarker: View {
     let height: CGFloat
     var body: some View {
         ZStack(alignment: .top) {
-            Rectangle().fill(Color.red).frame(width: 1.5, height: height)
+            // 1 pt line, drawn below the ruler and translucent over chips so their labels stay readable; the knob sits in the ruler.
+            Rectangle().fill(Color.red.opacity(0.7)).frame(width: 1, height: max(height - TimelineLayout.rulerHeight, 0)).offset(y: TimelineLayout.rulerHeight)
+            Rectangle().fill(Color.red).frame(width: 1, height: TimelineLayout.rulerHeight)
             Image(systemName: "arrowtriangle.down.fill").font(.system(size: 10)).foregroundStyle(.red).offset(y: -1)
         }
         .frame(width: 12, height: height, alignment: .top)

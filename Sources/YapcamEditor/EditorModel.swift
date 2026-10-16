@@ -57,6 +57,10 @@ public final class EditorModel: ObservableObject {
     public var itemClipboard: ItemClipboard?
     /// Visible width of the timeline in points (set by the view); bounds the timeline zoom window to 2 s…10 min.
     public var timelineViewportWidth: Double = 900
+    /// Set once the timeline view has fitted the project to its real width.
+    var timelineFitted = false
+    /// Raised by the toolbar-less "Move to Trash" command; the editor shows its confirmation.
+    @Published public var trashRequested = false
     /// Inspector section chosen in the icon rail (⌘1…⌘0 select by position).
     @Published public var inspectorSection: InspectorSection = .background
     @Published public var textRectPreview: (key: String, rect: [Double])?
