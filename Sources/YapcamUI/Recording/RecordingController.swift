@@ -116,7 +116,7 @@ enum RecordingPhase: Equatable {
     }
 
     func begin() {
-        guard phase == .idle else { return }
+        guard phase == .idle, !preflighting else { return }
         // A source overlay is open: Start means "record what the overlay shows", not the previously saved source.
         if SourceOverlay.shared.isActive { SourceOverlay.shared.commit(); return }
         if AreaSelector.shared.isActive { AreaSelector.shared.commit(); return }
@@ -133,8 +133,45 @@ enum RecordingPhase: Equatable {
             alert = AppAlert(title: "Can't start recording", error: error)
             return
         }
-        lastOptions = options
-        runCountdown(then: options)
+        preflightThenStart(options)
+    }
+
+    // MARK: Pre-flight (GAP-CAP-6)
+
+    /// Asks one question per condition; the answer is the user's, never a silent default. Test hook.
+    var askPreflight: @MainActor (PreflightIssue, [PreflightChoice]) -> PreflightChoice = PreflightFlow.askWithAlert
+    /// "Choose device…" / "Open System Settings": where the answer leads. Test hook.
+    var routePreflight: (PreflightOutcome) -> Void = { outcome in
+        switch outcome {
+        case .chooseDevice: SettingsWindow.shared.show()
+        case .openSettings(let p): PermissionsModel.shared.open(p)
+        default: break
+        }
+    }
+    private(set) var preflighting = false
+
+    func preflightThenStart(_ options: UIRecordingOptions) {
+        preflighting = true
+        // The checks look at what the user chose, including devices that are gone.
+        var chosen = options
+        chosen.microphoneID = settings.microphoneID
+        chosen.cameraID = settings.cameraID
+        Task { [weak self] in
+            guard let self else { return }
+            let issues = await self.engine.preflight(chosen)
+            self.preflighting = false
+            guard self.phase == .idle else { return }
+            let outcome = PreflightFlow.resolve(issues, systemAudioApps: options.systemAudioApps, ask: self.askPreflight)
+            switch outcome {
+            case .start(let apps):
+                var o = options
+                o.systemAudioApps = apps
+                self.lastOptions = o
+                self.runCountdown(then: o)
+            case .cancel: break
+            case .chooseDevice, .openSettings: self.routePreflight(outcome)
+            }
+        }
     }
 
     // MARK: Options
@@ -185,6 +222,7 @@ enum RecordingPhase: Equatable {
         return UIRecordingOptions(
             target: target,
             systemAudio: settings.systemAudio,
+            systemAudioApps: settings.systemAudioAppsForRecording,
             microphoneID: PermissionsModel.shared.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) ? settings.microphoneID : nil,
             cameraID: PermissionsModel.shared.state(.camera) == .granted && DeviceModel.shared.isAvailable(camera: settings.cameraID) ? settings.cameraID : nil,
             cameraMaxResolution: settings.cameraMaxResolution,

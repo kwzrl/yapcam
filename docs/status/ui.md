@@ -1,3 +1,4 @@
+READY ui GAP-CAP-1 + GAP-CAP-6: per-app system audio picker (Off/All/Selected + checklist, bundle-id persistence, forwarded) and pre-flight prompts before countdown/start sound. Debug 580 tests green, release app builds; NOT run live (QA), capture checks need camera/mic hardware (untested, no hardware). Notes: default stays All apps for existing users; 'camera without mic' asks every recording by design; window-resize condition has no trigger in Yapcam UI.
 READY ui F16: first Return after a hotkey-opened overlay could go to another app (one-shot activation request lost) → overlay now re-claims the keyboard until it is key + global Return/Esc fallback; 3 new tests. Commit: see git log; debug tests green after build-core; release app builds; NOT verified live (QA owns live; please re-run f11-display-repeat).
 READY ui: start-sound tests deterministic (injected clock) + gate can no longer be held by a player that ignores cancellation (555 tests green ×2)
 

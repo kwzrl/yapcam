@@ -134,7 +134,7 @@ struct SourceCard: View {
                 Menu {
                     Picker("Frame rate", selection: $settings.maxFPS) { Text("60 fps").tag(60); Text("30 fps").tag(30) }
                     Picker("Countdown", selection: $settings.countdown) { Text("No countdown").tag(0); Text("3 seconds").tag(3); Text("5 seconds").tag(5); Text("10 seconds").tag(10) }
-                    Toggle("Record system audio", isOn: $settings.systemAudio)
+                    Picker("System audio", selection: $settings.systemAudioChoice) { ForEach(SystemAudioChoice.allCases) { Text($0.title).tag($0) } }
                 } label: {
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
                         .frame(width: 30, height: 34)

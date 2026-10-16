@@ -17,7 +17,7 @@ import YapcamEditor
             inner = RecordingSession(options: RecordingOptions(
                 target: target, systemAudio: options.systemAudio, microphoneID: options.microphoneID,
                 cameraID: options.cameraID, recordKeystrokes: options.recordKeystrokes, maxFPS: options.maxFPS,
-                excludeYapcamWindows: true, cameraMaxResolution: options.cameraMaxResolution, outputDirectory: options.outputDirectory))
+                excludeYapcamWindows: true, systemAudioSelection: LiveEngine.selection(for: options), cameraMaxResolution: options.cameraMaxResolution, outputDirectory: options.outputDirectory))
         }
         var elapsed: TimeInterval { inner.elapsed }
         var micLevel: Float { inner.micLevel }
@@ -32,6 +32,25 @@ import YapcamEditor
         func resume() async throws { do { try await inner.resume() } catch { throw LiveEngine.map(error) } }
         func stop() async throws -> URL { do { return try await inner.stop() } catch { throw LiveEngine.map(error) } }
         func cancel() async { await inner.cancel() }
+    }
+
+    static func selection(for o: UIRecordingOptions) -> SystemAudioSelection {
+        guard o.systemAudio else { return .off }
+        return o.systemAudioApps.map { .applications(bundleIDs: $0) } ?? .allApplications
+    }
+
+    func preflight(_ o: UIRecordingOptions) async -> [PreflightIssue] {
+        guard let sources = try? await CaptureSources.load(includeWindowThumbnails: false) else { return [] }
+        let target: CaptureTarget
+        switch o.target {
+        case .display(let d): target = .display(d)
+        case .window(let w): target = .window(w)
+        case .area(let d, let r): target = .area(display: d, rect: r)
+        case .device(let id): target = .device(id)
+        }
+        let options = RecordingOptions(target: target, microphoneID: o.microphoneID, cameraID: o.cameraID,
+                                       systemAudioSelection: LiveEngine.selection(for: o), outputDirectory: o.outputDirectory)
+        return CapturePreflight.check(options: options, sources: sources).map { PreflightIssue($0) }
     }
 
     static func map(_ error: Error) -> EngineError {

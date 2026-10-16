@@ -13,6 +13,8 @@ enum UITarget: Equatable, Codable {
 struct UIRecordingOptions {
     var target: UITarget
     var systemAudio: Bool
+    /// With `systemAudio` on: nil records all apps, otherwise only these bundle ids.
+    var systemAudioApps: [String]? = nil
     var microphoneID: String?
     var cameraID: String?
     var cameraMaxResolution: CameraMaxResolution = .hd1080
@@ -53,6 +55,11 @@ enum EngineError: LocalizedError {
     func openEditor(package: URL)
     func interruptedPackages(in directory: URL) -> [URL]
     func recover(_ package: URL) throws -> URL
+    /// Read-only checks before a recording starts (GAP-CAP-6). `options` carries the devices the user chose,
+    /// even ones that are gone, so a missing device can be reported.
+    func preflight(_ options: UIRecordingOptions) async -> [PreflightIssue]
 }
+
+extension RecordingEngine { func preflight(_ options: UIRecordingOptions) async -> [PreflightIssue] { [] } }
 
 extension EngineSession { var packageURL: URL? { nil } }

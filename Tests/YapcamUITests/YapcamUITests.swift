@@ -1226,6 +1226,8 @@ private struct OrderPlayer: CuePlayer {
 @MainActor private struct OrderEngine: RecordingEngine {
     let log: EventLog
     var stopDelayMs = 0
+    var issues: [PreflightIssue] = []
+    func preflight(_ options: UIRecordingOptions) async -> [PreflightIssue] { issues }
     func makeSession(_ options: UIRecordingOptions) -> EngineSession { let s = OrderSession(log: log); s.stopDelayMs = stopDelayMs; return s }
     func registerExcluded(_ window: NSWindow) {}
     func unregisterExcluded(_ window: NSWindow) {}
@@ -1466,4 +1468,165 @@ extension UISmokeTests {
         #expect(result == .some(CGRect(x: 100, y: 100, width: 400, height: 300)))
     }
 
+}
+
+
+// MARK: - Per-app system audio (GAP-CAP-1)
+
+@MainActor @Suite struct SystemAudioChoiceTests {
+    private func store() -> UserDefaults {
+        let name = "yapcam.test.audio.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!; d.removePersistentDomain(forName: name); return d
+    }
+
+    @Test func existingUsersKeepAllAppsWhileTheirToggleIsOn() {
+        let d = store()
+        d.set(true, forKey: "systemAudio")      // what versions before this one stored
+        #expect(AppSettings(store: d).systemAudioChoice == .all)
+        d.set(false, forKey: "systemAudio")
+        #expect(AppSettings(store: d).systemAudioChoice == .off)
+        #expect(AppSettings(store: store()).systemAudioChoice == .all)      // default unchanged: on, all apps
+    }
+
+    @Test func selectedAppsPersistByBundleID() {
+        let d = store()
+        let s = AppSettings(store: d)
+        s.systemAudioChoice = .selected
+        s.setApp("com.apple.Safari", selected: true); s.setApp("com.apple.Music", selected: true)
+        s.setApp("com.apple.Safari", selected: false)
+        let again = AppSettings(store: d)
+        #expect(again.systemAudioChoice == .selected)
+        #expect(again.systemAudioApps == ["com.apple.Music"])
+        again.systemAudioChoice = .off
+        #expect(AppSettings(store: d).systemAudioChoice == .off)
+        #expect(AppSettings(store: d).systemAudioApps == ["com.apple.Music"])       // the list survives switching away
+    }
+
+    @Test func choiceIsForwardedToTheCaptureSelection() {
+        let s = AppSettings(store: store())
+        func opts() -> UIRecordingOptions {
+            UIRecordingOptions(target: .display(1), systemAudio: s.systemAudio, systemAudioApps: s.systemAudioAppsForRecording,
+                               microphoneID: nil, cameraID: nil, recordKeystrokes: false, maxFPS: 30, outputDirectory: URL(fileURLWithPath: "/tmp"))
+        }
+        s.systemAudioChoice = .off
+        #expect(LiveEngine.selection(for: opts()) == .off)
+        s.systemAudioChoice = .all
+        #expect(LiveEngine.selection(for: opts()) == .allApplications)
+        s.systemAudioChoice = .selected; s.systemAudioApps = ["a.b", "c.d"]
+        #expect(LiveEngine.selection(for: opts()) == .applications(bundleIDs: ["a.b", "c.d"]))
+        s.systemAudioChoice = .selected; s.systemAudioApps = []
+        #expect(LiveEngine.selection(for: opts()) == .applications(bundleIDs: []))     // never widened to all apps
+    }
+
+    @Test func checklistListsInjectedAppsAndKeepsClosedSelections() async {
+        let m = AudioAppsModel()
+        m.load = { [CaptureApplication(bundleID: "com.a", name: "Alpha"), CaptureApplication(bundleID: "com.b", name: "Beta")] }
+        await m.refresh()
+        #expect(m.rows(selected: [], search: "").map(\.bundleID) == ["com.a", "com.b"])
+        #expect(m.rows(selected: ["com.gone"], search: "").map(\.bundleID) == ["com.a", "com.b", "com.gone"])
+        #expect(m.rows(selected: [], search: "bet").map(\.bundleID) == ["com.b"])
+    }
+}
+
+// MARK: - Pre-flight prompts (GAP-CAP-6)
+
+@MainActor @Suite struct PreflightPromptTests {
+    private func issue(_ k: PreflightIssue.Kind, _ p: AppPermission? = nil) -> PreflightIssue { PreflightIssue(kind: k, message: "m", permission: p) }
+
+    @Test func noConditionNeverAsks() {
+        var asked = 0
+        let o = PreflightFlow.resolve([], systemAudioApps: ["x"]) { _, _ in asked += 1; return .cancel }
+        #expect(asked == 0 && o == .start(systemAudioApps: ["x"]))
+    }
+
+    @Test func everyConditionOffersItsChoices() {
+        #expect(PreflightFlow.choices(for: issue(.cameraWithoutMicrophone)) == [.continue, .chooseDevice, .cancel])
+        #expect(PreflightFlow.choices(for: issue(.cameraMissing)) == [.continue, .chooseDevice, .cancel])
+        #expect(PreflightFlow.choices(for: issue(.microphoneMissing)) == [.continue, .chooseDevice, .cancel])
+        #expect(PreflightFlow.choices(for: issue(.microphoneLidClosed)) == [.continue, .chooseDevice, .cancel])
+        #expect(PreflightFlow.choices(for: issue(.permissionRequired, .microphone)) == [.openSettings(.microphone), .continue, .cancel])
+        #expect(PreflightFlow.choices(for: issue(.permissionRequired, .screen)) == [.openSettings(.screen), .cancel])   // nothing to record without it
+        #expect(PreflightFlow.choices(for: issue(.applicationAudioUnavailable)) == [.chooseDevice, .recordAllAppAudio, .cancel])
+        #expect(PreflightFlow.choices(for: issue(.windowResizePermission)) == [.openSettings(.accessibility), .continue, .cancel])
+        for k in [PreflightIssue.Kind.cameraWithoutMicrophone, .cameraMissing, .microphoneMissing, .microphoneLidClosed, .permissionRequired, .applicationAudioUnavailable, .windowResizePermission] {
+            #expect(!PreflightFlow.title(for: issue(k)).isEmpty)
+        }
+    }
+
+    @Test func answersLeadWhereTheyShould() {
+        func run(_ i: PreflightIssue, _ answer: PreflightChoice) -> PreflightOutcome {
+            PreflightFlow.resolve([i], systemAudioApps: ["x"]) { _, _ in answer }
+        }
+        #expect(run(issue(.cameraWithoutMicrophone), .continue) == .start(systemAudioApps: ["x"]))
+        #expect(run(issue(.cameraWithoutMicrophone), .chooseDevice) == .chooseDevice)
+        #expect(run(issue(.microphoneLidClosed), .cancel) == .cancel)
+        #expect(run(issue(.permissionRequired, .camera), .openSettings(.camera)) == .openSettings(.camera))
+        #expect(run(issue(.applicationAudioUnavailable), .recordAllAppAudio) == .start(systemAudioApps: nil))
+        #expect(run(issue(.cameraMissing), .recordAllAppAudio) == .cancel)      // an answer the prompt did not offer cancels
+    }
+
+    @Test func severalConditionsAreAskedInOrderAndCancelStopsTheRest() {
+        var seen: [PreflightIssue.Kind] = []
+        let o = PreflightFlow.resolve([issue(.cameraMissing), issue(.microphoneLidClosed), issue(.cameraWithoutMicrophone)], systemAudioApps: nil) { i, _ in
+            seen.append(i.kind); return seen.count == 2 ? .cancel : .continue
+        }
+        #expect(seen == [.cameraMissing, .microphoneLidClosed] && o == .cancel)
+    }
+
+    @Test func controllerAsksBeforeTheRecordingStartsAndHonoursCancel() async throws {
+        let log = EventLog()
+        let rec = RecordingController()
+        let settings = AppSettings.shared
+        let old = settings.countdown, oldSounds = settings.playSounds
+        defer { settings.countdown = old; settings.playSounds = oldSounds }
+        settings.countdown = 0; settings.playSounds = false
+        var engine = OrderEngine(log: log)
+        engine.issues = [issue(.cameraWithoutMicrophone)]
+        rec.engine = engine
+        let opts = UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
+                                      recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory)
+        var prompts: [PreflightIssue.Kind] = []
+        rec.askPreflight = { i, _ in prompts.append(i.kind); return .cancel }
+        rec.preflightThenStart(opts)
+        for _ in 0..<500 where rec.preflighting { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(prompts == [.cameraWithoutMicrophone] && rec.phase == .idle)
+        #expect(await log.events.isEmpty)               // nothing was captured
+
+        rec.askPreflight = { i, _ in prompts.append(i.kind); return .continue }
+        rec.preflightThenStart(opts)
+        for _ in 0..<1500 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(rec.phase == .recording && prompts.count == 2)
+        await rec.cancelAndWait()
+    }
+
+    @Test func controllerRoutesChooseDeviceAndPermissionAnswers() async throws {
+        let rec = RecordingController()
+        var engine = OrderEngine(log: EventLog())
+        engine.issues = [issue(.microphoneMissing)]
+        rec.engine = engine
+        var routed: [PreflightOutcome] = []
+        rec.routePreflight = { routed.append($0) }
+        rec.askPreflight = { _, _ in .chooseDevice }
+        rec.preflightThenStart(UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
+                                                  recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory))
+        for _ in 0..<500 where routed.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(routed == [.chooseDevice] && rec.phase == .idle)
+    }
+
+    @Test func noIssuesStartsWithoutAnyPrompt() async throws {
+        let rec = RecordingController()
+        let settings = AppSettings.shared
+        let old = settings.countdown, oldSounds = settings.playSounds
+        defer { settings.countdown = old; settings.playSounds = oldSounds }
+        settings.countdown = 0; settings.playSounds = false
+        rec.engine = OrderEngine(log: EventLog())
+        var asked = 0
+        rec.askPreflight = { _, _ in asked += 1; return .cancel }
+        rec.preflightThenStart(UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
+                                                  recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory))
+        for _ in 0..<1500 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(rec.phase == .recording && asked == 0)
+        await rec.cancelAndWait()
+    }
 }
