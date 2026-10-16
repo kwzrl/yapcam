@@ -1,3 +1,69 @@
+READY R1/R3 and R2 tooling on 37cc463 (uncommitted, Lead checkpoint needed) | debug+release | macOS26.3 arm64/Xcode26.6 | version, hardened signature, syntax, Rust104/Core Swift74/Clippy PASS; DMG/sha256 BLOCKED by sandbox hdiutil device access; native handoff below.
+
+## Round 3 release packaging — 2026-10-16 12:02 UTC
+
+| Commit / build / environment | Procedure | Result |
+|---|---|---|
+| base37cc463 / release / macOS26.3 arm64, Xcode26.6, Swift6.3.3, Cargo1.95 | default identity and explicit `--identity "Yapcam Dev Signing"`; each run builds twice through canonical build-app.sh release, fresh Swift scratch + clean Rust release | Both optimized builds PASS per run; app version0.9.0/build519, signature PASS. DMG stage returns1 with disk-device error, so whole package acceptance is OPEN. |
+| base37cc463 / release / same host | codesign --verify --strict --verbose=2; codesign -dvv; plist/exact entitlement/license byte checks | PASS: valid on disk; satisfies its Designated Requirement; Authority=Yapcam Dev Signing; flags=0x10000(runtime); TeamIdentifier=not set; versions0.9.0/519; only camera+audio-input entitlements; existing license/notices bundled and resource seal reverified. |
+| base37cc463 / release / same host | two unsigned Mach-O copies compared before final signing | NOT byte-identical: SHA2560b3a37fb9c2c46661e543a88502079b84dcbcb33cea2b8f2107ff8dfd2090ea6 vs d89c165cf931f4cdebce3fda8c1085a2f0af99a3ad61e2aadb0ec3acca26701a. N_OSO has199 objects/165 scratch references per build, differing object mtimes and first/second scratch paths; UUIDs differ. Explained link/debug metadata, no bit-reproducibility claim. |
+| base37cc463 / debug / same host | canonical build-app.sh debug + strict signature; cargo test; Core Swift tests; Clippy all-targets -D warnings | PASS: debug build works; Rust104/1 intentional scale ignore; Swift74; Clippy. No full-fleet/native acceptance claim. |
+| base37cc463 / tooling / same host | bash -n + zsh -n, plutil, invalid CLI/identity/profile preflights, whitespace/private-path audit | PASS; missing identity, missing profile value, unknown option and self-signed --notarize rejected before build/network. Notarization/Developer ID/Gatekeeper path UNTESTED (no Developer ID identity/profile). |
+
+Implemented owned files: VERSION0.9.0, scripts/release/make-release.sh,
+scripts/release/Yapcam.entitlements, docs/RELEASE.md and CHANGELOG.md. No existing
+builder, Resources/Info.plist, icon, product source or another team's files changed.
+The release script stamps the BUILT plist; debug command remains unchanged.
+Nested Mach-Os then containing bundles are signed before the app, never --deep.
+DMG uses UDZO/Applications symlink; signing, accepted-notary response check,
+stapling, Gatekeeper and post-staple SHA256 are implemented but native completion
+is still required. Release output ownership marker/lock and temp EXIT traps work.
+Both completed release runs and the debug verification root printed cleanup paths
+and removed only their own roots; no repo copies, app launch or process signals.
+
+Produced (ignored build outputs, not committed):
+- build/release/Yapcam.app — version0.9.0/build519, hardened local signed app.
+- build/release/reproducibility.txt — actual comparison and N_OSO/UUID evidence.
+- build/release/BUILD-INFO.txt — records app-verified; disk image pending.
+No DMG or .sha256 exists. Expected native name for this base would be
+build/release/Yapcam-0.9.0-519.dmg; a later checkpoint/rebase changes the build count.
+
+Verify output (selected fields): valid on disk; satisfies its Designated Requirement;
+CodeDirectory flags=0x10000(runtime); Authority=Yapcam Dev Signing;
+TeamIdentifier=not set; Sealed Resources files=3. Full local logs:
+/private/tmp/yapcam-core-round3-release-final.log,
+/private/tmp/yapcam-core-round3-app-verify.log,
+/private/tmp/yapcam-core-round3-debug-check.log.
+
+Assumption recorded: the request's no-Apple-contact rule without --notarize takes
+precedence over unconditional secure timestamps. Local mode uses --timestamp=none,
+including Developer ID, and prints NOT DISTRIBUTABLE. --notarize requires Developer
+ID and enables secure timestamps, submission, stapling and assessment explicitly.
+The conflict and man-codesign reasoning are documented in RELEASE.md. No Apple
+service was requested. No credential values or private home paths were added.
+
+## Round 3 Requests / next (Lead)
+
+1. Checkpoint all five NEW owned files plus this status, then rebase onto main
+   b9c0b08 or later (F11 fix). Clean rebase attempt failed creating rebase-merge:
+   Operation not permitted. Do not integrate only the tracked status file.
+2. On the native host run `scripts/release/make-release.sh --identity "Yapcam Dev Signing"`.
+   Sandbox `hdiutil create` fails with "Gerät wurde nicht konfiguriert" (device not
+   configured). No sudo/security bypass attempted. The native run must produce and
+   verify app + UDZO DMG + checksum; current R2 acceptance is NOT end-to-end green.
+3. Mount that DMG and perform the documented LaunchServices launch under your own
+   QA app lock; verify version/TCC, first install and upgrade. No app launched here.
+   Real camera/microphone/USB/Retina/additional displays: untested (no hardware).
+4. Required other-family review: shell signing order, offline/online boundaries,
+   generated-output replacement/cleanup and notarization failure handling. Developer
+   ID/private key/profile must be user-provided, never committed. Native notarization
+   and quarantined-download Gatekeeper acceptance remain open until those exist.
+
+No independent R1–R3 implementation remains; the native image/device and install
+acceptance above are the remaining release blockers. Stop after this READY handoff.
+
+---
+
 READY 9b0da01: Core backlog empty; ED-10 caption style + word timing/edit mapping + cold instructions/Swift APIs; Rust104/Core Swift74/Render11 portable +4 native skips, Clippy and signed build/codesign PASS. Integrated on main01f05df; checkpoint pushed to origin/team/core; consumer handoff below.
 
 # Core status
