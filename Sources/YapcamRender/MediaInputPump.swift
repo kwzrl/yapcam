@@ -4,7 +4,7 @@ import Foundation
 /// AVAssetWriter drives requests independently for each track. Samples stay on this queue.
 final class MediaInputPump<Sample>: @unchecked Sendable {
     typealias Request = @Sendable (DispatchQueue,@escaping @Sendable () -> Void) -> Void
-    private let queue=DispatchQueue(label: "mov.yapcam.export.audio",qos: .userInitiated)
+    private let queue: DispatchQueue
     private let monitor=DispatchQueue(label: "mov.yapcam.export.audio.watchdog")
     private let lock=NSLock()
     private let request: Request
@@ -22,7 +22,9 @@ final class MediaInputPump<Sample>: @unchecked Sendable {
     private var started=false
     private var lastProgress=ProcessInfo.processInfo.systemUptime
     private var timer: DispatchSourceTimer?
-    init(timeout: Double = 30,request: @escaping Request,ready: @escaping @Sendable () -> Bool,read: @escaping @Sendable () throws -> Sample?,append: @escaping @Sendable (Sample) throws -> Void,end: @escaping @Sendable () throws -> Void,stop: @escaping @Sendable () -> Void,cancelSource: @escaping @Sendable () -> Void) {
+    private let name: String
+    init(timeout: Double = 30,name: String = "audio",request: @escaping Request,ready: @escaping @Sendable () -> Bool,read: @escaping @Sendable () throws -> Sample?,append: @escaping @Sendable (Sample) throws -> Void,end: @escaping @Sendable () throws -> Void,stop: @escaping @Sendable () -> Void,cancelSource: @escaping @Sendable () -> Void) {
+        self.name=name; queue=DispatchQueue(label: "mov.yapcam.export.\(name)",qos: .userInitiated)
         self.timeout=timeout; self.request=request; self.ready=ready; self.read=read
         self.append=append; self.end=end; self.stop=stop; self.cancelSource=cancelSource
     }
@@ -44,7 +46,7 @@ final class MediaInputPump<Sample>: @unchecked Sendable {
                     timer.setEventHandler { [weak self] in
                         guard let self else { return }
                         let stalled=self.lock.withLock { self.terminal==nil && ProcessInfo.processInfo.systemUptime-self.lastProgress>=self.timeout }
-                        if stalled { self.fail(RenderError.write("Timed out waiting for audio source or encoder")) }
+                        if stalled { self.fail(RenderError.write("Timed out waiting for \(self.name) source or encoder")) }
                     }
                     timer.resume()
                     request(queue) { [weak self] in self?.drain() }

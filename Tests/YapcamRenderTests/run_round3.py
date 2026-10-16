@@ -167,6 +167,10 @@ def main():
     parser.add_argument("--mode", choices=["probe", "smoke", "all", "preview", "scrub", "export", "soak"], default="all")
     parser.add_argument("--source", choices=["recorded", "synthetic4k", "both"], default="both")
     parser.add_argument("--real-package", type=Path)
+    parser.add_argument("--source-package",type=Path,help="Read-only matched input; create once if synthetic4k and absent")
+    parser.add_argument("--retain-exports",type=Path,help="New render-owned directory for matched quality comparisons")
+    parser.add_argument("--reuse-seek-reader",type=int,choices=[0,1],default=1)
+    parser.add_argument("--video-readiness",choices=["callback","polling"],default="callback")
     parser.add_argument("--video-pipeline-depth",type=int,choices=[1,2],default=2,
                         help="1 = serial profiling baseline; 2 = bounded CPU/GPU overlap")
     parser.add_argument("--skip-build", action="store_true")
@@ -179,6 +183,13 @@ def main():
     if args.build_only:
         build()
         return
+    for path in [args.source_package,args.retain_exports]:
+        if path and not path.resolve().is_relative_to((Path.home()/"Movies/Yapcam/QA/render").resolve()):
+            raise RuntimeError("Comparison media must stay in render's QA directory")
+    if args.source_package and args.source=="both":
+        raise RuntimeError("Matched input requires one source choice")
+    if args.retain_exports and args.retain_exports.exists():
+        raise RuntimeError("Retained-export directory must be new; existing files are never replaced")
     if args.real_package:
         media_root = (Path.home() / "Movies/Yapcam").resolve()
         if not args.real_package.resolve().is_relative_to(media_root):
@@ -201,7 +212,7 @@ def main():
         logs = Path.home() / "Library/Logs/Yapcam/render-round3" / token
         logs.mkdir(parents=True)
         config = dict(mode=args.mode, source=source, revision=revision, harnessHash=fingerprint,
-                      originalPackage=str(args.real_package or original()) if source == "recorded" and args.mode != "probe" else None,
+                      originalPackage=str(args.real_package or args.source_package or original()) if source == "recorded" and args.mode != "probe" else None,
                       workDirectory=str(Path.home() / "Movies/Yapcam/QA/render" / ("round3-" + token)),
                       resultsDirectory=str(logs), token=token,
                       previewSeconds=2 if args.mode == "smoke" else 30,
@@ -209,7 +220,9 @@ def main():
                       scrubSamples=4 if args.mode == "smoke" else 50,
                       syntheticSeconds=2 if args.mode == "smoke" else 120,
                       exportSeconds=2 if args.mode == "smoke" else None,
-                      videoPipelineDepth=args.video_pipeline_depth)
+                      videoPipelineDepth=args.video_pipeline_depth,reuseVideoSeekReader=bool(args.reuse_seek_reader),
+                      callbackVideo=args.video_readiness=="callback",sourcePackage=str(args.source_package) if args.source_package else None,
+                      retainedExports=str(args.retain_exports) if args.retain_exports else None)
         print("Round3 metadata artifacts:", logs, flush=True)
         launch(config, logs)
 

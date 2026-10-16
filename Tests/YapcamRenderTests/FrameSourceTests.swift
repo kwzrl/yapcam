@@ -5,6 +5,27 @@ import CoreVideo
 @testable import YapcamRender
 
 final class FrameSourceTests: XCTestCase {
+    func testPersistentSeekReaderMatchesFreshPTSAndPixelsThenResumesSequentialPlayback() throws {
+        let device=try requireRenderDevice()
+        let url=URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam/recording/seg-000/screen.mov")
+        var cache: CVMetalTextureCache?
+        XCTAssertEqual(CVMetalTextureCacheCreate(nil,nil,device,nil,&cache),kCVReturnSuccess)
+        let baseline=try FrameSource(url: url,cache: XCTUnwrap(cache),reuseSeekReader: false)
+        let candidate=try FrameSource(url: url,cache: XCTUnwrap(cache),reuseSeekReader: true)
+        func bytes(_ frame: TextureFrame) throws -> Data {
+            let b=frame.pixelBuffer
+            CVPixelBufferLockBaseAddress(b,.readOnly); defer { CVPixelBufferUnlockBaseAddress(b,.readOnly) }
+            let p=try XCTUnwrap(CVPixelBufferGetBaseAddress(b)), row=CVPixelBufferGetBytesPerRow(b)
+            return (0..<CVPixelBufferGetHeight(b)).reduce(into: Data()) { $0.append(p.advanced(by: $1*row).assumingMemoryBound(to: UInt8.self),count: CVPixelBufferGetWidth(b)*4) }
+        }
+        for ns: Int64 in [0,2_100_000_000,400_000_000,2_611_000_000,100_000_000,2_990_000_000,200_000_000,250_000_000,280_000_000] {
+            let a=try baseline.frame(atNs: ns), b=try candidate.frame(atNs: ns)
+            XCTAssertEqual(a.time,b.time,"Exact nearest PTS at \(ns)")
+            XCTAssertEqual(try bytes(a),try bytes(b),"Reader reuse must preserve decoded pixels at \(ns)")
+        }
+        XCTAssertGreaterThanOrEqual(candidate.readerResetCount,3)
+        XCTAssertLessThan(candidate.readerStartCount,baseline.readerStartCount)
+    }
     func testColdSeekAcrossLongVFRGapUsesTrueNearestPresentationTime() async throws {
         let device=try requireRenderDevice()
         let url=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-vfr-gap-\(UUID().uuidString).mov")

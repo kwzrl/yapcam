@@ -22,6 +22,7 @@ public final class FrameCompositor: @unchecked Sendable {
     private var motionBlurEnabled = true
     private var screenQualityOverride: ScreenQualitySettings?
     private let framesPerSecond: Int
+    private let reuseVideoSeekReader: Bool
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
@@ -32,7 +33,8 @@ public final class FrameCompositor: @unchecked Sendable {
     private let empty: MTLTexture
 
     public init(device: MTLDevice, project: any RenderProjectSource, framesPerSecond: Int = 60,
-                screenQuality: ScreenQualitySettings? = nil) throws {
+                screenQuality: ScreenQualitySettings? = nil,reuseVideoSeekReader: Bool = true) throws {
+        self.reuseVideoSeekReader=reuseVideoSeekReader
         guard (1...60).contains(framesPerSecond) else { throw RenderError.invalidSettings("Compositor frame rate must be 1...60") }
         try screenQuality?.validate()
         screenQualityOverride=screenQuality
@@ -77,7 +79,7 @@ public final class FrameCompositor: @unchecked Sendable {
         guard let segment = manifest.segment(at: sample.segment), let path = segment.files[track] else { throw RenderError.missingMedia("Missing \(track) in segment \(sample.segment)") }
         if sources[path] == nil {
             if sources.count >= 3 { sources.removeAll() }
-            sources[path] = try FrameSource(url: packageMediaURL(path, root: project.packageURL.appendingPathComponent("recording")), cache: cache)
+            sources[path] = try FrameSource(url: packageMediaURL(path, root: project.packageURL.appendingPathComponent("recording")), cache: cache,reuseSeekReader: reuseVideoSeekReader)
             totalSourceOpens += 1 }
         if track=="camera", sources[path]!.hasEnded(atNs: sample.file_ns) { return nil }
         return try sources[path]!.frame(atNs: sample.file_ns)

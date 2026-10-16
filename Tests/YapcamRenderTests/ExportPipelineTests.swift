@@ -16,13 +16,15 @@ final class ExportPipelineTests: XCTestCase {
             return f
         }
         for codec in [ExportSettings.Codec.h264,.hevc] {
+            for callbacks in [false,true] {
             for depth in [1,2] {
-                let url=root.appendingPathComponent("\(codec.rawValue)-\(depth).mp4")
+                let url=root.appendingPathComponent("\(codec.rawValue)-\(depth)-\(callbacks).mp4")
                 let exporter=try Exporter(project: source,settings: .init(codec: codec,outputHeight: 720,fps: 30,includeAudio: false),
-                                          destination: url,videoPipelineDepth: depth)
+                                          destination: url,videoPipelineDepth: depth,callbackVideo: callbacks)
                 _ = try await exporter.run { _ in }
                 let profile=try XCTUnwrap(exporter.videoDiagnostics.first)
                 XCTAssertEqual(profile.pipelineDepth,depth); XCTAssertEqual(profile.peakPendingFrames,depth)
+                XCTAssertEqual(profile.writerReadinessMode,callbacks ? "callback" : "poll_2ms")
                 XCTAssertEqual(profile.renderedFrames,30); XCTAssertEqual(profile.encodedFrames,30)
                 XCTAssertGreaterThan(profile.wallSeconds,0)
                 let asset=AVURLAsset(url: url), reader=try AVAssetReader(asset: asset)
@@ -45,6 +47,7 @@ final class ExportPipelineTests: XCTestCase {
                     index+=1
                 }
                 XCTAssertEqual(reader.status,.completed); XCTAssertEqual(index,30)
+            }
             }
         }
     }
