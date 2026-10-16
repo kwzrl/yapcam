@@ -12,7 +12,7 @@ final class ProjectAdapterTests: XCTestCase {
         try FileManager.default.copyItem(at: fixture,to: package)
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: package) }
-    func testFactoryDefaultsMapRatioPaddingSourceAspectAndOriginalPalette() throws {
+    func testFactoryDefaultsMapRatioPaddingSourceAspectAndCapturedArtwork() throws {
         let project=try Project.create(package: package)
         let frame=try project.frame(atNs: 0)
         // Core's published revision-1 contract for this 320x200 recording.
@@ -23,7 +23,7 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertEqual(frame.screen_dest.h,864,accuracy: 0.000001)
         let canvas=CGSize(width: Int(frame.canvas_w),height: Int(frame.canvas_h))
         let factory=try project.renderEffects(atNs: 0,canvasSize: canvas).configuration
-        XCTAssertEqual(factory.cursorSetID,"classic")
+        XCTAssertEqual(factory.cursorSetID,"original")
         XCTAssertEqual(factory.cursorStyle,.recorded)
         XCTAssertEqual(factory.cursorSize,.regular)
         let frozen=try project.renderSnapshot()
@@ -113,8 +113,13 @@ final class ProjectAdapterTests: XCTestCase {
             XCTAssertEqual(try project.frameExtras(atNs: 0).cursor_style,code,style)
             let snapshot=try project.renderSnapshot()
             for ns: Int64 in [0,500_000_000,4_999_999_999] {
-                XCTAssertEqual(try project.renderEffects(atNs: ns,canvasSize: size).configuration.cursorStyle,expected,style)
-                XCTAssertEqual(try snapshot.renderEffects(atNs: ns,canvasSize: size).configuration.cursorStyle,expected,style)
+                for source in [project as any RenderProjectSource,snapshot] {
+                    let configuration=try source.renderEffects(atNs: ns,canvasSize: size).configuration
+                    XCTAssertEqual(configuration.cursorStyle,expected,style)
+                    XCTAssertEqual(configuration.cursorSetID,"original",style)
+                    XCTAssertTrue(CursorRenderSelection(configuration: configuration,recordedShape: nil,clickProgress: -1).recorded,
+                                  "Original preserves captured artwork independently of legacy style: \(style)")
+                }
             }
             try project.apply(.set(path: "cursor.always_default",value: .bool(true)))
             XCTAssertEqual(try project.frameExtras(atNs: 0).cursor_style,1,style)
@@ -123,21 +128,37 @@ final class ProjectAdapterTests: XCTestCase {
             try project.apply(.set(path: "cursor.always_default",value: .bool(false)))
         }
     }
-    func testDocumentedArrowAndPointerUseTheSameOriginalArtworkInRealProjectFrames() throws {
+    func testOriginalRetainsCapturedArtworkAndLegacyArrowMatchesPointerInRealProjectFrames() throws {
         _ = try requireRenderDevice()
         let project=try Project.create(package: package)
         try project.apply(.set(path: "cursor.size",value: .number(4)))
         let renderer=RenderTests()
-        var images: [String: Data]=[:]
-        for style in ["recorded","pointer","touch","arrow"] {
-            try project.apply(.set(path: "cursor.style",value: .string(style)))
-            let snapshot=try project.snapshot()
-            let frame=try snapshot.frame(atNs: 500_000_000)
-            XCTAssertNotEqual(frame.cursor_visible,0)
-            images[style]=Data(try renderer.pixels(frame,source: snapshot,width: 320,height: 180))
+        // Original deliberately overrides legacy style with the recorded PNG.
+        // Explicit null opts into the legacy style-dependent artwork instead.
+        for setID: String? in ["original",nil] {
+            try project.apply(.set(path: "cursor.set_id",value: setID.map(JSONValue.string) ?? .null))
+            var images: [String: Data]=[:]
+            for style in ["recorded","pointer","touch","arrow"] {
+                try project.apply(.set(path: "cursor.style",value: .string(style)))
+                let snapshot=try project.snapshot()
+                var frame=try snapshot.frame(atNs: 500_000_000)
+                XCTAssertNotEqual(frame.cursor_visible,0)
+                images[style]=Data(try renderer.pixels(frame,source: snapshot,width: 320,height: 180))
+                if style == "recorded" {
+                    frame.cursor_visible=0
+                    let hidden=Data(try renderer.pixels(frame,source: snapshot,width: 320,height: 180))
+                    XCTAssertNotEqual(images[style],hidden,"The fixture must render visible captured artwork")
+                }
+            }
+            XCTAssertEqual(images["arrow"],images["pointer"])
+            if setID == "original" {
+                for style in ["pointer","touch","arrow"] {
+                    XCTAssertEqual(images["recorded"],images[style],"Original retains the PNG for \(style)")
+                }
+            } else {
+                XCTAssertNotEqual(images["arrow"],images["touch"])
+            }
         }
-        XCTAssertEqual(images["arrow"],images["pointer"])
-        XCTAssertNotEqual(images["arrow"],images["touch"])
     }
     private let shapes: [(CoreRenderOptions.CursorShape, RenderConfiguration.CursorStyle)] = [
         (.arrow,.arrow), (.pointingHand,.pointer), (.touch,.touch), (.text,.text),
@@ -151,7 +172,9 @@ final class ProjectAdapterTests: XCTestCase {
     func testEveryPersistedCursorSelectionMapsOnRealProjectAndSnapshot() throws {
         let project=try Project.create(package: package)
         let library=try project.cursorLibrary()
-        XCTAssertEqual(Set(library.sets.map(\.id)),Set(VectorCursorLibrary.presets.map(\.id)))
+        XCTAssertEqual(library.sets.count,14)
+        XCTAssertEqual(library.sets.prefix(2).map(\.id),["original","touch"])
+        XCTAssertEqual(library.sets.map(\.id),VectorCursorLibrary.catalog.map(\.id))
         XCTAssertEqual(Set(library.shapes),Set(shapes.map { $0.0 }))
         XCTAssertEqual(Set(library.shapes),Set(CoreRenderOptions.CursorShape.allCases))
         XCTAssertEqual(Set(library.logicalSizes.map(\.id)),Set(sizes.map { $0.0 }))
@@ -177,6 +200,9 @@ final class ProjectAdapterTests: XCTestCase {
                             XCTAssertEqual(configuration.cursorSetID,preset.id)
                             XCTAssertEqual(configuration.cursorStyle,expectedShape)
                             XCTAssertEqual(configuration.cursorSize,expectedSize)
+                            let selection=CursorRenderSelection(configuration: configuration,recordedShape: nil,clickProgress: -1)
+                            XCTAssertEqual(selection.recorded,preset.id == "original")
+                            XCTAssertEqual(selection.style,preset.id == "touch" ? .touch : expectedShape.vector)
                         }
                         XCTAssertEqual(try source.frame(atNs: 500_000_000).cursor_scale,scale,"Logical size is applied only to authored artwork")
                     }
@@ -188,7 +214,8 @@ final class ProjectAdapterTests: XCTestCase {
         let project=try Project.create(package: package)
         let canvas=CGSize(width: 1920,height: 1080)
         let defaults=try project.renderEffects(atNs: 0,canvasSize: canvas).configuration
-        XCTAssertEqual(defaults.cursorSetID,try project.renderOptions().cursorSetId,"Adapter preserves Core's factory palette (classic for revision 1)")
+        XCTAssertEqual(defaults.cursorSetID,"original")
+        XCTAssertEqual(defaults.cursorSetID,try project.renderOptions().cursorSetId,"Adapter preserves Core's agreed captured-artwork default")
         XCTAssertEqual(defaults.cursorStyle,.recorded)
         XCTAssertEqual(defaults.cursorSize,.regular)
         try project.apply(.batch([

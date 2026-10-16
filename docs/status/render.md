@@ -1,4 +1,6 @@
-READY 65c99a8 +13 owned pending files / CUR-06 complete; F17/F18 candidates / RELEASE / M4 macOS26.3 Codex: mapped precise seek starts + CFR/VFR/EOF regressions; two-frame bounded export overlap + serial baseline/stage diagnostics. Signed canonical and standalone apps PASS; Render150 PASS/73 explicit skips + Core Swift77 + Rust109/1 ignore + Python3 PASS. Lead checkpoint ALL13 incl.5 NEW files, run focused host commands below. Cursor owner wiring/native pixels and F17/F18 after numbers remain OPEN; no target success claimed.
+READY 5ab1e57 + pending owned test/status / integrate/2022 CUR-06 alignment / RELEASE / M4 macOS26.3 Codex: agreed original factory +14 catalog ids; original/null pixel fixture corrected, no renderer/default change. Clean Render150 PASS/73 explicit skips + Core Swift79 PASS + Rust111 PASS/1 ignore; canonical signed app/strict verification PASS. Lead checkpoint two owned files; offscreen hardware rerun below remains OPEN (Metal unavailable here).
+
+Historical readiness (13-file package now checkpointed0767f8c): READY 65c99a8 +13 owned pending files / CUR-06 complete; F17/F18 candidates / RELEASE / M4 macOS26.3 Codex: mapped precise seek starts + CFR/VFR/EOF regressions; two-frame bounded export overlap + serial baseline/stage diagnostics. Signed canonical and standalone apps PASS; Render150 PASS/73 explicit skips + Core Swift77 + Rust109/1 ignore + Python3 PASS. Lead checkpoint ALL13 incl.5 NEW files, run focused host commands below. Cursor owner wiring/native pixels and F17/F18 after numbers remain OPEN; no target success claimed.
 
 Current finding IDs: **F17 = scrub latency; F18 = 4K export speed.** QA owns F16 for the F11 display-repeat issue. Existing `YAPCAM_RENDER_F16_PROFILE` and `YAPCAM_RENDER_F16_REVISION` harness identifiers, historical artifact names, and the assignment filename `F16-F17.md` remain unchanged for runnable compatibility.
 
@@ -68,6 +70,21 @@ READY 8fa2162 authored cursor library + M3 measurement harness: 12 palettes x 10
 READY prior M1/M2 packages: Lead reported 86/86 renderer cases on Metal at main a02a89e; NEW cursor native acceptance now verified in 12:43 package log below
 
 # Render status
+
+## integrate/2022 — CUR-06 adapter test alignment (2026-10-16)
+
+Base 5ab1e57 includes Lead's latest Core sync. Only Tests/YapcamRenderTests/ProjectAdapterTests.swift and this status changed. Core's 14-id catalog and new-project original default handoffs are now satisfied; earlier requests below for those two items are historical. Existing saved/legacy settings are unchanged.
+
+- Factory and snapshot/persistence expectations now assert original. Catalog checks all14 ids in Render catalog order, with original/touch first, and still cover the10 explicit shape overrides and4 logical sizes. Every set/shape/size is evaluated through real Project and frozen snapshots; portable selection assertions verify original uses captured artwork and touch forces the touch glyph.
+- The old pixel fixture implicitly assumed the previous classic factory and expected touch style to replace captured artwork. With explicit original, FrameCompositor correctly loads the sidecar PNG before vector fallback regardless of legacy cursor.style; the matching230400-byte images are expected, not evidence of a renderer defect. The test now exercises BOTH selections: original keeps recorded/pointer/touch/arrow pixels equal; explicit null retains legacy arrow==pointer and arrow!=touch. A hidden-cursor control requires visible recorded artwork, avoiding a vacuous equal-image pass. Production renderer and the agreed default were not changed.
+- Verification: clean release SwiftPM filter YapcamRenderTests|YapcamCoreTests compiled all test targets; Render223 total =150 PASS/73 explicit native-or-opt-in skips; Core Swift79 PASS. ProjectAdapterTests12 total =9 PASS/3 explicit Metal skips, including the revised pixel fixture. Rust111 PASS/1 intentional ignore; release Rust archive rebuilt. Canonical scripts/build-app.sh release + strict codesign verification PASS, mov.yapcam.Yapcam / Yapcam Dev Signing; icon unchanged. The temporary Swift build wrapper was listed and cleaned by its cleanup context. No app launched or signalled. Logs: /tmp/yapcam-render-cur06-integration-{swift,rust,core-build,app}.log.
+- Git staging still fails creating worktrees/render/index.lock (Operation not permitted). Lead must checkpoint the two owned files; no commit/push claimed. Native pixel acceptance is OPEN and must be rerun outside Codex. This is an offscreen adapter check, not a live app launch:
+
+```sh
+CARGO_BUILD_JOBS=4 scripts/build-core.sh
+swift package --disable-sandbox clean
+YAPCAM_REQUIRE_RENDER_HARDWARE=1 swift test --disable-sandbox -c release -j 4 --filter ProjectAdapterTests
+```
 
 ## F17/F18 — current renderer performance follow-up (native before/after OPEN)
 
