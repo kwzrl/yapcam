@@ -137,6 +137,36 @@ Link docs/KNOWN_LIMITATIONS.md; list anything new.
 ## 10. Privacy and licence
 Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD_PARTY_NOTICES.md status, confirmation that no reference assets are included.
 
+## Round 3 (2026-10-16, release candidate): programmatic checks only
+
+**Decision (user, 2026-10-16):** the round closes WITHOUT real mouse/keyboard tests. QADriver (CGEvent + screenshot driver, `scripts/qa/qadriver/`) never received Accessibility / Screen Recording permission, so **nothing below is "verified by real interaction"**. Every row is *programmatic*: the signed app's own launch-flag self-tests (`--ui-record-selftest`, `--hotkey-script` posts the global shortcuts and Return/Escape through the HID tap from inside the app, `--capture-selftest`, `--editor-selftest`, `--editor-export-selftest`, `--drive-input-selftest`) plus outside verification of the outputs with ffprobe/ffmpeg.
+
+Environment: Mac mini M4, one non-Retina 1680x1050 display, no camera, no microphone. Build: `scripts/build-app.sh` at main 3c6279f (configuration as the script default), signed "Yapcam Dev Signing", launched only via `open -n -W build/Yapcam.app --args ...` under the app lock. Runner: `scripts/qa/round3-wrapup.sh <block>` (blocks f11, f11-display-repeat, flows, interrupt, src-display, cap-display); logs in `~/Movies/Yapcam/QA/round3/` (local only). **Environment confound:** a Screen Studio picker overlay (PID 92591, not mine) was on screen during all runs, so it appears in every display recording; frame checks therefore cannot prove the absence of Yapcam's own overlay (none of Yapcam's overlay windows was seen in addition to it).
+
+| # | Item | Procedure (programmatic) | Result |
+|---|------|--------------------------|--------|
+| Q1a | Display pick hotkey (Opt-Cmd-3) -> Esc -> pick again -> Return -> record -> stop, editor to front | `--hotkey-script`, 3 runs + 6 repeats | Esc cancels 9/9 (phase idle, overlay gone); Return starts 7/9. The two misses were the first run of a batch (see F16); editor opens in front after stop 9/9 |
+| Q1b | Window pick (Opt-Cmd-4) same sequence | 3 runs | Esc 3/3, Return starts 3/3, editor in front 3/3 |
+| Q1c | Area pick (Opt-Cmd-5): Esc cancels, start without selection | 3 runs | Esc cancels 3/3 (overlay gone, toolbar usable, start says "Select an area to record first"). A drag + Return could not be posted (needs real input) -> `--source area` confirm hook 3/3 starts, editor in front 3/3. **Area drag + Return: not done** |
+| Q1d | Focus case (other app frontmost, hotkey, Return) | the runs above start with Terminal frontmost | 9/12 Return starts; see F16 |
+| Q1e | Overlay absent from video | frame extraction | inconclusive, see confound above |
+| Q2 | Flow A equivalents: record display with pause (24.4 s), split + delete, export, outside check | `flows` block | export 1728x1080 h264+aac, duration 8.167 s vs project 8.134 s; frames carry a running timecode (`scripts/qa/timecode.swift`): last exported frame T+9.12 s, cut at source 8.134 s -> no frame from the removed section; with a 440 Hz tone playing the audio runs to the cut at -21 dB (no drop-out). Mic step: untested (no hardware) |
+| Q4 | Flow C equivalents: edit, autosave, reopen, re-export, crash + reopen | `flows` block | edits survive reopen (PASS), re-export of the edited package 8.167 s, the first export (24.43 s file) unchanged, crash after autosave -> journal/reopen PASS (autosave completes inside the 30 s wait: F13 closed). Cmd-Q, File > Open, recent list, keyboard/button undo-redo: **not done** (the self-test calls the menu actions) |
+| Q3 | Flow B equivalents: zoom from 6 scripted clicks | `--drive-input-selftest 14`, `LiveRecordingTests` | 6 clicks -> one merged zoom x2.0 centred on the first click, edit+export OK, export-vs-preview frame diff test passes; dragging zoom bars, inspector, background/camera UI: **not done** |
+| Q5a | Low disk: recording refuses below 1 GB free | 400 MB APFS image, free 12 MB | refused at start with "Recording stopped because less than 1 GB of disk space remains", no package, no hang |
+| Q5b | Disk fills during recording | 1.5 GB image, a `dd` filling it 10 s into the recording | capture fails with `diskFull` (no hang, no crash), package kept (3 MB), `RecordingSession.recover` -> complete, 9.9 s |
+| Q5c | Export onto a full volume, then re-export | 30 MB free, then freed | export fails at once with state "Disk Full", no partial file; re-export after freeing 24.43 s, 7.57 MB OK |
+| Q5d | kill -9 of my own app PID mid-recording | `interrupt` block | package recovered, 8.015 s |
+| Q5e | Export cancel -> re-export | no launch flag | not independently tested; render's perf run reports "in order" |
+| Q5f | Permission revocation, VoiceOver, AX audit | - | **not done** (no real-input permission; user decision) |
+| Q6 | Screen Studio comparison | - | **not done** (same reason; also see section 8) |
+
+Observations: in the harness the disk-full failure reads "Cannot stop in state failed(... diskFull ...)" because the self-test calls stop after the failure; the user-facing wording on that path was not seen. The second `--editor-selftest` undo/redo line prints FAIL only because padding is already 72 (setting it again is a no-op): script artefact, not a defect.
+
+Defects: **F16** (ui, low, intermittent): the first Return after a hotkey-opened display overlay in a fresh launch did not start recording in 2 of 9 runs (phase stayed idle for 2 s; a later startStop worked). Steps: `scripts/qa/round3-wrapup.sh f11` and `f11-display-repeat`, logs `f11-recordDisplay-1.log`, `f11-disp-rep-1.log`. Possibly caused by the Screen Studio overlay holding the keyboard; re-run when no other recorder UI is open. After a fix: re-run exactly `f11-display-repeat`.
+
+Not done: everything that needs a person: real mouse/keyboard flows, area drag, Cmd-Q relaunch, recent list, zoom/trim dragging, background/camera UI, permission loss, VoiceOver, AX audit, Screen Studio comparison, microphone, camera.
+
 ## Update log (keep current with each Lead integration)
 | Date | Main | What changed in this report |
 |---|---|---|
@@ -154,3 +184,5 @@ Scan results (`scripts/qa/privacy-scan.sh`), THIRD_PARTY.md (approved) and THIRD
 | 2026-10-15 12:00 | 529f208 | F6 fixed and re-verified (10-min export with audio); window/area via selftest targets PASS; pause A/V, toolbar exclusion PASS; scripted input BLOCKED on Accessibility |
 | 2026-10-15 11:10 | b5d1268 | Section 4 filled with live results (display, 4/10-min, A/V sync, export diff, F6 tail-export failure) |
 | 2026-10-15 | 7d545a1 | Editor export sheet now exposes MP4/MOV/GIF, 4K, 24 fps, quality (EXP-02/04 integrated); no new test results by qa |
+
+- 2026-10-16: Round 3 section added (programmatic only; real-input tests not possible, QADriver never granted).

@@ -1,4 +1,5 @@
-BLOCKED round3 Q1: real-input driver built (scripts/qa/qadriver, app at ~/yapcam-ref-local/QADriver.app, running, ad-hoc signed) but it has NO Accessibility / Screen Recording permission (status: ax=false screen=false); my shell has none either (CGEvent post dropped, screencapture fails). REQUEST user: System Settings > Privacy & Security > Accessibility AND Screen & System Audio Recording > add/enable "QADriver" (~/yapcam-ref-local/QADriver.app). Grant is persistent as long as I do not rebuild it. Then Q1 starts immediately (F11 build b9c0b08 noted).
+READY round3 qa: main 3c6279f, signed build, programmatic only (no real input, user decision). F11 Esc/Return pass 28/33 incl. window 3/3, display 7/9 (F16 low), area Esc 3/3 + confirm hook 3/3 (drag untested); Flow A/C equivalents + low disk + disk-full recovery + kill -9 recovery + export checks outside the editor: pass. Not done: real input, area drag, VoiceOver/AX, permission loss, Screen Studio comparison. See TEST_REPORT "Round 3".
+REQUEST (Lead): Screen Studio picker overlay (PID 92591) was on screen during my runs; close it and I re-run f11-display-repeat for F16.
 
 READY c45398b qa: F12 20/20 pass, F11 narrowed (display/area pick+Return), exclusive window released
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
