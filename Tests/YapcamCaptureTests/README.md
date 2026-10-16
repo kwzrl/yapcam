@@ -464,3 +464,89 @@ capture_gap_selftest display off
 Each run includes pause/resume and two markers. Audio-off must not leave system.m4a;
 app-selected output must contain only the chosen tone with no video exclusions
 caused by the audio choice. Native success is not implied by parser/unit tests.
+
+## Round 3: German/English speech files
+
+These tests measure file processing, not microphone capture or user interaction.
+The generator uses installed Anna/Samantha voices, original scripts with names,
+spelled-out numbers and three fillers per language, and explicit 0.3–2 s pauses.
+Each file must be 60–90 s. Clean, seeded white-noise and 10 dB SNR mixture stems,
+known text, and PCM sentence-activity bounds stay outside Git. A successful `say`
+exit with zero samples is a failure, not a speech fixture (observed in the sandbox).
+
+From the repository root on the host:
+
+```zsh
+python3 Tests/YapcamCaptureTests/Tools/generate_speech.py \
+  "$HOME/Movies/Yapcam/QA/speech/capture-round3"
+zsh Tests/YapcamCaptureTests/Tools/run_speech.zsh --prepare-app \
+  "$HOME/Movies/Yapcam/QA/speech/capture-round3-tool/Yapcam.app"
+# This helper atomically claims QA/.app-lock, refuses any running Yapcam or
+# SpeechHarness process (also refuses an unreadable process list), and uses
+# LaunchServices. Never run Contents/MacOS/SpeechHarness directly for TCC testing.
+zsh Tests/YapcamCaptureTests/Tools/launch_speech.zsh \
+  "$HOME/Movies/Yapcam/QA/speech/capture-round3-tool/Yapcam.app" \
+  "$HOME/Movies/Yapcam/QA/speech/capture-round3" --request-speech
+python3 -B Tests/YapcamCaptureTests/Tools/speech_metrics.py \
+  "$HOME/Movies/Yapcam/QA/speech/capture-round3"
+```
+
+`--request-speech` is an explicit host-only authorization action and may show the
+Speech permission dialog. Omit it once access is granted. Missing/denied permission
+returns an actionable error; the ordinary library/tests never prompt. An existing
+derived package/result is not overwritten: each measurement run needs a fresh
+fixture directory. If launch is interrupted, the helper retains the lock because
+the app may still be running. Lead should remove it after confirming that this
+particular harness has exited. No process is killed by either script.
+
+The signed **debug** tool links the actual capture, core, render and editor modules
+without launching the main UI or playing audio. It writes `speech-probe.json`,
+per-language `outcomes.json`, capture `*-transcript.json`, lossless DSP derivatives,
+and `metrics.json`. It measures both clean and noisy recognition, applies actual
+`EditorModel` transcript cuts/filler removal/pause tightening to Rust-backed projects,
+and verifies retained source ranges at their start/midpoint/end, as well as duration.
+The player is a test double: no preview playback is claimed. Native AUSoundIsolation
+failure is reported separately from render's deterministic DSP chain.
+
+Metrics report WER substitutions/deletions/insertions (case/punctuation normalized;
+no number normalization), expected/recognized/aligned fillers, and median/maximum
+absolute sentence-boundary timing offsets with coverage. The timing truth is the
+first/last 10 ms PCM activity window at -45 dBFS of each independently synthesized
+sentence, **not** an invented alignment of its interior words. Report that limitation
+alongside timing results. DSP reporting independently decodes output with ffmpeg:
+input SNR from retained stems, gain-fitted SI-SDR before/after, input/output LUFS,
+peak dBFS, clipping count and exact duration. SI-SDR includes speech distortion;
+it is not a claim of isolated output noise power. Pumping/voice quality still need
+Lead's listening check. No clipping and a good loudness number cannot prove it.
+
+For offline acceptance, first complete authorization and local model installation,
+then disconnect **all** network interfaces in macOS settings and confirm with
+`scutil --nwi`. Copy only `clean.wav`, `noisy.wav`, `noise.wav`, `screen.mov` and
+`ground-truth.json` for each language into a new external fixture directory, and
+run the same guarded LaunchServices command there without `--request-speech`.
+Retain the network-state output and reports outside Git. No network settings are
+changed by these scripts. This run is pending on the host; the sandbox has no
+Speech permission and cannot certify offline recognition. All production window
+requests enforce `requiresOnDeviceRecognition = true`; no server fallback exists.
+A native request without a final callback times out after 60 s, cancels its task,
+and preserves the previously published transcript (deterministic regression tests).
+
+Local deterministic checks, requiring no speech models or permissions:
+
+```zsh
+python3 -B -m unittest discover -s Tests/YapcamCaptureTests/Tools -p 'test_*.py'
+zsh Tests/YapcamCaptureTests/Tools/run_speech.zsh --probe
+zsh Tests/YapcamCaptureTests/Tools/run_speech.zsh --contract
+swift test --disable-sandbox -j 4 --filter YapcamCaptureTests.OnDeviceSpeechPolicyTests
+```
+
+`--contract` uses explicit synthetic word times and the repository's synthetic video
+fixture: it verifies the editor/core data path, not recognition accuracy. Temporary
+tool/contract directories have cleanup traps/defers. The prepared signed app remains
+outside Git for Lead; delete it when host checks finish. `YAPCAM_SPEECH_SKIP_BUILD=1`
+may reuse already-built debug modules when SwiftPM is blocked by an unrelated native
+run; otherwise the tool builds its dependencies normally.
+
+When SwiftPM's build lock is held by a stalled native run, the built speech tests
+can also run with the toolchain's `swiftpm-testing-helper` and the matching Xcode
+framework/library paths. This follows [Swift Testing's command-line runner guidance](https://github.com/swiftlang/swift-testing/blob/main/Documentation/CommandlineDebugging.md).

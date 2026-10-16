@@ -1,3 +1,4 @@
+READY 37cc463 + working diff Round 3 speech tooling/offline policy (debug sandbox); native speech metrics BLOCKED, see Requests
 READY 9b0cadc capture LOCAL implementation backlog empty; consumer wiring and native acceptance remain external
 READY 9b0cadc CAP-2/M3 camera sample failure hardening; 136 capture tests + Rust + signed build pass; native gates remain
 READY 9b0cadc CAP-1 per-app system audio + CAP-2 webcam resolution caps; capture tests/signed build pass; full-suite host gate
@@ -14,6 +15,72 @@ READY 63f4abb package 2 injected-fault verification; unit tests pass
 READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 # capture status
+
+## Round 3 speech verification (2026-10-16)
+
+Scope for all results below: commit **37cc463 + capture working diff**, **debug**,
+Mac mini M4 sandbox, no microphone/camera, generated-file processing only. Main
+b9c0b08 is UI-only; rebase is denied by read-only Git metadata. The tools and policy
+regressions are ready for Lead to checkpoint; native speech acceptance is BLOCKED.
+
+| Procedure | Result |
+|---|---|
+| `say` Anna / Daniel / Samantha probes, ffmpeg PCM decode | Each exits 0, but writes zero audio frames (4096-byte AIFF header). Generator rejects empty speech. No fake audio substituted. |
+| Native Speech admission probe | Permission denied; actionable error returned in 0.315 ms (de-DE), 0.145 ms (en-US), 0.134 ms (zz-ZZ). No dialog/reset/network fallback. Permission takes priority over locale validation. |
+| Shared on-device request/locale/authorization policy regression tests | PASS. Every production window uses `requiresOnDeviceRecognition=true`; unsupported locale, absent local support, unavailable service, permission denial and request timeout/cancellation are tested. Public API/defaults unchanged. |
+| Focused capture speech/transcription runner | PASS: Swift Testing reports 26 tests / 3 suites, 4 opt-in native tests skipped, zero failures. Existing built bundle run through Xcode's swiftpm-testing-helper with matching framework/library paths. |
+| Measurement regressions | PASS: 4 Python tests for WER alignment/errors, normalization preserving German fillers/numbers, boundary timing coverage and gain-fitted distortion/clipping/length checks. |
+| Actual EditorModel → CoreEditingProject → Rust contract | PASS: exact word deletion/source mapping, 2 fillers removed, 2 pauses tightened; retained ranges checked at start/midpoint/end. Explicit synthetic word times, not recognized speech; no interaction or preview playback claimed. |
+| Broader speech/DSP XCTest selection | PASS: 15 run, 2 native checks skipped, zero failures. Includes independent FFmpeg loudness comparison. Separate editor caption-document test fails with Metal preview unavailable (environment limitation). |
+| Rust core suite | PASS: 104 passed, 1 ignored, zero failures; 12.77 s. |
+| Signed debug measurement app | Prepared outside repo; strict signature verification PASS using Yapcam Dev Signing / mov.yapcam.Yapcam. Never launched. |
+| Full capture suite / main app rebuild | BLOCKED: native writer test run stalls and holds SwiftPM lock; sandbox denies signal to its exact PID. No full-suite green claim. |
+| DE/EN real-file WER, timing median/max, noisy SNR/LUFS, listening, network-disconnected recognition | UNMEASURED: zero-duration `say` output and denied Speech permission. Missing-model/unsupported-locale tests use injected policy conditions, not real installed-pack removal. No mic/camera/USB hardware capture claimed. |
+
+Artifacts/scripts: `Tests/YapcamCaptureTests/Tools/generate_speech.py` writes 162
+English / 163 German reference words, 0.3–2 s pauses, seeded 10 dB SNR stems and
+sentence activity bounds into an external folder; it enforces 60–90 s actual audio.
+`run_speech.zsh` builds the linked debug tool; `launch_speech.zsh` atomically claims
+QA/.app-lock, refuses running apps/unreadable process lists, and launches only via
+LaunchServices. Explicit `--request-speech` is a host authorization action; library
+and normal tests never prompt. Interrupted launch retains the lock for host review.
+
+The tool runs actual capture transcription for clean/noisy tracks, actual editor/core
+edits, render DSP, optional Apple AUSoundIsolation and core PCM silence detection.
+Per-stage failures are retained in outcomes. Measurements: WER S/D/I + filler recall,
+matched first/last-word sentence timing residuals with coverage (10 ms sentence
+bounds; no invented interior-word ground truth), input SNR from retained stems,
+SI-SDR before/after (includes speech distortion), independent FFmpeg LUFS, peaks,
+clipping and exact duration. Pumping/voice quality require Lead's listening check.
+See the capture test README for commands and all measurement limitations.
+
+Logs outside Git: `/tmp/yapcam-capture-round3-{generate,harness,focused-tests,contract-direct,rust,signed-harness,tests,capture-tests}.log`.
+Completed tool/contract temp directories are removed by traps/defers; earlier signed
+harness artifact is listed/checked unused before replacement. The single prepared
+app is intentionally retained for Lead under `~/Movies/Yapcam/QA/speech/capture-round3-tool/Yapcam.app`.
+
+### Requests (Round 3)
+
+1. Lead: terminate only these exact capture-owned test/build processes outside the
+   sandbox if still alive: native test **62931**, SwiftPM owner **62892**, queued
+   contract SwiftPM **63145** / script **63141**. The attempted signal to 62931 was
+   denied. No Yapcam process was launched or signaled. The queued script's EXIT trap
+   will remove its own temporary tool directory when it exits. Run full capture
+   tests and the canonical app build after releasing the lock, then checkpoint/rebase.
+2. Host: from capture worktree run
+   `python3 Tests/YapcamCaptureTests/Tools/generate_speech.py "$HOME/Movies/Yapcam/QA/speech/capture-round3"`.
+   Then use `Tools/launch_speech.zsh` with the prepared app and generated fixture
+   directory (full paths/command in test README). Speech permission is separate from
+   mic permission; use explicit `--request-speech` only with a person available to
+   handle its dialog. No app launch while QA's lock or another instance exists.
+3. Run `python3 -B Tests/YapcamCaptureTests/Tools/speech_metrics.py "$HOME/Movies/Yapcam/QA/speech/capture-round3"`;
+   append outcomes/metrics here. Listen to both languages' noisy/DSP derivatives.
+   Offline: disconnect all network interfaces, retain `scutil --nwi` output, and
+   rerun guarded signed-app processing on a fresh copy containing only input stems,
+   screen fixture and truth (README). No networking/TCC settings changed here.
+4. Lead review the shared request-policy refactor before merging. Optionally exclude
+   `Tools` from SwiftPM's test target to silence unhandled-script resource warnings
+   (Package.swift is outside capture ownership). No production dependency was added.
 
 ## Reference gap work (2026-10-15)
 - Latest continuation check: 2026-10-15 22:57 UTC; main 66d4166, local HEAD c86f263
@@ -843,12 +910,11 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next
-No remaining capture module implementation item in the integrated gap list.
-Address findings from native acceptance or API integration. UI reports its
-preset/test isolation fixed on main eacbd4d. Core marker mapping AND editor flags /
-snapping are delivered; UI forwarding/options/prompts and native acceptance remain.
-Dispatch note for Lead: capture needs a new concrete assignment or native failure
-report to continue implementation; the unchanged consumer rows are already handed off.
+Round 3 local speech test tooling and deterministic checks are ready. Native
+acceptance remains open: host-generated German/English files, authorized signed-app
+recognition, real WER/timing/SNR/LUFS, listening and network-disconnected run. Exact
+commands and blockers are in Requests (Round 3). Capture will fix findings from
+those results; no remaining local feature implementation is assigned.
 
 ## External handoffs / Lead requests
 1. Lead: checkpoint this status refresh and rebase capture c86f263 onto main 66d4166
