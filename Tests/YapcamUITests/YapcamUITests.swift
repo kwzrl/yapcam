@@ -1019,37 +1019,121 @@ import YapcamEditor
 
 // MARK: - Start sound (GAP-CAP-7)
 
+/// A clock that only moves when the test says so: no wall-clock thresholds, so machine load cannot change results.
+final class ManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol {
+        var offset: Duration
+        func advanced(by d: Duration) -> Instant { Instant(offset: offset + d) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (a: Instant, b: Instant) -> Bool { a.offset < b.offset }
+    }
+    private let lock = NSLock()
+    private var current = Instant(offset: .zero)
+    private var sleepers: [(deadline: Instant, id: Int, cont: CheckedContinuation<Void, Error>)] = []
+    private var nextID = 0
+    var now: Instant { lock.lock(); defer { lock.unlock() }; return current }
+    var minimumResolution: Duration { .nanoseconds(1) }
+    var sleeperCount: Int { lock.lock(); defer { lock.unlock() }; return sleepers.count }
+
+    private func allocateID() -> Int { lock.lock(); defer { lock.unlock() }; nextID += 1; return nextID }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let id = allocateID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                lock.lock()
+                if Task.isCancelled { lock.unlock(); c.resume(throwing: CancellationError()); return }
+                if deadline <= current { lock.unlock(); c.resume(); return }
+                sleepers.append((deadline, id, c)); lock.unlock()
+            }
+        } onCancel: {
+            self.lock.lock()
+            let hit = self.sleepers.first { $0.id == id }
+            self.sleepers.removeAll { $0.id == id }
+            self.lock.unlock()
+            hit?.cont.resume(throwing: CancellationError())
+        }
+    }
+
+    func advance(by d: Duration) {
+        lock.lock()
+        current = current.advanced(by: d)
+        let due = sleepers.filter { $0.deadline <= current }
+        sleepers.removeAll { $0.deadline <= current }
+        lock.unlock()
+        due.forEach { $0.cont.resume() }
+    }
+
+    /// Lets the code under test reach its sleeps (yields, no wall-clock timeout).
+    func waitForSleepers(_ n: Int) async { while sleeperCount < n { await Task.yield() } }
+}
+
 private struct ScriptedPlayer: CuePlayer {
-    enum Mode { case completes(Int), never, throwing }
+    enum Mode { case completes(Int), never, ignoresCancellation, throwing }
     let mode: Mode
+    let clock: ManualClock
     struct Boom: Error {}
     func play(_ cue: Cue, gain: Float) async throws {
         switch mode {
-        case .completes(let ms): try await Task.sleep(for: .milliseconds(ms))
-        case .never: try await Task.sleep(for: .seconds(60))
+        case .completes(let ms): try await clock.sleep(for: .milliseconds(ms))
+        case .never: try await clock.sleep(for: .seconds(60))
+        case .ignoresCancellation:
+            // Hung output device: never returns and does not react to cancellation.
+            await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
         case .throwing: throw Boom()
         }
     }
 }
 
 @Suite struct StartSoundGateTests {
-    private func elapsedMs(_ mode: ScriptedPlayer.Mode) async -> Double {
-        let t0 = ContinuousClock.now
-        await StartSoundGate.run(player: ScriptedPlayer(mode: mode), log: { _ in })
-        let d = ContinuousClock.now - t0
-        return Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15
+    /// Starts the gate on the manual clock; `finished` flips when the gate lets capture start.
+    private final class Probe: @unchecked Sendable { var finished = false }
+    private func start(_ mode: ScriptedPlayer.Mode, _ clock: ManualClock) -> (Task<Void, Never>, Probe) {
+        let probe = Probe()
+        let task = Task {
+            await StartSoundGate.run(player: ScriptedPlayer(mode: mode, clock: clock), clock: clock, log: { _ in })
+            probe.finished = true
+        }
+        return (task, probe)
     }
-    @Test func startsAfterSoundFinishes() async {
-        let ms = await elapsedMs(.completes(200))
-        #expect(ms >= 190 && ms < 420, "\(ms)")
+
+    @Test func startsWhenTheSoundFinishes() async {
+        let clock = ManualClock()
+        let (task, probe) = start(.completes(200), clock)
+        await clock.waitForSleepers(2)                 // sound (200 ms) and cap (540 ms) are both waiting
+        clock.advance(by: .milliseconds(199))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(!probe.finished)
+        clock.advance(by: .milliseconds(1))            // t = 200 ms: sound done, cap not reached
+        await task.value
+        #expect(probe.finished)
+        #expect(clock.now.offset == .milliseconds(200))
     }
-    @Test func neverCompletingSoundCapsAt540() async {
-        let ms = await elapsedMs(.never)
-        #expect(ms >= 530 && ms <= 2500, "\(ms)")   // cap is 540; slack for a loaded test machine
+    @Test func neverCompletingSoundIsCutOffAt540() async {
+        let clock = ManualClock()
+        let (task, probe) = start(.never, clock)
+        await clock.waitForSleepers(2)
+        clock.advance(by: .milliseconds(539))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(!probe.finished)
+        clock.advance(by: .milliseconds(1))            // t = 540 ms
+        await task.value
+        #expect(probe.finished)
     }
-    @Test func failingPlayerStartsImmediately() async {
-        let ms = await elapsedMs(.throwing)
-        #expect(ms < 300, "\(ms)")
+    @Test func aPlayerThatIgnoresCancellationStillCannotHoldTheStart() async {
+        let clock = ManualClock()
+        let (task, probe) = start(.ignoresCancellation, clock)
+        await clock.waitForSleepers(1)                 // only the cap is waiting
+        clock.advance(by: .milliseconds(540))
+        await task.value
+        #expect(probe.finished)
+    }
+    @Test func failingPlayerStartsWithoutWaitingForTheClock() async {
+        let clock = ManualClock()
+        let (task, probe) = start(.throwing, clock)
+        await task.value                               // no clock advance at all
+        #expect(probe.finished)
+        #expect(clock.now.offset == .zero)
     }
     @Test func gainAndLimitAreTheSpecValues() {
         #expect(StartSoundGate.gain == 0.33)
@@ -1079,7 +1163,7 @@ private struct ScriptedPlayer: CuePlayer {
         rec.cuePlayer = OrderPlayer(log: log)
         rec.startSession( UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
                                                     recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory))
-        for _ in 0..<100 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        for _ in 0..<1500 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
         #expect(rec.phase == .recording)
         #expect(await log.events == ["sound-start", "sound-end", "capture-start"])
         await rec.cancelAndWait()
@@ -1192,21 +1276,20 @@ private struct OrderPlayer: CuePlayer {
         defer { (settings.playSounds, settings.countdown, settings.openEditorAfterRecording) = old }
         settings.playSounds = false; settings.countdown = 0; settings.openEditorAfterRecording = true
         rec.engine = OrderEngine(log: log)
-        rec.deliver = { _ in try? await Task.sleep(for: .seconds(5)) }
+        rec.deliver = { _ in try? await Task.sleep(for: .seconds(3600)) }   // blocks until the test ends
         let opts = UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
                                       recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory)
         rec.startSession(opts)
-        for _ in 0..<100 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        for _ in 0..<1500 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
         rec.stop()
-        for _ in 0..<100 where rec.phase != .idle { try await Task.sleep(for: .milliseconds(20)) }
+        for _ in 0..<1500 where rec.phase != .idle { try await Task.sleep(for: .milliseconds(20)) }
         #expect(rec.phase == .idle)
         rec.startSession(opts)
-        for _ in 0..<100 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        for _ in 0..<1500 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
         rec.pause()
-        let t0 = ContinuousClock.now
-        for _ in 0..<100 where !(await log.events.contains("pause")) { try await Task.sleep(for: .milliseconds(20)) }
-        #expect(await log.events.contains("pause"))
-        #expect(ContinuousClock.now - t0 < .seconds(2), "pause waited behind the previous export")
+        // Passes only if pause reaches the session while the previous delivery is still blocked (no wall-clock threshold).
+        for _ in 0..<1500 where !(await log.events.contains("pause")) { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(await log.events.contains("pause"), "pause waited behind the previous export")
         await rec.cancelAndWait()
     }
 }
@@ -1247,7 +1330,7 @@ private struct OrderPlayer: CuePlayer {
         rec.engine = OrderEngine(log: log, stopDelayMs: 300)
         rec.startSession(UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
                                             recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory))
-        for _ in 0..<100 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        for _ in 0..<1500 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
         rec.stop()
         #expect(rec.phase == .finishing)
         await rec.settle()

@@ -14,22 +14,52 @@ enum StartSoundGate {
     static let gain: Float = 0.33
     static let limit: Duration = .milliseconds(540)
 
-    /// Returns when capture may start.
-    static func run(player: CuePlayer, limit: Duration = limit, log: @escaping @Sendable (String) -> Void = { NSLog("[Yapcam] start sound: %@", $0) }) async {
-        let outcome = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask {
-                do { try await player.play(.start, gain: gain); return true }
-                catch { log("not played: \(error.localizedDescription)"); return true }
-            }
-            group.addTask {
-                try? await Task.sleep(for: limit)
-                return false
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
+    /// Returns when capture may start: when the sound has finished (or failed), or after `limit`, whichever
+    /// comes first. The player runs in its own unstructured task, so a player that ignores cancellation (hung
+    /// output device) can never hold the caller beyond `limit`; the timer does not run on the main actor.
+    static func run<C: Clock>(player: CuePlayer, limit: Duration = limit, clock: C,
+                              log: @escaping @Sendable (String) -> Void = { NSLog("[Yapcam] start sound: %@", $0) }) async where C.Duration == Duration {
+        let gate = RaceGate()
+        let sound = Task.detached {
+            do { try await player.play(.start, gain: gain) }
+            catch { if !(error is CancellationError) { log("not played: \(error.localizedDescription)") } }
+            gate.finish(timedOut: false)
         }
-        if !outcome { log("still playing after \(limit); starting capture anyway") }
+        let timer = Task.detached {
+            do { try await clock.sleep(for: limit) } catch { return }
+            gate.finish(timedOut: true)
+        }
+        let timedOut = await gate.wait()
+        sound.cancel(); timer.cancel()
+        if timedOut { log("still playing after \(limit); starting capture anyway") }
+    }
+
+    static func run(player: CuePlayer, limit: Duration = limit, log: @escaping @Sendable (String) -> Void = { NSLog("[Yapcam] start sound: %@", $0) }) async {
+        await run(player: player, limit: limit, clock: ContinuousClock(), log: log)
+    }
+}
+
+/// First finisher wins; `wait` returns whether the timer won.
+private final class RaceGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Bool?
+    private var waiter: CheckedContinuation<Bool, Never>?
+
+    func finish(timedOut: Bool) {
+        lock.lock()
+        guard result == nil else { lock.unlock(); return }
+        result = timedOut
+        let w = waiter; waiter = nil
+        lock.unlock()
+        w?.resume(returning: timedOut)
+    }
+
+    func wait() async -> Bool {
+        await withCheckedContinuation { c in
+            lock.lock()
+            if let r = result { lock.unlock(); c.resume(returning: r) }
+            else { waiter = c; lock.unlock() }
+        }
     }
 }
 

@@ -1,3 +1,5 @@
+READY ui: start-sound tests deterministic (injected clock) + gate can no longer be held by a player that ignores cancellation (555 tests green ×2)
+
 READY ui: R3-UI-3,4,5,6,7,8(ui),11,13,15,16,17,18,20,21 fixed + unit-tested (554 tests, debug, not run live)
 
 READY ui: U1 start sound, U2 camera max resolution, U3 third-party notices (unit-tested; live/hardware untested). R3-UI-1 and R3-UI-2 fixed (below); next R3-UI-3…
@@ -9,6 +11,8 @@ READY ui: QA self-test launch flags (--capture-selftest options, --ui-record-sel
 # ui status
 
 ## Round 3 (2026-10-16)
+- **Flaky start-sound tests (fixed):** cause = the tests asserted wall-clock milliseconds, which fail whenever the machine is loaded (ms=2372 seen). Now `StartSoundGate.run` takes an injected `Clock`; tests use a `ManualClock` and assert exact virtual times (sound done at 200 ms → start at 200 ms; never-completing → not before and exactly at 540 ms; throwing → no clock advance needed). The start-sound and post-recording-queue tests no longer contain any wall-clock threshold (polling loops only bound a failure at ~30 s).
+- **Production cap check (real defect found and fixed):** the 540 ms timer itself never ran on the main actor (the gate is nonisolated, the timer is a child task), but the old task-group implementation would not return until the player task had ended, so a player that ignores cancellation (hung output device) could hold the recording start indefinitely. The gate now races two detached tasks with a first-wins gate: the caller resumes at the cap whatever the player does (test `aPlayerThatIgnoresCancellationStillCannotHoldTheStart`). Remaining, unavoidable delay: after the cap fires the start continues on the main actor, so a main actor that is itself blocked for 2 s delays everything, including capture start; nothing in the start path should block main (not measured live).
 Review fixes (debug build, `swift test -j 6` ×2 green, 554 tests; **none run live** — QA owns the app). Regression tests are in `ReviewRound3Tests` unless noted.
 - R3-UI-3: overlays activate without `.activateAllWindows`; `OverlayFocus` remembers the frontmost app and reactivates it when the overlay closes (Start, Esc, screen change). Test with injected app. Live: untested that Keynote really returns in front (needs a live window).
 - R3-UI-4: "Set size…" lowers the overlay windows (and stops them catching clicks) while the prompt is modal; the key monitor passes keys while a modal window is up. Logic only; the prompt click path is untested live.
