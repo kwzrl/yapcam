@@ -486,8 +486,12 @@ Yapcam choices; implementation/checkpoint progress is in Core status.
 |---|---|
 | `cursor.always_default` | bool, false; force pointer style and cursor_id=0 |
 | `cursor.rotate_on_move` | bool, false; evaluated tilt up to ±15° |
+| `cursor.rotation_mode` | `static` / `tilt`, new-project default `static`; authoritative mode, synchronizes legacy `rotate_on_move` |
+| `cursor.rotation_degrees` | finite degrees −180…180, default0; clockwise static rotation |
+| `cursor.tilt_amount` | finite0…2, default1; multiplier on velocity tilt (maximum ±15° × amount) |
 | `cursor.stop_before_end_ns` | nonnegative Int64 ns, 0 (off) |
-| `cursor.remove_shakes` | bool, false; suppress displacements under 1 captured point |
+| `cursor.remove_shakes` | bool, false; enable the positional deadband below |
+| `cursor.shake_threshold` | finite100…2000 **millipoints** (one thousandth of a captured logical point), new-project default500 =0.5pt; used only when remove_shakes=true |
 | `cursor.optimize_types` | bool, false; debounce recorded cursor type changes by 80ms |
 | `zoom_settings.animation_style` | custom / focused / smooth, custom |
 | `camera.zoom_scale` | 0.25…4, 1; overlay size multiplier at full zoom |
@@ -499,6 +503,15 @@ CUR-12 `always_default` wins over recorded/touch style and suppresses recorded
 cursor IDs. CUR-13 tilt uses evaluated horizontal canvas displacement over the
 previous 16,666,667 timeline ns, clamped at ±15° for ±600 canvas pixels/second.
 Invisible or stopped cursors have zero tilt; backward seeks are stateless.
+`rotation_mode=static` uses rotation_degrees at every visible frame, including time0,
+cuts, idle and the stopped tail; tilt ignores that angle and scales the legacy
+velocity response by tilt_amount. Legacy `set cursor.rotate_on_move` remains an
+alias that sets rotation_mode to tilt/static; setting the mode updates that bool.
+All four new paths are ordinary validated, undoable `set` leaves and portable style
+settings. They survive save/reopen, snapshots, presets and recovery journals.
+Schema1 and ABI3 are unchanged: rotation is emitted by existing `motion_at`,
+`render_options_at`/`effects_at` and `yc_frame_motion_at.cursor_rotation_rad`;
+position remains in YcFrame.cursor_x/y. Render already consumes these fields.
 
 CUR-14 holds the cursor's canvas hotspot from `max(0,duration-stop_before_end_ns)`
 through the endpoint. Visibility and click effects still evaluate at the current
@@ -506,8 +519,9 @@ time. Zero disables; a duration longer than the video holds its initial hotspot.
 Loop-to-start runs before the hold point is sampled; stopping wins during the tail.
 Cuts/speeds recompute the hold time from the edited duration; no event/media edits.
 
-CUR-15 uses a cold-built positional index: each captured coordinate within 1 point
-of the last accepted coordinate keeps that anchor; larger displacements advance
+CUR-15 uses a cold-built positional index: each captured coordinate strictly below
+shake_threshold/1000 logical points from the last accepted coordinate keeps that
+anchor; distances at or above the threshold advance
 it. Original timestamps/interpolation are retained so removing jitters does not
 introduce motion before the next captured sample interval. The same filtered
 positions feed cursor smoothing, loop-to-start and automatic follow-pan. Events
@@ -515,6 +529,22 @@ and click positions remain original; no changes to snapping or recorded data.
 CUR-16 retains a cursor type until a replacement survives 80ms in source time;
 shorter flickers are removed. The initial type is accepted immediately. The indexes
 are built when event data loads and reused; toggles need no IO or frame allocation.
+Shake-threshold changes build a new immutable index on the cold command path and
+publish it with the edit; history and snapshots keep their matching index. Captured
+held samples are compacted, retaining the last held sample before each movement
+so interpolation and the last accepted move's idle clock match the dense trace.
+Captured points precede source scaling, zoom and output rasterization, so this unit is
+independent of Retina pixel density and output resolution. It is a displacement
+deadband, not a velocity threshold. Raw events/click positions remain unchanged.
+
+Migration: an existing project cursor object without rotation_mode derives it from
+rotate_on_move (true→tilt, false/absent→static); explicitly supplied new mode wins.
+An older cursor object without shake_threshold receives1000 to preserve the former
+1pt deadband, including when filtering is initially off. Newly created projects use
+500; projects without any cursor settings retain the off/default appearance.
+Legacy preset cursor patches containing remove_shakes but no threshold similarly
+use1000; a supplied threshold is retained. Legacy rotation-only preset patches set
+the matching new mode. No recording/session/event files are rewritten on open.
 
 ANI-02 custom retains the existing speed_preset/custom spring. Focused selects
 (tension=500,friction=45,mass=1,allow_overshoot=false); smooth selects

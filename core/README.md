@@ -596,3 +596,24 @@ No new C ABI fields; frame/frameExtras remain allocation-free. See FORMATS.md
 for exact enums, timing/validation rules and half-open ranges. Core stores locale
 preferences but cannot enumerate available on-device Speech languages; Capture/
 Editor should expose native supported-locale discovery rather than a fake list.
+
+Round3 cursor controls (schema1/ABI3): set cursor.rotation_mode=static/tilt,
+cursor.rotation_degrees=-180...180, cursor.tilt_amount=0...2 and
+cursor.shake_threshold=100...2000 millipoints. New defaults are static/0/1/500;
+one millipoint is 0.001 captured logical point. Threshold applies only with
+cursor.remove_shakes. Older cursor objects missing it migrate to1000 (the old1pt
+filter); old rotate_on_move maps to the matching mode and remains a set alias.
+An explicit mode wins over that legacy alias. These are portable style values,
+with history, snapshots and save/reopen. Input indexes share immutable raw data;
+threshold edits/history build a compact deadband on the cold path and publish it
+with the project change. Retired indexes are released outside the FFI write lock.
+The compact trace preserves the original dense trace's transition/idle clocks.
+Static angles survive time0/cuts/idle; tilt scales the signed velocity response
+and returns to zero when idle/stopped. Existing frameMotion/motion(atNs:) and
+render_options_at emit cursor_rotation_rad; Render's Project adapter already
+forwards that value to cursorRotationRadians. No header/renderer change required.
+
+R3-01 audio regression: audio_ranges endpoint gains always use the row's clip
+index, including when a rounded public start lies before the exact fractional
+boundary. Timeline automation still uses the endpoint time; mute flags and
+gain_start/gain_end now agree across adjacent clips at fractional speeds.

@@ -138,6 +138,9 @@ pub fn decode_project(bytes: &[u8]) -> Result<ProjectData> {
     if check_version(&raw)? == 0 {
         raw["schema_version"] = SCHEMA_VERSION.into();
     }
+    if let Some(cursor) = raw.get_mut("cursor") {
+        crate::model::migrate_cursor(cursor, true);
+    }
     let p: ProjectData = serde_json::from_value(raw)?;
     validate_data(&p)?;
     Ok(p)
@@ -333,6 +336,10 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     }
     let cur = &p.cursor;
     if !(0.1..=10.0).contains(&cur.size)
+        || !matches!(cur.rotation_mode.as_str(), "static" | "tilt")
+        || !(-180.0..=180.0).contains(&cur.rotation_degrees)
+        || !(0.0..=2.0).contains(&cur.tilt_amount)
+        || !(100.0..=2000.0).contains(&cur.shake_threshold)
         || !(0.0..=1.0).contains(&cur.smoothing)
         || cur.stop_before_end_ns < 0
         || cur.idle_timeout_ns < 0
@@ -695,7 +702,9 @@ impl Project {
         }
         let input = events
             .iter()
-            .map(|events| crate::input::InputCache::new(events))
+            .map(|events| {
+                crate::input::InputCache::with_events(events, data.cursor.shake_threshold)
+            })
             .collect();
         let key_overlay_index =
             crate::key_overlay::KeyOverlayIndex::new(&session, &events, &data.timeline.clips);

@@ -223,8 +223,35 @@ settings!(Cursor {
     logical_size: String = "regular".into(),
     spotlight_radius: f64 = 0.0, key_overlay: KeyOverlay = KeyOverlay::default(),
     always_default: bool = false, rotate_on_move: bool = false,
+    rotation_mode: String = "static".into(), rotation_degrees: f64 = 0.0,
+    tilt_amount: f64 = 1.0, shake_threshold: f64 = 500.0,
     stop_before_end_ns: i64 = 0, remove_shakes: bool = false, optimize_types: bool = false,
 });
+/// Normalize persisted legacy cursor fields or a portable cursor patch. Never
+/// replace a supplied threshold; old enabled deadbands were exactly one point.
+pub(crate) fn migrate_cursor(value: &mut serde_json::Value, legacy_threshold: bool) {
+    let Some(fields) = value.as_object_mut() else {
+        return;
+    };
+    if let Some(mode) = fields
+        .get("rotation_mode")
+        .and_then(serde_json::Value::as_str)
+    {
+        let tilt = mode == "tilt";
+        fields.insert("rotate_on_move".into(), tilt.into());
+    } else if let Some(tilt) = fields
+        .get("rotate_on_move")
+        .and_then(serde_json::Value::as_bool)
+    {
+        fields.insert(
+            "rotation_mode".into(),
+            if tilt { "tilt" } else { "static" }.into(),
+        );
+    }
+    if legacy_threshold && !fields.contains_key("shake_threshold") {
+        fields.insert("shake_threshold".into(), 1000.into());
+    }
+}
 settings!(Spring {
     tension: f64 = 250.0,
     friction: f64 = 28.0,

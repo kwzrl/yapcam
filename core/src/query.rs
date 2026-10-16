@@ -280,8 +280,16 @@ impl Project {
                                         .unwrap()
                                         .clamp(a, b)
                                     };
-                                    let gain_start = self.audio_gain(track, times[0]);
-                                    let gain_end = self.audio_gain(track, times[1] - 1);
+                                    // Rounded public times may lie just across an exact
+                                    // fractional clip edge. The row owns this clip;
+                                    // only automation is evaluated at the endpoint time.
+                                    let gain_start =
+                                        self.audio_gain_for_clip(track, times[0], Some(clip_index));
+                                    let gain_end = self.audio_gain_for_clip(
+                                        track,
+                                        times[1] - 1,
+                                        Some(clip_index),
+                                    );
                                     rows.push(json!({"clip_id":c.id,"track":track,"segment":i,"path":path,"src_start_ns":x,"src_end_ns":y,"file_start_ns":x-s.src_start_ns-offset,"file_end_ns":y-s.src_start_ns-offset,"tl_start_ns":times[0],"tl_end_ns":times[1],"speed":c.speed,"gain":gain_start,"gain_start":gain_start,"gain_end":gain_end,"base_gain_db":gain_db,"muted":muted}));
                                 }
                             }
@@ -335,6 +343,76 @@ impl Project {
 mod tests {
     use super::*;
     use crate::{model::Clip, project::tests::Fixture};
+    #[test]
+    fn fractional_audio_endpoints_use_the_row_clip_for_both_mute_orders_and_automation() {
+        let fixture = Fixture::new();
+        let mut base = Project::create(&fixture.0).unwrap();
+        base.data.autosave = false;
+        // Exercise both track gain branches with synthetic, already registered media.
+        for segment in &mut base.session.segments {
+            segment
+                .files
+                .insert("mic".into(), segment.files["system_audio"].clone());
+        }
+        base.apply(&json!({"op":"delete_range","tl_start_ns":4_000_000_000_i64,"tl_end_ns":5_000_000_000_i64})).unwrap();
+        base.apply(&json!({"op":"split","at_tl_ns":1_000_000_000}))
+            .unwrap();
+        for first_speed in [3.0, 1.2, 0.75, 1.6] {
+            for second_speed in [1.0, 3.0, 1.2, 0.75, 1.6] {
+                for muted_first in [false, true] {
+                    let mut p = base.clone();
+                    for i in 0..2 {
+                        let id = p.data.timeline.clips[i].id.clone();
+                        p.apply(&json!({"op":"set_speed","clip_id":id,"speed":if i==0 {first_speed} else {second_speed}})).unwrap();
+                        let gain = if (i == 0) == muted_first { 0.0 } else { 1.0 };
+                        p.apply(&json!({"op":"set_clip_settings","clip_id":id,"patch":{"mic_gain":gain,"system_gain":gain}})).unwrap();
+                    }
+                    for track in ["mic", "system_audio"] {
+                        p.apply(&json!({"op":"set","path":format!("audio.{}_gain_db",if track=="mic" {"mic"} else {"system"}),"value":0})).unwrap();
+                    }
+                    for automation in [false, true] {
+                        if automation {
+                            let duration = time::duration(&p.data.timeline.clips);
+                            p.apply(&json!({"op":"set","path":"audio.ranges","value":[
+                                {"id":"mic-ramp","track":"mic","tl_start_ns":0,"tl_end_ns":duration,"start_gain_db":-12,"end_gain_db":0},
+                                {"id":"system-ramp","track":"system_audio","tl_start_ns":0,"tl_end_ns":duration,"start_gain_db":-12,"end_gain_db":0}]})).unwrap();
+                        }
+                        let rows = p.query(&json!({"q":"audio_ranges"})).unwrap();
+                        for row in rows.as_array().unwrap() {
+                            let i = p
+                                .data
+                                .timeline
+                                .clips
+                                .iter()
+                                .position(|c| row["clip_id"] == c.id)
+                                .unwrap();
+                            let muted = (i == 0) == muted_first;
+                            assert_eq!(row["muted"], muted);
+                            for (key, t) in [
+                                ("gain_start", row["tl_start_ns"].as_i64().unwrap()),
+                                ("gain_end", row["tl_end_ns"].as_i64().unwrap() - 1),
+                            ] {
+                                let db = if automation {
+                                    -12.0
+                                        + 12.0 * t as f64
+                                            / time::duration(&p.data.timeline.clips) as f64
+                                } else {
+                                    0.0
+                                };
+                                let expected = if muted { 0.0 } else { 10_f64.powf(db / 20.0) };
+                                assert!(
+                                    (row[key].as_f64().unwrap() - expected).abs() < 1e-6,
+                                    "speeds {first_speed}/{second_speed}, row {row}"
+                                );
+                            }
+                            assert_eq!(row["gain"], row["gain_start"]);
+                        }
+                        assert!(!rows.as_array().unwrap().is_empty());
+                    }
+                }
+            }
+        }
+    }
     #[test]
     fn file_audio_ranges_map_through_speed_cut_offsets_and_repeated_clips() {
         let fixture = Fixture::new();
