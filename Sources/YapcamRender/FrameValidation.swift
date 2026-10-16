@@ -7,6 +7,17 @@ func validateFrame(_ f: YcFrame,configuration c: RenderConfiguration,layers: [Re
     try c.validateCameraGeometry()
     try c.screenQuality?.validate()
     try c.cameraMatte?.validate()
+    for layer in layers {
+        if case .blur(let radius) = layer.content {
+            try MaskBlur.validate(radius: radius)
+            // Like opaque covers, source-space privacy masks must not be
+            // bypassed by a local lens sampling an uncovered source region.
+            if c.glassLoupe != nil,f.screen.present != 0,layer.opacity>0,radius>0 {
+                let coversCanvas=layer.cornerRadius == 0 && layer.rect.minX<=0 && layer.rect.minY<=0 && layer.rect.maxX>=CGFloat(f.canvas_w) && layer.rect.maxY>=CGFloat(f.canvas_h)
+                guard coversCanvas else { throw RenderError.unavailable("Glass magnifier cannot be combined with a blur mask yet; use classic zoom for that range") }
+            }
+        }
+    }
     guard c.screenShadowOffsetX.isFinite, (-1...1).contains(c.screenInsetOrigin.x), (-1...1).contains(c.screenInsetOrigin.y) else {
         throw RenderError.invalidSettings("Screen shadow offset or inset origin is invalid")
     }

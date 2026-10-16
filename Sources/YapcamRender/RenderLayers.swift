@@ -10,6 +10,9 @@ public struct RenderLayer: Sendable, Equatable {
         case text(String, fontSize: Double, color: SIMD4<Float>)
         case image(relativePath: String)
         case highlight(dimOpacity: Float, fill: SIMD4<Float>, stroke: SIMD4<Float>, strokeWidth: Float)
+        /// Gaussian standard deviation in canonical canvas pixels (0...128).
+        /// Replaces the underlying composition inside rect; no fill/stroke/dim.
+        case blur(radius: Float)
     }
     public var content: Content
     public var rect: CGRect
@@ -87,6 +90,7 @@ final class LayerRenderer {
     private let solid: MTLTexture
     private var texts: [String: MTLTexture] = [:]
     private var images: [String: MTLTexture] = [:]
+    private var maskBlur: MaskBlur?
     init(device: MTLDevice) throws {
         self.device = device; loader = MTKTextureLoader(device: device)
         let lib = try device.makeLibrary(source: Self.shader, options: nil)
@@ -102,6 +106,15 @@ final class LayerRenderer {
         var pixel: UInt32 = .max; solid.replace(region: MTLRegionMake2D(0,0,1,1), mipmapLevel: 0, withBytes: &pixel, bytesPerRow: 4); self.solid = solid
     }
     func invalidate() { texts.removeAll(); images.removeAll() }
+    func intermediateIfNeeded(_ layers: [RenderLayer],target: MTLTexture) throws -> MTLTexture? {
+        guard layers.contains(where: { if case .blur(let radius) = $0.content { return radius>0 && $0.opacity>0 }; return false }) else { return nil }
+        if maskBlur == nil { maskBlur=try MaskBlur(device: device) }
+        return try maskBlur!.compositionTexture(width: target.width,height: target.height)
+    }
+    func resolve(_ source: MTLTexture,to target: MTLTexture,in cb: MTLCommandBuffer) throws {
+        guard let maskBlur else { throw RenderError.metal("Missing blur-mask resolver") }
+        try maskBlur.copy(source,to: target,in: cb)
+    }
     private func text(_ value: String, fontSize: Double, family: RenderTextFontFamily, color: SIMD4<Float>, size: CGSize) throws -> MTLTexture {
         guard [color.x,color.y,color.z,color.w].allSatisfy({ $0.isFinite && (0...1).contains($0) }), size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0, size.width <= 8192, size.height <= 8192, fontSize.isFinite, fontSize > 0 else { throw RenderError.invalidSettings("Invalid text overlay size") }
         let key = "\(value)|\(fontSize)|\(family.rawValue)|\(color)|\(size)"
@@ -122,13 +135,32 @@ final class LayerRenderer {
     }
     func encode(_ layers: [RenderLayer], canvas: SIMD2<Float>, project: any RenderProjectSource, target: MTLTexture, cb: MTLCommandBuffer) throws {
         guard !layers.isEmpty else { return }
-        let pass = MTLRenderPassDescriptor(); pass.colorAttachments[0].texture = target; pass.colorAttachments[0].loadAction = .load; pass.colorAttachments[0].storeAction = .store
-        guard let encoder = cb.makeRenderCommandEncoder(descriptor: pass) else { throw RenderError.metal("Cannot create overlay encoder") }
-        defer { encoder.endEncoding() }
-        encoder.setRenderPipelineState(pipeline)
+        var activeEncoder: MTLRenderCommandEncoder?
+        var blurWorkspace: MaskBlur.Workspace?
+        defer { activeEncoder?.endEncoding() }
+        func overlayEncoder() throws -> MTLRenderCommandEncoder {
+            if let activeEncoder { return activeEncoder }
+            let pass = MTLRenderPassDescriptor(); pass.colorAttachments[0].texture = target; pass.colorAttachments[0].loadAction = .load; pass.colorAttachments[0].storeAction = .store
+            guard let encoder = cb.makeRenderCommandEncoder(descriptor: pass) else { throw RenderError.metal("Cannot create overlay encoder") }
+            encoder.setRenderPipelineState(pipeline); activeEncoder=encoder
+            return encoder
+        }
         for layer in layers {
             var r = layer.rect
             guard [r.minX,r.minY,r.width,r.height].allSatisfy({ $0.isFinite }), r.width > 0, r.height > 0, layer.opacity.isFinite, (0...1).contains(layer.opacity), layer.cornerRadius.isFinite, layer.cornerRadius>=0 else { throw RenderError.invalidSettings("Invalid overlay rectangle") }
+            if case .blur(let radius) = layer.content {
+                let sigma=try MaskBlur.scaledSigma(radius: radius,canvas: canvas,width: target.width,height: target.height)
+                guard sigma > 0,layer.opacity > 0 else { continue }
+                activeEncoder?.endEncoding(); activeEncoder=nil
+                if maskBlur == nil { maskBlur=try MaskBlur(device: device) }
+                if blurWorkspace == nil {
+                    let workspace=try maskBlur!.workspace(width: target.width,height: target.height)
+                    blurWorkspace=workspace
+                    cb.addCompletedHandler { _ in _ = workspace }
+                }
+                try maskBlur!.encode(layer,canvas: canvas,sigma: sigma,target: target,workspace: blurWorkspace!,in: cb)
+                continue
+            }
             var captionLayout: CaptionTextLayout?
             if let caption = layer.caption, case .text(_,let size,_) = layer.content {
                 try validateCaption(caption)
@@ -155,7 +187,9 @@ final class LayerRenderer {
             case .highlight(let dim, let fill, let stroke, let width):
                 guard [dim,fill.x,fill.y,fill.z,fill.w,stroke.x,stroke.y,stroke.z,stroke.w].allSatisfy({ $0.isFinite && (0...1).contains($0) }), width.isFinite, width>=0 else { throw RenderError.invalidSettings("Invalid highlight styling") }
                 uniforms[0].z = dim; uniforms[2].w = width; uniforms[3] = fill; uniforms[4] = stroke
+            case .blur: continue
             }
+            let encoder=try overlayEncoder()
             encoder.setFragmentBytes(&uniforms,length: uniforms.count*MemoryLayout<SIMD4<Float>>.stride,index: 0)
             encoder.setFragmentTexture(texture,index: 0)
             encoder.drawPrimitives(type: .triangle,vertexStart: 0,vertexCount: 3)

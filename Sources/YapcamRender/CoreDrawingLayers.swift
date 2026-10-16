@@ -9,6 +9,7 @@ struct CoreDrawingLayer: Decodable {
     let kind: String
     let rect: [Double]
     let cornerRadius: Float
+    let blurRadius: Double?
     let opacity: Float
     let dimOpacity: Float
     let fill: [Float]
@@ -28,6 +29,10 @@ struct CoreDrawingLayer: Decodable {
         let content: RenderLayer.Content
         switch kind {
         case "highlight": content = .highlight(dimOpacity: dimOpacity,fill: try rgba(fill),stroke: try rgba(stroke),strokeWidth: strokeWidth)
+        case "blur":
+            let radius=blurRadius ?? 32
+            guard radius.isFinite,(0...128).contains(radius) else { throw RenderError.invalidSettings("Core mask blur radius must be 0...128 canvas pixels") }
+            content = .blur(radius: Float(radius))
         case "text":
             guard let text,let fontSize,let color,fontSize.isFinite,fontSize>0 else { throw RenderError.invalidSettings("Core text drawing instruction is incomplete") }
             content = .text(text,fontSize: fontSize,color: try rgba(color))

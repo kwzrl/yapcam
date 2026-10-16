@@ -106,6 +106,8 @@ public final class FrameCompositor: @unchecked Sendable {
         var options = effects.configuration
         if let qualityOverride { options.screenQuality=qualityOverride }
         try validateFrame(frame,configuration: options,layers: effects.layers)
+        let intermediate=try layerRenderer.intermediateIfNeeded(effects.layers,target: target)
+        let compositionTarget=intermediate ?? target
         let screen = try decoded(frame.screen, track: "screen")
         let camera = try decoded(frame.camera, track: "camera")
         var matte: TextureFrame?
@@ -232,7 +234,7 @@ public final class FrameCompositor: @unchecked Sendable {
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
         }
         let pass = MTLRenderPassDescriptor()
-        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].texture = compositionTarget
         pass.colorAttachments[0].loadAction = .dontCare; pass.colorAttachments[0].storeAction = .store
         guard let encoder = cb.makeRenderCommandEncoder(descriptor: pass) else { throw RenderError.metal("Cannot create render encoder") }
         encoder.setRenderPipelineState(pipeline)
@@ -241,10 +243,11 @@ public final class FrameCompositor: @unchecked Sendable {
         encoder.setFragmentTexture(colorLUT.texture, index: 5)
         encoder.setFragmentTexture(blurredCamera ?? empty,index: 6)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3); encoder.endEncoding()
-        try layerRenderer.encode(effects.layers, canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)), project: project, target: target, cb: cb)
+        try layerRenderer.encode(effects.layers, canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)), project: project, target: compositionTarget, cb: cb)
+        if let intermediate { try layerRenderer.resolve(intermediate,to: target,in: cb) }
         // CVMetalTexture and its IOSurface must survive until GPU completion.
         let retainedMatte = matte, retainedMatteTexture=matteTexture, retainedColorLUT = colorLUT, retainedBlurredCamera=blurredCamera
-        cb.addCompletedHandler { _ in _ = screen; _ = camera; _ = retainedMatte; _ = retainedMatteTexture; _ = retainedColorLUT; _ = retainedBlurredCamera }
+        cb.addCompletedHandler { _ in _ = screen; _ = camera; _ = retainedMatte; _ = retainedMatteTexture; _ = retainedColorLUT; _ = retainedBlurredCamera; _ = intermediate }
     }
 
     private static let shader = """
