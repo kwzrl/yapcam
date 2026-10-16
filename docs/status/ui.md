@@ -80,6 +80,11 @@ Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-
 - Window thumbnails use `SCScreenshotManager` (needs screen permission).
 - Default storage `~/Movies/Yapcam`.
 
+## Open for RC 0.9.0 (from render, recorded here as instructed)
+- F17 (render, open-medium): re-measured on main b1859a4, synthetic 4K60: random scrub p95 232 ms (was 466), p50 149 ms.
+- F18 (render, open-medium): 4K export still 0.98x realtime.
+- ui open: autosave toggle (needs editor hook), editor Export dialog ignores the VFR toggle (needs editor hook), no live verification of this round's ui work (overlay key claim F16, per-app audio, pre-flight prompts, transcription options, custom ratio, reuse-last look, presets folder), camera/mic checks untested (no hardware).
+
 ## Requests (to Lead)
 - Editor (GAP-UI-10 autosave, GAP-RND-9): (1) a global switch for autosave, e.g. `EditorWindows.autosaveEnabled` read by `EditorModel.scheduleAutosave` (ui then adds the Settings toggle, default on); (2) `RenderExportEngine.settings(for:)` should set `variableFrameRate` from a hook, e.g. `EditorWindows.variableFrameRate: () -> Bool`, which ui sets from Settings > Experimental. Until then the toggle affects quick export only.
 - Editor tests failing on rebased main (not ui): CursorLibraryTests (selectionsReachTheRenderConfigurationAndInvalidateTheCache, pickerListsMatchCoreLibrary) and FactoryDefaultsContractTests.newProjectsMatchTheDocumentedFactoryTable expect cursor set "classic" but core now defaults to "original".
