@@ -1,3 +1,58 @@
+READY C3 on 47ecefb (working tree; Lead checkpoint required) | release0.9.0(535)+debug | macOS26.3 arm64/Xcode26.6 | two clean unsigned builds bit-identical, zero private paths, signed app/matching separate dSYM PASS; Rust109/Core Swift77/debug build PASS; DMG remains Lead-native.
+
+## Round 3 C3 — release reproducibility
+
+Owned changes: scripts/release/make-release.sh, docs/RELEASE.md, this status.
+The release-only wrapper sets ZERO_AR_DATE=1 and SOURCE_DATE_EPOCH from HEAD;
+Swift file/debug/serialized options and Clang importer maps cover home/checkout/
+logical+physical scratch. Rust encoded remap-path-prefix flags cover home/Cargo/
+checkout, replacing arbitrary inherited Rust flags. ld-prime gets -reproducible
+and -oso_prefix. Swift maps use most-specific-first precedence. dsymutil runs
+from scratch cwd with --object-prefix-map, correctly finding relative Swift
+objects, absolute Rust archives and the virtual Clang module cache.
+Generate dSYM before cleanup, strip -S -x and remove signatures from both compared
+copies, keep the first compared executable for signing, verify app/dSYM UUID match.
+Privacy checks use Apple strings '-' (all bytes, unlike -a's sections) before and
+after signing; user/checkout/scratch leaks abort. Nonidentical binaries abort with
+exact byte-offset diagnostics. No UUID masking/hardcoding or source/product edits.
+No notarization or Apple service requested; current COMMON keeps it preparation-only.
+
+| Commit / build / environment | Procedure | Result |
+|---|---|---|
+| base47ecefb / release0.9.0(535) / macOS26.3 arm64 M4, Xcode26.6/Swift6.3.3/Cargo1.95 | Two fresh Swift scratch directories and clean Rust release builds; strip signatures/debug/local symbols, cmp all bytes | PASS unsigned_macho_identical=yes; both SHA256=3ec789e304d89fa8030c72e15cc6cb270e6a9510c1f3c2d1335ed0501e8d3731. SOURCE_DATE_EPOCH=1792154394; ZERO_AR_DATE=1. |
+| base47ecefb / same release/host | strings '-' on both unsigned copies, signed app and separate dSYM; nm debug map | PASS zero /Users/ or actual checkout/run paths; signed app has zero OSO entries. |
+| base47ecefb / same release/host | Strict codesign + hardened runtime + stamped plist; dwarfdump app/dSYM UUID and DWARF verify | PASS Yapcam Dev Signing, runtime flag; version0.9.0/build535; UUID2961C275-442D-3943-8063-9DDBB51AFC09 matches. dSYM33MB, DWARF no errors (duplicate line-table entry warnings); includes170 Swift source units and164 Rust core units. |
+| base47ecefb / same release/host | hdiutil create after all app gates | BLOCKED by sandbox disk-image device: create failed/device not configured. App/report/dSYM retained, no DMG/checksum success claim. Lead runs packaging natively as assigned. |
+| base47ecefb / debug core/app / same host | cargo test; canonical build-app.sh debug + strict codesign; swift test --filter YapcamCoreTests | PASS Rust109, 0 failed, 1 intentional scale ignore; debug app + strict signature; Core Swift77. SwiftPM sandbox disabled by temporary command adapter, existing builder unchanged. |
+
+Diagnostic root cause: after remapping/stripping, the first pair differed only in
+LC_UUID's16 bytes (one-based3929–3944). OSO mtimes were zero but scratch prefixes
+still influenced UUID hashing. -oso_prefix fixed this before UUID computation;
+no UUID is rewritten, removed or ignored. A tiny compiler fixture verified Swift
+first-match prefix precedence. --oso-prepend-path was rejected after it incorrectly
+prefixed absolute Rust archives; cwd resolution restored complete Rust DWARF.
+SwiftPM's automatic, discarded dSYM pass warns about relative objects; explicit
+saved dSYM generation succeeds without resolution warnings and passes validation.
+
+Logs: /private/tmp/yapcam-core-round3-c3-release-ready.log,
+/private/tmp/yapcam-core-round3-c3-dsym-verify.log,
+/private/tmp/yapcam-core-round3-c3-checks.log,
+/private/tmp/yapcam-core-round3-c3-debug-swift.log.
+All completed runs listed and removed only their owned temp roots; final scan
+found no Core run/release temp directories or release lock. No app was launched,
+no processes signaled and no Apple services contacted. Task complete; stopped.
+
+## Requests / checkpoint (C3)
+
+Lead checkpoint the three owned changed files, then rebase on current main
+(a7d1526 observed); Git metadata remains sandbox read-only, no workaround.
+Required other-family review: release remapping/OSO precedence, dSYM resolution,
+all-byte fail gates and signed artifact preservation. Rerun the documented
+offline release command natively for DMG completion. No full-fleet/native/live
+acceptance claim; current assignment changes release scripts/docs only.
+
+---
+
 READY C1 R3-01 + C2 on 926d3b6 (working tree; Lead checkpoint required) | debug/release | macOS26.3 arm64/Xcode26.6 | CLEAN signed app, Rust109/Core Swift77/Clippy PASS; renderer12 portable PASS/6 native skips; 60min scale PASS (frame p99=0.126ms; threshold edit/undo max28.98/26.12ms). Requests answers below.
 
 ## Round 3 second assignment — 2026-10-16 12:26 UTC

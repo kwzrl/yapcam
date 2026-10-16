@@ -25,8 +25,16 @@ VERSION="$(cat VERSION)"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die 'VERSION must contain a numeric marketing version.'
 BUILD="$(git rev-list --count HEAD)"
 REVISION="$(git rev-parse HEAD)"
+export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+export ZERO_AR_DATE=1
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 export CARGO_BUILD_JOBS=4 CARGO_NET_OFFLINE=true
+# Remap runtime panic/source strings as well as DWARF. Cargo's encoded flags keep
+# paths with spaces intact. Narrower rules come last (rustc's last match wins).
+RELEASE_CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$HOME=/yapcam/home"$'\x1f'"--remap-path-prefix=$RELEASE_CARGO_HOME=/yapcam/cargo"$'\x1f'"--remap-path-prefix=$ROOT=/yapcam/src"
+unset RUSTFLAGS
+export YAPCAM_RELEASE_ROOT="$ROOT"
 
 # Include untrusted self-signed identities: find-identity -v omits our local cert.
 IDENTITIES="$(security find-identity -p codesigning)"
@@ -88,43 +96,75 @@ mkdir "$RUN/bin"
 cat > "$RUN/bin/swift" <<'SWIFT'
 #!/bin/bash
 set -euo pipefail
-exec /usr/bin/swift "$@" --scratch-path "$YAPCAM_RELEASE_SWIFT_SCRATCH" --disable-sandbox --skip-update -j 4
+scratch_real="$(cd "$YAPCAM_RELEASE_SWIFT_SCRATCH" && pwd -P)"
+flags=(--scratch-path "$YAPCAM_RELEASE_SWIFT_SCRATCH" --disable-sandbox --skip-update -j 4)
+# Swift uses the first matching prefix: put specific directories before home.
+for mapping in "$YAPCAM_RELEASE_SWIFT_SCRATCH=/yapcam/build" "$scratch_real=/yapcam/build" "$YAPCAM_RELEASE_ROOT=/yapcam/src" "$HOME=/yapcam/home"; do
+    flags+=(-Xswiftc -file-prefix-map -Xswiftc "$mapping"
+            -Xswiftc -debug-prefix-map -Xswiftc "$mapping"
+            -Xcc "-ffile-prefix-map=$mapping" -Xcc "-fdebug-prefix-map=$mapping")
+done
+exec /usr/bin/swift "$@" "${flags[@]}" -Xswiftc -prefix-serialized-debugging-options \
+    -Xlinker -reproducible -Xlinker -oso_prefix -Xlinker "$YAPCAM_RELEASE_SWIFT_SCRATCH/"
 SWIFT
 chmod +x "$RUN/bin/swift"
 export PATH="$RUN/bin:$PATH"
 build_release() {
     export YAPCAM_RELEASE_SWIFT_SCRATCH="$RUN/swift-$1"
+    mkdir "$YAPCAM_RELEASE_SWIFT_SCRATCH"
     cargo clean --release --manifest-path "$ROOT/core/Cargo.toml"
     "$ROOT/scripts/build-app.sh" release
 }
 build_release first
 ditto "$ROOT/build/Yapcam.app" "$OUT/Yapcam.app"
+# Link DWARF while first-pass Swift/Rust object files still exist. The dSYM stays
+# next to the app; only Yapcam.app is copied into the DMG staging directory.
+# Resolve relative Swift objects from scratch without also prepending scratch
+# to absolute Rust archive paths (--oso-prepend-path would do both).
+(
+    cd "$YAPCAM_RELEASE_SWIFT_SCRATCH"
+    xcrun dsymutil "$OUT/Yapcam.app/Contents/MacOS/Yapcam" --num-threads 4 \
+        --object-prefix-map "/yapcam/build=$YAPCAM_RELEASE_SWIFT_SCRATCH" \
+        -o "$OUT/Yapcam.app.dSYM"
+)
 cp "$OUT/Yapcam.app/Contents/MacOS/Yapcam" "$RUN/first-unsigned"
 codesign --remove-signature "$RUN/first-unsigned"
+xcrun strip -S -x "$RUN/first-unsigned"
+cp "$RUN/first-unsigned" "$OUT/Yapcam.app/Contents/MacOS/Yapcam"
 build_release second
 cp "$ROOT/build/Yapcam.app/Contents/MacOS/Yapcam" "$RUN/second-unsigned"
 codesign --remove-signature "$RUN/second-unsigned"
+xcrun strip -S -x "$RUN/second-unsigned"
+
+check_binary_privacy() {
+    local binary="$1" label="$2" needle
+    # Apple strings - scans ALL bytes; -a alone misses the debug symbol table.
+    /usr/bin/strings - "$binary" > "$RUN/privacy-strings"
+    for needle in '/Users/' "$ROOT" "$RUN"; do
+        if /usr/bin/grep -F -q -- "$needle" "$RUN/privacy-strings"; then
+            die "$label contains a private user/checkout/scratch path. No package published."
+        fi
+    done
+    echo "privacy_no_personal_paths=$label:yes"
+}
 {
     echo "commit=$REVISION"
-    echo 'configuration=release; two clean Swift/Rust builds; signatures removed from main Mach-O copies'
+    echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH ZERO_AR_DATE=$ZERO_AR_DATE linker=-reproducible"
+    echo 'configuration=release; two clean Swift/Rust builds; prefix-mapped, signatures removed, strip -S -x'
+    check_binary_privacy "$RUN/first-unsigned" first
+    check_binary_privacy "$RUN/second-unsigned" second
+    check_binary_privacy "$OUT/Yapcam.app.dSYM/Contents/Resources/DWARF/Yapcam" separate-dsym
     shasum -a 256 "$RUN/first-unsigned" "$RUN/second-unsigned" | sed "s|$RUN/||g"
     if cmp -s "$RUN/first-unsigned" "$RUN/second-unsigned"; then
         echo 'unsigned_macho_identical=yes'
     else
         echo 'unsigned_macho_identical=no'
-        echo 'Inspect UUIDs and build-path evidence below; this is not a claim of bit reproducibility.'
+        echo 'Inspect exact remaining byte offsets and UUIDs; bit reproducibility is NOT accepted.'
         xcrun dwarfdump --uuid "$RUN/first-unsigned" "$RUN/second-unsigned" | sed "s|$RUN/||g"
-        for pass in first second; do
-            echo "$pass N_OSO debug-map evidence (object timestamps and scratch references):"
-            nm -ap "$RUN/$pass-unsigned" | awk -v root="$RUN" '
-                / OSO / {
-                    n++; if (index($0, root)) scratch++
-                    if (n<=3) print "object_mtime_hex=" $1
-                }
-                END { print "object_entries=" n+0 " scratch_entries=" scratch+0 }'
-        done
-        echo 'N_OSO debug-map timestamps and scratch paths differ between clean builds; linker UUIDs differ too.'
-        echo 'These link/debug metadata differences explain nonidentical unsigned executables; no bit-reproducibility claim.'
+        cmp -l "$RUN/first-unsigned" "$RUN/second-unsigned" > "$OUT/reproducibility-differences.txt" || [[ $? == 1 ]]
+        echo 'First 32 differing bytes (1-based decimal offsets, octal byte values):'
+        head -n 32 "$OUT/reproducibility-differences.txt"
+        die 'Unsigned release executables differ; investigate reproducibility-differences.txt before packaging.'
     fi
 } | tee "$OUT/reproducibility.txt"
 
@@ -160,11 +200,20 @@ if [[ -n "$PROFILE" ]]; then
 fi
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" == "$VERSION" ]] || die 'Marketing version mismatch.'
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" == "$BUILD" ]] || die 'Build number mismatch.'
+check_binary_privacy "$APP/Contents/MacOS/Yapcam" signed-app
+APP_UUID="$(xcrun dwarfdump --uuid "$APP/Contents/MacOS/Yapcam" | awk '{print $2}')"
+DSYM_UUID="$(xcrun dwarfdump --uuid "$OUT/Yapcam.app.dSYM" | awk '{print $2}')"
+[[ -n "$APP_UUID" && "$APP_UUID" == "$DSYM_UUID" ]] || die 'App and separate dSYM UUIDs do not match.'
+echo "Verified separate dSYM UUID: $DSYM_UUID"
 echo "Verified plist: CFBundleShortVersionString=$VERSION CFBundleVersion=$BUILD"
 {
     echo "version=$VERSION"
     echo "build=$BUILD"
     echo "commit=$REVISION"
+    echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH"
+    echo "ZERO_AR_DATE=$ZERO_AR_DATE"
+    echo "dsym_uuid=$DSYM_UUID"
+    echo 'unsigned_macho_identical=yes; privacy_no_personal_paths=yes'
     echo 'configuration=release'
     echo "signing_identity=$SIGNING_NAME"
     echo "timestamp=$TIMESTAMP"

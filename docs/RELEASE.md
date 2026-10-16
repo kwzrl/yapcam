@@ -53,6 +53,7 @@ Outputs:
 
 ```text
 build/release/Yapcam.app
+build/release/Yapcam.app.dSYM
 build/release/Yapcam-0.9.0-<build>.dmg
 build/release/Yapcam-0.9.0-<build>.dmg.sha256
 build/release/reproducibility.txt
@@ -76,6 +77,11 @@ This workflow gives the offline requirement priority and enables secure timestam
 only on the explicit online path below. No certificate-trust settings are changed.
 
 ## Distribution and notarization
+
+For the current release-candidate round, notarization is **preparation only**:
+do not execute the online commands below or submit anything to Apple. They
+document the optional future workflow after separate user authorization and
+installation of the Developer ID identity. Local packaging uses Yapcam Dev Signing.
 
 Create a profile interactively, outside the script:
 
@@ -166,21 +172,67 @@ documentation checkpoint does not accidentally select a different DMG filename.
 ## Reproducibility
 
 Every packaging run builds the same checkout twice from separate fresh Swift
-scratch directories and clean Rust release artifacts. It copies both main Mach-O
-executables, removes code signatures with `codesign --remove-signature`, compares
-bytes, and writes SHA-256 results into `reproducibility.txt`. Sources must remain
-unchanged throughout the two builds. `unsigned_macho_identical=yes` means only
-those unsigned executable bytes match, not the full app or disk image.
+scratch directories and clean Rust release artifacts. Release-only settings are:
 
-If they differ, the report includes Mach-O UUIDs and counts of temporary build
-paths embedded in each binary. It also reports N_OSO debug-map object timestamps
-and scratch-reference counts. On the initial Xcode 26.6 toolchain check, unsigned
-binaries differed: their N_OSO entries retained build-specific object-file mtimes
-and the `swift-first`/`swift-second` scratch paths, and the linker UUIDs differed.
-Removing signatures does not remove that link/debug metadata. Record the actual
-result and evidence, never claim a bit-reproducible build from source identity
-alone. This comparison deliberately does not strip debug information or alter
-the executable's load commands further.
+- `ZERO_AR_DATE=1` and `SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)` fix
+  archive/build-time metadata to a reproducible source revision.
+- Swift `-file-prefix-map` and `-debug-prefix-map` replace checkout, home and
+  each pass's scratch directory with `/yapcam/src`, `/yapcam/home` and
+  `/yapcam/build`. Both logical and physical scratch paths are mapped. The
+  equivalent Clang importer flags and serialized-debug-option mapping are used.
+- Rust `--remap-path-prefix` maps home, Cargo registry and checkout paths to
+  `/yapcam/home`, `/yapcam/cargo` and `/yapcam/src`. These flags use Cargo's
+  encoded argument format so spaces in paths are retained. Release packaging
+  deliberately sets its own Rust flag configuration instead of inheriting
+  arbitrary `RUSTFLAGS`/`CARGO_ENCODED_RUSTFLAGS` from the invoking shell.
+- Apple's linker receives `-reproducible` and `-oso_prefix` for each pass's
+  scratch directory. Removing that variable prefix from debug-map object paths
+  before linking also stabilizes the computed UUID. UUIDs remain real
+  linker-generated identifiers, not a hardcoded value or a field masked out
+  of the comparison.
+
+After the first link, `dsymutil` creates **`build/release/Yapcam.app.dSYM`** while
+its Swift and Rust object files still exist. It runs from the scratch directory
+to resolve relative Swift objects and absolute Rust archives correctly;
+`--object-prefix-map` resolves virtual module-cache paths without changing the
+remapped source paths in the dSYM. The script then removes code
+signatures and uses `strip -S -x` on each executable copy, removing debug-map and
+local-symbol paths from the executable. It compares **all resulting Mach-O
+bytes**, including the UUID, and writes both SHA-256 digests into
+`reproducibility.txt`. The app uses the first compared executable, re-signed only
+after version stamping and resource assembly. Its UUID must match the saved dSYM.
+
+`unsigned_macho_identical=yes` means those complete unsigned, stripped executable
+bytes match; it does not mean the signed app or DMG is identical. If comparison
+fails, packaging stops and records UUIDs plus the exact differing byte offsets
+(decimal, one-based) and old/new octal values in `reproducibility-differences.txt`.
+No signatures or binaries are published as a successful reproducible release in
+that case. Sources must remain unchanged throughout the two builds; this check
+is for the same checkout, toolchain, architecture, SDK and release settings.
+
+Privacy is checked on **both** unsigned executables, the separate dSYM and again
+on the signed app.
+`strings -` scans every byte, including the symbol table: Apple's `strings -a`
+only scans Mach-O sections and missed N_OSO paths in the original report.
+Any user-directory, actual checkout or run-directory path aborts packaging.
+Rust source/panic strings need prefix mapping even after stripping; stripping
+alone is insufficient. This replaces the initial workflow, which only explained
+the timestamp/path/UUID differences and retained personal build paths.
+
+The separate dSYM is an internal debugging artifact. It is kept alongside the
+app and excluded from the DMG (the image staging directory receives only the app
+and Applications symlink). Archive it together with the commit/build metadata
+for crash symbolication. The ordinary debug builder and its symbols are unchanged.
+For source-level debugging against the matching checkout, map the virtual source
+prefix in LLDB: `settings set target.source-map /yapcam/src /path/to/checkout`.
+
+```sh
+cat build/release/reproducibility.txt
+xcrun dwarfdump --uuid build/release/Yapcam.app/Contents/MacOS/Yapcam
+xcrun dwarfdump --uuid build/release/Yapcam.app.dSYM
+/usr/bin/strings - build/release/Yapcam.app/Contents/MacOS/Yapcam |
+  awk 'index($0,"/Users/") { n++ } END { print "private_path_strings=" n+0; exit(n!=0) }'
+```
 
 The complete signed artifacts are not expected to be identical: source checkout
 changes affect the build count, code signatures include signing times, online
