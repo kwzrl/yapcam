@@ -6,6 +6,26 @@ public struct VectorCursorSet: Sendable, Equatable, Identifiable {
     public let id: String
     public let title: String
     public let category: Category
+    public enum Geometry: String, CaseIterable, Sendable {
+        case classic, cutPaper, rounded, pill, kite, chevron, leaf, orbit, facet, technical, minimal, accessible
+    }
+    /// Geometry is independent of color; existing stable IDs now have their own silhouettes.
+    public var geometry: Geometry {
+        switch id {
+        case "paper": .cutPaper
+        case "soft-slate": .rounded
+        case "soft-cloud", "touch": .pill
+        case "lagoon": .kite
+        case "coral": .chevron
+        case "sage": .leaf
+        case "violet": .orbit
+        case "gold": .facet
+        case "precision-dark": .technical
+        case "precision-light": .minimal
+        case "signal": .accessible
+        default: .classic
+        }
+    }
     enum Arrow { case standard, rounded, narrow }
     enum Touch { case disc, ring, target }
     let arrow: Arrow
@@ -50,9 +70,20 @@ public extension VectorCursorLibrary {
             set("signal","Signal",.precision,arrow: .narrow,touch: .target,fill: SIMD4(0.08,0.36,0.94,1),weight: 2.6)
         ]
     }()
-    static func preset(id: String) -> VectorCursorSet? { presets.first { $0.id==id } }
-    static func artwork(_ style: VectorCursorStyle,setID: String,size: VectorCursorSize = .regular,scale: CGFloat = 2) throws -> VectorCursorArtwork {
+    static func preset(id: String) -> VectorCursorSet? {
+        if id == "touch" {
+            var base = presets[0]
+            base = VectorCursorSet(id: "touch",title: "Touch",category: .essential,arrow: .rounded,touch: .disc,
+                arrowFill: base.arrowFill,handFill: base.handFill,outline: base.outline,handOutline: base.handOutline,
+                touchFill: SIMD4(1,1,1,0.28),touchOutline: SIMD4(0.08,0.1,0.14,0.8),weight: 1.5)
+            return base
+        }
+        return presets.first { $0.id==id }
+    }
+    static func artwork(_ style: VectorCursorStyle,setID: String,size: VectorCursorSize = .regular,scale: CGFloat = 2,
+                        variant: VectorCursorVariant = .standard,pressed: Bool = false) throws -> VectorCursorArtwork {
+        if setID == "original" { throw RenderError.missingMedia("Original cursor artwork requires the recording's cursor sidecar") }
         guard let preset=preset(id: setID) else { throw RenderError.invalidSettings("Unknown original cursor set: \(setID)") }
-        return try artwork(style,preset: preset,size: size,scale: scale)
+        return try artwork(setID == "touch" ? .touch : style,preset: preset,size: size,scale: scale,variant: variant,pressed: pressed)
     }
 }

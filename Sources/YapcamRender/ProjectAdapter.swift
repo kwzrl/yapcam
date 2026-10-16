@@ -55,19 +55,11 @@ extension Project: RenderProjectSource {
         if let color=evaluated.cameraColor { configuration.cameraColor=try color.value(package: packageURL) }
         configuration.cursorSetID=options.cursorSetId
         if let shape=options.cursorShape {
-            switch shape {
-            case .arrow: configuration.cursorStyle = .arrow
-            case .pointingHand: configuration.cursorStyle = .pointer
-            case .touch: configuration.cursorStyle = .touch
-            case .text: configuration.cursorStyle = .text
-            case .resizeHorizontal: configuration.cursorStyle = .resizeHorizontal
-            case .resizeVertical: configuration.cursorStyle = .resizeVertical
-            case .resizeDiagonalNWSE: configuration.cursorStyle = .resizeDiagonalNWSE
-            case .resizeDiagonalNESW: configuration.cursorStyle = .resizeDiagonalNESW
-            case .openHand: configuration.cursorStyle = .openHand
-            case .closedHand: configuration.cursorStyle = .closedHand
-            }
+            guard let style=VectorCursorStyle(shapeID: shape) else { throw RenderError.invalidSettings("Core returned unsupported cursor shape: \(shape)") }
+            configuration.cursorStyle = .init(style)
         }
+        configuration.cursorVariants=options.cursorVariants ?? [:]
+        configuration.cursorPressed=options.cursorPressed
         switch options.cursorLogicalSize ?? .regular {
         case .small: configuration.cursorSize = .small
         case .regular: configuration.cursorSize = .regular

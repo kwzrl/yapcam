@@ -40,7 +40,7 @@ final class VectorCursorSetTests: XCTestCase {
         XCTAssertEqual(distinct.count,sets.count*VectorCursorStyle.allCases.count)
     }
     func testEveryShapeHasFourLogicalSizesWithScaledActionPointsAndClearBorders() throws {
-        XCTAssertEqual(VectorCursorStyle.allCases.count,10)
+        XCTAssertEqual(VectorCursorStyle.allCases.count,12)
         for preset in VectorCursorLibrary.presets {
             for style in VectorCursorStyle.allCases {
                 let regular=try VectorCursorLibrary.artwork(style,setID: preset.id)

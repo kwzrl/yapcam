@@ -6,7 +6,26 @@ public enum VectorCursorStyle: String, CaseIterable, Sendable {
     case arrow, pointer, touch, text
     case resizeHorizontal, resizeVertical, resizeDiagonalNWSE, resizeDiagonalNESW
     case openHand, closedHand
+    case crosshair, notAllowed
+    public var shapeID: String {
+        switch self {
+        case .pointer: "pointing_hand"
+        case .resizeHorizontal: "resize_horizontal"
+        case .resizeVertical: "resize_vertical"
+        case .resizeDiagonalNWSE: "resize_diagonal_nwse"
+        case .resizeDiagonalNESW: "resize_diagonal_nesw"
+        case .openHand: "open_hand"
+        case .closedHand: "closed_hand"
+        case .notAllowed: "not_allowed"
+        default: rawValue
+        }
+    }
+    public init?(shapeID: String) {
+        guard let style = Self.allCases.first(where: { $0.shapeID == shapeID }) else { return nil }
+        self = style
+    }
 }
+public enum VectorCursorVariant: String, CaseIterable, Codable, Sendable { case standard, alternate }
 /// Logical cursor size, independent of raster density and the project's animated scale.
 public enum VectorCursorSize: String, CaseIterable, Sendable {
     case small, regular, large, extraLarge
@@ -18,23 +37,26 @@ public struct VectorCursorArtwork: @unchecked Sendable {
     public let image: CGImage
     public let sizePoints: CGSize
     public let hotspot: CGPoint
+    public init(image: CGImage,sizePoints: CGSize,hotspot: CGPoint) { self.image=image; self.sizePoints=sizePoints; self.hotspot=hotspot }
 }
 /// Original geometric artwork; no system/reference cursor image is copied into this library.
 public enum VectorCursorLibrary {
     public static func artwork(_ style: VectorCursorStyle,size: VectorCursorSize = .regular,scale: CGFloat = 2) throws -> VectorCursorArtwork {
         try artwork(style,preset: presets[0],size: size,scale: scale)
     }
-    static func artwork(_ style: VectorCursorStyle,preset: VectorCursorSet,size cursorSize: VectorCursorSize = .regular,scale: CGFloat) throws -> VectorCursorArtwork {
+    static func artwork(_ style: VectorCursorStyle,preset: VectorCursorSet,size cursorSize: VectorCursorSize = .regular,scale: CGFloat,
+                        variant: VectorCursorVariant = .standard,pressed: Bool = false,heightPoints: CGFloat? = nil) throws -> VectorCursorArtwork {
         guard scale.isFinite, (1...8).contains(scale) else { throw RenderError.invalidSettings("Cursor raster scale must be 1…8") }
         let size: CGSize, hotspot: CGPoint
         switch style {
         case .arrow: size=CGSize(width: 24,height: 32); hotspot=CGPoint(x: 3,y: 3)
         case .pointer: size=CGSize(width: 28,height: 32); hotspot=CGPoint(x: 12,y: 3)
         case .text: size=CGSize(width: 24,height: 32); hotspot=CGPoint(x: 12,y: 16)
-        case .touch,.resizeHorizontal,.resizeVertical,.resizeDiagonalNWSE,.resizeDiagonalNESW,.openHand,.closedHand:
+        case .touch,.resizeHorizontal,.resizeVertical,.resizeDiagonalNWSE,.resizeDiagonalNESW,.openHand,.closedHand,.crosshair,.notAllowed:
             size=CGSize(width: 32,height: 32); hotspot=CGPoint(x: 16,y: 16)
         }
-        let factor=cursorSize.multiplier
+        if let heightPoints { guard heightPoints.isFinite,(16...128).contains(heightPoints) else { throw RenderError.invalidSettings("Cursor height must be 16…128 points") } }
+        let factor=heightPoints.map { $0/size.height } ?? cursorSize.multiplier
         let logicalSize=CGSize(width: size.width*factor,height: size.height*factor)
         let logicalHotspot=CGPoint(x: hotspot.x*factor,y: hotspot.y*factor)
         let width=Int((logicalSize.width*scale).rounded()), height=Int((logicalSize.height*scale).rounded())
@@ -45,6 +67,11 @@ public enum VectorCursorLibrary {
             CGColor(colorSpace: space,components: [CGFloat(value.x),CGFloat(value.y),CGFloat(value.z),CGFloat(value.w)])!
         }
         let classic=preset.id=="classic", weight=CGFloat(preset.weight)
+        if !classic || variant != .standard || style == .crosshair || style == .notAllowed || (style == .touch && pressed) {
+            drawAuthoredCursor(style,preset: preset,variant: variant,pressed: pressed,in: context,space: space)
+            guard let image=context.makeImage() else { throw RenderError.write("Cannot create vector cursor image") }
+            return VectorCursorArtwork(image: image,sizePoints: logicalSize,hotspot: logicalHotspot)
+        }
         let path=CGMutablePath()
         switch style {
         case .arrow:
@@ -181,6 +208,7 @@ public enum VectorCursorLibrary {
                 context.addPath(target); context.setStrokeColor(color(preset.outline)); context.setLineWidth(max(1,weight*0.6)+1.5); context.strokePath()
                 context.addPath(target); context.setStrokeColor(color(preset.arrowFill)); context.setLineWidth(max(1,weight*0.6)); context.strokePath()
             }
+        case .crosshair,.notAllowed: break // Authored above, including the classic set.
         }
         guard let image=context.makeImage() else { throw RenderError.write("Cannot create vector cursor image") }
         return VectorCursorArtwork(image: image,sizePoints: logicalSize,hotspot: logicalHotspot)
@@ -191,8 +219,8 @@ struct VectorCursorTexture {
     let texture: MTLTexture
     let size: CGSize
     let hotspot: CGPoint
-    init(style: VectorCursorStyle,preset: VectorCursorSet,size: VectorCursorSize,scale: CGFloat,device: MTLDevice) throws {
-        let artwork=try VectorCursorLibrary.artwork(style,preset: preset,size: size,scale: scale)
+    init(style: VectorCursorStyle,preset: VectorCursorSet,size: VectorCursorSize,scale: CGFloat,variant: VectorCursorVariant = .standard,pressed: Bool = false,device: MTLDevice) throws {
+        let artwork=try VectorCursorLibrary.artwork(style,preset: preset,size: size,scale: scale,variant: variant,pressed: pressed)
         texture=try generatedSRGBTexture(artwork.image,device: device)
         self.size=artwork.sizePoints; hotspot=artwork.hotspot
     }
