@@ -132,6 +132,17 @@ public actor VoiceIsolationService {
     }
 }
 
+/// Keep native offline-hosting failures actionable without claiming enhancement.
+/// NoConnection is distinct from format errors or TooManyFramesToProcess.
+enum VoiceIsolationRenderError {
+    static func failure(_ status: OSStatus) -> VoiceIsolationError {
+        if status == kAudioUnitErr_NoConnection {
+            return .unavailable("Offline processing is unavailable on this Mac. Choose Noise reduction or Podcast for built-in speech processing. The original audio is unchanged.")
+        }
+        return .processingFailed("AUSoundIsolation render status \(status)")
+    }
+}
+
 protocol VoiceIsolationKernel: AnyObject {
     var latencyFrames: Int64 { get }
     func process(_ input: AVAudioPCMBuffer, into output: AVAudioPCMBuffer) throws
@@ -202,7 +213,7 @@ private final class AppleVoiceIsolationKernel: VoiceIsolationKernel {
             }
             return noErr
         }
-        guard status == noErr else { throw VoiceIsolationError.processingFailed("AUSoundIsolation render status \(status)") }
+        guard status == noErr else { throw VoiceIsolationRenderError.failure(status) }
         position += Int64(input.frameLength)
     }
 }

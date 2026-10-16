@@ -467,7 +467,17 @@ func typedSpeechAdmissionFailuresPreservePublishedTranscript(error: Transcriptio
     let fixture = try SpeechFixture(); defer { fixture.cleanup() }
     let previous = Data("previous transcript".utf8)
     try previous.write(to: fixture.transcript)
-    let service = TranscriptionService(recognizeRequest: { _, _, _ in throw error })
+    let service = TranscriptionService(recognizeRequest: { _, _, _ in
+        if case .unsupportedLocale(let locale) = error {
+            _ = try OnDeviceSpeechPolicy.locale(locale, supported: [])
+        }
+        if case .onDeviceModelNotInstalled(let locale) = error {
+            return try await SpeechChunking.collect(windows: SpeechChunking.windows(frameCount: 48_000, sampleRate: 48_000), sampleRate: 48_000) { _ in
+                throw OnDeviceSpeechPolicy.recognitionError(NSError(domain: "kLSRErrorDomain", code: 102), locale: locale)
+            }
+        }
+        throw error
+    })
     await #expect(throws: error) { try await service.transcribe(package: fixture.package, keyterms: ["Yapcam"]) }
     #expect(try Data(contentsOf: fixture.transcript) == previous)
     #expect(!FileManager.default.fileExists(atPath: fixture.package.appendingPathComponent("recording/.capture.lock").path))

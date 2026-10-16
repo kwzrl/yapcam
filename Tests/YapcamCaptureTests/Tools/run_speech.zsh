@@ -21,8 +21,22 @@ if [[ "${YAPCAM_SPEECH_SKIP_BUILD:-0}" != 1 ]]; then
   swift build --disable-sandbox -j 4
 fi
 capture_speech_bin="${PWD}/.build/debug"
-capture_speech_objects=("$capture_speech_bin"/{YapcamCapture,YapcamCore,YapcamRender,YapcamEditor}.build/*.swift.o)
-swiftc -parse-as-library -swift-version 6 -DROUND3_SPEECH_HARNESS \
+capture_speech_objects=("$capture_speech_bin"/{YapcamCore,YapcamRender,YapcamEditor}.build/*.swift.o)
+capture_speech_capture_flags=()
+if [[ "${YAPCAM_SPEECH_SKIP_BUILD:-0}" == 1 ]]; then
+  # Recompile current capture sources, so a locked/stale SwiftPM build cannot
+  # silently test an earlier API. Core/render/editor use their existing modules.
+  swiftc -swift-version 6 -j 4 -g -Onone -target arm64-apple-macos15.0 \
+    -module-cache-path "$capture_speech_tools/module-cache" -enable-testing \
+    -emit-library -static -emit-module -module-name YapcamCapture \
+    -emit-module-path "$capture_speech_tools/YapcamCapture.swiftmodule" \
+    Sources/YapcamCapture/*.swift -o "$capture_speech_tools/libYapcamCapture.a"
+  capture_speech_capture_flags=(-I "$capture_speech_tools" -L "$capture_speech_tools" -lYapcamCapture)
+else
+  capture_speech_objects+=("$capture_speech_bin"/YapcamCapture.build/*.swift.o)
+fi
+swiftc -parse-as-library -swift-version 6 -target arm64-apple-macos15.0 -DROUND3_SPEECH_HARNESS \
+  "${capture_speech_capture_flags[@]}" \
   -module-cache-path "$capture_speech_tools/module-cache" -I "$capture_speech_bin/Modules" -I Sources/CYapcamCore \
   -L core/target/release -lyapcam_core \
   Tests/YapcamCaptureTests/Round3SpeechHarness.swift \

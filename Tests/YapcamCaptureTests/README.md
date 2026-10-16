@@ -544,9 +544,99 @@ swift test --disable-sandbox -j 4 --filter YapcamCaptureTests.OnDeviceSpeechPoli
 fixture: it verifies the editor/core data path, not recognition accuracy. Temporary
 tool/contract directories have cleanup traps/defers. The prepared signed app remains
 outside Git for Lead; delete it when host checks finish. `YAPCAM_SPEECH_SKIP_BUILD=1`
-may reuse already-built debug modules when SwiftPM is blocked by an unrelated native
-run; otherwise the tool builds its dependencies normally.
+reuses existing core/render/editor debug modules when SwiftPM is blocked by a native
+run, but always recompiles the current capture sources into its temporary static
+library. It never tests a stale capture API. Otherwise dependencies build normally.
 
 When SwiftPM's build lock is held by a stalled native run, the built speech tests
 can also run with the toolchain's `swiftpm-testing-helper` and the matching Xcode
 framework/library paths. This follows [Swift Testing's command-line runner guidance](https://github.com/swiftlang/swift-testing/blob/main/Documentation/CommandlineDebugging.md).
+
+### Round 3 addendum: keyterms and typed errors
+
+The additive public API is:
+
+```swift
+try await TranscriptionService().transcribe(
+    package: package, localeIdentifier: "de-DE", track: .microphone,
+    keyterms: ["Yapcam", "Clara Weiß"])
+```
+
+`keyterms` defaults to `[]`; existing callers need no change. Each segment/window
+forwards the array unchanged to `SFSpeechRecognitionRequest.contextualStrings`,
+while retaining `requiresOnDeviceRecognition=true`. Keyterms are neither logged
+nor written into transcript JSON. Forwarding is tested; an accuracy benefit from
+contextual bias is **unmeasured** until the authorized native run.
+
+`TranscriptionError.unsupportedLocale(String)` identifies a locale absent from
+Apple's supported locale list. `TranscriptionError.onDeviceModelNotInstalled(String)`
+identifies Apple's documented `kLSRErrorDomain` / `102` missing-assets callback.
+Generic outages and `supportsOnDeviceRecognition=false` remain
+`.onDeviceUnavailable(String)`: that Boolean alone does not prove missing assets.
+See [Apple's task error table](https://developer.apple.com/documentation/speech/sfspeechrecognitiontask/error)
+and [offline-support semantics](https://developer.apple.com/documentation/speech/sfspeechrecognizer/supportsondevicerecognition).
+The public service preserves these error types and the previously published
+transcript. No model download, network fallback or permission prompt was added.
+
+For a fresh debug build/test of current capture sources that does not use SwiftPM's
+build lock, run:
+
+```zsh
+zsh Tests/YapcamCaptureTests/Tools/run_speech_policy_tests.zsh
+```
+
+This builds a temporary capture static library and runs the actual policy and
+transcription regression files with Swift Testing; native opt-in checks stay
+skipped. Its EXIT trap removes the library, module cache and runner after the run.
+
+### F13: preserve earlier utterances and verify the native rerun
+
+The native baseline on main 8bce820 retained only the end of a 45-second request.
+Capture previously disabled interim results and extracted words only from the
+final result. It now requests interim results and merges each timestamped hypothesis
+into a per-window history: a revision replaces its overlapping suffix, and a later
+utterance preserves the earlier prefix. The final callback publishes the merged
+history. Each window has its own recognizer/history, and existing overlap ownership
+still emits a boundary word once. Errors/timeouts still fail atomically. PCM goes
+to Speech in independent packets of at most 4096 frames rather than one long buffer.
+
+`SpeechRecognitionResultsTests` injects partial utterances across two windows,
+with `isFinal` only on the last result, through the real recognition job and chunk
+collector. It verifies words at 1/20/44.6/54/64 seconds, cumulative corrections,
+no duplicate final callback/overlap, and byte-exact interleaved/planar stereo packets.
+These regressions and full capture tests pass; native speech accuracy after the fix
+must still be measured by Lead.
+
+A fresh input-only rerun is already prepared under `~/Movies/Yapcam/QA/speech/capture-f13`.
+A new signed debug tool is at `~/Movies/Yapcam/QA/speech/capture-f13-tool/Yapcam.app`.
+From the capture worktree **on the host**, honoring QA's app lock:
+
+```zsh
+zsh Tests/YapcamCaptureTests/Tools/launch_speech.zsh \
+  "$HOME/Movies/Yapcam/QA/speech/capture-f13-tool/Yapcam.app" \
+  "$HOME/Movies/Yapcam/QA/speech/capture-f13"
+python3 -B Tests/YapcamCaptureTests/Tools/speech_metrics.py \
+  "$HOME/Movies/Yapcam/QA/speech/capture-f13"
+```
+
+Speech permission is already granted; no authorization flag is required. Do not
+reuse a directory with derived packages: `prepare_speech_rerun.py SOURCE DESTINATION`
+creates a new external input-only run using hard links (copy fallback), preserving
+all prior measurements. It refuses an existing destination and cleans only its own
+partial output if preparation fails.
+
+F13's AUSoundIsolation status -10876 is `kAudioUnitErr_NoConnection`, distinct from
+format errors and -10874 (too many frames). The offline AU still reports no input
+connection on Lead's host. Capture maps it to an explicit unavailable message that
+suggests Noise reduction / Podcast; it preserves the original and publishes no
+purported enhancement. The host-connection repair is unverified. Those presets use
+render's built-in high-pass/expander/compressor/normalizer/limiter, not this optional
+Apple isolation unit. See status for the exact recipes and measured baseline.
+
+Measurement fixes: FFmpeg may emit progress after the loudnorm JSON; parsing now
+accepts that trailing output. True filler positions are labeled in generated truth;
+the older fixtures infer the known sentence-leading hesitations. Dictionary matches
+elsewhere are separate candidates (German `um halb zehn` is not a filler). In
+addition to SNR/SI-SDR/LUFS/clipping, the report measures noise RMS in the final
+second only when the clean stem proves silence. Positive reduction means less
+noise; negative means more. None of these metrics certify absence of audible pumping.

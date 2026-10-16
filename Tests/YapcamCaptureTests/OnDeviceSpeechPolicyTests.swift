@@ -27,7 +27,7 @@ import Testing
         if supported && available {
             let request = try OnDeviceSpeechPolicy.request(locale: "de-DE", supportsOnDevice: supported, available: available)
             #expect(request.requiresOnDeviceRecognition)
-            #expect(!request.shouldReportPartialResults)
+            #expect(request.shouldReportPartialResults)
             #expect(request.taskHint == .dictation)
         } else {
             #expect(throws: TranscriptionError.onDeviceUnavailable("de-DE")) {

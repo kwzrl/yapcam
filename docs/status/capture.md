@@ -1,4 +1,4 @@
-READY 37cc463 + working diff Round 3 speech tooling/offline policy (debug sandbox); native speech metrics BLOCKED, see Requests
+READY ef11c61 + working diff F13 hypothesis-history/PCM fix + explicit AU fallback; 150 capture tests and signed release build pass; native rerun pending
 READY 9b0cadc capture LOCAL implementation backlog empty; consumer wiring and native acceptance remain external
 READY 9b0cadc CAP-2/M3 camera sample failure hardening; 136 capture tests + Rust + signed build pass; native gates remain
 READY 9b0cadc CAP-1 per-app system audio + CAP-2 webcam resolution caps; capture tests/signed build pass; full-suite host gate
@@ -18,9 +18,179 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 ## Round 3 speech verification (2026-10-16)
 
-Scope for all results below: commit **37cc463 + capture working diff**, **debug**,
+### F13 fix and native rerun handoff
+
+Commit **ef11c61 + capture working diff**, debug/release, Mac mini M4 sandbox;
+Lead's native baseline is **main 8bce820**, signed debug, Speech granted. Current
+local capture is based on b9c0b08; Lead checkpoint/rebase is pending. Earlier empty
+`say` / denied-Speech / stale-PID evidence below is historical: Lead generated the
+DE/EN fixtures, granted permission, and stopped the stalled test processes.
+
+Root cause in capture: request disabled interim results and discarded every
+non-final callback. A final tail-only hypothesis replaced the request's complete
+history. The fix enables interim results and merges timed hypotheses per window:
+retain the earlier nonoverlapping prefix; replace a revised suffix; publish the
+merged history only when final. Each window owns its recognizer/history, preventing
+cross-window state/cancellation reuse. Existing midpoint ownership deduplicates
+window overlap. Feed Speech independent PCM packets <=4096 frames, preserving all
+channels/frames rather than one 45-second packet. No public signature or transcript
+schema changes; requests remain on-device-only.
+
+Verification of final source: full capture **150 reported tests / 6 suites, 7 native
+opt-in skips, zero failures, 18.107 s**. Includes injected multi-result recognizer
+with interim utterances / final-only-last, cumulative corrections, tail revisions,
+two-window ownership (words at 1/20/44.6/54/64 s), and byte-exact interleaved/planar
+stereo packet tests. Simulated hour / 100 crash trials pass. Python **7 tests**
+pass. Rust **104 pass / 1 ignored**. Canonical **release** app build and strict
+signature verification pass (Yapcam Dev Signing); new **debug** F13 speech harness
+also builds/signs/verifies. No app launched by capture. Logs:
+`/tmp/yapcam-capture-f13-{full-tests,app,rust,harness-build}.log`.
+
+Native F13 post-fix acceptance is **pending Lead's rerun**, not claimed pass. The
+injected regression is fixed; native WER/coverage must demonstrate complete files.
+Fresh prepared input-only directory: `~/Movies/Yapcam/QA/speech/capture-f13`.
+New signed debug tool: `~/Movies/Yapcam/QA/speech/capture-f13-tool/Yapcam.app`.
+From capture worktree on the host (helper atomically owns .app-lock and checks apps):
+
+```zsh
+zsh Tests/YapcamCaptureTests/Tools/launch_speech.zsh \
+  "$HOME/Movies/Yapcam/QA/speech/capture-f13-tool/Yapcam.app" \
+  "$HOME/Movies/Yapcam/QA/speech/capture-f13"
+python3 -B Tests/YapcamCaptureTests/Tools/speech_metrics.py \
+  "$HOME/Movies/Yapcam/QA/speech/capture-f13"
+```
+
+Permission is granted; omit `--request-speech`. LaunchServices stdout/stderr and
+outcomes/metrics stay beside the external fixtures. Report native WER, full-file
+coverage and timing residuals before closing F13. Original inputs/results preserved;
+rerun copies use hard links; no recordings enter Git. Completed temporary builds
+are removed by cleanup traps. Use `prepare_speech_rerun.py SOURCE NEW_DEST` for any
+additional run; existing derived packages are intentionally refused.
+
+#### Measured failing native baseline (before fix)
+
+Capture measured Lead's retained native outputs with the deterministic tools.
+Timing is matched first/last sentence-word residual (10 ms PCM activity truth), not
+interior-word forced alignment. Sparse coverage makes these timing values unsuitable
+as a full-file timing pass. WER ignores case/punctuation only. SF segments can contain
+multiple lexical tokens, so token counts differ from native segment counts.
+
+| Language/input | WER | Recognized tokens / reference | Timing median / max | Boundary coverage |
+|---|---|---|---|---|
+| en-US clean | 89.51% | 17 / 162 | 45 / 50 ms | 2 / 24 |
+| en-US noisy | 89.51% | 18 / 162 (13 SF segments) | 45 / 50 ms | 2 / 24 |
+| de-DE clean | 77.91% | 40 / 163 (38 SF segments) | 50 / 790 ms | 5 / 24 |
+| de-DE noisy | 77.30% | 40 / 163 (38 SF segments) | 70 / 790 ms | 5 / 24 |
+
+All three labeled fillers in each language are missed in this failing baseline.
+Independent FFmpeg metrics for the native harness's **default render DSP** output:
+
+| Language | Input SNR | LUFS input -> output | SI-SDR input -> output | Noise-only final second input -> output | Peak / clipped samples |
+|---|---|---|---|---|---|
+| en-US | 10.000 dB | -18.23 -> -16.15 | 10.002 -> 0.450 dB | -28.361 -> -18.601 dBFS (9.761 dB louder) | -1.000 dBFS / 0 |
+| de-DE | 10.000 dB | -21.63 -> -16.29 | 10.002 -> 1.992 dB | -31.854 -> -20.084 dBFS (11.769 dB louder) | -1.000 dBFS / 0 |
+
+Exact frames retained: EN 3,181,440 / DE 3,841,920 at 48 kHz. SI-SDR includes
+intentional filter phase/compression distortion and is not isolated noise power.
+Quiet-tail RMS is measured only after the clean stem proves no speech. Loudness/
+clipping pass alone does not establish enhancement quality; **Lead listening for
+pumping/voice quality and render review remain required**. These are default-chain
+measurements, not separate Noise reduction/Podcast preset measurements. Full JSON:
+`~/Movies/Yapcam/QA/speech/capture-round3/capture-f13-baseline-metrics.json`.
+
+#### AUSoundIsolation -10876 / preset paths
+
+SDK identifies -10876 as **kAudioUnitErr_NoConnection**; maximum-frame failure is
+-10874, format failure -10868. The host AU reports no input connection despite the
+supplied pull callback. Its native offline connection repair is not claimed. Per
+F13's allowed fallback resolution, capture now maps this status to a UI-facing
+**unavailable** message: offline processing cannot run; choose Noise reduction or
+Podcast for built-in processing. It preserves original audio, removes partial
+output and publishes no fake enhancement; regression test passes.
+
+Both actual presets use `SpeechEnhancer.prepareMicrophoneFile` / `SpeechProcessor48k`
+in render (shared preview/export), **not VoiceIsolationService/AUSoundIsolation**:
+
+| Preset | Actual built-in recipe from core/render |
+|---|---|
+| Noise reduction | High-pass 80 Hz; expander threshold -42 dB, reduction 18 dB; compressor ratio 1; loudness normalization off; peak ceiling -1 dBFS |
+| Podcast | High-pass 90 Hz; expander threshold -45 dB, reduction 12 dB; compressor threshold -20 dB, ratio 4; normalize to -16 LUFS; peak ceiling -1 dBFS |
+| Voice | Explicit preset selection disables this DSP; existing original/selected mic source retained |
+
+No automatic switch/fake Apple enhancement was introduced. The default-chain DSP
+numbers above do not certify either preset's denoising quality.
+
+#### Requests → render / editor / Lead (F13)
+
+- Render: review default DSP at the exact external noisy/dsp.caf files and metric
+  JSON above. Noise-only tail gets louder by 9.761 / 11.769 dB after processing;
+  SI-SDR drops (includes phase/compression). Lead listen; investigate threshold /
+  compression / normalization before claiming noise reduction on 10 dB SNR speech.
+  Capture does not edit render files. Native AU unavailable remains explicit.
+- Editor: `Transcript.swift` uses a shared locale-independent filler dictionary;
+  it classifies German **um** in **um halb zehn** as a filler. Exact static repro:
+  a German caption word `um` makes `EditorModel.isFiller` return true; removing
+  fillers would cut the grammatical preposition. Our generated DE fixture has this
+  in sentence 2; true labeled hesitations are only the three sentence-leading
+  äh/ähm tokens. Add a locale/context regression and avoid this false removal.
+- Lead: checkpoint the capture diff, rebase onto current main, run the two commands
+  above, and append metrics/word coverage. Keep F13 native acceptance open until
+  both languages clean/noisy cover the file. Native AU fallback is ready to verify.
+
+### Addendum: keyterms and typed errors
+
+Commit **ef11c61 + follow-up test/docs/tool diff**, **debug**, Mac mini M4 sandbox.
+Lead checkpointed/rebased onto main b9c0b08 during this task. Procedure:
+`zsh Tests/YapcamCaptureTests/Tools/run_speech_policy_tests.zsh` builds **current**
+capture sources into a temporary static library (no SwiftPM lock), then compiles
+and runs the real policy/transcription regression files. Result: **29 reported
+Swift tests / 2 suites, 3 native opt-in skips, zero failures** in 0.033 s after
+compilation. Cleanup trap removed library/module cache/runner. Actual editor/core
+contract also passes when linked against the freshly compiled capture module.
+
+Implemented default-empty keyterms forwarding through every segment and native
+window to contextualStrings. No package schema change, logging, persistence,
+model download, server fallback or permission prompt. Tests prove Unicode/phrases,
+default-empty behavior, independent requests, exact Apple missing-assets mapping,
+locale-vs-model-vs-service distinction, cancellation/no-speech preservation and
+atomic preservation of previous JSON on typed failures. Missing models are inferred
+only from Apple's documented native missing-assets callback, not from a generic
+availability Boolean. Native contextual-bias accuracy remains unmeasured.
+
+### Requests → editor (Round 3 addendum)
+
+The public API is additive; existing callers compile with the default empty array:
+
+```swift
+try await TranscriptionService().transcribe(
+    package: package, localeIdentifier: "de-DE", track: .microphone,
+    keyterms: ["Yapcam", "Clara Weiß"])
+```
+
+Handle `TranscriptionError.unsupportedLocale(String)` for a locale absent from
+Apple's supported set, `TranscriptionError.onDeviceModelNotInstalled(String)` for
+the documented `kLSRErrorDomain` / 102 missing-assets callback, and the retained
+`.onDeviceUnavailable(String)` for unsupported offline capability / transient
+service unavailability. Permission errors remain separate and take priority.
+Localized messages identify the locale. Apple documents the distinct semantics in
+[task errors](https://developer.apple.com/documentation/speech/sfspeechrecognitiontask/error)
+and [offline support](https://developer.apple.com/documentation/speech/sfspeechrecognizer/supportsondevicerecognition).
+
+Editor/UI: forward requested keyterms through the app's transcription closure, and
+present these error categories distinctly; the current closure already propagates
+errors, but the editor module does not directly depend on capture, so typed UI
+mapping can live in the app bridge. Lead: add this signature/error addition to
+SWIFT_API.md. Capture changes no other team's files. Fresh debug signed tool uses
+the new API; native host run remains pending. Test log:
+`/tmp/yapcam-capture-round3-addendum-tests.log`; editor/core log:
+`/tmp/yapcam-capture-round3-addendum-contract.log`.
+
+### Original Round 3 acceptance evidence
+
+Scope for the original results below: commit **37cc463 + initial capture diff** (now
+checkpointed in ef11c61), **debug**,
 Mac mini M4 sandbox, no microphone/camera, generated-file processing only. Main
-b9c0b08 is UI-only; rebase is denied by read-only Git metadata. The tools and policy
+b9c0b08 is UI-only; Lead has now rebased capture onto it. The tools and policy
 regressions are ready for Lead to checkpoint; native speech acceptance is BLOCKED.
 
 | Procedure | Result |
@@ -61,23 +231,14 @@ app is intentionally retained for Lead under `~/Movies/Yapcam/QA/speech/capture-
 
 ### Requests (Round 3)
 
-1. Lead: terminate only these exact capture-owned test/build processes outside the
-   sandbox if still alive: native test **62931**, SwiftPM owner **62892**, queued
-   contract SwiftPM **63145** / script **63141**. The attempted signal to 62931 was
-   denied. No Yapcam process was launched or signaled. The queued script's EXIT trap
-   will remove its own temporary tool directory when it exits. Run full capture
-   tests and the canonical app build after releasing the lock, then checkpoint/rebase.
-2. Host: from capture worktree run
-   `python3 Tests/YapcamCaptureTests/Tools/generate_speech.py "$HOME/Movies/Yapcam/QA/speech/capture-round3"`.
-   Then use `Tools/launch_speech.zsh` with the prepared app and generated fixture
-   directory (full paths/command in test README). Speech permission is separate from
-   mic permission; use explicit `--request-speech` only with a person available to
-   handle its dialog. No app launch while QA's lock or another instance exists.
-3. Run `python3 -B Tests/YapcamCaptureTests/Tools/speech_metrics.py "$HOME/Movies/Yapcam/QA/speech/capture-round3"`;
-   append outcomes/metrics here. Listen to both languages' noisy/DSP derivatives.
-   Offline: disconnect all network interfaces, retain `scutil --nwi` output, and
-   rerun guarded signed-app processing on a fresh copy containing only input stems,
-   screen fixture and truth (README). No networking/TCC settings changed here.
+1. RESOLVED: Lead stopped the stale capture test/build processes. No additional
+   signals are requested. SwiftPM is free; full capture tests and canonical app
+   build now pass. Checkpoint/rebase the remaining F13 diff.
+2. RESOLVED: host fixtures exist and signed-app Speech permission is granted. Do
+   not regenerate/overwrite the baseline. Use the fresh F13 rerun commands above.
+3. Native accuracy/listening/offline acceptance remains open. Use the measurement
+   script on the new F13 run, then repeat offline on another fresh input-only copy
+   once F13 is verified. No networking/TCC settings were changed here.
 4. Lead review the shared request-policy refactor before merging. Optionally exclude
    `Tools` from SwiftPM's test target to silence unhandled-script resource warnings
    (Package.swift is outside capture ownership). No production dependency was added.
@@ -910,11 +1071,10 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next
-Round 3 local speech test tooling and deterministic checks are ready. Native
-acceptance remains open: host-generated German/English files, authorized signed-app
-recognition, real WER/timing/SNR/LUFS, listening and network-disconnected run. Exact
-commands and blockers are in Requests (Round 3). Capture will fix findings from
-those results; no remaining local feature implementation is assigned.
+F13 implementation/regression fix is ready for native recheck. Lead: run the signed
+debug harness on the prepared capture-f13 inputs, then the metrics command above.
+Post-fix WER/full-file coverage/timing and listening are pending; capture will fix
+any remaining native finding. Render/Editor requests are listed in the F13 section.
 
 ## External handoffs / Lead requests
 1. Lead: checkpoint this status refresh and rebase capture c86f263 onto main 66d4166

@@ -46,16 +46,22 @@ def transcript_metrics(truth, transcript):
     aligned = alignment(reference, actual)
     counts = {op: sum(a[0] == op for a in aligned) for op in ['substitution', 'deletion', 'insertion']}
     matched = {r: a for op, r, a in aligned if op == 'match'}
-    offsets, reference_index = [], 0
+    offsets, reference_index, labeled_fillers = [], 0, set()
     for sentence in truth['sentences']:
-        end = reference_index + len(words(sentence['text'])) - 1
+        tokens = words(sentence['text'])
+        # Our generated scripts label fillers at sentence starts. A dictionary
+        # match elsewhere (e.g. German 'um halb zehn') is not ground-truth filler.
+        if tokens and tokens[0] in {'um', 'uh', 'äh', 'ähm'}: labeled_fillers.add(reference_index)
+        end = reference_index + len(tokens) - 1
         for index, key, bound in [(reference_index, 'src_start_ns', 'start_ns'), (end, 'src_end_ns', 'end_ns')]:
             if index in matched: offsets.append(abs(owners[matched[index]][key] - sentence[bound]) / 1e6)
         reference_index = end+1
+    labeled_fillers = set(truth.get('filler_reference_word_indices', labeled_fillers))
     fillers = {'um', 'uh', 'uhm', 'umm', 'er', 'erm', 'ah', 'hm', 'hmm', 'mm', 'mhm', 'äh', 'ähm', 'öh', 'eh'}
-    return dict(expected_fillers=sum(w in fillers for w in reference),
+    return dict(expected_fillers=len(labeled_fillers),
                 recognized_fillers=sum(w in fillers for w in actual),
-                correctly_aligned_fillers=sum(reference[r] in fillers for op, r, a in aligned if op == 'match'),
+                correctly_aligned_fillers=sum(r in labeled_fillers for op, r, a in aligned if op == 'match'),
+                unlabelled_filler_candidates=sum(actual[a] in fillers and r not in labeled_fillers for op, r, a in aligned if op == 'match'),
                 reference_words=len(reference), recognized_words=len(actual), **counts,
                 wer=sum(counts.values())/len(reference), scored_sentence_boundaries=len(offsets),
                 sentence_boundary_median_ms=statistics.median(offsets) if offsets else None,
@@ -89,14 +95,31 @@ def lufs(path):
     result = subprocess.run(['ffmpeg', '-hide_banner', '-i', str(path), '-af', 'loudnorm=print_format=json', '-f', 'null', '-'],
                             capture_output=True, text=True, check=True, timeout=90)
     body = result.stderr[result.stderr.rfind('{'):]
-    value = float(json.loads(body)['input_i'])
+    summary, _ = json.JSONDecoder().raw_decode(body)
+    value = float(summary['input_i'])
     return value if math.isfinite(value) else None
+
+
+def quiet_tail_metrics(clean, noisy, output):
+    # Our fixture ends in two seconds of explicit silence. Measure the final
+    # second only if the clean stem proves it contains no speech. Positive
+    # reduction means less residual noise; normalization may make it negative.
+    if min(len(clean), len(noisy), len(output)) < 48000 or any(abs(v) > 1e-6 for v in clean[-48000:]):
+        return None
+    def level(samples):
+        power = sum(v*v for v in samples[-48000:])/48000
+        return 10*math.log10(power) if power > 0 else None
+    before, after = level(noisy), level(output)
+    return dict(input_dbfs=before, output_dbfs=after,
+                reduction_db=before-after if before is not None and after is not None else None)
 
 
 def dsp_metrics(directory, output):
     clean = decode(directory/'clean.wav'); noisy = decode(directory/'noisy.wav'); noise = decode(directory/'noise.wav')
     if len(noisy) != len(clean) or len(noise) != len(clean): raise ValueError('Input stems have different durations')
-    result = residual_metrics(clean, decode(output))
+    enhanced = decode(output)
+    result = residual_metrics(clean, enhanced)
+    result['noise_only_final_second'] = quiet_tail_metrics(clean, noisy, enhanced)
     result['input_snr_db'] = 10*math.log10(sum(v*v for v in clean)/sum(v*v for v in noise))
     result['input_si_sdr_db'] = residual_metrics(clean, noisy)['si_sdr_db']
     result['input_lufs'] = lufs(directory/'noisy.wav'); result['output_lufs'] = lufs(output)

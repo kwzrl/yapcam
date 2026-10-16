@@ -12,6 +12,7 @@ import random
 import subprocess
 import tempfile
 import wave
+from speech_metrics import words
 
 SCRIPTS = {
     'en-US': ('Samantha', [
@@ -106,7 +107,11 @@ def generate(root):
             write_wav(target / f'{name}.wav', data)
         run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=1',
              '-t', str(duration), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(target/'screen.mov')])
-        truth = dict(locale=locale, voice=voice, rate=RATE, duration_ns=round(duration*1e9),
+        cursor, filler_indices = 0, []
+        for index, text in enumerate(sentences):
+            if index in [1, 5, 8]: filler_indices.append(cursor)
+            cursor += len(words(text))
+        truth = dict(filler_reference_word_indices=filler_indices, locale=locale, voice=voice, rate=RATE, duration_ns=round(duration*1e9),
                      seed=594150, snr_db=10, timing_reference='sentence PCM activity bounds, 10 ms at -45 dBFS',
                      sentences=bounds, reference_text=' '.join(sentences))
         (target / 'ground-truth.json').write_text(json.dumps(truth, ensure_ascii=False, indent=2)+'\n')
