@@ -7,6 +7,7 @@ import SwiftUI
     static let shared = AreaSelector()
     private var window: AreaOverlayWindow?
     private var done: ((CGRect?) -> Void)?
+    private var keyMonitor: Any?
 
     var isActive: Bool { window != nil }
     func cancelForTesting() { end(nil) }
@@ -24,12 +25,14 @@ import SwiftUI
         w.contentView = view
         RecordingController.shared.engine.registerExcluded(w)
         window = w
-        NSApp.activate()
-        w.makeKeyAndOrderFront(nil)
+        OverlayKeys.takeKeyboard(w)
         w.makeFirstResponder(view)
+        // Return starts (unless a number field is being edited), Esc cancels: whatever has focus.
+        keyMonitor = OverlayKeys.install(start: { [weak view] in view?.confirm() }, cancel: { [weak view] in view?.onFinish?(nil) })
     }
 
     private func end(_ rect: CGRect?) {
+        OverlayKeys.remove(keyMonitor); keyMonitor = nil
         guard let w = window else { return }
         RecordingController.shared.engine.unregisterExcluded(w)
         w.orderOut(nil)

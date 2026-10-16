@@ -983,3 +983,31 @@ import YapcamEditor
         #expect(o.autoConfirm && o.watchdog == 90)
     }
 }
+
+@MainActor @Suite struct OverlayKeyTests {
+    @Test func returnStartsAndEscapeCancelsInEveryOverlay() {
+        for key: UInt16 in [36, 76] { #expect(OverlayKeys.action(keyCode: key, typing: false) == .start) }
+        #expect(OverlayKeys.action(keyCode: 53, typing: false) == .cancel)
+        #expect(OverlayKeys.action(keyCode: 53, typing: true) == .cancel)          // Esc cancels even while typing
+    }
+
+    @Test func returnBelongsToANumberFieldWhileItIsBeingEdited() {
+        #expect(OverlayKeys.action(keyCode: 36, typing: true) == .pass)
+        #expect(OverlayKeys.action(keyCode: 76, typing: true) == .pass)
+    }
+
+    @Test func otherKeysPassThrough() {
+        for key: UInt16 in [0, 12, 49, 123, 124, 125, 126, 51] { #expect(OverlayKeys.action(keyCode: key, typing: false) == .pass, "\(key)") }
+    }
+
+    /// The monitor is what makes Return work whichever control has focus; it must be installed and removed cleanly.
+    @Test func keyMonitorInstallsAndRemoves() {
+        _ = NSApplication.shared
+        let token = OverlayKeys.install(start: {}, cancel: {})
+        #expect(token != nil)
+        OverlayKeys.remove(token)
+        OverlayKeys.remove(nil)        // removing nothing is harmless
+    }
+
+    // (A show/hide test is deliberately absent: the overlays are process-wide singletons shared with the snapshot smoke test.)
+}

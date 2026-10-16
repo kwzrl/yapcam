@@ -331,6 +331,7 @@ private final class OverlayWindow: NSWindow {
     private var windows: [OverlayWindow] = []
     private var model: SourceOverlayModel?
     private var timer: Timer?
+    private var keyMonitor: Any?
     var isActive: Bool { !windows.isEmpty }
     private var primaryMaxY: CGFloat { NSScreen.screens.first?.frame.maxY ?? 0 }
 
@@ -362,13 +363,15 @@ private final class OverlayWindow: NSWindow {
             windows.append(w)
             w.orderFrontRegardless()
         }
-        NSApp.activate()
-        windows.first(where: { $0.frame.contains(NSEvent.mouseLocation) })?.makeKeyAndOrderFront(nil) ?? windows.first?.makeKeyAndOrderFront(nil)
+        let key = windows.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? windows.first
+        OverlayKeys.takeKeyboard(key)
+        keyMonitor = OverlayKeys.install(start: { [weak self] in self?.startForTesting() }, cancel: { [weak self] in self?.hide() })
         track()
         timer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.track() } }
     }
 
     func hide() {
+        OverlayKeys.remove(keyMonitor); keyMonitor = nil
         timer?.invalidate(); timer = nil
         for w in windows { RecordingController.shared.engine.unregisterExcluded(w); w.orderOut(nil) }
         windows = []
