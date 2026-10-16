@@ -6,6 +6,27 @@ Build and signing setup: see `docs/SETUP.md` (`scripts/setup-signing.sh` creates
 "Yapcam Dev Signing" identity; `scripts/build-app.sh` builds and signs `build/Yapcam.app`).
 A fresh clone builds without manual steps (Lead check 05:05, main aa70d91).
 
+## 0. Release candidate 0.9.0 summary (2026-10-16, Lead)
+
+Build under test: main `7e3af60` (code = `4f97d8d` + docs), Mac mini M4, macOS 26.3, one 1680×1050
+non-Retina display, no camera, no microphone. Signed "Yapcam Dev Signing", not notarized.
+
+| Area | Procedure | Result |
+|---|---|---|
+| Automated suites (4f97d8d) | `cargo test`; `swift test -j 4` | Rust 113 pass / 1 ignored; XCTest 251 (16 skipped, 0 failures); Swift Testing 598 in 120 suites pass |
+| Render on Metal, strict | `YAPCAM_REQUIRE_RENDER_HARDWARE=1 swift test --filter YapcamRenderTests` | 230 run, 10 skipped (opt-in long runs), 0 failures |
+| Privacy / secrets | `scripts/qa/privacy-scan.sh`; `gitleaks git` (full history) | clean (after removing two home paths from status files); no leaks |
+| Release package | `scripts/release/make-release.sh` | app + DMG + sha256; two clean release builds bit-identical before signing; no personal paths in the binary; hardened runtime; camera + audio-input entitlements only |
+| Speech, native (Lead, generated speech files, Apple on-device only) | capture harness + `speech_metrics.py` | after F13 fix: DE 163/163 words, WER 8.6 %; EN 154–156/162, WER 9.3–9.9 %; sentence boundaries median 45–70 ms, max 810 ms. Fillers recognised 0–1 of 3. Unsupported locale → typed error in <1 ms |
+| Speech clean-up (F14), native | same fixtures, 10 dB SNR noise | before fix SI-SDR 10 → 0.5/2.0 dB and pause noise +10–12 dB (defect); after fix SI-SDR 10 → 15.5 (DE) / 15.7 (EN) dB, pause noise −30 / −34 dB, no clipping, −16 LUFS. Not judged by ear |
+| Performance, release build (render harness `run_round3.py --mode all`, Lead native) | recorded 1680×1050 HEVC (17 s, looped to 21 min timeline) and synthetic 3840×2160 HEVC 60 fps (120 s) | preview 1080p/4K output 57.9–59.9 fps, 0–20 dropped submissions / 30 s; 20-min soak 59.3–59.9 fps, no RSS growth (peak 116 MB recorded, 208 MB 4K); random seek p95 133 ms (recorded), 232 ms (4K after F17 work, was 466 ms); sequential scrub p95 33 ms; export 1080p 3.5×, 4K60 0.98× realtime (F18 open); cancel + re-export: original intact, re-export valid |
+| User flows | QA, programmatic only (section "Round 3") | Flow A/C equivalents, low disk, disk full, kill -9 recovery pass; F11 Esc 15/15, Return 28/33 before the F16 fix |
+| Not done | — | real mouse/keyboard flows, area drag, permission loss, VoiceOver/AX, Screen Studio comparison, camera/mic, Retina/multi-display, clean second-Mac install, notarization |
+
+Defects this round: F11, F13, F14, F16 fixed; F15 explained (stale incremental build, no product
+defect); F17 improved, open (medium); F18 open (medium); review round 3: 21 ui/editor findings and
+1 high core finding fixed.
+
 ## 1. Summary
 Status 2026-10-15 ~21:05, main 97b9d82 (Mac mini M4, 1680x1050, signed build, all permissions granted).
 - **Automated:** Rust 100 pass (1 ignored); Swift: XCTest 207 run (10 skipped, 0 failures), Swift Testing 501 tests in 99 suites pass; render on Metal 86/86 (Lead run); E2E 11/11 plus 5 live-recording tests.
