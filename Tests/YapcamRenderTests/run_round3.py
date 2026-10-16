@@ -27,14 +27,43 @@ def apps():
     script = ('ObjC.import("AppKit"); var a=$.NSWorkspace.sharedWorkspace.runningApplications; '
               'var r=[]; for(var i=0;i<a.count;i++){var p=a.objectAtIndex(i); '
               'if(ObjC.unwrap(p.bundleIdentifier)==="mov.yapcam.Yapcam") '
-              'r.push({pid:p.processIdentifier,path:ObjC.unwrap(p.bundleURL.path)});} JSON.stringify(r);')
-    return json.loads(subprocess.check_output(["/usr/bin/osascript", "-l", "JavaScript", "-e", script], text=True))
+              'r.push({pid:p.processIdentifier,path:ObjC.unwrap(p.bundleURL.path)});} JSON.stringify({total:a.count,apps:r});')
+    result = json.loads(subprocess.check_output(["/usr/bin/osascript", "-l", "JavaScript", "-e", script], text=True))
+    # JXA can serialize NSNumber properties as strings on this macOS version.
+    if int(result["total"]) == 0:
+        raise RuntimeError("No Cocoa application session is visible; cannot verify app ownership, so no launch")
+    return [dict(app, pid=int(app["pid"])) for app in result["apps"]]
+
+
+def self_test():
+    import unittest
+    from unittest.mock import patch
+    class OwnershipTests(unittest.TestCase):
+        def test_unknown_session_is_not_treated_as_empty(self):
+            for total in [0, "0"]:
+                with self.subTest(total=total), patch("subprocess.check_output", return_value=json.dumps({"total": total, "apps": []})):
+                    with self.assertRaisesRegex(RuntimeError, "cannot verify app ownership"):
+                        apps()
+        def test_visible_desktop_without_yapcam_is_available(self):
+            with patch("subprocess.check_output", return_value='{"total":8,"apps":[]}'):
+                self.assertEqual(apps(), [])
+        def test_other_yapcam_instance_is_preserved(self):
+            with patch("subprocess.check_output", return_value='{"total":"9","apps":[{"pid":"123","path":"other.app"}]}'):
+                self.assertEqual(apps(), [{"pid":123,"path":"other.app"}])
+    result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(OwnershipTests))
+    if not result.wasSuccessful():
+        raise RuntimeError("Round3 ownership guard self-test failed")
 
 
 def original():
     rows = []
     for path in (Path.home() / "Movies/Yapcam").glob("Recording-*.yapcam"):
-        data = json.loads((path / "recording/session.json").read_text())
+        try:
+            data = json.loads((path / "recording/session.json").read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+        if data.get("status") != "complete":
+            continue
         duration = max((s["src_start_ns"] + s["duration_ns"] for s in data["segments"]), default=0)
         rows.append((duration, path))
     if not rows:
@@ -96,13 +125,19 @@ def launch(config, log_dir):
         # Only a PID written by this run, still registered at OUR exact bundle
         # path, can receive a signal. Never pkill, killall or quit other instances.
         owned = log_dir / "owner.json"
+        try:
+            remaining = apps()
+        except RuntimeError:
+            remaining = []
+            safe_cleanup = False  # An inaccessible desktop is not proof the app exited.
         if owned.exists():
             identity = json.loads(owned.read_text())
-            matching = [app for app in apps() if app["pid"] == identity.get("pid") and Path(app["path"]).resolve() == APP.resolve()]
+            matching = [app for app in remaining if app["pid"] == identity.get("pid") and Path(app["path"]).resolve() == APP.resolve()]
             if matching and identity.get("token") == config["token"]:
                 os.kill(identity["pid"], signal.SIGTERM)
                 for _ in range(50):
-                    if not any(app["pid"] == identity["pid"] and Path(app["path"]).resolve() == APP.resolve() for app in apps()):
+                    remaining = apps()
+                    if not any(app["pid"] == identity["pid"] and Path(app["path"]).resolve() == APP.resolve() for app in remaining):
                         break
                     time.sleep(0.1)
                 else:
@@ -110,7 +145,7 @@ def launch(config, log_dir):
         if process is not None and process.poll() is None:
             process.terminate()  # Only the open child started above.
             process.wait()
-        if any(Path(app["path"]).resolve() == APP.resolve() for app in apps()):
+        if any(Path(app["path"]).resolve() == APP.resolve() for app in remaining):
             safe_cleanup = False
         if safe_cleanup:
             if work.exists():
@@ -129,11 +164,22 @@ def main():
     parser.add_argument("--source", choices=["recorded", "synthetic4k", "both"], default="both")
     parser.add_argument("--real-package", type=Path)
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument("--build-only", action="store_true", help="Build/sign without requiring or launching a desktop session")
+    parser.add_argument("--self-test", action="store_true", help="Check ownership guards without building or launching")
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return
+    if args.build_only:
+        build()
+        return
     if args.real_package:
         media_root = (Path.home() / "Movies/Yapcam").resolve()
         if not args.real_package.resolve().is_relative_to(media_root):
             raise RuntimeError("Real source must stay under ~/Movies/Yapcam")
+        session = json.loads((args.real_package / "recording/session.json").read_text())
+        if session.get("status") != "complete":
+            raise RuntimeError("Real source is not finalized; never benchmark an active recording")
     if LOCK.exists() or apps():
         raise RuntimeError("Yapcam is owned by another session; postpone Round3")
     if not args.skip_build:
@@ -162,4 +208,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (RuntimeError, subprocess.CalledProcessError) as error:
+        print("Round3 blocked:", error if isinstance(error, RuntimeError) else f"command failed with exit {error.returncode}; see diagnostics above", file=sys.stderr)
+        sys.exit(1)
