@@ -17,7 +17,7 @@ import YapcamRender
                 let project = FileManager.default.fileExists(atPath: package.appending(path: "project.json").path)
                     ? try Project.open(package: package) : try Project.create(package: package)
                 if hasNotes {
-                    do { try project.apply(.set(path: "notes", value: .string(notes))); controller.clearNotes() }
+                    do { try project.apply(.set(path: "notes", value: .string(notes))); if controller.notes == notes { controller.clearNotes() } }
                     catch { controller.alert = AppAlert(title: "Notes were not saved", message: "The recording is fine, but its speaker notes could not be stored: \(UserMessage.describe(error))") }
                 }
                 if settings.createAutoZooms { do { try project.apply(.autoZooms) } catch { Probe.log("auto zooms failed: \(error)") } }
@@ -66,9 +66,15 @@ import YapcamRender
         Task { await export(pkg, action: action) }
     }
 
-    /// No progress for this long, or this long overall, and the export is stopped with a visible error.
+    /// Only a lack of progress stops an export, never its total length (a long recording legitimately
+    /// takes many minutes). Before the first progress callback (project open, exporter and audio setup)
+    /// the allowance is `setupLimit`; afterwards `stallLimit` without any change in progress.
     nonisolated static let stallLimit: TimeInterval = 60
-    nonisolated static let hardLimit: TimeInterval = 300
+    nonisolated static let setupLimit: TimeInterval = 180
+
+    nonisolated static func isStalled(idleFor idle: TimeInterval, hasProgress: Bool) -> Bool {
+        idle > (hasProgress ? stallLimit : setupLimit)
+    }
 
     func export(_ package: URL, action: Action) async {
         guard !running else { return }
@@ -116,11 +122,10 @@ import YapcamRender
     }
 
     enum QuickExportError: Error {
-        case stalled(Int), tooLong(Int)
+        case stalled(Int)
         var message: String {
             switch self {
             case .stalled(let s): return "The export stopped making progress for \(s) seconds and was cancelled. The recording is safe: open it in the editor and export from there."
-            case .tooLong(let s): return "The export took longer than \(s / 60) minutes and was cancelled. The recording is safe: open it in the editor and export from there."
             }
         }
     }
@@ -150,13 +155,14 @@ import YapcamRender
                 } catch { once.resume(.failure(error)) }
             }
             Task.detached {
-                let begun = Date()
                 while true {
                     try? await Task.sleep(for: .seconds(2))
                     if once.isFinished { return }
                     let idle = Date().timeIntervalSince(tracker.lastChange)
-                    if idle > stallLimit { work.cancel(); try? FileManager.default.removeItem(at: out); once.resume(.failure(QuickExportError.stalled(Int(stallLimit)))); return }
-                    if Date().timeIntervalSince(begun) > hardLimit { work.cancel(); try? FileManager.default.removeItem(at: out); once.resume(.failure(QuickExportError.tooLong(Int(hardLimit)))); return }
+                    if isStalled(idleFor: idle, hasProgress: tracker.hasProgress) {
+                        work.cancel(); try? FileManager.default.removeItem(at: out)
+                        once.resume(.failure(QuickExportError.stalled(Int(tracker.hasProgress ? stallLimit : setupLimit)))); return
+                    }
                 }
             }
         }
@@ -280,6 +286,7 @@ private final class ProgressTracker: @unchecked Sendable {
     private var changed = Date()
     private var loggedDecile = -1
     var lastChange: Date { lock.lock(); defer { lock.unlock() }; return changed }
+    var hasProgress: Bool { lock.lock(); defer { lock.unlock() }; return last >= 0 }
     func update(_ p: Double) {
         lock.lock()
         if p != last { last = p; changed = Date() }

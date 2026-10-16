@@ -51,6 +51,10 @@ enum RecordingPhase: Equatable {
 
     var engine: RecordingEngine = LiveEngine()
     var cuePlayer: CuePlayer = ChimePlayer()
+    /// After-recording work (project prep, editor, quick export). Replaceable in tests.
+    lazy var postProcess: (URL, String, [Int64]) async -> Void = { [unowned self] url, notes, marks in
+        await PostRecording.process(package: url, notes: notes, markers: marks, controller: self)
+    }
     private let settings = AppSettings.shared
     private var session: EngineSession?
     private var countdownTask: Task<Void, Never>?
@@ -280,7 +284,12 @@ enum RecordingPhase: Equatable {
                 lastPackage = url
                 finish()
                 if settings.openEditorAfterRecording {
-                    await PostRecording.process(package: url, notes: notesText, markers: marks, controller: self)
+                    // Not part of the capture queue: a long export or a save panel must never delay
+                    // pause/stop/cancel of the next recording.
+                    Task { [weak self] in
+                        guard let self else { return }
+                        await self.postProcess(url, notesText, marks)
+                    }
                 } else {
                     NSWorkspace.shared.activateFileViewerSelecting([url])      // self-tests only (isolated settings)
                 }

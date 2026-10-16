@@ -961,12 +961,16 @@ import YapcamEditor
 
 @MainActor @Suite struct ExportGuardTests {
     @Test func timeoutMessagesAreActionableAndMentionTheRecordingIsSafe() {
-        for e in [QuickExport.QuickExportError.stalled(60), .tooLong(300)] {
+        for e in [QuickExport.QuickExportError.stalled(60)] {
             #expect(e.message.contains("recording is safe") && e.message.contains("editor"))
             #expect(!e.message.contains("Error Domain"))
         }
-        #expect(QuickExport.QuickExportError.tooLong(300).message.contains("5 minutes"))
-        #expect(QuickExport.stallLimit == 60 && QuickExport.hardLimit == 300)
+        #expect(QuickExport.stallLimit == 60 && QuickExport.setupLimit == 180)
+        // R3-UI-2: total length never stops an export; only missing progress does.
+        #expect(!QuickExport.isStalled(idleFor: 30, hasProgress: true))
+        #expect(QuickExport.isStalled(idleFor: 61, hasProgress: true))
+        #expect(!QuickExport.isStalled(idleFor: 120, hasProgress: false))   // setup before first progress
+        #expect(QuickExport.isStalled(idleFor: 181, hasProgress: false))
     }
 
     @Test func autoConfirmAnswersConfirmationsWithoutABlockingDialog() {
@@ -1098,7 +1102,7 @@ private struct OrderPlayer: CuePlayer {
     var warnings: [String] { [] }
     var failure: EngineError? { nil }
     func start() async throws { await log.add("capture-start") }
-    func pause() async throws {}
+    func pause() async throws { await log.add("pause") }
     func resume() async throws {}
     func stop() async throws -> URL { FileManager.default.temporaryDirectory }
     func cancel() async {}
@@ -1170,5 +1174,34 @@ private struct OrderPlayer: CuePlayer {
         var opened: URL?
         ThirdPartyNotices.open(bundle: bundle, opener: { opened = $0; return true })
         #expect(opened?.lastPathComponent == "THIRD_PARTY_NOTICES.txt")
+    }
+}
+
+@MainActor @Suite struct PostRecordingQueueTests {
+    // R3-UI-1: a slow after-recording export must not delay pause/stop of the next recording.
+    @Test func slowPostProcessingDoesNotBlockTheNextRecording() async throws {
+        let log = EventLog()
+        let rec = RecordingController()
+        let settings = AppSettings.shared
+        let old = (settings.playSounds, settings.countdown, settings.openEditorAfterRecording)
+        defer { (settings.playSounds, settings.countdown, settings.openEditorAfterRecording) = old }
+        settings.playSounds = false; settings.countdown = 0; settings.openEditorAfterRecording = true
+        rec.engine = OrderEngine(log: log)
+        rec.postProcess = { _, _, _ in try? await Task.sleep(for: .seconds(5)) }
+        let opts = UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
+                                      recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory)
+        rec.startSession(opts)
+        for _ in 0..<100 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        rec.stop()
+        for _ in 0..<100 where rec.phase != .idle { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(rec.phase == .idle)
+        rec.startSession(opts)
+        for _ in 0..<100 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        rec.pause()
+        let t0 = ContinuousClock.now
+        for _ in 0..<100 where !(await log.events.contains("pause")) { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(await log.events.contains("pause"))
+        #expect(ContinuousClock.now - t0 < .seconds(2), "pause waited behind the previous export")
+        await rec.cancelAndWait()
     }
 }
