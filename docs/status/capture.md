@@ -1,4 +1,4 @@
-READY f8a4770 signed debug speech tool / M4 macOS26.3 / fresh inputs verified; HOST: `zsh "$HOME/yapcam-team/capture/Tests/YapcamCaptureTests/Tools/launch_speech.zsh" "$HOME/Movies/Yapcam/QA/speech/capture-f14-tool/Yapcam.app" "$HOME/Movies/Yapcam/QA/speech/capture-f14"`
+READY RC0.9.0 capture freeze / HEADdfcbc9e source matches mainddfd9d4 / signed debug f8a4770 speech tool, M4 macOS26.3 / Lead native F14 artifacts reviewed: objective DSP pass; no unfinished capture code; open acceptance/limitations below
 READY dd39be4 F13 verified by Lead on a7d1526 (signed debug, M4): full-file EN/DE speech; weak filler recall measured; F14 owned by render
 READY 9b0cadc capture LOCAL implementation backlog empty; consumer wiring and native acceptance remain external
 READY 9b0cadc CAP-2/M3 camera sample failure hardening; 136 capture tests + Rust + signed build pass; native gates remain
@@ -17,15 +17,56 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 # capture status
 
-## F14 fresh signed native speech handoff (2026-10-16)
+## RC0.9.0 freeze handoff (2026-10-16)
 
-**READY for Lead's native run.** Built from the exact clean **f8a4770** source
+Capture stops at the requested code freeze; no new scope, defaults or contracts.
+Worktree **dfcbc9e** is clean before this documentation update. Capture source/tests
+match main **ddfd9d4**, with no unfinished capture implementation or uncommitted
+code to defer. Latest speech build is the strictly verified **f8a4770 signed debug**
+tool, Mac mini M4 / arm64 macOS26.3. No new app launch or code/test change during
+this freeze handoff; documentation whitespace check passes. Lead checkpoint of
+this status remains required because sandbox Git metadata writes are denied.
+
+**Completed native F14 evidence:** Lead's retained `capture-f14/metrics.json` and
+per-language `outcomes.json` now exist. Default Voice DSP improves SI-SDR from
+10.00dB input to **15.68dB English / 15.47dB German**. Noise-only final-second
+reduction is **34.03 / 29.97dB**; output loudness **-16.13 / -16.10 LUFS**, sample
+peak **-1dBFS**, zero clipped samples, original sample counts preserved. These
+objective checks pass on the generated speech files; pumping/timbre listening is
+still pending. Native word/pause/candidate-filler cut mapping passes; that does
+not establish good filler recognition. Apple offline isolation remains explicitly
+unavailable on this host, with built-in DSP alternatives offered.
+
+**Open for RC notes (capture/speech acceptance):**
+
+- Automatic filler removal is weak: native labeled hesitation recall **0/3** per
+  language; German's one candidate is a grammatical word. Editor owns contextual
+  false-positive handling. Do not claim reliable automatic cleanup.
+- Speech sentence-boundary medians **45–70ms**, outliers up to **810ms**; interior
+  word timing has no independent alignment ground truth. No universal ±200ms claim.
+- Speech quality listening, offline/network-disabled acceptance and missing-model
+  host acceptance remain open. On-device request enforcement and typed errors have
+  deterministic coverage; they do not certify every host/model configuration.
+- Real microphone/camera/USB device, Retina and multi-display capture remain
+  **untested (no hardware)**; injected failure and geometry tests do not replace them.
+
+**Open-medium, render-owned (Lead's freeze report; not measured by capture):**
+
+- **F17**, main **b1859a4**, native **release**, M4/macOS26.3 synthetic4K60 random
+  scrub: **p95 232ms**, improved from466ms; **p50 149ms**. Remains open-medium.
+- **F18**, same reported native release benchmark: synthetic4K export **0.98x
+  realtime**. Remains open-medium. These render-pipeline measurements are not
+  editor interaction tests. Lead/render should carry both into RC notes.
+
+## F14 fresh signed native speech handoff (historical preparation, 2026-10-16)
+
+**Prepared and subsequently run by Lead; objective results above.** Built from the exact clean **f8a4770** source
 snapshot, including render's new `SpeechNoiseReduction.swift`, on Mac mini M4,
 arm64 macOS26.3 / Swift6.3.3. Rust release archive rebuilt; all Swift modules and
 the speech harness rebuilt in **debug**, without skip-build or reused object
 files. App strict signature verification passes: **Yapcam Dev Signing**,
-**mov.yapcam.Yapcam**. No app launched by capture; native F14 SI-SDR, pause noise
-and listening acceptance remain pending Lead.
+**mov.yapcam.Yapcam**. No app launched by capture; native F14 SI-SDR and pause-noise
+results are recorded above; listening acceptance remains pending Lead.
 
 App: `~/Movies/Yapcam/QA/speech/capture-f14-tool/Yapcam.app`.
 Fresh fixtures: `~/Movies/Yapcam/QA/speech/capture-f14`, prepared with
@@ -33,8 +74,13 @@ Fresh fixtures: `~/Movies/Yapcam/QA/speech/capture-f14`, prepared with
 five original inputs, verified byte-identical: clean/noisy/noise WAVs, screen MOV,
 ground truth. Previous outputs preserved. No recordings committed.
 
-The exact host launch command is the first line of this file. Its launcher
-atomically owns the QA app lock, refuses other running app instances, and uses
+Original host command (already run; do not reuse the populated output directory):
+
+```sh
+zsh "$HOME/yapcam-team/capture/Tests/YapcamCaptureTests/Tools/launch_speech.zsh" "$HOME/Movies/Yapcam/QA/speech/capture-f14-tool/Yapcam.app" "$HOME/Movies/Yapcam/QA/speech/capture-f14"
+```
+
+Its launcher atomically owns the QA app lock, refuses other running app instances, and uses
 `open -n -W` through LaunchServices. Speech permission is already granted; no
 permission-request flag needed. After it finishes, measure with:
 
@@ -56,11 +102,13 @@ Hashes verified against Git blobs at f8a4770. Build log:
 `/tmp/yapcam-capture-f14-build.log`. Both capture-owned temporary build directories
 were listed and removed by cleanup traps after successful signing.
 
-**Rebase handoff:** `git rebase main` still fails creating `rebase-merge` (sandbox
-metadata permission). Worktree HEAD remains **1a590ae**; no source changes made to
+**Historical rebase handoff at preparation:** `git rebase main` failed creating
+`rebase-merge` (sandbox metadata permission). Worktree HEAD was **1a590ae**; no source changes made to
 other teams' files. To avoid a stale DSP binary, built via read-only `git archive`
 of f8a4770 into the disposable capture-owned directory. Lead should checkpoint this
 status and rebase the worktree; the prepared app already contains f8a4770.
+Lead subsequently checkpointed the handoff as **38a5ca7** and advanced this worktree
+to **dfcbc9e**; no f8a4770 rebase request remains outstanding.
 
 ## Round 3 speech verification (2026-10-16)
 
@@ -1133,16 +1181,16 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next
-F14 tool preparation complete on f8a4770; await Lead's native run using the top-line
-command and metrics command above. No app launch by capture. No remaining F13
-implementation task: Lead verified the fix and AUD-10 is updated. Render owns F14
-DSP quality; editor owns the German filler false-positive handoff. Reliable filler
-detection and strict word alignment remain limited by the measured results.
+Frozen for RC0.9.0. No new implementation or native run planned. Lead has run the
+F14 tool; objective DSP results are recorded above. Carry the remaining acceptance
+limits and render-owned F17/F18 open-medium findings into RC notes. Await a concrete
+release-fix assignment or freeze lift; no unfinished capture code remains.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint this F14 handoff/status update and rebase onto main f8a4770;
-   metadata writes remain denied, worktree HEAD1a590ae. Signed tool built from exact
-   f8a4770 snapshot is ready above. UI reports isolation fixed; consume the capture
+1. Lead: checkpoint this RC freeze/status update (metadata writes remain denied,
+   worktree HEADdfcbc9e); carry the open RC notes above. Prior F14 handoff is already
+   checkpointed/run. Historical consumer requests follow; no new freeze scope.
+   UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
    event marker query/TimelineMarker and editor presentation/snapping are complete;
    UI marker forwarding is the remaining implementation step. Lead: document public capture additions/optional derived UI sidecar in
