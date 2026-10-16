@@ -57,12 +57,12 @@ struct SystemAudioPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             PopoverHeader(title: "System audio")
-            Toggle("Record system audio", isOn: $settings.systemAudio)
+            SystemAudioPicker()
             Text("Sound played by apps and the system, without Yapcam's own sounds. Saved as its own track so you can mix it in the editor.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
-        .frame(width: 260)
+        .frame(width: 280)
     }
 }
 

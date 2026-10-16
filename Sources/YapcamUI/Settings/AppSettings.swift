@@ -94,6 +94,9 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var lastCameraID: String? { didSet { d.set(lastCameraID, forKey: "lastCameraID") } }
     @Published var lastMicrophoneID: String? { didSet { d.set(lastMicrophoneID, forKey: "lastMicrophoneID") } }
     @Published var systemAudio: Bool { didSet { d.set(systemAudio, forKey: "systemAudio") } }
+    /// With `systemAudio` on: record only the apps in `systemAudioApps` (bundle ids) instead of all apps.
+    @Published var systemAudioSelectedOnly: Bool { didSet { d.set(systemAudioSelectedOnly, forKey: "systemAudioSelectedOnly") } }
+    @Published var systemAudioApps: [String] { didSet { d.set(systemAudioApps, forKey: "systemAudioApps") } }
     @Published var microphoneID: String? { didSet { d.set(microphoneID, forKey: "microphoneID") } }
     @Published var cameraID: String? { didSet { d.set(cameraID, forKey: "cameraID") } }
     @Published var cameraMaxResolution: CameraMaxResolution { didSet { d.set(cameraMaxResolution.rawValue, forKey: "cameraMaxResolution") } }
@@ -143,6 +146,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         lastCameraID = d.string(forKey: "lastCameraID")
         lastMicrophoneID = d.string(forKey: "lastMicrophoneID")
         systemAudio = d.object(forKey: "systemAudio") as? Bool ?? true
+        systemAudioSelectedOnly = d.object(forKey: "systemAudioSelectedOnly") as? Bool ?? false
+        systemAudioApps = d.stringArray(forKey: "systemAudioApps") ?? []
         microphoneID = d.string(forKey: "microphoneID")
         cameraID = d.string(forKey: "cameraID")
         cameraMaxResolution = CameraMaxResolution(rawValue: d.integer(forKey: "cameraMaxResolution")) ?? .hd1080

@@ -55,7 +55,7 @@ windows are excluded from the recording.
 Top to bottom:
 
 - **Display / Window / Area**: one click picks the source and shows its overlay with a big
-  **Start recording** button (the chevron next to it has frame rate, countdown and system audio).
+  **Start recording** button (the chevron next to it has frame rate, countdown and system audio: Off, All apps or Selected apps).
   *Display* dims the display under your pointer and shows its name and size (move to another display and
   the card follows). *Window* highlights the window under the pointer; click it or press Start recording.
   *Area* lets you drag a rectangle (aspect presets Free, 16:9, 4:3, 1:1, 9:16; arrow keys move it,
@@ -81,6 +81,8 @@ ends, after at most about half a second, even if sound playback fails; the sound
 If a countdown is set (None by default; 3, 5 or 10 s in Settings → General or the card's chevron), a "Get ready" card with a filling ring appears (Continue or Return starts at once, Esc cancels). Then the toolbar
 turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Marker** (a flag at this moment, saved with the recording), **Restart** (discard this take and start over) and
 **Cancel** (delete the recording); both ask first. While recording, the menu bar icon is a red stop button and the Dock icon shows ●. Stop (button, hotkey or menu bar) saves the recording and opens the editor at once, in front, on the new recording.
+
+**System audio** (speaker button, or Settings → Recording): *Off*, *All apps* (the default) or *Selected apps*, where you tick the running apps to record. Before a recording starts, Yapcam checks for problems (a chosen camera or microphone that is unplugged, a camera with no microphone, a possibly covered microphone, a missing permission, a selected app that has closed) and asks what to do: continue, choose another device, open System Settings, or cancel. Nothing is asked when everything is fine.
 
 Verified live on this Mac (display, window and area capture, pause/resume, system audio): Record → countdown → recording → Stop → the editor
 opens on the new recording, and the toolbar, countdown and timer are **not** in the recorded video.
