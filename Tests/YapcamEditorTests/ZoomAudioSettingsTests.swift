@@ -377,3 +377,26 @@ import YapcamCore
         let c = try Project.open(package: a); #expect(!EditorPresets.applyDefaultPreset(to: c, from: iso.store)); c.close()
     }
 }
+
+@MainActor @Suite struct CursorRotationTests {
+    @Test func rotationTiltAndShakeThresholdRoundTripThroughCore() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("rot-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d, presets: EditorStorage.makeIsolated().store).model
+        m.set("cursor.rotation_mode", string: "static"); m.set("cursor.rotation_degrees", number: -90)
+        m.set("cursor.remove_shakes", bool: true); m.set("cursor.shake_threshold", number: 1500)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        m.set("cursor.rotation_degrees", number: 181); #expect(m.lastError != nil && m.number("cursor.rotation_degrees") == -90)
+        m.lastError = nil; m.set("cursor.shake_threshold", number: 99); #expect(m.lastError != nil && m.number("cursor.shake_threshold") == 1500)
+        m.lastError = nil; m.set("cursor.tilt_amount", number: 2.5); #expect(m.lastError != nil)
+        m.lastError = nil
+        m.set("cursor.rotation_mode", string: "tilt"); m.set("cursor.tilt_amount", number: 1.5)
+        #expect(m.lastError == nil && m.bool("cursor.rotate_on_move"))                          // legacy bool follows the mode
+        m.saveNow(); m.close()
+        let again = try EditorDocument(package: d, presets: EditorStorage.makeIsolated().store).model
+        #expect(again.string("cursor.rotation_mode") == "tilt" && again.number("cursor.tilt_amount") == 1.5
+                && again.number("cursor.rotation_degrees") == -90 && again.number("cursor.shake_threshold") == 1500)
+        again.close()
+    }
+}
