@@ -238,7 +238,9 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
         }
     }
     if let Some(style) = &p.insertion_styles.mask {
-        if !(0.0..=16384.0).contains(&style.radius)
+        if !matches!(style.kind.as_str(), "highlight" | "blur")
+            || !(0.0..=128.0).contains(&style.blur_radius)
+            || !(0.0..=16384.0).contains(&style.radius)
             || !(0.0..=16384.0).contains(&style.stroke_width)
             || [style.opacity, style.dim_opacity]
                 .iter()
@@ -507,6 +509,8 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             || h.tl_start_ns < 0
             || h.tl_end_ns <= h.tl_start_ns
             || !matches!(h.space.as_str(), "source" | "canvas")
+            || !matches!(h.kind.as_str(), "highlight" | "blur")
+            || !(0.0..=128.0).contains(&h.blur_radius)
             || h.rect.iter().any(|v| !v.is_finite())
             || h.rect[0] < 0.0
             || h.rect[1] < 0.0

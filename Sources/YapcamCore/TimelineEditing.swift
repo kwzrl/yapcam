@@ -32,6 +32,8 @@ public struct CoreInsertionStyles: Decodable, Sendable, Equatable {
         public var easeOutNs: Int64
     }
     public struct Mask: Decodable, Sendable, Equatable {
+        public var kind: String?
+        public var blurRadius: Double?
         public var radius: Double
         public var opacity: Double
         public var dimOpacity: Double

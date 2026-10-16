@@ -37,6 +37,21 @@ pub struct FrameExtras {
     pub highlight_count: u32,
     pub highlights: [FrameHighlight; MAX_FRAME_HIGHLIGHTS],
 }
+/// Additive companion: indices correspond to the unchanged FrameExtras prefix.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize)]
+#[repr(C)]
+pub struct FrameMaskEffect {
+    pub kind: u32,
+    pub blur_radius: f32,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[repr(C)]
+pub struct FrameMaskEffects {
+    pub tl_ns: i64,
+    pub highlight_count: u32,
+    pub reserved: u32,
+    pub effects: [FrameMaskEffect; MAX_FRAME_HIGHLIGHTS],
+}
 fn smooth(t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
     t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
@@ -189,7 +204,15 @@ impl Project {
             ..FrameExtras::default()
         };
         for h in &p.canvas.highlights {
-            if let Some(highlight) = highlight_at(h, &f) {
+            if let Some(mut highlight) = highlight_at(h, &f) {
+                // Old fixed-layout consumers cannot represent a Gaussian. Keep
+                // a visible cover rather than silently exposing a masked region.
+                if h.kind == "blur" {
+                    highlight.fill = [0.0, 0.0, 0.0, 1.0];
+                    highlight.stroke = [0.0; 4];
+                    highlight.stroke_width = 0.0;
+                    highlight.dim_opacity = 0.0;
+                }
                 let slot = extras
                     .highlights
                     .get_mut(extras.highlight_count as usize)
@@ -200,17 +223,52 @@ impl Project {
         }
         Ok(extras)
     }
+    /// No allocation or IO; shares geometry/visibility with the legacy extras.
+    pub fn frame_mask_effects(&self, tl_ns: i64) -> Result<FrameMaskEffects> {
+        let f = self.frame(tl_ns)?;
+        let mut extras = FrameMaskEffects {
+            tl_ns,
+            ..FrameMaskEffects::default()
+        };
+        for h in &self.data.canvas.highlights {
+            if highlight_at(h, &f).is_some() {
+                let slot = extras
+                    .effects
+                    .get_mut(extras.highlight_count as usize)
+                    .ok_or_else(|| Error::new(1, "At most 32 highlights may overlap"))?;
+                *slot = FrameMaskEffect {
+                    kind: u32::from(h.kind == "blur"),
+                    blur_radius: if h.kind == "blur" {
+                        h.blur_radius as f32
+                    } else {
+                        0.0
+                    },
+                };
+                extras.highlight_count += 1;
+            }
+        }
+        Ok(extras)
+    }
+    pub fn mask_effects_at(&self, tl_ns: i64) -> Result<Value> {
+        let extras = self.frame_mask_effects(tl_ns)?;
+        Ok(
+            json!({"tl_ns":tl_ns,"highlight_count":extras.highlight_count,
+            "effects":extras.effects[..extras.highlight_count as usize]}),
+        )
+    }
     pub fn layers_at(&self, tl_ns: i64) -> Result<Value> {
         let f = self.frame(tl_ns)?;
         let mut layers = vec![];
         for h in &self.data.canvas.highlights {
             if let Some(highlight) = highlight_at(h, &f) {
                 let r = highlight.rect;
-                layers.push(
-                    json!({"id":h.id,"kind":"highlight","rect":[r.x,r.y,r.w,r.h],
+                let mut row = json!({"id":h.id,"kind":h.kind,"rect":[r.x,r.y,r.w,r.h],
                     "corner_radius":h.radius,"opacity":h.opacity,"dim_opacity":h.dim_opacity,
-                    "fill":h.fill,"stroke":h.stroke,"stroke_width":h.stroke_width}),
-                );
+                    "fill":h.fill,"stroke":h.stroke,"stroke_width":h.stroke_width});
+                if h.kind == "blur" {
+                    row["blur_radius"] = h.blur_radius.into();
+                }
+                layers.push(row);
             }
         }
         for (kind, records) in [
@@ -282,6 +340,224 @@ impl Project {
 mod tests {
     use super::*;
     use crate::project::tests::Fixture;
+    #[test]
+    fn blur_masks_share_geometry_order_and_zero_allocation_extras_without_abi_changes() {
+        use std::mem::{offset_of, size_of};
+        assert_eq!(size_of::<FrameMaskEffect>(), 8);
+        assert_eq!(size_of::<FrameMaskEffects>(), 272);
+        assert_eq!(std::mem::align_of::<FrameMaskEffects>(), 8);
+        assert_eq!(offset_of!(FrameMaskEffects, effects), 16);
+        assert_eq!(size_of::<FrameExtras>(), 2600);
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        p.apply(&json!({"op":"set","path":"canvas.highlights","value":[
+            {"id":"cover","tl_start_ns":1_000_000_000,"tl_end_ns":3_000_000_000_i64,"space":"canvas","fill":[0,0,0,1]},
+            {"id":"hidden-blur","kind":"blur","tl_start_ns":1_000_000_000,"tl_end_ns":3_000_000_000_i64,"rect":[0,0,0.1,0.1]},
+            {"id":"blur","kind":"blur","tl_start_ns":1_000_000_000,"tl_end_ns":3_000_000_000_i64,"rect":[0.25,0.25,0.5,0.5]}
+        ]})).unwrap();
+        p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":4_000_000_000_i64,"mode":"manual","target":[0.5,0.5],"scale":2,"ease_in_ns":0,"ease_out_ns":0})).unwrap();
+        let t = 1_500_000_000;
+        let f = p.frame(t).unwrap();
+        let extras = p.frame_extras(t).unwrap();
+        let masks = p.frame_mask_effects(t).unwrap();
+        assert_eq!(masks.highlight_count, 2);
+        assert_eq!(masks.highlight_count, extras.highlight_count);
+        assert_eq!(masks.effects[0], FrameMaskEffect::default());
+        assert_eq!(
+            masks.effects[1],
+            FrameMaskEffect {
+                kind: 1,
+                blur_radius: 32.0
+            }
+        );
+        assert!(masks.effects[2..]
+            .iter()
+            .all(|effect| *effect == FrameMaskEffect::default()));
+        assert_eq!(masks.reserved, 0);
+        assert_eq!(extras.highlights[1].rect, f.screen_dest);
+        assert_eq!(extras.highlights[1].fill, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(extras.highlights[1].stroke_width, 0.0);
+        assert_eq!(extras.highlights[1].dim_opacity, 0.0);
+        let rows = p.layers_at(t).unwrap();
+        assert_eq!(rows.as_array().unwrap().len(), 2);
+        assert_eq!(rows[0]["id"], "cover");
+        assert_eq!(rows[0]["kind"], "highlight");
+        assert!(rows[0].get("blur_radius").is_none());
+        assert_eq!(rows[1]["id"], "blur");
+        assert_eq!(rows[1]["kind"], "blur");
+        assert_eq!(rows[1]["blur_radius"], 32.0);
+        assert_eq!(
+            rows[1]["rect"],
+            json!([
+                f.screen_dest.x,
+                f.screen_dest.y,
+                f.screen_dest.w,
+                f.screen_dest.h
+            ])
+        );
+        assert_eq!(
+            p.query(&json!({"q":"effects_at","tl_ns":t})).unwrap()["layers"],
+            rows
+        );
+        assert_eq!(
+            p.query(&json!({"q":"mask_effects_at","tl_ns":t})).unwrap()["effects"],
+            json!([{"kind":0,"blur_radius":0.0},{"kind":1,"blur_radius":32.0}])
+        );
+        for time in [0, 999_999_999, 3_000_000_000, 5_000_000_000] {
+            assert_eq!(p.frame_mask_effects(time).unwrap().highlight_count, 0);
+        }
+        assert_eq!(
+            p.frame_mask_effects(1_000_000_000).unwrap().highlight_count,
+            2
+        );
+        let initial = p.data.clone();
+        p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":1_000_000_000}))
+            .unwrap();
+        p.apply(&json!({"op":"set_speed","clip_id":p.data.timeline.clips[0].id,"speed":2}))
+            .unwrap();
+        assert_eq!(p.data.canvas.highlights[2].tl_end_ns, 1_000_000_000);
+        assert_eq!(
+            p.frame_mask_effects(500_000_000).unwrap().effects[1].blur_radius,
+            32.0
+        );
+        p.undo().unwrap();
+        p.undo().unwrap();
+        assert_eq!(p.data, initial);
+        let handle = crate::ffi::YcProject::new(p);
+        let mut output = FrameMaskEffects::default();
+        let allocated = crate::allocation_test::count(|| {
+            for time in [0, 1_000_000_000, t, 3_000_000_000, 5_000_000_000] {
+                assert_eq!(
+                    unsafe { crate::ffi::yc_frame_mask_effects_at(&handle, time, &mut output) },
+                    0
+                );
+            }
+        });
+        assert_eq!(allocated, 0);
+        assert_eq!(output.effects, [FrameMaskEffect::default(); 32]);
+        let sentinel = FrameMaskEffects {
+            tl_ns: 123,
+            highlight_count: 17,
+            ..output
+        };
+        for time in [-1, 5_000_000_001, i64::MAX] {
+            output = sentinel;
+            assert_eq!(
+                unsafe { crate::ffi::yc_frame_mask_effects_at(&handle, time, &mut output) },
+                1
+            );
+            assert_eq!(output, sentinel);
+        }
+        assert_eq!(
+            unsafe { crate::ffi::yc_frame_mask_effects_at(&handle, 0, std::ptr::null_mut()) },
+            1
+        );
+        assert_eq!(
+            unsafe { crate::ffi::yc_frame_mask_effects_at(std::ptr::null(), 0, &mut output) },
+            1
+        );
+        assert_eq!(output, sentinel);
+    }
+
+    #[test]
+    fn blur_masks_inherit_validate_snapshot_save_and_decode_legacy_styles() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        p.apply(&json!({"op":"insert_mask","patch":{"kind":"blur","blur_radius":128,"space":"canvas","opacity":0.8}})).unwrap();
+        p.apply(&json!({"op":"insert_mask","tl_start_ns":1_000_000_000}))
+            .unwrap();
+        assert_eq!(p.data.canvas.highlights[1].kind, "blur");
+        assert_eq!(p.data.canvas.highlights[1].blur_radius, 128.0);
+        let frozen = p.clone();
+        p.apply(&json!({"op":"insert_mask","patch":{"blur_radius":0}}))
+            .unwrap();
+        assert_eq!(p.frame_mask_effects(0).unwrap().effects[1].blur_radius, 0.0);
+        assert_eq!(
+            frozen
+                .data
+                .insertion_styles
+                .mask
+                .as_ref()
+                .unwrap()
+                .blur_radius,
+            128.0
+        );
+        p.undo().unwrap();
+        assert_eq!(p.data, frozen.data);
+        p.redo().unwrap();
+        p.save(&fixture.0).unwrap();
+        let opened = Project::open(&fixture.0).unwrap();
+        assert_eq!(opened.data, p.data);
+        assert_eq!(
+            opened.frame_mask_effects(0).unwrap(),
+            p.frame_mask_effects(0).unwrap()
+        );
+        assert_eq!(opened.layers_at(0).unwrap(), p.layers_at(0).unwrap());
+        let before = p.data.clone();
+        let history = p.undo.len();
+        for patch in [
+            json!({"kind":"cover"}),
+            json!({"kind":null}),
+            json!({"blur_radius":-0.1}),
+            json!({"blur_radius":128.01}),
+            json!({"blur_radius":null}),
+            json!({"blur_radius":true}),
+        ] {
+            assert!(p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"notes","value":"rollback"},{"op":"insert_mask","patch":patch}]})).is_err());
+            assert_eq!(p.data, before);
+            assert_eq!(p.undo.len(), history);
+        }
+        for (kind, radius) in [
+            ("blur", f64::NAN),
+            ("blur", f64::INFINITY),
+            ("blur", -1.0),
+            ("invalid", 32.0),
+        ] {
+            let mut data = p.data.clone();
+            data.canvas.highlights[0].kind = kind.into();
+            data.canvas.highlights[0].blur_radius = radius;
+            assert!(crate::project::validate_data(&data).is_err());
+            data = p.data.clone();
+            let style = data.insertion_styles.mask.as_mut().unwrap();
+            style.kind = kind.into();
+            style.blur_radius = radius;
+            assert!(crate::project::validate_data(&data).is_err());
+        }
+        let mut legacy = serde_json::to_value(&p.data).unwrap();
+        for row in legacy["canvas"]["highlights"].as_array_mut().unwrap() {
+            row.as_object_mut().unwrap().remove("kind");
+            row.as_object_mut().unwrap().remove("blur_radius");
+        }
+        for key in ["kind", "blur_radius"] {
+            legacy["insertion_styles"]["mask"]
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+        }
+        let data = crate::project::decode_project(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert!(data
+            .canvas
+            .highlights
+            .iter()
+            .all(|h| h.kind == "highlight" && h.blur_radius == 32.0));
+        assert_eq!(
+            data.insertion_styles.mask.as_ref().unwrap().kind,
+            "highlight"
+        );
+        assert_eq!(
+            data.insertion_styles.mask.as_ref().unwrap().blur_radius,
+            32.0
+        );
+        assert_eq!(
+            data.canvas.highlights[0].fill,
+            p.data.canvas.highlights[0].fill
+        );
+        assert_eq!(
+            data.canvas.highlights[0].radius,
+            p.data.canvas.highlights[0].radius
+        );
+    }
+
     #[test]
     fn extras_layout_capacity_and_ffi_hot_path() {
         use std::mem::{offset_of, size_of};

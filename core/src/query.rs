@@ -169,6 +169,11 @@ impl Project {
             "music" => Ok(serde_json::to_value(&self.data.audio.music)?),
             "audio_overlays" => self.audio_overlays(),
             "render_options" => self.render_options(None),
+            "mask_effects_at" => self.mask_effects_at(
+                query["tl_ns"]
+                    .as_i64()
+                    .ok_or_else(|| Error::new(1, "Missing integer tl_ns"))?,
+            ),
             "effects_at" | "render_options_at" => {
                 let tl = query["tl_ns"]
                     .as_i64()

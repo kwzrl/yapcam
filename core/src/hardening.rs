@@ -659,6 +659,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
             };
             let mut frame = crate::frame::Frame::default();
             let mut extras = crate::layers::FrameExtras::default();
+            let mut masks = crate::layers::FrameMaskEffects::default();
             let mut motion = crate::motion::FrameMotion::default();
             assert_eq!(
                 unsafe { yc_frame_at(handle, t, &mut frame) },
@@ -673,7 +674,15 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 unsafe { yc_frame_motion_at(handle, t, &mut motion) },
                 expected
             );
+            assert_eq!(
+                unsafe { yc_frame_mask_effects_at(handle, t, &mut masks) },
+                expected
+            );
             if expected == 0 {
+                assert_eq!(masks.highlight_count, extras.highlight_count);
+                assert!(masks.effects.iter().all(|effect| effect.kind <= 1
+                    && effect.blur_radius.is_finite()
+                    && (0.0..=128.0).contains(&effect.blur_radius)));
                 assert!(
                     frame.screen_crop.x.is_finite()
                         && frame.screen_crop.w > 0.0

@@ -191,6 +191,8 @@ settings!(ZoomInsertionStyle {
     ease_out_ns: i64 = 300_000_000
 });
 settings!(MaskInsertionStyle {
+    kind: String = "highlight".into(),
+    blur_radius: f64 = 32.0,
     radius: f64 = 12.0,
     opacity: f64 = 1.0,
     dim_opacity: f64 = 0.4,
@@ -407,6 +409,8 @@ settings!(Highlight {
     tl_end_ns: i64 = 1,
     rect: [f64; 4] = [0.25, 0.25, 0.5, 0.5],
     space: String = "source".into(),
+    kind: String = "highlight".into(),
+    blur_radius: f64 = 32.0,
     radius: f64 = 12.0,
     opacity: f64 = 1.0,
     dim_opacity: f64 = 0.4,

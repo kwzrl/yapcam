@@ -310,6 +310,83 @@ private func expectClosed(_ operation: () throws -> Void) {
         #expect(try reopened.toJSON() == p.toJSON())
     }
 }
+@Test func blurMasksReachLayersAndCompanionExtrasWithHistoryAndInheritedStyles() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let id = try p.apply(.insertTimelineItem(.mask, startNs: 1_000_000_000, durationNs: 2_000_000_000,
+            patch: ["kind": .string("blur"), "space": .string("canvas")])).createdIDs[0]
+        #expect(try p.insertionStyles().mask?.kind == "blur")
+        #expect(try p.insertionStyles().mask?.blurRadius == 32)
+        try p.apply(.batch([
+            .set(path: "canvas.animation.entrance", value: .string("fade")),
+            .set(path: "canvas.animation.entrance_duration_ns", value: .integer(3_000_000_000))
+        ]))
+        let t: Int64 = 1_500_000_000
+        let frame = try p.frame(atNs: t)
+        let rows = try p.renderLayers(atNs: t)
+        let blur = try #require(rows.first { $0.id == id })
+        #expect(blur.kind == "blur" && blur.blurRadius == 32 && blur.cornerRadius == 12)
+        #expect(blur.rect == [Double(frame.canvas_w) * 0.25, Double(frame.canvas_h) * 0.25,
+                              Double(frame.canvas_w) * 0.5, Double(frame.canvas_h) * 0.5])
+        #expect(rows.last?.id == "canvas-fade" && rows.last?.blurRadius == nil)
+        #expect(try p.effects(atNs: t).layers == rows)
+        let masks = try p.maskEffects(atNs: t)
+        let extras = try p.frameExtras(atNs: t)
+        #expect(masks.tlNs == t && masks.highlightCount == extras.highlight_count && masks.effects.count == 1)
+        #expect(masks.effects[0].kind == 1 && masks.effects[0].blurRadius == 32)
+        #expect(extras.highlights.0.rect.x == blur.rect[0] && extras.highlights.0.rect.w == blur.rect[2])
+        #expect(extras.highlights.0.fill.3 == 1 && extras.highlights.0.dim_opacity == 0)
+        #expect(try p.maskEffects(atNs: 999_999_999).effects.isEmpty)
+        #expect(try p.maskEffects(atNs: 1_000_000_000).effects.count == 1)
+        #expect(try p.maskEffects(atNs: 3_000_000_000).effects.isEmpty)
+        #expect(throws: CoreError.self) { try p.maskEffects(atNs: -1) }
+        let frozen = try p.snapshot()
+        try p.apply(.insertTimelineItem(.mask, startNs: 4_000_000_000, durationNs: 1_000_000_000))
+        #expect(try p.renderLayers(atNs: 4_500_000_000).last?.blurRadius == 32)
+        #expect(try frozen.maskEffects(atNs: 4_500_000_000).effects.isEmpty)
+        try p.undo()
+        #expect(try p.maskEffects(atNs: 4_500_000_000).effects.isEmpty)
+        try p.redo(); try p.save()
+        let opened = try Project.open(package: package)
+        #expect(try opened.renderLayers(atNs: t) == p.renderLayers(atNs: t))
+        #expect(try opened.maskEffects(atNs: t) == masks)
+        #expect(try opened.insertionStyles().mask?.kind == "blur")
+        let before = try p.toJSON()
+        for patch in [["kind": JSONValue.string("gaussian")], ["blur_radius": .number(-1)],
+                      ["blur_radius": .number(128.01)], ["blur_radius": .null]] {
+            #expect(throws: CoreError.self) { try p.apply(.insertTimelineItem(.mask, patch: patch)) }
+            #expect(try p.toJSON() == before)
+        }
+        #expect(yc_abi_version() == 3 && MemoryLayout<YcFrameExtras>.size == 2600)
+    }
+}
+
+@Test func olderOpaqueMasksKeepTheirAppearanceAndNewBlurDefaultsRemainInactive() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.insertTimelineItem(.mask, patch: ["fill": .array([.number(0), .number(0), .number(0), .number(1)])]))
+        let expected = try p.renderLayers(atNs: 1_000_000_000)
+        var fields = try JSONSerialization.jsonObject(with: p.toJSON()) as! [String: Any]
+        var canvas = fields["canvas"] as! [String: Any]
+        var rows = canvas["highlights"] as! [[String: Any]]
+        for i in rows.indices { rows[i].removeValue(forKey: "kind"); rows[i].removeValue(forKey: "blur_radius") }
+        canvas["highlights"] = rows; fields["canvas"] = canvas
+        var insertion = fields["insertion_styles"] as! [String: Any]
+        var mask = insertion["mask"] as! [String: Any]
+        mask.removeValue(forKey: "kind"); mask.removeValue(forKey: "blur_radius")
+        insertion["mask"] = mask; fields["insertion_styles"] = insertion
+        try JSONSerialization.data(withJSONObject: fields).write(to: package.appendingPathComponent("project.json"))
+        let old = try Project.open(package: package)
+        #expect(try old.renderLayers(atNs: 1_000_000_000) == expected)
+        #expect(try old.maskEffects(atNs: 1_000_000_000).effects[0].kind == 0)
+        #expect(try old.maskEffects(atNs: 1_000_000_000).effects[0].blurRadius == 0)
+        #expect(try old.insertionStyles().mask?.kind == "highlight")
+        #expect(try old.insertionStyles().mask?.blurRadius == 32)
+        try old.save()
+        #expect(try Project.open(package: package).renderLayers(atNs: 1_000_000_000) == expected)
+    }
+}
+
 @Test func supplementalEffectsPersistAndMatchSnapshots() throws {
     try withFixture { package in
         let p = try Project.create(package: package)

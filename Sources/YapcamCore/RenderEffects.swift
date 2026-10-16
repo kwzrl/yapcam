@@ -55,6 +55,7 @@ public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
     public var kind: String
     public var rect: [Double]
     public var cornerRadius: Double
+    public var blurRadius: Double?
     public var opacity: Double
     public var dimOpacity: Double
     public var fill: [Float]
@@ -65,6 +66,18 @@ public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
     public var color: [Float]?
     public var fontFamily: TextStyle.FontFamily?
     public var caption: CoreCaptionEvaluation?
+}
+
+/// Supplemental mask instructions; indices match frameExtras.highlights on the
+/// same immutable project snapshot. Existing C frame layouts remain unchanged.
+public struct CoreMaskEffects: Decodable, Sendable, Equatable {
+    public struct Effect: Decodable, Sendable, Equatable {
+        public var kind: UInt32 // 0 highlight, 1 Gaussian blur
+        public var blurRadius: Double
+    }
+    public var tlNs: Int64
+    public var highlightCount: UInt32
+    public var effects: [Effect]
 }
 
 /// Mouse-down events, sorted on the edited timeline. Removed events are omitted.
@@ -87,6 +100,9 @@ extension Project {
     }
     public func renderLayers(atNs: Int64) throws -> [CoreRenderLayer] {
         try query("{\"q\":\"layers_at\",\"tl_ns\":\(atNs)}", as: [CoreRenderLayer].self)
+    }
+    public func maskEffects(atNs: Int64) throws -> CoreMaskEffects {
+        try query("{\"q\":\"mask_effects_at\",\"tl_ns\":\(atNs)}", as: CoreMaskEffects.self)
     }
 }
 

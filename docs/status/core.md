@@ -1,3 +1,58 @@
+READY GAP-ED-16 Core on 2bbe202 (working tree; Lead checkpoint required) | debug app/release Rust | macOS26.3 arm64/Xcode26.6 | blur kind/radius + additive extras companion implemented; Rust113/Core Swift81/Clippy/signed app PASS. Lead C header + Render/Editor integration handoffs below.
+
+## GAP-ED-16 — blur masks / Render + Editor handoff
+
+Masks remain canvas.highlights records. New fields: kind="highlight" (legacy)
+or "blur"; blur_radius defaults32, finite0…128 canonical canvas pixels. Assumption:
+bounded radius in canvas pixels, independently scaled by Render to actual output;
+it is not multiplied by source zoom. Existing radius is rounded-corner radius.
+insert_mask.patch accepts kind/blur_radius; full canvas.highlights replacement
+edits existing records; insertion_styles.mask remembers both new style fields.
+layers_at/effects_at layers emit kind="blur" plus blur_radius, with shared
+crop/zoom/timing geometry and array order. Opaque cover remains highlight+opaque fill.
+
+Frame extras stay binary-compatible (YcFrame/Highlight/Extras/Motion sizes
+unchanged, ABI3). New companion yc_frame_mask_effects_at / mask_effects_at query
+provides one {kind:0 highlight/1 blur,blur_radius} per active extras highlight.
+Old extras contain an opaque black fallback for blur entries (same opacity),
+never silently omit a mask. Render uses the complete cold layers list once.
+
+Requests (Lead-owned header): append declarations to
+core/include/yapcam_core.h after existing types, retaining ABI3 and every field:
+
+```c
+typedef struct { uint32_t kind; float blur_radius; } YcFrameMaskEffect;
+typedef struct { int64_t tl_ns; uint32_t highlight_count, reserved;
+  YcFrameMaskEffect effects[YC_MAX_FRAME_HIGHLIGHTS]; } YcFrameMaskEffects;
+YcStatus yc_frame_mask_effects_at(const YcProject *p, int64_t tl_ns,
+  YcFrameMaskEffects *out);
+```
+
+Rust export and typed Swift cold-query wrapper are implemented; C header
+remains untouched under ownership rules. New companion size272, alignment8,
+effects offset16. Render/Editor own Gaussian pass and controls/visual acceptance.
+Lead rebase after checkpoint; main dfcbc9e observed, baseline Core paths matched
+current main. Add maskEffects(atNs:), CoreMaskEffects, CoreRenderLayer.blurRadius
+and insertion-style kind/blurRadius to Lead-owned SWIFT_API.md.
+
+| Commit / build / environment | Procedure | Result |
+|---|---|---|
+| base2bbe202 / debug Rust + release archive / macOS26.3 arm64 M4, Xcode26.6 | cargo test; fmt --check; Clippy all-targets -Dwarnings | PASS113, 0 failed, 1 intentional scale ignore; formatting/Clippy PASS. Crop/zoom/hidden-source/half-open timing and cut/speed retiming; remembered style/history/snapshot/save/reopen; invalid/nonfinite fields; old records and opaque covers; new companion size/offset/zero slots/zero allocations and unchanged output on error. |
+| base2bbe202 / debug Rust / same host | top-level panic regression for every Rust C export and every header declaration; 10000 random JSON FFI commands | PASS. New mask export included in panic coverage and every fuzz frame/error-time sample; counts match legacy extras, kinds/radii remain finite/in bounds. Only the named new export is permitted to await its Lead-owned header declaration. |
+| base2bbe202 / debug app / same host | canonical build-app.sh debug via temporary SwiftPM sandbox adapter; strict codesign; swift test --filter YapcamCoreTests | PASS signed app and81 Core Swift tests. New tests verify actual layer/companion query decoding, masks before final fade, inherited radius32, timing/history/snapshots/save/reopen, invalid edit rollback and exact legacy opaque-layer equality. |
+
+Checkpoint the12 changed owned files (FORMATS contract included), request required
+other-family review of companion ABI/layout and blur/fallback semantics, then
+integrate with the Render Gaussian pass and Editor controls. New C header types
+are pending Lead, not claimed present. Cold queries and typed Swift methods work
+without that declaration. Gaussian pixels/preview-export parity require Render's
+implementation/native verification; Core makes no live/visual acceptance claim.
+Log: /private/tmp/yapcam-core-blur-ready.log. Run listed and removed only its
+owned temp root. No app launch/process signal, permission reset, media/credential
+commit, new dependency or Apple contact. Task complete; stopped.
+
+---
+
 READY CUR-06 on a69456d (working tree; Lead checkpoint required) | debug app/release Rust | macOS26.3 arm64/Xcode26.6 | exact14 set IDs + original factory default +12 per-type variants; Rust111/Core Swift79/Clippy/signed app PASS; Render catalog5 PASS/1 opt-in skip. Editor paths and Render expectation handoff below.
 
 ## CUR-06 wiring — Editor handoff

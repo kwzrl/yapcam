@@ -231,7 +231,7 @@ layout/cursor visibility/gain range wins. Highlights draw in array order.
 - Audio range: `{id, track, tl_start_ns, tl_end_ns, start_gain_db, end_gain_db}`.
   IDs unique; track mic/system_audio; gains −96…24 dB. Linear dB interpolation adds
   to global track gain, with mute applied separately.
-- Highlight: `{id, tl_start_ns, tl_end_ns, rect?, space?, radius?, opacity?,
+- Highlight/mask: `{id, tl_start_ns, tl_end_ns, rect?, space?, kind?, blur_radius?, radius?, opacity?,
   dim_opacity?, fill?, stroke?, stroke_width?}`. IDs nonempty and unique;
   `canvas-fade` is reserved. Rect defaults [0.25,0.25,0.5,0.5], normalized with
   positive size inside [0,1]². Space defaults source (follows zoom/crop), or canvas.
@@ -241,6 +241,16 @@ layout/cursor visibility/gain range wins. Highlights draw in array order.
   Opaque fill masks the region; transparent fill plus outside dim creates a
   spotlight. At most 32 intervals may overlap; more fail before applying an edit,
   without truncation. Arbitrarily many non-overlapping intervals are supported.
+  `kind` defaults `highlight` (unchanged spotlight/opaque-fill behavior), or `blur`.
+  `blur_radius` defaults32, finite0…128 canonical canvas pixels, including0
+  (identity Gaussian). It is independent of the rounded-corner `radius` and source
+  zoom. Render scales it by output/canvas scale for both preview and export.
+  Blur replaces the underlying composition inside the rounded rectangle with
+  a Gaussian-filtered sample, blended by opacity; it does not apply highlight
+  fill/stroke/outside dim. Opaque cover remains `kind:"highlight"` with opaque fill.
+  Old records missing either new field keep their previous appearance.
+  `insert_mask.patch` accepts both fields; replacing `canvas.highlights` edits
+  existing masks. The remembered insertion style includes kind and blur_radius.
 
 Fades draw black over the complete composition after all highlights, using a
 stateless quintic ease. Durations clamp to project length; overlapping entrance
@@ -328,6 +338,30 @@ slots. Reserved and unused slots are zero. Highlight_count is the valid array
 prefix; draw it in order, then a full-canvas black overlay with fade_opacity.
 No pixels or file data cross this boundary. Query layers_at remains available for
 UI identities and cold adapters; its geometry/fade math shares the extras evaluator.
+
+### Additive blur-mask extras companion (GAP-ED-16)
+
+All existing C struct sizes/offsets and ABI3 stay unchanged. The additive Rust
+export `yc_frame_mask_effects_at(project,tl_ns,&effects)` evaluates a separate
+YcFrameMaskEffects: Int64 tl_ns; UInt32 highlight_count/reserved; 32 entries of
+YcFrameMaskEffect {UInt32 kind; float blur_radius}. Kind0 means legacy highlight,
+kind1 blur; radius is0 for kind0 and the mask's canvas-pixel radius for kind1.
+Size272/alignment8, entries offset16, entry size8. The valid prefix corresponds
+exactly to YcFrameExtras.highlights, including clipped/invisible filtering and
+array order. Reserved/unused entries are zero; half-open ranges, time validation,
+no allocation/IO and unchanged output on error match the existing extras call.
+Lead owns appending the C declaration; Core's Rust export/cold query require no
+changes to existing C structs. Use one immutable snapshot for separate calls.
+
+`{"q":"mask_effects_at","tl_ns":N}` returns
+`{tl_ns,highlight_count,effects:[{kind,blur_radius}]}` with only valid entries.
+The Swift wrapper is `maskEffects(atNs:)`. `layers_at` and `effects_at.layers`
+include blur rows with `kind:"blur"`, `blur_radius` plus the existing evaluated
+rect/corner_radius/opacity and style fields. Existing highlight/text/fade rows
+retain their meanings. Draw this complete list in order, with fade last;
+do not draw the extras prefix a second time. Older C-only consumers see an
+opaque black fill fallback (same opacity, no stroke/dim) for blur slots rather
+than dropping sensitive masks. Real Gaussian rendering requires Render's new pass.
 
 Each frame/extras call holds a read lock independently. Use an immutable export
 snapshot (or serialize editor mutations) when two calls must use the same edit state.
@@ -937,7 +971,7 @@ saving and reopening starts a new history as before. Cold `history` query return
 
 `insertion_styles` is persisted, undoable metadata with nullable zoom and mask
 styles, initially null for old/new files. Zoom style includes mode, scale and
-in/out durations; mask style includes radius, opacity, dim_opacity, fill, stroke
+in/out durations; mask style includes kind, blur_radius, radius, opacity, dim_opacity, fill, stroke
 and stroke_width. Geometry, source/timeline clocks, identities and disabled state
 are never inherited. Explicit insertion fields override remembered style. New
 insert_zoom/insert_mask and omitted add_zoom style fields use this metadata.
