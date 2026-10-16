@@ -250,13 +250,24 @@ public struct ExportEstimateInfo: Equatable, Sendable {
     }
 }
 
+/// Where an export is in the shared render queue (one export renders at a time; the others wait in order).
+public enum ExportQueueStatus: Sendable, Equatable { case waiting, preparing, rendering }
+
 public protocol ExportEngine: Sendable {
+    /// Same as `run(_:progress:)`, additionally reporting queue phases (may be called off the main actor).
+    func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void,
+             status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL
     /// Cancel by cancelling the surrounding Task. Throws on failure; returns the verified file.
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL
     /// Planning numbers for the sheet's readout; nil when the engine cannot estimate.
     func estimate(for request: ExportRequest) -> ExportEstimateInfo?
 }
-public extension ExportEngine { func estimate(for request: ExportRequest) -> ExportEstimateInfo? { nil } }
+public extension ExportEngine {
+    func estimate(for request: ExportRequest) -> ExportEstimateInfo? { nil }
+    /// Engines without a queue report nothing.
+    func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void,
+             status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL { try await run(request, progress: progress) }
+}
 
 public extension EditingProject { var markerTimesNs: [Int64] { [] } }
 

@@ -37,6 +37,7 @@ import UniformTypeIdentifiers
         title = package.deletingPathExtension().lastPathComponent
         if !hasProject { try? project.save() }
         if restored { model.markRecoveredUnsaved() }   // journal-only state must be written on close
+        export.remember(in: .dialog, defaults: presets.defaults)
         model.presetStore = presets; model.defaults = presets.defaults
         model.loadStoredPreviewOptions()
         struct Library: Decodable { struct Item: Decodable { var id: String }; var sets: [Item] }

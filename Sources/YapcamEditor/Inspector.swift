@@ -410,6 +410,7 @@ struct InspectorView: View {
             PickerRow(model: model, title: "Cursor style", path: "cursor.style",
                       options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch"), ("Arrow", "arrow")])
             CursorSetCarousel(model: model)
+            CursorVariantPicker(model: model)
             NullableChoiceRow(model: model, title: "Cursor shape", path: "cursor.shape", automatic: "Automatic", options: cursorShapes)
             PickerRow(model: model, title: "Cursor size", path: "cursor.logical_size", options: cursorSizes)
             NumberRow(model: model, title: "Motion blur", path: "cursor.motion_blur", range: 0...1)
@@ -866,10 +867,7 @@ struct NullableChoiceRow: View {
     }
 }
 
-/// Mirrors core's `cursor_library` query (a test keeps these lists in step with the real core).
-let cursorSets: [(label: String, value: String)] = [
-    ("Classic", "classic"), ("Paper", "paper"), ("Soft slate", "soft-slate"), ("Soft cloud", "soft-cloud"), ("Lagoon", "lagoon"), ("Coral", "coral"),
-    ("Sage", "sage"), ("Violet", "violet"), ("Gold", "gold"), ("Precision dark", "precision-dark"), ("Precision light", "precision-light"), ("Signal", "signal")]
+/// Cursor shapes and sizes mirror core's `cursor_library` query (a test keeps them in step); sets come from render's catalog.
 let cursorShapes: [(label: String, value: String)] = [
     ("Arrow", "arrow"), ("Pointing hand", "pointing_hand"), ("Touch", "touch"), ("Text", "text"), ("Resize horizontal", "resize_horizontal"),
     ("Resize vertical", "resize_vertical"), ("Resize diagonal ↘", "resize_diagonal_nwse"), ("Resize diagonal ↗", "resize_diagonal_nesw"),

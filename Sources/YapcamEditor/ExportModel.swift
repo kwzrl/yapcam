@@ -10,9 +10,11 @@ public final class ExportModel: ObservableObject {
         case cancelled
     }
     @Published public private(set) var state: State = .idle
-    @Published public var height = 720 { didSet { normalize() } }
-    @Published public var fps = 60 { didSet { normalize() } }
-    @Published public var includeAudio = true
+    /// Queue phase of the running export (waiting for another export / preparing / rendering); nil when not running.
+    @Published public private(set) var queueStatus: ExportQueueStatus?
+    @Published public var height = 720 { didSet { normalize(); persist() } }
+    @Published public var fps = 60 { didSet { normalize(); persist() } }
+    @Published public var includeAudio = true { didSet { persist() } }
     @Published public var format: ExportFormat = .mp4h264 {
         didSet {
             if oldValue == format { return }
@@ -20,13 +22,13 @@ public final class ExportModel: ObservableObject {
             // A different format has its own defaults when the current choice does not exist there.
             if !format.options.fps.contains(fps) { fps = format.options.defaultFPS }
             if !format.options.heights.contains(height) { height = format.options.defaultHeight }
-            normalize()
+            normalize(); persist()
         }
     }
-    @Published public var preset: CompressionPreset = .social { didSet { normalize() } }
+    @Published public var preset: CompressionPreset = .social { didSet { normalize(); persist() } }
     /// GIF only: global-palette high quality pass (default on) and playing once instead of looping.
-    @Published public var gifHighQuality = true
-    @Published public var gifDisableLoop = false
+    @Published public var gifHighQuality = true { didSet { persist() } }
+    @Published public var gifDisableLoop = false { didSet { persist() } }
     /// Quality (0…1) taken from the compression preset; GIF has none.
     public var quality: Double { preset.quality }
     public var options: ExportOptionSet { format.options }
@@ -41,6 +43,8 @@ public final class ExportModel: ObservableObject {
     }
 
     private let engine: ExportEngine
+    var rememberTarget: (context: ExportRememberedSettings.Context, defaults: UserDefaults)?
+    private func persist() { if let t = rememberTarget { rememberedSettings.save(t.context, to: t.defaults) } }
     /// Current microphone clean-up settings (nil = off); read when an export starts.
     public var speechProvider: () -> SpeechEnhancement? = { nil }
     private var task: Task<Void, Never>?
@@ -57,17 +61,23 @@ public final class ExportModel: ObservableObject {
         lastDestination = destination
         failedWithAudio = false
         state = .running(0)
+        queueStatus = .waiting
         let req = makeRequest(destination: destination)
         let engine = engine
         task = Task { [weak self] in
             do {
-                let url = try await engine.run(req) { p in
+                let url = try await engine.run(req, progress: { p in
                     Task { @MainActor in self?.progressed(p) }
-                }
+                }, status: { s in
+                    Task { @MainActor in self?.queueProgressed(s) }
+                })
+                self?.queueStatus = nil
                 self?.state = .done(url)
             } catch is CancellationError {
+                self?.queueStatus = nil
                 self?.state = .cancelled
             } catch {
+                self?.queueStatus = nil
                 self?.failedWithAudio = req.includeAudio
                 self?.state = .failed(error.localizedDescription)
             }
@@ -82,6 +92,7 @@ public final class ExportModel: ObservableObject {
     /// Size and time readout for the current choices (nil when the engine cannot plan them).
     public var estimate: ExportEstimateInfo? { engine.estimate(for: makeRequest(destination: URL(fileURLWithPath: "/dev/null"))) }
 
+    private func queueProgressed(_ s: ExportQueueStatus) { if isRunning, queueStatus != nil { queueStatus = s } }
     private func progressed(_ p: Double) { if case .running = state { state = .running(p) } }
 
     /// After a failed export that included audio: run the same export again without audio to the same file.

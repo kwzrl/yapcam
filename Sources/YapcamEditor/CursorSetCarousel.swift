@@ -31,6 +31,38 @@ extension EditorModel {
     }
 }
 
+extension EditorModel {
+    /// Variant of one cursor type (`cursor.variants.<shape>`); missing = standard.
+    func cursorVariant(_ style: VectorCursorStyle) -> VectorCursorVariant {
+        VectorCursorVariant(rawValue: string("cursor.variants.\(style.shapeID)", default: "standard")) ?? .standard
+    }
+    func setCursorVariant(_ style: VectorCursorStyle, _ v: VectorCursorVariant) {
+        set("cursor.variants.\(style.shapeID)", string: v.rawValue)
+    }
+}
+
+/// Per-type artwork variants (e.g. arrow / pen tip) of the chosen set, each with a small preview.
+struct CursorVariantPicker: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        let recorded = model.selectedCursorSetID() == "original"
+        DisclosureGroup("Cursor type variants") {
+            if recorded {
+                Text("The recorded cursor keeps its captured artwork; variants apply to the authored sets and Touch.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(VectorCursorStyle.allCases, id: \.shapeID) { style in
+                let names = VectorCursorLibrary.variants(for: style)
+                Picker(names.first?.name ?? style.shapeID, selection: Binding(get: { model.cursorVariant(style) },
+                                                                              set: { model.setCursorVariant(style, $0) })) {
+                    ForEach(names) { Text($0.name).tag($0.id) }
+                }
+                .pickerStyle(.segmented).accessibilityLabel("\(names.first?.name ?? style.shapeID) variant")
+            }
+        }
+    }
+}
+
 /// Horizontal carousel of the cursor sets with render's thumbnails.
 struct CursorSetCarousel: View {
     @ObservedObject var model: EditorModel
