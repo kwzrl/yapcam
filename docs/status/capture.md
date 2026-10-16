@@ -1,4 +1,4 @@
-READY ef11c61 + working diff F13 hypothesis-history/PCM fix + explicit AU fallback; 150 capture tests and signed release build pass; native rerun pending
+READY dd39be4 F13 verified by Lead on a7d1526 (signed debug, M4): full-file EN/DE speech; weak filler recall measured; F14 owned by render
 READY 9b0cadc capture LOCAL implementation backlog empty; consumer wiring and native acceptance remain external
 READY 9b0cadc CAP-2/M3 camera sample failure hardening; 136 capture tests + Rust + signed build pass; native gates remain
 READY 9b0cadc CAP-1 per-app system audio + CAP-2 webcam resolution caps; capture tests/signed build pass; full-suite host gate
@@ -18,13 +18,43 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 ## Round 3 speech verification (2026-10-16)
 
-### F13 fix and native rerun handoff
+### F13 native verification complete
 
-Commit **ef11c61 + capture working diff**, debug/release, Mac mini M4 sandbox;
-Lead's native baseline is **main 8bce820**, signed debug, Speech granted. Current
-local capture is based on b9c0b08; Lead checkpoint/rebase is pending. Earlier empty
-`say` / denied-Speech / stale-PID evidence below is historical: Lead generated the
-DE/EN fixtures, granted permission, and stopped the stalled test processes.
+Fix commit **dd39be4**, now integrated; current HEAD/main **a7d1526**. Native
+verification by **Lead**, signed **debug** speech harness, Mac mini M4 host, Speech
+permission granted, on-device recognition, generated English/German clean and
+10 dB SNR noisy files. This verifies file processing; microphone capture remains
+untested (no hardware), and this is not a user-interaction test. No app launched
+by capture. Lead's retained `capture-f13/metrics.json` and `outcomes.json` confirm:
+
+| Language/input | Recognized tokens / reference | WER | Sentence-boundary median / max | Boundary coverage |
+|---|---|---|---|---|
+| en-US clean | 154 / 162 | 9.26% | 70 / 120 ms | 21 / 24 |
+| en-US noisy | 156 / 162 | 9.88% | 45 / 810 ms | 20 / 24 |
+| de-DE clean | 163 / 163 | 8.59% | 50 / 790 ms | 20 / 24 |
+| de-DE noisy | 163 / 163 | 8.59% | 60 / 790 ms | 20 / 24 |
+
+**F13 truncation is verified fixed by Lead.** Counts are lexical tokens; 163/163
+is not 100% accuracy (substitutions/deletions/insertions remain). Timing truth is
+10 ms sentence PCM activity bounds, scored on matched first/last words. Interior
+word timing is not independently aligned; outliers to 810 ms mean a blanket
+±200 ms word-timing guarantee is not established.
+
+**Measured filler limitation:** the shared dictionary finds 0 / 3 candidates in
+English and 1 / 3 in German, clean and noisy. Alignment finds **0 / 3 actual labeled
+hesitations** in each language. German's one candidate is the grammatical **um**
+in **um halb zehn**, not an inserted äh/ähm. Thus the summary "0–1 of 3" is an
+upper bound on candidates, not verified true filler recall. Apple on-device Speech
+omits the intended hesitations here; filler removal is weak even though cut mapping
+works. Do not claim reliable automatic filler cleanup. Editor's locale/context
+false-positive request remains open.
+
+Native actual transcript editing path also passes: word cuts, candidate-filler cuts
+and pause tightening preserve the expected source ranges. English pause cuts: 9
+clean / 8 noisy; German: 6 / 8. Candidate removal being mechanically correct does
+not establish good filler detection. Native AU failure presents the explicit DSP
+alternative message as intended. **F14 DSP quality is assigned to render**; its
+baseline noise/loudness metrics below remain failing evidence, not F13 acceptance.
 
 Root cause in capture: request disabled interim results and discarded every
 non-final callback. A final tail-only hypothesis replaced the request's complete
@@ -46,26 +76,11 @@ signature verification pass (Yapcam Dev Signing); new **debug** F13 speech harne
 also builds/signs/verifies. No app launched by capture. Logs:
 `/tmp/yapcam-capture-f13-{full-tests,app,rust,harness-build}.log`.
 
-Native F13 post-fix acceptance is **pending Lead's rerun**, not claimed pass. The
-injected regression is fixed; native WER/coverage must demonstrate complete files.
-Fresh prepared input-only directory: `~/Movies/Yapcam/QA/speech/capture-f13`.
-New signed debug tool: `~/Movies/Yapcam/QA/speech/capture-f13-tool/Yapcam.app`.
-From capture worktree on the host (helper atomically owns .app-lock and checks apps):
-
-```zsh
-zsh Tests/YapcamCaptureTests/Tools/launch_speech.zsh \
-  "$HOME/Movies/Yapcam/QA/speech/capture-f13-tool/Yapcam.app" \
-  "$HOME/Movies/Yapcam/QA/speech/capture-f13"
-python3 -B Tests/YapcamCaptureTests/Tools/speech_metrics.py \
-  "$HOME/Movies/Yapcam/QA/speech/capture-f13"
-```
-
-Permission is granted; omit `--request-speech`. LaunchServices stdout/stderr and
-outcomes/metrics stay beside the external fixtures. Report native WER, full-file
-coverage and timing residuals before closing F13. Original inputs/results preserved;
-rerun copies use hard links; no recordings enter Git. Completed temporary builds
-are removed by cleanup traps. Use `prepare_speech_rerun.py SOURCE NEW_DEST` for any
-additional run; existing derived packages are intentionally refused.
+Lead completed the native run in `~/Movies/Yapcam/QA/speech/capture-f13` using
+`~/Movies/Yapcam/QA/speech/capture-f13-tool/Yapcam.app`. Reports and media remain
+outside Git; original baseline and rerun inputs are preserved. The guarded
+LaunchServices and metrics commands in the test README reproduce this procedure;
+use a fresh input-only destination for any additional run. No F13 rerun is requested.
 
 #### Measured failing native baseline (before fix)
 
@@ -120,9 +135,9 @@ in render (shared preview/export), **not VoiceIsolationService/AUSoundIsolation*
 No automatic switch/fake Apple enhancement was introduced. The default-chain DSP
 numbers above do not certify either preset's denoising quality.
 
-#### Requests → render / editor / Lead (F13)
+#### Remaining handoffs after F13 verification
 
-- Render: review default DSP at the exact external noisy/dsp.caf files and metric
+- Render: **F14 assigned by Lead**. Review default DSP at the external noisy/dsp.caf files and metric
   JSON above. Noise-only tail gets louder by 9.761 / 11.769 dB after processing;
   SI-SDR drops (includes phase/compression). Lead listen; investigate threshold /
   compression / normalization before claiming noise reduction on 10 dB SNR speech.
@@ -133,9 +148,10 @@ numbers above do not certify either preset's denoising quality.
   fillers would cut the grammatical preposition. Our generated DE fixture has this
   in sentence 2; true labeled hesitations are only the three sentence-leading
   äh/ähm tokens. Add a locale/context regression and avoid this false removal.
-- Lead: checkpoint the capture diff, rebase onto current main, run the two commands
-  above, and append metrics/word coverage. Keep F13 native acceptance open until
-  both languages clean/noisy cover the file. Native AU fallback is ready to verify.
+- Lead: F13 native verification is recorded above and in FEATURES AUD-10 by your
+  explicit request. No capture code change or repeated native run is needed here.
+  Keep reliable filler detection, timing outliers and render's F14 quality work
+  distinct from the resolved truncation defect.
 
 ### Addendum: keyterms and typed errors
 
@@ -233,12 +249,12 @@ app is intentionally retained for Lead under `~/Movies/Yapcam/QA/speech/capture-
 
 1. RESOLVED: Lead stopped the stale capture test/build processes. No additional
    signals are requested. SwiftPM is free; full capture tests and canonical app
-   build now pass. Checkpoint/rebase the remaining F13 diff.
-2. RESOLVED: host fixtures exist and signed-app Speech permission is granted. Do
-   not regenerate/overwrite the baseline. Use the fresh F13 rerun commands above.
-3. Native accuracy/listening/offline acceptance remains open. Use the measurement
-   script on the new F13 run, then repeat offline on another fresh input-only copy
-   once F13 is verified. No networking/TCC settings were changed here.
+   build pass, F13 is integrated and capture is rebased onto main a7d1526.
+2. RESOLVED: host fixtures exist, Speech permission is granted, and Lead verified
+   F13 natively. Preserve the native reports; no repeat run requested.
+3. Accuracy/filler/timing limits are measured above. Render owns F14 and listening
+   acceptance; a network-disconnected recognition run remains separate. No network
+   or TCC settings were changed here.
 4. Lead review the shared request-policy refactor before merging. Optionally exclude
    `Tools` from SwiftPM's test target to silence unhandled-script resource warnings
    (Package.swift is outside capture ownership). No production dependency was added.
@@ -1071,14 +1087,15 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next
-F13 implementation/regression fix is ready for native recheck. Lead: run the signed
-debug harness on the prepared capture-f13 inputs, then the metrics command above.
-Post-fix WER/full-file coverage/timing and listening are pending; capture will fix
-any remaining native finding. Render/Editor requests are listed in the F13 section.
+No remaining F13 capture implementation or verification task: Lead verified the
+fix natively and AUD-10 is updated. Render owns F14 DSP quality; editor owns the
+German filler false-positive handoff. Reliable filler detection and strict word
+alignment remain limited by the measured results. Address new capture findings
+or a concrete assignment; no repeat build/native run for this documentation update.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint this status refresh and rebase capture c86f263 onto main 66d4166
-   (Git remains read-only here). UI reports isolation fixed; consume the capture
+1. Lead: checkpoint this native verification/status update. Capture is already
+   rebased onto main a7d1526 (Git metadata remains read-only here). UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
    event marker query/TimelineMarker and editor presentation/snapping are complete;
    UI marker forwarding is the remaining implementation step. Lead: document public capture additions/optional derived UI sidecar in
