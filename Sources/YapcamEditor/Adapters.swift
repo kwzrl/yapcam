@@ -315,10 +315,21 @@ struct RenderExportEngine: ExportEngine {
         return ExportEstimateInfo(width: e.width, height: e.height, bytes: e.totalBytes, renderSeconds: e.renderSeconds)
     }
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
+        try await run(request, progress: progress, status: { _ in })
+    }
+    func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void,
+             status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL {
         let settings = Self.settings(for: request)
         return try await AtomicExport.run(to: request.destination) { temp in
             let exporter = try Exporter(project: source, settings: settings, destination: temp)
-            return try await exporter.run(progress: progress)
+            return try await exporter.run(progress: progress, status: { phase in
+                switch phase {
+                case .waiting: status(.waiting)
+                case .preparing: status(.preparing)
+                case .rendering: status(.rendering)
+                case .completed, .cancelled, .failed: break
+                }
+            })
         }
     }
 }

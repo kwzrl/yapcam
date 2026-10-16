@@ -252,7 +252,7 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let doc = try EditorDocument(package: d)
         let lib = try doc.project.query("{\"q\":\"cursor_library\"}", as: Library.self)
-        #expect(cursorSets.map(\.value) == lib.sets.map(\.id))
+        #expect(VectorCursorLibrary.catalog.map(\.id) == lib.sets.map(\.id))   // render catalog and core accept the same ids
         #expect(cursorShapes.map(\.value) == lib.shapes)
         #expect(cursorSizes.map(\.value) == lib.logicalSizes.map(\.id))
     }
@@ -261,7 +261,7 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let doc = try EditorDocument(package: d); let m = doc.model
         let choices = m.cursorSetChoices()
-        #expect(choices.count >= 13 - 2)   // original (recorded) + every authored set core accepts
+        #expect(choices.map(\.id) == VectorCursorLibrary.catalog.map(\.id))   // original, touch and all 12 authored sets
         #expect(choices.first?.id == "original")
         for c in choices { m.chooseCursorSet(c); #expect(m.lastError == nil); #expect(m.selectedCursorSetID() == c.id) }
         let paper = try #require(choices.first { $0.id == "paper" })
@@ -272,16 +272,31 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(try EditorDocument(package: d).model.selectedCursorSetID() == "paper")
     }
 
+    @Test func variantsAreStoredPerTypeOneUndoStepAndSurviveReopen() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d); let m = doc.model
+        for style in VectorCursorStyle.allCases {
+            #expect(m.cursorVariant(style) == .standard)
+            m.setCursorVariant(style, .alternate); #expect(m.lastError == nil)
+            #expect(m.cursorVariant(style) == .alternate)
+        }
+        m.undo(); #expect(m.cursorVariant(.notAllowed) == .standard); #expect(m.cursorVariant(.pointer) == .alternate)
+        m.setCursorVariant(.pointer, .standard); m.setCursorVariant(.text, .alternate)
+        try doc.project.save()
+        let re = try EditorDocument(package: d).model
+        #expect(re.cursorVariant(.text) == .alternate); #expect(re.cursorVariant(.pointer) == .standard)
+    }
+
     @Test func selectionsReachTheRenderConfigurationAndInvalidateTheCache() throws {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let doc = try EditorDocument(package: d); let m = doc.model
         let source = ProjectRenderSource(doc.project)
         let size = CGSize(width: 1920, height: 1080)
         var cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
-        // New projects start with the authored "classic" palette, older ones with the recorded cursor artwork.
+        // New projects start with the recorded ("original") cursor, older ones with null (also recorded).
         var baseSet: String? = nil; if case .string(let s)? = m.value("cursor.set_id") { baseSet = s }
         #expect(cfg.cursorSetID == baseSet && cfg.cursorSize == .regular)
-        if m.defaultsRevision >= 1 { #expect(baseSet == "classic") } else { #expect(baseSet == nil) }
+        if m.defaultsRevision >= 1 { #expect(baseSet == "original") } else { #expect(baseSet == nil) }
         m.set("cursor.set_id", string: "lagoon"); m.set("cursor.logical_size", string: "large"); m.set("cursor.shape", string: "text")
         #expect(m.lastError == nil, "\(m.lastError ?? "")")
         cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
@@ -305,5 +320,54 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         m.set("cursor.set_id", string: "nope"); #expect(m.lastError != nil && m.value("cursor.set_id") == setBefore)
         m.lastError = nil
         m.set("cursor.logical_size", string: "huge"); #expect(m.lastError != nil && m.string("cursor.logical_size") == "regular")
+    }
+}
+
+@MainActor @Suite struct ExportQueueAndRememberedTests {
+    private final class Gate: @unchecked Sendable { var statuses: [ExportQueueStatus] = [] }
+    private struct StubEngine: ExportEngine {
+        let gate: Gate
+        func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL { request.destination }
+        func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void,
+                 status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL {
+            status(.waiting); status(.preparing); status(.rendering); progress(0.5)
+            return request.destination
+        }
+    }
+
+    @Test func queuePhasesReachTheModelAndClearWhenDone() async throws {
+        let m = ExportModel(engine: StubEngine(gate: Gate()))
+        m.start(to: URL(fileURLWithPath: "/tmp/x.mp4"))
+        #expect(m.queueStatus == .waiting)
+        await m.waitUntilFinished()
+        #expect(m.queueStatus == nil)
+        if case .done = m.state {} else { Issue.record("expected done, got \(m.state)") }
+    }
+
+    @Test func realExportFinishesAndClearsTheQueueStatus() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("q-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: out) }
+        doc.export.format = .gif; doc.export.height = doc.export.options.heights.min() ?? 480
+        doc.export.start(to: out.appendingPathComponent("a.gif"))
+        await doc.export.waitUntilFinished()
+        if case .done = doc.export.state {} else { Issue.record("export did not finish: \(doc.export.state)") }
+        #expect(doc.export.queueStatus == nil)
+    }
+
+    @Test func dialogAndQuickExportRememberSeparately() throws {
+        let suite = "yapcam.test.\(UUID().uuidString)"; let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let a = ExportModel(engine: StubEngine(gate: Gate())); a.remember(in: .dialog, defaults: defaults)
+        a.format = .gif; a.gifDisableLoop = true
+        let q = ExportModel(engine: StubEngine(gate: Gate())); q.remember(in: .quick, defaults: defaults)
+        #expect(q.format == .mp4h264 && !q.gifDisableLoop)          // quick export did not inherit the dialog's choices
+        q.format = .mp4hevc; q.height = q.options.heights.min()!
+        let a2 = ExportModel(engine: StubEngine(gate: Gate())); a2.remember(in: .dialog, defaults: defaults)
+        #expect(a2.format == .gif && a2.gifDisableLoop)
+        let q2 = ExportModel(engine: StubEngine(gate: Gate())); q2.remember(in: .quick, defaults: defaults)
+        #expect(q2.format == .mp4hevc && q2.height == q.height)
     }
 }

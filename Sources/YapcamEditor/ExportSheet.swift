@@ -13,7 +13,14 @@ struct ExportSheet: View {
             switch export.state {
             case .idle, .cancelled: settings
             case .running(let p):
-                ProgressView(value: p) { Text("Exporting… \(Int(p * 100))%") }
+                switch export.queueStatus {
+                case .waiting?:
+                    ProgressView { Text("Waiting for another export to finish…") }
+                case .preparing?:
+                    ProgressView { Text("Preparing the export…") }
+                default:
+                    ProgressView(value: p) { Text("Rendering… \(Int(p * 100))%") }
+                }
                 HStack { Spacer(); Button("Cancel") { export.cancel() }.keyboardShortcut(.cancelAction) }
             case .done(let url):
                 Label("Export finished", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
