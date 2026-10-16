@@ -1,4 +1,5 @@
 import AppKit
+import YapcamEditor
 import UniformTypeIdentifiers
 import YapcamCore
 
@@ -34,8 +35,20 @@ import YapcamCore
         let dest = url.deletingLastPathComponent().appending(path: "\(clean).yapcam", directoryHint: .isDirectory)
         guard dest != url else { return url }
         guard !FileManager.default.fileExists(atPath: dest.path) else { throw EngineError.failed("A recording named “\(clean)” already exists.") }
+        closeEditor(showing: url)
         try FileManager.default.moveItem(at: url, to: dest)
         return dest
+    }
+
+    /// An editor showing this package holds its path and would save to the old location: close it (it saves
+    /// on close) before the package is renamed or trashed.
+    static func closeEditor(showing package: URL) {
+        if EditorWindows.isOpen(package: package) { EditorWindows.close(package: package) }
+    }
+
+    static func trash(_ url: URL) throws {
+        closeEditor(showing: url)
+        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
     }
 
     static func duplicate(_ url: URL) throws -> URL {
@@ -65,11 +78,20 @@ import YapcamCore
         return url
     }
 
+    /// Opens the package's project, or creates it. A newly created project starts from the preset marked
+    /// "use as default for new projects" (applied before anything else edits it), so a fresh recording, a quick
+    /// export and an import all get the same look as one opened first in the editor.
+    static func openOrCreateProject(_ package: URL) throws -> Project {
+        if FileManager.default.fileExists(atPath: package.appending(path: "project.json").path) { return try Project.open(package: package) }
+        let project = try Project.create(package: package)
+        EditorPresets.applyDefaultPreset(to: project)
+        return project
+    }
+
     /// Stores speaker notes in a freshly recorded package (creates project.json if needed).
     static func attachNotes(_ notes: String, to package: URL) throws {
         let fm = FileManager.default
-        let project = fm.fileExists(atPath: package.appending(path: "project.json").path)
-            ? try Project.open(package: package) : try Project.create(package: package)
+        let project = try openOrCreateProject(package)
         try project.apply(.set(path: "notes", value: .string(notes)))
         try project.save()
     }
@@ -107,7 +129,8 @@ import YapcamCore
             defer { release(pkg) }
             do {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                _ = try await Project.importVideo(video, package: pkg)
+                let imported = try await Project.importVideo(video, package: pkg)
+                if EditorPresets.applyDefaultPreset(to: imported) { try? imported.save() }
                 RecordingController.shared.engine.openEditor(package: pkg)
             } catch {
                 // Never delete here: `importVideo` removes only what it created itself, and

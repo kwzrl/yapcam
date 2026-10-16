@@ -26,6 +26,7 @@ import YapcamEditor
             if case .failed(let e) = inner.state { return LiveEngine.map(e) }
             return nil
         }
+        var packageURL: URL? { inner.packageURL }
         func start() async throws { do { try await inner.start() } catch { throw LiveEngine.map(error) } }
         func pause() async throws { do { try await inner.pause() } catch { throw LiveEngine.map(error) } }
         func resume() async throws { do { try await inner.resume() } catch { throw LiveEngine.map(error) } }
@@ -50,12 +51,21 @@ import YapcamEditor
 
     func makeSession(_ options: UIRecordingOptions) -> EngineSession { Session(options) }
 
+    private static var registered: Set<ObjectIdentifier> = []
+
     func registerExcluded(_ window: NSWindow) {
+        Self.registered.insert(ObjectIdentifier(window))
         CaptureExclusions.register(window)
         // The window number only exists once the window server knows the window.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { CaptureExclusions.register(window) } }
+        // Weak, and only while still registered and on screen: an overlay closed within 0.5 s must not be re-added.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak window] in
+            MainActor.assumeIsolated { if let window, window.isVisible, Self.registered.contains(ObjectIdentifier(window)) { CaptureExclusions.register(window) } }
+        }
     }
-    func unregisterExcluded(_ window: NSWindow) { CaptureExclusions.unregister(window) }
+    func unregisterExcluded(_ window: NSWindow) {
+        Self.registered.remove(ObjectIdentifier(window))
+        CaptureExclusions.unregister(window)
+    }
 
     func openEditor(package: URL) {
         EditorWindows.open(package: package)

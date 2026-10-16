@@ -31,9 +31,13 @@ private struct SelectableRow<Content: View>: View {
 
 /// Starts the area overlay right away (Area button); the chosen rectangle is saved in settings.
 @MainActor enum AreaPicker {
-    static func begin() {
-        SourceOverlay.shared.hide()
+    /// `onDisplay`: a given display (adjusting a window as area). Otherwise the display under the pointer,
+    /// like the display overlay, so every display can be recorded as an area.
+    static func begin(onDisplay: UInt32? = nil) {
+        SourceOverlay.shared.hide(restoreFocus: false)
         let settings = AppSettings.shared
+        if let onDisplay { settings.areaDisplayID = onDisplay }
+        else if let id = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })?.displayID { settings.areaDisplayID = id }
         if Displays.info(for: settings.areaDisplayID) == nil { settings.areaDisplayID = Displays.resolve(0)?.id ?? 0 }
         guard let screen = Displays.screen(for: settings.areaDisplayID) ?? NSScreen.main else { return }
         let keep = settings.areaDisplayID == screen.displayID ? settings.areaRect : nil

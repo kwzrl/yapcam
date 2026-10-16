@@ -8,15 +8,18 @@ import SwiftUI
     private var window: AreaOverlayWindow?
     private var done: ((CGRect?) -> Void)?
     private var keyMonitor: Any?
+    private var screenObserver: Any?
 
     var isActive: Bool { window != nil }
     func cancelForTesting() { end(nil) }
+    /// Start with the current rectangle (Return, or the Start/Stop shortcut while the overlay is up).
+    func commit() { (window?.contentView as? AreaOverlayView)?.confirm() }
     /// Presses Start recording exactly as Return does (self-tests).
     func confirmForTesting() { (window?.contentView as? AreaOverlayView)?.confirm() }
     var debugContentView: NSView? { window?.contentView }
 
     func begin(on screen: NSScreen, initial: CGRect?, completion: @escaping (CGRect?) -> Void) {
-        end(nil)
+        end(nil, restoreFocus: false)
         done = completion
         let w = AreaOverlayWindow(screen: screen)
         let view = AreaOverlayView(frame: CGRect(origin: .zero, size: screen.frame.size))
@@ -29,11 +32,16 @@ import SwiftUI
         w.makeFirstResponder(view)
         // Return starts (unless a number field is being edited), Esc cancels: whatever has focus.
         keyMonitor = OverlayKeys.install(start: { [weak view] in view?.confirm() }, cancel: { [weak view] in view?.onFinish?(nil) })
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.end(nil) }
+        }
     }
 
-    private func end(_ rect: CGRect?) {
+    func end(_ rect: CGRect?, restoreFocus: Bool = true) {
         OverlayKeys.remove(keyMonitor); keyMonitor = nil
+        if let o = screenObserver { NotificationCenter.default.removeObserver(o); screenObserver = nil }
         guard let w = window else { return }
+        if restoreFocus { OverlayFocus.restore() }
         RecordingController.shared.engine.unregisterExcluded(w)
         w.orderOut(nil)
         window = nil

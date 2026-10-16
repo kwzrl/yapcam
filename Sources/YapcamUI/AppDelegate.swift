@@ -20,6 +20,7 @@ import YapcamEditor
     private var recordingObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.global(qos: .utility).async { QuickExport.pruneCache() }
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--probe-record") {
             let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
@@ -127,6 +128,20 @@ import YapcamEditor
             Task { @MainActor in
                 await RecordingController.shared.cancelAndWait()
                 NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        }
+        // Stop pressed (or recording still starting) and then Quit: let the capture layer finish writing and the
+        // markers/notes be stored; give up after a few seconds so Quit can never hang.
+        let phase = RecordingController.shared.phase
+        if phase == .starting || phase == .finishing {
+            let replied = OnceFlag()
+            Task { @MainActor in
+                await RecordingController.shared.settle()
+                if replied.take() { NSApp.reply(toApplicationShouldTerminate: true) }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+                if replied.take() { NSApp.reply(toApplicationShouldTerminate: true) }
             }
             return .terminateLater
         }
@@ -283,4 +298,11 @@ extension AppDelegate: NSMenuItemValidation {
         default: return true
         }
     }
+}
+
+/// First caller wins; used to answer the terminate request exactly once.
+final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken = false
+    func take() -> Bool { lock.lock(); defer { lock.unlock() }; if taken { return false }; taken = true; return true }
 }
