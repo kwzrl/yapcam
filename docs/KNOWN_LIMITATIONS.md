@@ -1,62 +1,55 @@
-# Known limitations (2026-10-15, main 3b68bde)
+# Known limitations (release candidate 0.9.0, 2026-10-16)
 
-Honest list of what was **not** verified or **not** built. Details per row: `docs/FEATURES.md`.
+Honest list of what was **not** verified or is **not** built. Details per row: `docs/FEATURES.md`;
+test evidence: `docs/TEST_REPORT.md` (section "Round 3"). Earlier states are under "History" below.
 
-## Hardware and environment
-- **No camera, no microphone.** Camera/mic recording code exists; only the "no device" and
-  simulated "device lost" paths are tested. Camera matting/face framing run on synthetic input.
-  Real devices: open.
-- **One non-Retina 1680x1050 display.** Retina scale and multi-display behaviour verified by
-  math/unit tests only.
-- **iPhone/iPad recording**: not tested (no device); only window capture of an iPhone Mirroring
-  window could work.
-- Performance numbers are from synthetic, low-resolution sources: export 1080p 4.7x, 4K 1.9x
-  realtime; 10-min export with audio 4.4x (A/V offset <0.05 ms, RSS 137 MB); 30-min soak 2.2x
-  (no leak); preview ~58 fps. Real 1080p/4K screen recordings and thermal behaviour are unmeasured.
+## Not tested by real use
+- **No real mouse/keyboard acceptance.** Round 3 ended without real-input tests (user decision): the
+  QA input driver never received Accessibility / Screen Recording permission. Every "verified live"
+  row was checked with the signed app's own self-test flags or events posted from inside the app, and
+  the exported files were checked outside the app. Not exercised by a person: dragging an area, zoom
+  bars and trim handles with the mouse, inspector sliders, recent-projects list, Cmd-Q + relaunch.
+- **Permission loss during recording**, **VoiceOver** and an accessibility audit: not done (same reason).
+- **Side-by-side comparison with Screen Studio 4.0.4** (zoom timing, cursor feel, sharpness): not done.
 
-## Live capture
-All permissions are granted now and live capture was verified (docs/TEST_REPORT.md section 4). Open: **window recordings cannot be opened in core (F9, `display_name`)**. Still unverified: physical mouse clicking in the toolbar/editor (self-tests call the same actions), real camera/mic, Retina/multi-display. The paragraph below is the historical limitation before the grant.
+## Hardware not available
+Mac mini M4, one non-Retina 1680×1050 display, no camera, no microphone, no second Mac.
+- **Camera and microphone:** code exists and is tested with injected/simulated devices only (device
+  choice, max camera resolution, overlay/cutout/split, matting, face framing, mic levels, device
+  unplugged mid-recording, pre-flight prompts). Speech processing was tested with generated German and
+  English speech *files*, not a microphone.
+- **Retina and multiple displays:** coordinate math is unit-tested (non-zero origins, mixed scales);
+  never run on such hardware.
+- **iPhone/iPad over USB:** capture API exists; the toolbar entry stays hidden until a real device has
+  been tested (user decision). Device frames for such recordings (reference: ~148 mockups) are not built.
+- **First install on a clean Mac:** not done; the release package was only launched on the build Mac,
+  which already holds Yapcam's permissions.
 
-## Live capture not verified (TCC, historical)
-- macOS Screen Recording was not re-granted for the `Yapcam Dev Signing` build, so every real
-  `ScreenCaptureKit` run fails with -3801. Unverified live: display/window/area capture,
-  pause/resume on real streams, system-audio capture, event-tap cursor/click capture,
-  exclusion of Yapcam's own windows, countdown/HUD timing, global hotkeys driving a real
-  recording, recovery after kill -9, the 10-minute A/V sync test, export-vs-preview diff on a
-  real capture. These are covered only by unit tests with injected services and by the
-  synthetic fixture pipeline (Tests/E2E).
-- Interactive UI (mouse on toolbar, area selector, editor timeline gestures) was checked via
-  snapshots and model tests, not by real clicking.
+## Distribution
+- The 0.9.0 package is signed with the local self-signed identity "Yapcam Dev Signing" and is **not
+  notarized** (notarization prepared only, by user decision). Other Macs will show a Gatekeeper
+  warning; see docs/RELEASE.md for the Developer ID + notarization steps.
 
-## Reference (Screen Studio) fidelity
-Update 2026-10-15 afternoon: the user extracted the bundle and a gap list/spec was produced. FEATURES.md section L folds it in (57 reference-gap rows, all with status and owner); numbers below marked 'TBD' are now mostly known and tracked there. The sentences that follow describe the earlier, limited analysis.
+## Quality limits measured in round 3
+- **Captions:** Apple on-device speech, measured on generated speech files: German WER 8.6 %, English
+  9.3–9.9 %. Apple's recogniser drops most filler words ("äh", "um"), so "Remove filler words" finds few.
+- **Speech clean-up** is classic DSP (no ML model): on 10 dB-SNR speech it raises SI-SDR to ~15.5 dB and
+  lowers noise in pauses by 30–34 dB. Not judged by ear on real microphone speech.
+- **4K:** no 4K capture possible here; 4K numbers use a synthetic 3840×2160 60 fps HEVC source.
+  Random seeking in that source and 4K60 export speed are tracked as F17/F18 (TEST_REPORT).
 
-- REA analysis of the Electron app was limited (resource limit; truncated graph; obfuscated
-  strings; extraction not allowed). Reference behaviour is therefore from official guides,
-  the asset/binary inventory and assumptions. **No [observed] rows**; exact defaults, slider
-  ranges, preset numbers and animation curves are Yapcam choices, not matched values.
-  Observation with the user is scheduled for the morning.
-- Guide wording conflicts left open (cursor animation preset names).
+## Not implemented / partial (see FEATURES.md "partial")
+- Device frames (GAP-RND-10, see above); recording-engine choice is shown read-only (GAP-UI-9).
+- Cloud features (links, comments, accounts, payments, telemetry, auto-update) are out of scope by the
+  user's decision; Loom-style sharing is prepared architecturally only.
+- GIF has no audio (format limit).
 
-## Not implemented / partial
-- Cursor sets: original vector cursors with a core catalog and editor palette/shape/size picker
-  (CUR-06); no large collection like the reference's ~24 sets.
-- Cloud features (links, comments, accounts, payments, telemetry, auto-update) are out of
-  scope by design.
-- Intro/outro: fade (and modes added by editor); no scene-transform library.
-- Speech enhancement is classic DSP (high-pass, noise reduction, compressor, loudness), not an
-  ML model; quality on real noisy speech unverified. Captions rely on Apple on-device Speech;
-  availability depends on system language packs; real host check pending.
-- Native AAC decoding for silence detection is unavailable in restricted sandboxes (explicit
-  error); PCM verified.
-- GIF: no audio; very short frame delays may be clamped by viewers.
-- Third-party notices exist (docs/THIRD_PARTY_NOTICES.md) but are not yet bundled into the app (planned, ui/Lead).
+## Process notes
+- Codex-team worktrees cannot write `.git`; Lead commits their work, so history contains
+  "checkpoint (committed by Lead …)" commits. Public history is not rewritten.
+- Metal/ffprobe test suites only run outside sandboxes (`YAPCAM_REQUIRE_RENDER_HARDWARE=1` for strict).
 
-## Process limits
-- Codex-team worktrees could not write `.git`; Lead committed their work, so history has
-  "checkpoint" commits. Branch `team/qa` is rebased on main and needs fetching from the
-  worktree rather than pushing (non-fast-forward after rebase).
-- Test suites that need Metal/ffprobe only run outside the sandbox (strict mode:
-  `YAPCAM_REQUIRE_RENDER_HARDWARE=1`).
-
-Setup/build requirements: docs/SETUP.md (macOS 15+, Apple Silicon, Xcode 26, Rust stable; `xcode-select -s` needs sudo, done by the user).
+## History
+- 2026-10-15: live capture was blocked until Screen Recording was re-granted for the
+  `Yapcam Dev Signing` build (resolved 10:25). F9 (window recordings could not be opened) was fixed
+  on badc4e4. REA analysis of the reference was limited until the user extracted the bundle locally.
