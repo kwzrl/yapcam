@@ -5,6 +5,34 @@ import CoreVideo
 @testable import YapcamRender
 
 final class FrameSourceTests: XCTestCase {
+    func testColdSeekAcrossLongVFRGapUsesTrueNearestPresentationTime() async throws {
+        let device=try requireRenderDevice()
+        let url=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-vfr-gap-\(UUID().uuidString).mov")
+        defer { print("Cleanup render-owned gap fixture: \(url.lastPathComponent)"); try? FileManager.default.removeItem(at: url) }
+        try await writeSparseVideo(to: url,times: [0,200_000_000,4_000_000_000])
+        var cache: CVMetalTextureCache?
+        XCTAssertEqual(CVMetalTextureCacheCreate(nil,nil,device,nil,&cache),kCVReturnSuccess)
+        let source=try FrameSource(url: url,cache: XCTUnwrap(cache))
+        // Starting at target-1s clips the covering .2s sample to 2s, which
+        // incorrectly appears nearer than 4s. Retain its real presentation time.
+        let result=try source.frame(atNs: 3_000_000_000)
+        XCTAssertEqual(result.time.seconds,4,accuracy: 0.000001)
+        XCTAssertLessThanOrEqual(source.decodedFrameCount,2)
+    }
+    func testColdSeekEmitsOnlyTheNearestNeighboursInsteadOfOneSecondOfPreroll() throws {
+        let device=try requireRenderDevice()
+        let url=URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/synthetic/basic.yapcam/recording/seg-000/screen.mov")
+        var cache: CVMetalTextureCache?
+        XCTAssertEqual(CVMetalTextureCacheCreate(nil,nil,device,nil,&cache),kCVReturnSuccess)
+        for ns: Int64 in [0,400_000_000,1_001_000_000,2_611_000_000,2_999_999_999] {
+            let source=try FrameSource(url: url,cache: XCTUnwrap(cache))
+            let result=try source.frame(atNs: ns)
+            XCTAssertLessThanOrEqual(abs(result.time.seconds-Double(ns)/1e9),1/30.0+0.000001)
+            XCTAssertLessThanOrEqual(source.decodedFrameCount,2,"A precise sample start must not emit 30-60 unused frames")
+            XCTAssertEqual(source.readerStartCount,1)
+        }
+    }
     func testSparseStaticTailReusesReaderAndBackwardScrubStillDecodes() async throws {
         let device=try requireRenderDevice()
         let url=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-static-tail-\(UUID().uuidString).mov")
@@ -45,7 +73,7 @@ final class FrameSourceTests: XCTestCase {
         XCTAssertEqual(scrubbed.texture.width,64)
     }
 
-    private func writeSparseVideo(to url: URL) async throws {
+    private func writeSparseVideo(to url: URL,times: [Int64] = [0,200_000_000]) async throws {
         let writer=try AVAssetWriter(outputURL: url,fileType: .mov)
         let input=AVAssetWriterInput(mediaType: .video,outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,AVVideoWidthKey: 64,AVVideoHeightKey: 48
@@ -59,7 +87,7 @@ final class FrameSourceTests: XCTestCase {
         guard writer.startWriting() else { throw RenderError.decode(writer.error?.localizedDescription ?? "Sparse fixture writer failed") }
         writer.startSession(atSourceTime: .zero)
         defer { if writer.status == .writing { writer.cancelWriting() } }
-        for (index,ns) in [Int64(0),200_000_000].enumerated() {
+        for (index,ns) in times.enumerated() {
             let deadline=ContinuousClock.now.advanced(by: .seconds(5))
             while !input.isReadyForMoreMediaData {
                 guard writer.status == .writing, ContinuousClock.now<deadline else { throw RenderError.decode("Sparse fixture writer stalled") }
@@ -72,7 +100,7 @@ final class FrameSourceTests: XCTestCase {
             let bytes=try XCTUnwrap(CVPixelBufferGetBaseAddress(pixelBuffer)).assumingMemoryBound(to: UInt8.self)
             for y in 0..<48 { for x in 0..<64 {
                 let offset=y*CVPixelBufferGetBytesPerRow(pixelBuffer)+x*4
-                bytes[offset]=0; bytes[offset+1]=index==0 ? 0 : 255
+                bytes[offset]=index==2 ? 255 : 0; bytes[offset+1]=index==1 ? 255 : 0
                 bytes[offset+2]=index==0 ? 255 : 0; bytes[offset+3]=255
             } }
             CVPixelBufferUnlockBaseAddress(pixelBuffer,[])

@@ -75,6 +75,7 @@ import YapcamCore
     func execute() async throws {
         guard let device=MTLCreateSystemDefaultDevice() else { throw RenderError.metal("Metal unavailable in signed LaunchServices runner") }
         sourceInfo["device"]=device.name
+        sourceInfo["video_pipeline_depth"]=config.videoPipelineDepth ?? 2
         if config.mode=="probe" { return }
         guard config.previewSeconds>0,config.previewSeconds<=60,config.soakSeconds>=0,config.soakSeconds<=1800,
               config.scrubSamples>0,config.scrubSamples<=200 else { throw RenderError.invalidSettings("Invalid Round3 run limits") }
@@ -185,10 +186,10 @@ import YapcamCore
             player.pause()
             let fps=Double(view.presentations.total-presented)/elapsed
             let first=rows.prefix(max(1,rows.count/4)), last=rows.suffix(max(1,rows.count/4))
-            let earlyRSS=first.compactMap { ($0["rss_bytes"] as? UInt64).map(Double.init) }
-            let lateRSS=last.compactMap { ($0["rss_bytes"] as? UInt64).map(Double.init) }
+            let earlyRSS=first.compactMap { $0["rss_bytes"] as? UInt64 }
+            let lateRSS=last.compactMap { $0["rss_bytes"] as? UInt64 }
             let peak=rows.compactMap { $0["rss_bytes"] as? UInt64 }.max() ?? 0
-            let growth=(Round3Data.percentile(lateRSS,0.5) ?? 0)-(Round3Data.percentile(earlyRSS,0.5) ?? 0)
+            let growth=Round3Data.rssMedianGrowth(early: earlyRSS,late: lateRSS)
             try write("\(name)-\(height)",["height":height,"width":height*16/9,"elapsed_s":elapsed,
                 "presented_fps":fps,"completed_fps":Double(final.renderedFrames-baseline.renderedFrames)/elapsed,
                 "dropped_submissions":final.droppedFrames-baseline.droppedFrames,
@@ -245,7 +246,7 @@ import YapcamCore
             if height==1080 { published=output; publishedHash=try Round3Data.hash(output) }
         }
         let cancelled=work.appendingPathComponent("cancelled.mp4")
-        let exporter=try Exporter(project: source,settings: settings(2160,end: end),destination: cancelled)
+        let exporter=try Exporter(project: source,settings: settings(2160,end: end),destination: cancelled,videoPipelineDepth: config.videoPipelineDepth ?? 2)
         let cancel=Round3Cancellation()
         let task=Task { try await exporter.run { cancel.progress($0) } }
         cancel.attach(task)
@@ -263,7 +264,7 @@ import YapcamCore
         .init(format: .mp4,codec: .hevc,outputHeight: height,fps: 60,includeAudio: true,rangeStartNs: 0,rangeEndNs: end,compression: .social)
     }
     private func oneExport(_ source: any RenderProjectSource,height: Int,end: Int64,output: URL,label: String) async throws {
-        let exporter=try Exporter(project: source,settings: settings(height,end: end),destination: output)
+        let exporter=try Exporter(project: source,settings: settings(height,end: end),destination: output,videoPipelineDepth: config.videoPipelineDepth ?? 2)
         let task=Task { try await exporter.run { _ in } }
         var samples: [[String:Any]]=[]
         let start=CACurrentMediaTime()
@@ -282,7 +283,9 @@ import YapcamCore
         guard !audio.isEmpty,abs(duration-Double(end)/1e9)<=1.0/60+0.005,let metrics=exporter.metrics else {
             throw RenderError.verification("Export verification failed duration/audio check")
         }
+        let stageEncoder=JSONEncoder(); stageEncoder.keyEncodingStrategy = .convertToSnakeCase
         try write(label,["height":height,"width":height*16/9,"media_seconds":metrics.mediaSeconds,
+            "video_stages":try JSONSerialization.jsonObject(with: stageEncoder.encode(exporter.videoDiagnostics)),
             "elapsed_s":metrics.elapsedSeconds,"x_realtime":metrics.mediaSeconds/metrics.elapsedSeconds,
             "sampled_peak_rss_bytes":samples.compactMap { $0["rss_bytes"] as? UInt64 }.max() ?? 0,
             "process_lifetime_peak_rss_bytes":try Round3Data.processPeak(),"thermal_samples":samples,

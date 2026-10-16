@@ -4,6 +4,13 @@ import YapcamCore
 @testable import YapcamRender
 
 final class Round3PerformanceTests: XCTestCase {
+    func testRSSGrowthNumericallyConvertsByteCountsAndRetainsSign() {
+        let mib: UInt64=1_048_576
+        let early=[511*mib,512*mib,513*mib]
+        XCTAssertEqual(Round3Data.rssMedianGrowth(early: early,late: [514*mib,513*mib,512*mib]),Double(mib))
+        XCTAssertEqual(Round3Data.rssMedianGrowth(early: early,late: [512*mib,510*mib,511*mib]),-Double(mib))
+        XCTAssertEqual(Round3Data.rssMedianGrowth(early: early,late: early),0)
+    }
     func testLongConstantAudioKeepsOneRampPerCoreInterval() throws {
         let root=try audioFixture()
         defer { cleanup(root) }

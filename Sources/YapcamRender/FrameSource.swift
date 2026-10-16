@@ -32,8 +32,9 @@ final class FrameSource {
     private let capacity = 4
     // Internal diagnostic for sparse-tail/scrubbing regression tests.
     private(set) var readerStartCount = 0
+    private(set) var decodedFrameCount = 0
     init(url: URL, cache: CVMetalTextureCache) throws {
-        asset = AVURLAsset(url: url)
+        asset = AVURLAsset(url: url,options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         guard let track = asset.tracks(withMediaType: .video).first else { throw RenderError.decode("No video track in \(url.lastPathComponent)") }
         self.track = track; self.cache = cache; preferredTransform=track.preferredTransform
         let end=track.timeRange.end
@@ -49,9 +50,8 @@ final class FrameSource {
         o.alwaysCopiesSampleData = false
         guard r.canAdd(o) else { throw RenderError.decode("Cannot add video reader output") }
         r.add(o)
-        // Start one second before the desired sample so both nearest neighbours are available.
-        let start = max(0, time.seconds - 1)
-        r.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 1_000_000_000), duration: .positiveInfinity)
+        let start=VideoSeekStart.time(asset: asset,track: track,requested: time)
+        r.timeRange = CMTimeRange(start: start, duration: .positiveInfinity)
         guard r.startReading() else { throw RenderError.decode(r.error?.localizedDescription ?? "Video reader failed") }
         reader = r; output = o; frames.removeAll(); exhausted = false
         readerStartCount += 1
@@ -72,6 +72,7 @@ final class FrameSource {
                 exhausted = true; break
             }
             guard let buffer = CMSampleBufferGetImageBuffer(sample) else { throw RenderError.decode("Video sample has no pixel buffer") }
+            decodedFrameCount += 1
             frames.append(try TextureFrame(buffer: buffer, cache: cache, time: CMSampleBufferGetPresentationTimeStamp(sample),transform: preferredTransform))
             if frames.count > capacity { frames.removeFirst() }
         }

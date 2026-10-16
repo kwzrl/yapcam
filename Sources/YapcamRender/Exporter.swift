@@ -6,17 +6,32 @@ import ImageIO
 import UniformTypeIdentifiers
 import VideoToolbox
 
+private final class PendingExportFrame {
+    let index: Int
+    let surface: TextureFrame
+    let command: MTLCommandBuffer
+    init(index: Int,surface: TextureFrame,command: MTLCommandBuffer) { self.index=index; self.surface=surface; self.command=command }
+    func join() { command.waitUntilCompleted() }
+    func complete() throws {
+        join()
+        guard command.status == .completed else { throw RenderError.metal(command.error?.localizedDescription ?? "GPU export failed") }
+    }
+}
+
 public final class Exporter: @unchecked Sendable {
     private static let scheduler = ExportScheduler()
     private let project: any RenderProjectSource
     private let settings: ExportSettings
     private let destination: URL
+    private let videoPipelineDepth: Int
     private let lock = NSLock()
     private var running = false
     private var completedMetrics: ExportMetrics?
     private var completedOutputs: [URL] = []
     private var completedEncodedVideoFrames: Int?
     private var speechReports: [SpeechEnhancementReport] = []
+    private var completedVideoDiagnostics: [ExportVideoDiagnostics] = []
+    var videoDiagnostics: [ExportVideoDiagnostics] { lock.withLock { completedVideoDiagnostics } }
     public var speechEnhancementReports: [SpeechEnhancementReport] { lock.withLock { speechReports } }
     public var metrics: ExportMetrics? { lock.withLock { completedMetrics } }
     /// Both-codec jobs return the H.264 URL from run and list both completed files here.
@@ -26,7 +41,14 @@ public final class Exporter: @unchecked Sendable {
     /// Actual submitted video samples; metrics.frames still counts rendered grid
     /// evaluations. Both sums its two files; GIF has no encoded video track.
     public var encodedVideoFrames: Int? { lock.withLock { completedEncodedVideoFrames } }
-    public init(project: any RenderProjectSource, settings: ExportSettings, destination: URL) throws {
+    public convenience init(project: any RenderProjectSource, settings: ExportSettings, destination: URL) throws {
+        try self.init(project: project,settings: settings,destination: destination,videoPipelineDepth: 2)
+    }
+    // Depth 1 retains the serial baseline for matched host profiling. The public
+    // path bounds overlap to two frames; no unbounded render-ahead queue.
+    init(project: any RenderProjectSource, settings: ExportSettings, destination: URL,videoPipelineDepth: Int) throws {
+        guard (1...2).contains(videoPipelineDepth) else { throw RenderError.invalidSettings("Invalid export pipeline depth") }
+        self.videoPipelineDepth=videoPipelineDepth
         self.project = try project.renderSnapshot()
         guard settings.fps > 0, settings.outputHeight > 0 else { throw RenderError.invalidSettings("Export dimensions and frame rate must be positive") }
         self.settings = settings.closestValidPreset(); self.destination = destination
@@ -41,7 +63,7 @@ public final class Exporter: @unchecked Sendable {
                     status: @Sendable @escaping (ExportPhase) -> Void) async throws -> URL {
         guard lock.withLock({
             if running { return false }
-            running=true; completedMetrics=nil; completedOutputs=[]; completedEncodedVideoFrames=nil; speechReports=[]
+            running=true; completedMetrics=nil; completedOutputs=[]; completedEncodedVideoFrames=nil; speechReports=[]; completedVideoDiagnostics=[]
             return true
         }) else { throw RenderError.write("This exporter is already running") }
         defer { lock.withLock { running = false } }
@@ -103,7 +125,7 @@ public final class Exporter: @unchecked Sendable {
         var children: [Exporter] = []
         for (i,codec) in [ExportSettings.Codec.h264,.hevc].enumerated() {
             var options = settings; options.codec = codec
-            let child = try Exporter(project: project,settings: options,destination: directory.appendingPathComponent("\(i).\(settings.format.rawValue)"))
+            let child = try Exporter(project: project,settings: options,destination: directory.appendingPathComponent("\(i).\(settings.format.rawValue)"),videoPipelineDepth: videoPipelineDepth)
             _ = try await child.renderInSlot { value in progress((Double(i)+value)/2) }
             children.append(child)
         }
@@ -113,6 +135,7 @@ public final class Exporter: @unchecked Sendable {
         lock.withLock {
             completedOutputs = [destination,companion]
             completedEncodedVideoFrames=children.reduce(0) { $0+($1.encodedVideoFrames ?? 0) }
+            completedVideoDiagnostics=children.flatMap(\.videoDiagnostics)
             completedMetrics = ExportMetrics(frames: children.reduce(0) { $0+($1.metrics?.frames ?? 0) },elapsedSeconds: ProcessInfo.processInfo.systemUptime-startTime,mediaSeconds: Double(duration.count)/1e9)
         }
         progress(1); return destination
@@ -124,6 +147,11 @@ public final class Exporter: @unchecked Sendable {
         return pool
     }
     private func render(index: Int, range: Range<Int64>, pool: CVPixelBufferPool, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache) throws -> CVPixelBuffer {
+        let frame=try submitRender(index: index,range: range,pool: pool,compositor: compositor,queue: queue,cache: cache)
+        try frame.complete()
+        return frame.surface.pixelBuffer
+    }
+    private func submitRender(index: Int, range: Range<Int64>, pool: CVPixelBufferPool, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache) throws -> PendingExportFrame {
         let offset = ExportTiming.offsetNs(index: index,fps: settings.fps)
         let timestamp = range.lowerBound + offset
         let frame = try project.frame(atNs: min(timestamp, range.upperBound - 1))
@@ -132,9 +160,9 @@ public final class Exporter: @unchecked Sendable {
         let target = try TextureFrame(buffer: buffer, cache: cache, time: .zero, usage: [.shaderRead,.renderTarget])
         guard let cb = queue.makeCommandBuffer() else { throw RenderError.metal("Cannot create export command buffer") }
         try compositor.encode(frame, to: target.texture, in: cb)
-        withExtendedLifetime(target) { cb.commit(); cb.waitUntilCompleted() }
-        guard cb.status == .completed else { throw RenderError.metal(cb.error?.localizedDescription ?? "GPU export failed") }
-        return buffer
+        let pending=PendingExportFrame(index: index,surface: target,command: cb)
+        cb.commit()
+        return pending
     }
     private func ready(_ input: AVAssetWriterInput, writer: AVAssetWriter) async throws {
         let deadline=ProcessInfo.processInfo.systemUptime+30
@@ -146,6 +174,8 @@ public final class Exporter: @unchecked Sendable {
         }
     }
     private func writeVideo(_ url: URL, range: Range<Int64>, count: Int, width: Int, height: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @escaping @Sendable (Double) -> Void) async throws {
+        let profileStart=ProcessInfo.processInfo.systemUptime
+        var profile=ExportVideoDiagnostics(pipelineDepth: videoPipelineDepth)
         let writer = try AVAssetWriter(outputURL: url, fileType: settings.format == .mp4 ? .mp4 : .mov)
         defer { if writer.status != .completed { writer.cancelWriting() } }
         let compression: [String: Any] = [AVVideoAverageBitRateKey: settings.videoBitrate(width: width, height: height), AVVideoExpectedSourceFrameRateKey: settings.fps, AVVideoMaxKeyFrameIntervalKey: settings.fps * 2, AVVideoAllowFrameReorderingKey: false]
@@ -157,10 +187,12 @@ public final class Exporter: @unchecked Sendable {
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: video, sourcePixelBufferAttributes: nil)
         // Microphone channel conversion can prepare media even with DSP disabled.
         let preparationWeight=settings.includeAudio ? 0.15 : 0
+        let audioStart=ProcessInfo.processInfo.systemUptime
         let timeline: AudioTimeline?
         if settings.includeAudio {
             timeline=try await AudioTimeline.prepare(project: project,range: range,speechEnhancement: settings.speechEnhancement) { value in progress(value*preparationWeight) }
         } else { timeline=nil }
+        profile.audioPreparationSeconds=ProcessInfo.processInfo.systemUptime-audioStart
         // Native audio readers can reopen URLs after creation; retain all temporary media until joined.
         defer { withExtendedLifetime(timeline) {} }
         lock.withLock { speechReports=timeline?.speechReports ?? [] }
@@ -186,27 +218,56 @@ public final class Exporter: @unchecked Sendable {
         }
         let cancellation=ExportCancellation(writer: writer,reader: audioReader?.0,pump: audioTask)
         var deduplicator=ExactFrameDeduplicator(), encodedFrames=0
+        var pending: [PendingExportFrame]=[]
+        // Cancellation/failure must join every committed GPU command before its
+        // IOSurface or compositor scratch resources can be released.
+        defer { for frame in pending { frame.join() } }
         try await withTaskCancellationHandler {
             do {
+                func append(_ frame: PendingExportFrame) async throws {
+                    let readyStart=ProcessInfo.processInfo.systemUptime
+                    try await ready(video,writer: writer)
+                    profile.writerReadySeconds+=ProcessInfo.processInfo.systemUptime-readyStart
+                    let waitStart=ProcessInfo.processInfo.systemUptime
+                    try frame.complete()
+                    profile.gpuWaitSeconds+=ProcessInfo.processInfo.systemUptime-waitStart
+                    let gpu=frame.command.gpuEndTime-frame.command.gpuStartTime
+                    if gpu.isFinite,gpu>0 { profile.gpuExecutionSeconds+=gpu; profile.gpuTimedFrames+=1 }
+                    try Task.checkCancellation()
+                    let shouldAppend: Bool
+                    if settings.variableFrameRate { shouldAppend=try deduplicator.shouldAppend(frame.surface.pixelBuffer,isLast: frame.index==count-1) }
+                    else { shouldAppend=true }
+                    if shouldAppend {
+                        let appendStart=ProcessInfo.processInfo.systemUptime
+                        guard adaptor.append(frame.surface.pixelBuffer,withPresentationTime: CMTime(value: Int64(frame.index),timescale: Int32(settings.fps))) else {
+                            throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append video")
+                        }
+                        profile.appendSeconds+=ProcessInfo.processInfo.systemUptime-appendStart
+                        encodedFrames+=1
+                    }
+                    progress(preparationWeight+Double(frame.index+1)/Double(count)*(0.95-preparationWeight))
+                }
                 for index in 0..<count {
                     try Task.checkCancellation()
-                    let time = CMTime(value: Int64(index), timescale: Int32(settings.fps))
+                    let readyStart=ProcessInfo.processInfo.systemUptime
                     try await ready(video, writer: writer)
-                    let buffer = try autoreleasepool { try render(index: index, range: range, pool: pool, compositor: compositor, queue: queue, cache: cache) }
-                    try Task.checkCancellation()
-                    let append: Bool
-                    if settings.variableFrameRate { append=try deduplicator.shouldAppend(buffer,isLast: index==count-1) }
-                    else { append=true }
-                    if append {
-                        guard adaptor.append(buffer, withPresentationTime: time) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append video") }
-                        encodedFrames += 1
+                    profile.writerReadySeconds+=ProcessInfo.processInfo.systemUptime-readyStart
+                    let renderStart=ProcessInfo.processInfo.systemUptime
+                    pending.append(try autoreleasepool { try submitRender(index: index,range: range,pool: pool,compositor: compositor,queue: queue,cache: cache) })
+                    profile.peakPendingFrames=max(profile.peakPendingFrames,pending.count)
+                    profile.cpuRenderSeconds+=ProcessInfo.processInfo.systemUptime-renderStart
+                    profile.renderedFrames+=1
+                    if pending.count>=videoPipelineDepth {
+                        try await append(pending[0]); pending.removeFirst()
                     }
-                    progress(preparationWeight+Double(index+1)/Double(count)*(0.95-preparationWeight))
                 }
+                while !pending.isEmpty { try await append(pending[0]); pending.removeFirst() }
                 video.markAsFinished()
                 try await audioTask?.value
                 writer.endSession(atSourceTime: CMTime(value: Int64(count), timescale: Int32(settings.fps)))
+                let finishStart=ProcessInfo.processInfo.systemUptime
                 await writer.finishWriting()
+                profile.finishSeconds=ProcessInfo.processInfo.systemUptime-finishStart
                 try Task.checkCancellation()
                 guard writer.status == .completed else { throw RenderError.write(writer.error?.localizedDescription ?? "Export did not finish") }
             } catch {
@@ -225,7 +286,9 @@ public final class Exporter: @unchecked Sendable {
         guard videos.count == 1, audios.count == (audio == nil ? 0 : 1), abs(duration.seconds - Double(range.count)/1e9) <= 1 / Double(settings.fps) + 0.000_001 else { throw RenderError.verification("Export duration or track count differs from the requested timeline") }
         let size = try await videos[0].load(.naturalSize)
         guard Int(size.width) == width, Int(size.height) == height else { throw RenderError.verification("Export dimensions differ from settings") }
-        lock.withLock { completedEncodedVideoFrames=encodedFrames }
+        profile.encodedFrames=encodedFrames; profile.wallSeconds=ProcessInfo.processInfo.systemUptime-profileStart
+        let completed=profile
+        lock.withLock { completedEncodedVideoFrames=encodedFrames; completedVideoDiagnostics.append(completed) }
     }
     private func pumpAudio(_ context: AudioPumpContext) async throws {
         let pump=MediaInputPump<CMSampleBuffer>(

@@ -19,9 +19,15 @@ struct Round3Configuration: Codable, Sendable {
     var scrubSamples: Int
     var syntheticSeconds: Double
     var exportSeconds: Double?
+    var videoPipelineDepth: Int?
 }
 
 enum Round3Data {
+    static func rssMedianGrowth(early: [UInt64],late: [UInt64]) -> Double {
+        // Double.init as a function value can select init(bitPattern:) for
+        // UInt64. RSS is a byte count, so require numeric conversion explicitly.
+        (percentile(late.map { Double($0) },0.5) ?? 0)-(percentile(early.map { Double($0) },0.5) ?? 0)
+    }
     static func percentile(_ samples: [Double], _ fraction: Double) -> Double? {
         let sorted = samples.filter(\.isFinite).sorted()
         guard !sorted.isEmpty else { return nil }

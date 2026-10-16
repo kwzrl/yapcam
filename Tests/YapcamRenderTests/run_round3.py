@@ -167,6 +167,8 @@ def main():
     parser.add_argument("--mode", choices=["probe", "smoke", "all", "preview", "scrub", "export", "soak"], default="all")
     parser.add_argument("--source", choices=["recorded", "synthetic4k", "both"], default="both")
     parser.add_argument("--real-package", type=Path)
+    parser.add_argument("--video-pipeline-depth",type=int,choices=[1,2],default=2,
+                        help="1 = serial profiling baseline; 2 = bounded CPU/GPU overlap")
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--build-only", action="store_true", help="Build/sign without requiring or launching a desktop session")
     parser.add_argument("--self-test", action="store_true", help="Check ownership guards without building or launching")
@@ -206,7 +208,8 @@ def main():
                       soakSeconds=0 if args.mode == "smoke" else 1200,
                       scrubSamples=4 if args.mode == "smoke" else 50,
                       syntheticSeconds=2 if args.mode == "smoke" else 120,
-                      exportSeconds=2 if args.mode == "smoke" else None)
+                      exportSeconds=2 if args.mode == "smoke" else None,
+                      videoPipelineDepth=args.video_pipeline_depth)
         print("Round3 metadata artifacts:", logs, flush=True)
         launch(config, logs)
 
