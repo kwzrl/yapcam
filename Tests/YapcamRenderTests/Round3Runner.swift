@@ -140,17 +140,30 @@ import YapcamCore
         defer { player.pause(); view.delegate=nil; window.close(); withExtendedLifetime(delegate) {} }
         try await operation(player,view)
     }
-    private func ready(_ player: PreviewPlayer) async throws {
-        let deadline=CACurrentMediaTime()+60
+    private func ready(_ player: PreviewPlayer,label: String) async throws {
+        let start=CACurrentMediaTime(),deadline=start+60
+        var samples: [[String:Any]]=[],nextSample=start
+        func record(_ state: PreviewAudioStartupDiagnostics,finished: Bool) throws {
+            guard var row=try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String:Any] else {
+                throw RenderError.verification("Invalid audio startup diagnostics")
+            }
+            row["elapsed_s"]=CACurrentMediaTime()-start; samples.append(row)
+            try write("audio-startup-\(label)",["samples":samples,"ready":finished])
+        }
         while !player.audioClockReady || player.audioClockRate==0 {
-            if let error=player.error { throw RenderError.verification(error) }
-            guard CACurrentMediaTime()<deadline else { throw RenderError.verification("Round3 audio clock did not start within 60s") }
+            let state=player.audioStartupDiagnostics,now=CACurrentMediaTime()
+            if now>=nextSample || state.failure != nil || now>=deadline {
+                try record(state,finished: false); nextSample=now+1
+            }
+            if let error=state.failure { throw RenderError.verification("Round3 audio startup failed (\(state.phase)): \(error)") }
+            guard now<deadline else { throw RenderError.verification("Round3 audio clock did not start within 60s (phase=\(state.phase)); see audio-startup-\(label).json") }
             try await Task.sleep(for: .milliseconds(20))
         }
+        try record(player.audioStartupDiagnostics,finished: true)
     }
     private func preview(_ source: any RenderProjectSource,height: Int,seconds: Double,name: String) async throws {
         try await withView(source,height: height) { player,view in
-            player.play(); try await ready(player); try await Task.sleep(for: .seconds(2))
+            player.play(); try await ready(player,label: "\(name)-\(height)"); try await Task.sleep(for: .seconds(2))
             let baseline=player.metricSnapshot(), drops=player.submissionSnapshot(), presented=view.presentations.total
             guard let audioStart=player.audioClockSeconds,audioStart.isFinite else { throw RenderError.verification("Round3 audio clock is invalid") }
             let timelineStart=player.currentNs
@@ -192,7 +205,7 @@ import YapcamCore
     }
     private func scrub(_ source: any RenderProjectSource,height: Int) async throws {
         try await withView(source,height: height) { player,view in
-            player.play(); try await ready(player); player.pause()
+            player.play(); try await ready(player,label: "scrub-\(height)"); player.pause()
             var seed: UInt64=0x59415043414d
             var random: [Int64]=[]
             for _ in 0..<config.scrubSamples {

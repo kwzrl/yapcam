@@ -16,6 +16,21 @@ struct PreviewSubmissionMetrics {
     var failed = 0
 }
 
+/// Internal host-benchmark diagnostics; no playback policy or public API change.
+struct PreviewAudioStartupDiagnostics: Encodable {
+    let phase: String
+    let loading: Bool
+    let seeking: Bool
+    let playbackRequested: Bool
+    let playerStatus: Int?
+    let itemStatus: Int?
+    let timeControlStatus: Int?
+    let waitingReason: String?
+    let rate: Float
+    let seconds: Double?
+    let failure: String?
+}
+
 @MainActor public final class PreviewPlayer: ObservableObject {
     @Published public private(set) var currentNs: Int64 = 0
     @Published public private(set) var isPlaying = false
@@ -213,6 +228,20 @@ struct PreviewSubmissionMetrics {
     var audioClockReady: Bool { !audioLoading && !seeking && player?.currentItem?.status == .readyToPlay }
     var audioClockSeconds: Double? { player?.currentTime().seconds }
     var audioClockRate: Float { player?.rate ?? 0 }
+    var audioStartupDiagnostics: PreviewAudioStartupDiagnostics {
+        let failure=error ?? player?.currentItem?.error?.localizedDescription ?? player?.error?.localizedDescription
+        let phase: String
+        if failure != nil { phase="failed" }
+        else if audioLoading { phase=audioTimeline == nil ? "preparing_composition" : "initial_seek" }
+        else if seeking { phase="seeking" }
+        else if player == nil { phase="silent_host_clock" }
+        else if !audioClockReady { phase="waiting_for_item" }
+        else { phase=audioClockRate==0 ? "ready_paused" : "playing" }
+        return .init(phase: phase,loading: audioLoading,seeking: seeking,playbackRequested: isPlaying,
+                     playerStatus: player?.status.rawValue,itemStatus: player?.currentItem?.status.rawValue,
+                     timeControlStatus: player?.timeControlStatus.rawValue,waitingReason: player?.reasonForWaitingToPlay?.rawValue,
+                     rate: audioClockRate,seconds: audioClockSeconds.flatMap { $0.isFinite ? $0 : nil },failure: failure)
+    }
     func submissionSnapshot() -> PreviewSubmissionMetrics { submissions }
     private func finishMetrics() {
         if let start = metricStart {

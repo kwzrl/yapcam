@@ -1,8 +1,95 @@
 import XCTest
 import YapcamCore
+@preconcurrency import AVFoundation
 @testable import YapcamRender
 
 final class Round3PerformanceTests: XCTestCase {
+    func testLongConstantAudioKeepsOneRampPerCoreInterval() throws {
+        let root=try audioFixture()
+        defer { cleanup(root) }
+        let base=Round3AudioSource(package: root,duration: 1_000_000_000,ranges: [
+            .init(track: .systemAudio,path: "recording/clock.wav",fileStartNs: 0,fileEndNs: 1_000_000_000,
+                  tlStartNs: 0,tlEndNs: 1_000_000_000,gainStart: 0.75,gainEnd: 0.75)
+        ])
+        let source=try Round3RepeatedSource(base: base,minimumSeconds: 660)
+        let timeline=try AudioTimeline(project: source,range: 0..<source.durationNs)
+        let parameter=try XCTUnwrap(timeline.mix.inputParameters.first)
+        XCTAssertEqual(timeline.composition.duration.seconds,660,accuracy: 0.000_001)
+        // Structural complexity regression: the old implementation built 33,000
+        // redundant 20ms ramps and took >60s on the real repeated recording.
+        // Inspect AVFoundation's resulting intervals without a flaky time limit.
+        for second in [0,1,329,659] {
+            var a: Float=0,b: Float=0,range=CMTimeRange.zero
+            XCTAssertTrue(parameter.getVolumeRamp(for: CMTime(seconds: Double(second)+0.5,preferredTimescale: 1_000_000_000),
+                                                 startVolume: &a,endVolume: &b,timeRange: &range))
+            XCTAssertEqual(a,0.75); XCTAssertEqual(b,0.75)
+            XCTAssertEqual(range.start.seconds,Double(second),accuracy: 0.000_001)
+            XCTAssertEqual(range.duration.seconds,1,accuracy: 0.000_001)
+        }
+    }
+    func testConstantAudioOptimizationPreservesMuteStepsAndClippedDBAutomation() throws {
+        let root=try audioFixture()
+        defer { cleanup(root) }
+        let gains: [(Float,Float)]=[(0.7,0.7),(0,0),(0.2,0.8),(1,1)]
+        let rows=gains.enumerated().map { index,gain in
+            RenderAudioRange(track: .systemAudio,path: "recording/clock.wav",fileStartNs: 0,fileEndNs: 1_000_000_000,
+                             tlStartNs: Int64(index)*1_000_000_000+100_000_000,
+                             tlEndNs: Int64(index+1)*1_000_000_000+100_000_000,gainStart: gain.0,gainEnd: gain.1)
+        }
+        let source=Round3AudioSource(package: root,duration: 4_200_000_000,ranges: rows)
+        let timeline=try AudioTimeline(project: source,range: 600_000_000..<3_600_000_000)
+        let parameter=try XCTUnwrap(timeline.mix.inputParameters.first)
+        for ns: Int64 in [600_000_000,1_099_999_000,1_100_000_000,2_099_999_000,
+                          2_100_000_000,2_611_000_000,3_099_999_000,3_100_000_000,3_599_999_000] {
+            let time=CMTime(value: ns-600_000_000,timescale: 1_000_000_000)
+            var a: Float=0,b: Float=0,range=CMTimeRange.zero
+            XCTAssertTrue(parameter.getVolumeRamp(for: time,startVolume: &a,endVolume: &b,timeRange: &range))
+            let fraction=Float((time-range.start).seconds/range.duration.seconds)
+            let row=try XCTUnwrap(rows.first { $0.tlStartNs<=ns && ns<$0.tlEndNs })
+            XCTAssertEqual(a+(b-a)*fraction,row.gain(atTimelineNs: ns),accuracy: 0.005,"timeline ns=\(ns)")
+        }
+        XCTAssertEqual(timeline.composition.duration.seconds,3,accuracy: 0.000_001)
+    }
+    private func audioFixture() throws -> URL {
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-render-round3-audio-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: root.appendingPathComponent("recording"),withIntermediateDirectories: true)
+            try Data(#"{"segments":[]}"#.utf8).write(to: root.appendingPathComponent("recording/session.json"))
+            try ProceduralAudio.wav(Array(repeating: 1_000,count: ProceduralAudio.sampleRate)).write(to: root.appendingPathComponent("recording/clock.wav"))
+            return root
+        } catch { cleanup(root); throw error }
+    }
+    private func cleanup(_ root: URL) {
+        print("Cleanup render-owned audio fixture: \(root.lastPathComponent)")
+        try? FileManager.default.removeItem(at: root)
+    }
+    func testRealAudioPreparationAtPhysicalAndRepeatedLengthsWhenOptedIn() throws {
+        guard let path=ProcessInfo.processInfo.environment["YAPCAM_RENDER_ROUND3_AUDIO_PACKAGE"] else {
+            throw XCTSkip("Opt in to local audio-composition preparation diagnostics")
+        }
+        let original=URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
+        let media=FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam")
+        guard original.path.hasPrefix(media.path+"/") else { throw RenderError.invalidSettings("Audio diagnostic input must stay under Movies/Yapcam") }
+        let before=try Round3Data.fingerprints(original)
+        let copy=media.appendingPathComponent("QA/render/round3-audio-diagnostic-\(UUID().uuidString).yapcam")
+        defer { print("Cleanup render-owned audio diagnostic copy: \(copy.lastPathComponent)"); try? FileManager.default.removeItem(at: copy) }
+        try FileManager.default.copyItem(at: original,to: copy)
+        let physical=try Project.create(package: copy)
+        for seconds in [0.0,660.0] {
+            let source: any RenderProjectSource=seconds==0 ? physical : try Round3RepeatedSource(base: physical,minimumSeconds: seconds)
+            let start=DispatchTime.now().uptimeNanoseconds
+            print("RENDER_ROUND3_AUDIO_PREP_START timeline_seconds=\(Double(source.durationNs)/1e9)")
+            let timeline=try AudioTimeline(project: source,range: 0..<source.durationNs)
+            let elapsed=Double(DispatchTime.now().uptimeNanoseconds-start)/1e9
+            let tracks=timeline.composition.tracks(withMediaType: .audio)
+            let row: [String:Any]=["timeline_seconds":Double(source.durationNs)/1e9,"preparation_seconds":elapsed,
+                                  "tracks":tracks.count,"segments":tracks.reduce(0) { $0+($1.segments?.count ?? 0) },
+                                  "mix_parameters":timeline.mix.inputParameters.count,"audio":timeline.hasAudio]
+            print("RENDER_ROUND3_AUDIO_PREP \(String(decoding: try JSONSerialization.data(withJSONObject: row,options: [.sortedKeys]),as: UTF8.self))")
+            XCTAssertTrue(timeline.hasAudio)
+        }
+        XCTAssertEqual(try Round3Data.fingerprints(original),before)
+    }
     func testScrubPercentilesUseNearestRankAndExcludeNonfiniteSamples() throws {
         let values=(1...100).map(Double.init)
         XCTAssertEqual(Round3Data.percentile(values,0.5),50)
@@ -109,6 +196,20 @@ final class Round3PerformanceTests: XCTestCase {
         try project.save()
         XCTAssertEqual(try Round3Data.fingerprints(original),before,"The original is never opened through Core or edited")
     }
+}
+
+private final class Round3AudioSource: RenderProjectSource, @unchecked Sendable {
+    let packageURL: URL
+    let durationNs: Int64
+    let ranges: [RenderAudioRange]
+    init(package: URL,duration: Int64,ranges: [RenderAudioRange]) {
+        packageURL=package; durationNs=duration; self.ranges=ranges
+    }
+    func frame(atNs ns: Int64) throws -> YcFrame { var f=YcFrame(); f.tl_ns=ns; return f }
+    func renderSnapshot() throws -> any RenderProjectSource { self }
+    func renderBackgroundAsset(index: UInt32) throws -> URL { throw RenderError.unavailable("Audio fixture has no image") }
+    func renderClips() throws -> [RenderClip] { [.init(srcStartNs: 0,srcEndNs: durationNs)] }
+    func renderAudioRanges() throws -> [RenderAudioRange]? { ranges }
 }
 
 private final class Round3ClockSource: RenderProjectSource, @unchecked Sendable {
