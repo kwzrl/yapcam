@@ -51,13 +51,21 @@ enum RecordingPhase: Equatable {
 
     var engine: RecordingEngine = LiveEngine()
     var cuePlayer: CuePlayer = ChimePlayer()
-    /// After-recording work (project prep, editor, quick export). Replaceable in tests.
-    lazy var postProcess: (URL, String, [Int64]) async -> Void = { [unowned self] url, notes, marks in
-        await PostRecording.process(package: url, notes: notes, markers: marks, controller: self)
+    /// After-recording delivery (editor, quick export). Replaceable in tests.
+    lazy var deliver: (URL) async -> Void = { [unowned self] url in
+        await PostRecording.deliver(package: url, controller: self)
+    }
+
+    /// Waits until the start in progress and every queued capture operation (including stop's finalization)
+    /// have finished; used by Quit.
+    func settle() async {
+        await startTask?.value
+        await opChain?.value
     }
     private let settings = AppSettings.shared
     private var session: EngineSession?
     private var countdownTask: Task<Void, Never>?
+    private var startTask: Task<Void, Never>?
     private var ticker: Timer?
     private let countdownWindow = CountdownWindow()
     private var lastOptions: UIRecordingOptions?
@@ -109,6 +117,9 @@ enum RecordingPhase: Equatable {
 
     func begin() {
         guard phase == .idle else { return }
+        // A source overlay is open: Start means "record what the overlay shows", not the previously saved source.
+        if SourceOverlay.shared.isActive { SourceOverlay.shared.commit(); return }
+        if AreaSelector.shared.isActive { AreaSelector.shared.commit(); return }
         let perms = PermissionsModel.shared
         perms.refresh()
         if settings.sourceMode != .device, perms.state(.screen) != .granted {
@@ -133,6 +144,10 @@ enum RecordingPhase: Equatable {
         switch settings.sourceMode {
         case .display:
             guard let d = Displays.resolve(settings.displayID) else { throw EngineError.failed("No display found.") }
+            // A display that was chosen and is gone must not silently turn into the main display.
+            if settings.displayID != 0, Displays.info(for: settings.displayID) == nil {
+                throw EngineError.failed("The display you chose is not connected any more. Choose the display again with the Display button.")
+            }
             target = .display(d.id)
         case .window:
             guard settings.windowID != 0 else { throw EngineError.failed("Choose a window to record first.") }
@@ -155,6 +170,10 @@ enum RecordingPhase: Equatable {
             // The display may have changed resolution or arrangement since the area was chosen.
             guard let rect = AreaGeometry.fit(saved, in: display.frame.size) else {
                 throw EngineError.failed("The saved area no longer fits on “\(display.name)”. Choose the area again.")
+            }
+            // Clipping to a smaller display can shrink it below the minimum.
+            guard AreaGeometry.canRecord(rect) else {
+                throw EngineError.failed("The saved area no longer fits on “\(display.name)” at the minimum size of \(Int(AreaGeometry.recordMin)) × \(Int(AreaGeometry.recordMin)) points. Choose the area again.")
             }
             target = .area(display: display.id, rect: rect)
         }
@@ -228,7 +247,7 @@ enum RecordingPhase: Equatable {
         let s = engine.makeSession(options)
         session = s
         elapsed = 0
-        Task {
+        startTask = Task {
             if playSound { await StartSoundGate.run(player: player) }
             do {
                 try await s.start()
@@ -282,13 +301,15 @@ enum RecordingPhase: Equatable {
                 let url = try await s.stop()
                 let (notesText, marks) = (notes, markers)
                 lastPackage = url
+                // Markers/notes/auto zooms are stored while still "finishing" so Quit waits for them.
+                if settings.openEditorAfterRecording { PostRecording.prepare(package: url, notes: notesText, markers: marks, controller: self) }
                 finish()
                 if settings.openEditorAfterRecording {
                     // Not part of the capture queue: a long export or a save panel must never delay
                     // pause/stop/cancel of the next recording.
                     Task { [weak self] in
                         guard let self else { return }
-                        await self.postProcess(url, notesText, marks)
+                        await self.deliver(url)
                     }
                 } else {
                     NSWorkspace.shared.activateFileViewerSelecting([url])      // self-tests only (isolated settings)
@@ -413,6 +434,7 @@ enum RecordingPhase: Equatable {
             // The engine ended the recording itself. The package stays on disk as an
             // interrupted recording; never cancel() it (that deletes the package).
             stopTicker()
+            if let pkg = s.packageURL { PostRecording.salvage(package: pkg, notes: notes, markers: markers) }
             finish()
             alert = AppAlert(title: "Recording stopped", message: UserMessage.describe(f) + " What was written to disk can be recovered from the Recordings window.")
             RecentProjectsWindow.shared.show()
@@ -467,8 +489,8 @@ final class ReadyPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 53: onEscape?()
-        case 36, 76: onReturn?()
+        case 53: if !event.isARepeat { onEscape?() }
+        case 36, 76: if !event.isARepeat { onReturn?() }   // a held Return must not skip the countdown
         default: super.keyDown(with: event)
         }
     }

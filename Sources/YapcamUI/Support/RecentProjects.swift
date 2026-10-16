@@ -79,7 +79,7 @@ struct ProjectEntry: Identifiable, Equatable {
     }
 
     func trash(_ p: ProjectEntry) {
-        try? FileManager.default.trashItem(at: p.url, resultingItemURL: nil)
+        do { try ProjectActions.trash(p.url) } catch { RecordingController.shared.alert = AppAlert(title: "Could not move to Trash", error: error) }
         reload()
     }
 }

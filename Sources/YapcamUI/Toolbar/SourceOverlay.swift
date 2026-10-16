@@ -179,8 +179,11 @@ struct SourceCard: View {
     }
 
     func promptSize(_ w: WindowRow) {
-        guard let text = Prompt.text(title: "Window size", message: "Width × height in points, for example 1280x720",
-                                     initial: "\(Int(w.bounds.width))x\(Int(w.bounds.height))") else { return }
+        // The overlay covers the display above modal-panel level: step it aside while the prompt is up.
+        guard let text = SourceOverlay.shared.loweredWhile({
+            Prompt.text(title: "Window size", message: "Width × height in points, for example 1280x720",
+                        initial: "\(Int(w.bounds.width))x\(Int(w.bounds.height))")
+        }) else { return }
         guard let size = WindowAX.parseSize(text) else { notice = "Enter two numbers between 150 and 8192, like 1280x720."; return }
         resize(w, toSize: size)
     }
@@ -316,8 +319,8 @@ private final class OverlayWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 53: onEscape?()
-        case 36, 76: onReturn?()          // Return starts, like the Start recording button
+        case 53: if !event.isARepeat { onEscape?() }
+        case 36, 76: if !event.isARepeat { onReturn?() }          // Return starts, like the Start recording button
         default: super.keyDown(with: event)
         }
     }
@@ -332,16 +335,17 @@ private final class OverlayWindow: NSWindow {
     private var model: SourceOverlayModel?
     private var timer: Timer?
     private var keyMonitor: Any?
+    private var screenObserver: Any?
     var isActive: Bool { !windows.isEmpty }
     private var primaryMaxY: CGFloat { NSScreen.screens.first?.frame.maxY ?? 0 }
 
     func show(_ kind: SourceOverlayModel.Kind) {
-        hide()
-        AreaSelector.shared.cancelForTesting()
+        hide(restoreFocus: false)
+        AreaSelector.shared.end(nil, restoreFocus: false)
         let m = SourceOverlayModel(kind: kind)
         m.onAdjustAsArea = { [weak self] rect, displayID in
             AppSettings.shared.areaDisplayID = displayID; AppSettings.shared.areaRect = rect
-            self?.hide(); AreaPicker.begin()
+            self?.hide(restoreFocus: false); AreaPicker.begin(onDisplay: displayID)
         }
         m.onRecordDisplay = { [weak self] id in self?.startDisplay(id) }
         model = m
@@ -366,12 +370,18 @@ private final class OverlayWindow: NSWindow {
         let key = windows.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? windows.first
         OverlayKeys.takeKeyboard(key)
         keyMonitor = OverlayKeys.install(start: { [weak self] in self?.startForTesting() }, cancel: { [weak self] in self?.hide() })
+        // Display plugged/unplugged or rearranged: the windows would be on stale frames, so start over.
+        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.hide() }
+        }
         track()
         timer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.track() } }
     }
 
-    func hide() {
+    func hide(restoreFocus: Bool = true) {
         OverlayKeys.remove(keyMonitor); keyMonitor = nil
+        if let o = screenObserver { NotificationCenter.default.removeObserver(o); screenObserver = nil }
+        if restoreFocus && !windows.isEmpty { OverlayFocus.restore() }
         timer?.invalidate(); timer = nil
         for w in windows { RecordingController.shared.engine.unregisterExcluded(w); w.orderOut(nil) }
         windows = []
@@ -414,6 +424,17 @@ private final class OverlayWindow: NSWindow {
         case .window: if let w = windowRow ?? m.hover { startWindow(w.id) }
         }
     }
+
+    /// Runs `body` (a modal prompt) with the overlay windows below it and not catching clicks.
+    func loweredWhile<T>(_ body: () -> T) -> T {
+        let saved = windows.map { ($0, $0.level) }
+        for w in windows { w.level = .normal; w.ignoresMouseEvents = true }
+        defer { for (w, l) in saved { w.level = l; w.ignoresMouseEvents = false } }
+        return body()
+    }
+
+    /// Start with the current choice (Return, or the Start/Stop shortcut while the overlay is up).
+    func commit() { startForTesting() }
 
     func setHoverForTesting(_ row: WindowRow?) { model?.hover = row }
     var windowCountForTesting: Int { windows.count }

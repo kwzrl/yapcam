@@ -1,3 +1,5 @@
+READY ui: R3-UI-3,4,5,6,7,8(ui),11,13,15,16,17,18,20,21 fixed + unit-tested (554 tests, debug, not run live)
+
 READY ui: U1 start sound, U2 camera max resolution, U3 third-party notices (unit-tested; live/hardware untested). R3-UI-1 and R3-UI-2 fixed (below); next R3-UI-3…
 
 READY ui: preset+defaults test isolation fixed (swift test -j 6 ×3 green, 465 tests); rebased on f611874
@@ -7,6 +9,22 @@ READY ui: QA self-test launch flags (--capture-selftest options, --ui-record-sel
 # ui status
 
 ## Round 3 (2026-10-16)
+Review fixes (debug build, `swift test -j 6` ×2 green, 554 tests; **none run live** — QA owns the app). Regression tests are in `ReviewRound3Tests` unless noted.
+- R3-UI-3: overlays activate without `.activateAllWindows`; `OverlayFocus` remembers the frontmost app and reactivates it when the overlay closes (Start, Esc, screen change). Test with injected app. Live: untested that Keynote really returns in front (needs a live window).
+- R3-UI-4: "Set size…" lowers the overlay windows (and stops them catching clicks) while the prompt is modal; the key monitor passes keys while a modal window is up. Logic only; the prompt click path is untested live.
+- R3-UI-5: Area button/⌥⌘5 opens on the display under the pointer; Adjust-as-area uses the window's display. Untested (one display here).
+- R3-UI-6: `begin()` with a display/window/area overlay open commits that overlay instead of the saved source (`UISmokeTests` ext. test with the area overlay).
+- R3-UI-7: `.starting`/`.finishing` + Quit → `terminateLater` until the start and the queued stop finish (15 s cap). Markers/notes/auto zooms (`PostRecording.prepare`) now run inside the stop operation before the phase goes idle; only delivery (editor/export) is detached. Test `settleWaitsForStopFinalization`.
+- R3-UI-8 (ui part): `ProjectActions.openOrCreateProject` applies `EditorPresets.applyDefaultPreset` on creation; used by after-recording prepare, quick export, notes attach; imports apply it after `Project.importVideo`. Test with isolated presets.
+- R3-UI-11: quick-export Save/test save uses `QuickExport.replaceFile` (staged copy + `replaceItemAt`); a failed copy keeps the original.
+- R3-UI-13: Rename and Move to Trash close (and so save) an open editor for that package first via `EditorWindows.isOpen/close`. Not covered by a unit test (needs an open editor window); untested live.
+- R3-UI-15: auto-repeat Return/Esc ignored in overlays' key monitor, OverlayWindow and the Get-ready panel (test on the panel).
+- R3-UI-16: overlays hide on `didChangeScreenParametersNotification`; a chosen display that is gone fails with a visible message instead of falling back to main.
+- R3-UI-17: the fitted area must still satisfy the 150 pt minimum.
+- R3-UI-18: each quick export gets its own cache folder; folders older than 7 days are pruned at launch and before each export; after a stall the partial folder is deleted only after the worker has stopped.
+- R3-UI-20: when the engine ends a recording, markers (`recording/markers.json`) and notes (`recording/notes.txt`) are written to the interrupted package (new `EngineSession.packageURL`). Recovery does not read `notes.txt` yet.
+- R3-UI-21: delayed re-register uses a weak window and only if still registered and visible.
+- Tests made less timing-sensitive (start-sound gate bounds) after a loaded-machine failure; cap itself still asserted ≥530 ms.
 - **R3-UI-1 (fixed, unit-tested):** after-recording work (`PostRecording.process`: project prep, editor, quick export, save panel) now runs in its own Task, not in the capture `opChain`. Test `slowPostProcessingDoesNotBlockTheNextRecording`: 5 s post-processing, next recording's pause reaches the session within 2 s. Also: process clears the notes field only if the user has not typed new notes for the next recording. Debug build, swift test; not run live.
 - **R3-UI-2 (fixed, unit-tested):** removed the 300 s absolute limit. Only missing progress stops an export: 60 s without a progress change, or 180 s before the first progress callback (setup). Test `QuickExport.isStalled`. Not run on a long real recording.
 Environment for all lines: Mac mini M4, one 1680x1050 display, no camera, no microphone; debug build, `swift test -j 6`; Yapcam not launched (no live check this round yet).

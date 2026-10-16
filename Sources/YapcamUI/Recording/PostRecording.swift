@@ -8,14 +8,15 @@ import YapcamRender
 /// What happens after Stop: finish the project (markers, notes, automatic zooms), then do what the
 /// "After recording" choice says: open the editor (default), or export and copy / save.
 @MainActor enum PostRecording {
-    static func process(package: URL, notes: String, markers: [Int64], controller: RecordingController) async {
+    /// Writes what only the UI knows (markers, notes, automatic zooms). Quick and local: it runs inside the
+    /// stop operation so quitting right after Stop cannot lose it.
+    static func prepare(package: URL, notes: String, markers: [Int64], controller: RecordingController) {
         let settings = AppSettings.shared
         if !markers.isEmpty { writeMarkers(markers, to: package) }
         let hasNotes = !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if hasNotes || settings.createAutoZooms {
             do {
-                let project = FileManager.default.fileExists(atPath: package.appending(path: "project.json").path)
-                    ? try Project.open(package: package) : try Project.create(package: package)
+                let project = try ProjectActions.openOrCreateProject(package)
                 if hasNotes {
                     do { try project.apply(.set(path: "notes", value: .string(notes))); if controller.notes == notes { controller.clearNotes() } }
                     catch { controller.alert = AppAlert(title: "Notes were not saved", message: "The recording is fine, but its speaker notes could not be stored: \(UserMessage.describe(error))") }
@@ -26,6 +27,22 @@ import YapcamRender
                 controller.alert = AppAlert(title: "The recording is saved, but its project could not be prepared", error: error)
             }
         }
+    }
+
+    /// The engine ended the recording by itself: keep what only the UI holds (markers, speaker notes) next to the
+    /// recovered files. No project is created here; recovery builds it.
+    static func salvage(package: URL, notes: String, markers: [Int64]) {
+        if !markers.isEmpty { writeMarkers(markers, to: package) }
+        let dir = package.appending(path: "recording", directoryHint: .isDirectory)
+        if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, FileManager.default.fileExists(atPath: dir.path) {
+            try? notes.write(to: dir.appending(path: "notes.txt"), atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// What the "After recording" choice says: open the editor (default), or export and copy / save.
+    /// May take minutes (export, save panel), so it never runs inside the capture queue.
+    static func deliver(package: URL, controller: RecordingController) async {
+        let settings = AppSettings.shared
         switch settings.afterRecording {
         case .createProject:
             if settings.showQuickExportWidget { QuickExportWidget.shared.show(for: package) }
@@ -81,6 +98,7 @@ import YapcamRender
         running = true; defer { running = false }
         state = .working(0)
         let name = package.deletingPathExtension().lastPathComponent
+        Self.pruneCache()
         let started = Date()
         Probe.log("quick-export start \(action) package=\(name)")
         QuickExportWidget.shared.showProgress()
@@ -95,8 +113,7 @@ import YapcamRender
                 state = .done("Copied \(name).mp4 to the clipboard")
             case .save:
                 if let dest = Self.testSaveURL {
-                    try? FileManager.default.removeItem(at: dest)
-                    try FileManager.default.copyItem(at: out, to: dest)
+                    try Self.replaceFile(at: dest, with: out)
                     state = .done("Saved \(dest.lastPathComponent)")
                 } else {
                     let panel = NSSavePanel()
@@ -104,8 +121,7 @@ import YapcamRender
                     panel.directoryURL = AppSettings.shared.storageDirectory
                     panel.allowedContentTypes = [.mpeg4Movie]
                     if panel.runModal() == .OK, let dest = panel.url {
-                        try? FileManager.default.removeItem(at: dest)
-                        try FileManager.default.copyItem(at: out, to: dest)
+                        try Self.replaceFile(at: dest, with: out)
                         state = .done("Saved \(dest.lastPathComponent)")
                         NSWorkspace.shared.activateFileViewerSelecting([dest])
                     } else { state = .idle }
@@ -121,6 +137,32 @@ import YapcamRender
         QuickExportWidget.shared.refresh()
     }
 
+    /// Copies `source` over `dest` without ever leaving the user without a file: the copy is staged next to
+    /// `dest` and swapped in only when it is complete, so a full disk or a dropped share keeps the original.
+    nonisolated static func replaceFile(at dest: URL, with source: URL) throws {
+        let fm = FileManager.default
+        let stage = dest.deletingLastPathComponent().appending(path: ".\(dest.lastPathComponent).yapcam-\(UUID().uuidString.prefix(8)).tmp")
+        do {
+            try fm.copyItem(at: source, to: stage)
+            if fm.fileExists(atPath: dest.path) { _ = try fm.replaceItemAt(dest, withItemAt: stage) }
+            else { try fm.moveItem(at: stage, to: dest) }
+        } catch {
+            try? fm.removeItem(at: stage)
+            throw error
+        }
+    }
+
+    /// Quick-export files older than a week are removed (the newest ones may still be on the clipboard).
+    nonisolated static func pruneCache(olderThan age: TimeInterval = 7 * 24 * 3600, in dir: URL = cacheDirectory) {
+        let fm = FileManager.default
+        let items = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for u in items {
+            if let d = try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, Date().timeIntervalSince(d) > age {
+                try? fm.removeItem(at: u)
+            }
+        }
+    }
+
     enum QuickExportError: Error {
         case stalled(Int)
         var message: String {
@@ -134,16 +176,18 @@ import YapcamRender
     /// freeze the app or leave the widget "working" forever.
     private static func runGuarded(package: URL, name: String) async throws -> URL {
         let dir = cacheDirectory
-        let out = dir.appending(path: "\(name).mp4")
+        // A new file per run: a cancelled worker that is still writing can never collide with the next export.
+        let runDir = dir.appending(path: UUID().uuidString.prefix(8).description, directoryHint: .isDirectory)
+        let out = runDir.appending(path: "\(name).mp4")
         let tracker = ProgressTracker()
         let result: Result<URL, Error> = await withCheckedContinuation { continuation in
             let once = ResumeOnce(continuation)
             let work = Task.detached(priority: .userInitiated) {
                 do {
                     let project = FileManager.default.fileExists(atPath: package.appending(path: "project.json").path)
-                        ? try Project.open(package: package) : try Project.create(package: package)
-                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                    try? FileManager.default.removeItem(at: out)
+                        ? try Project.open(package: package)
+                        : try await MainActor.run { try ProjectActions.openOrCreateProject(package) }
+                    try FileManager.default.createDirectory(at: runDir, withIntermediateDirectories: true)
                     let exporter = try Exporter(project: project,
                                                 settings: ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, quality: 0.8, includeAudio: true),
                                                 destination: out)
@@ -160,8 +204,13 @@ import YapcamRender
                     if once.isFinished { return }
                     let idle = Date().timeIntervalSince(tracker.lastChange)
                     if isStalled(idleFor: idle, hasProgress: tracker.hasProgress) {
-                        work.cancel(); try? FileManager.default.removeItem(at: out)
-                        once.resume(.failure(QuickExportError.stalled(Int(tracker.hasProgress ? stallLimit : setupLimit)))); return
+                        let limit = Int(tracker.hasProgress ? stallLimit : setupLimit)
+                        work.cancel()
+                        once.resume(.failure(QuickExportError.stalled(limit)))
+                        // Delete the partial file only after the worker has really stopped writing.
+                        _ = await work.value
+                        try? FileManager.default.removeItem(at: runDir)
+                        return
                     }
                 }
             }

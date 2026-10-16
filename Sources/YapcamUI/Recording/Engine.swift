@@ -37,6 +37,8 @@ enum EngineError: LocalizedError {
     var warnings: [String] { get }
     /// True when the session ended on its own (stream failure, disk full, device loss).
     var failure: EngineError? { get }
+    /// The recording folder once capture has created it.
+    var packageURL: URL? { get }
     func start() async throws
     func pause() async throws
     func resume() async throws
@@ -52,3 +54,5 @@ enum EngineError: LocalizedError {
     func interruptedPackages(in directory: URL) -> [URL]
     func recover(_ package: URL) throws -> URL
 }
+
+extension EngineSession { var packageURL: URL? { nil } }
