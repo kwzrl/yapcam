@@ -35,5 +35,6 @@ swiftc -parse-as-library -swift-version 6 -g -Onone -target arm64-apple-macos15.
   -Xlinker -rpath -Xlinker "$capture_policy_platform/Library/Frameworks" \
   Tests/YapcamCaptureTests/OnDeviceSpeechPolicyTests.swift \
   Tests/YapcamCaptureTests/TranscriptionTests.swift \
+  Tests/YapcamCaptureTests/SpeechRecognitionResultsTests.swift \
   "$capture_policy_root/Runner.swift" -o "$capture_policy_root/tests"
 "$capture_policy_root/tests"

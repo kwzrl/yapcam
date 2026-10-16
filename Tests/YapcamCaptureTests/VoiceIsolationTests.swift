@@ -5,7 +5,7 @@ import Testing
 @testable import YapcamCapture
 
 private final class IsolationTestKernel: VoiceIsolationKernel {
-    enum Mode: Sendable { case delay, fail, nonfinite, cancel }
+    enum Mode: Sendable { case delay, fail, nonfinite, cancel, noConnection }
     let latencyFrames: Int64
     private let mode: Mode
     private var history: [[Float]]
@@ -17,6 +17,7 @@ private final class IsolationTestKernel: VoiceIsolationKernel {
     }
     func process(_ input: AVAudioPCMBuffer, into output: AVAudioPCMBuffer) throws {
         onProcess()
+        if mode == .noConnection { throw VoiceIsolationRenderError.failure(kAudioUnitErr_NoConnection) }
         if mode == .fail { throw VoiceIsolationError.processingFailed("injected") }
         if mode == .cancel { withUnsafeCurrentTask { $0?.cancel() } }
         output.frameLength = input.frameLength
@@ -212,6 +213,19 @@ private struct IsolationFixture {
         }
         #expect(!FileManager.default.fileExists(atPath: fixture.output.path))
         #expect(try !fixture.hasTemporaryFiles())
+    }
+
+    @Test func offlineNoConnectionHasAnExplicitDSPAlternativeAndPreservesOriginal() async throws {
+        let fixture = try IsolationFixture(); defer { fixture.cleanup() }
+        let original = try Data(contentsOf: fixture.source)
+        let expected = VoiceIsolationRenderError.failure(kAudioUnitErr_NoConnection)
+        guard case .unavailable(let message) = expected else { Issue.record("Expected unavailable"); return }
+        #expect(message.contains("Offline processing") && message.contains("Noise reduction") && message.contains("Podcast"))
+        await #expect(throws: expected) { try await fixture.service(.noConnection).processFile(fixture.source) }
+        #expect(try Data(contentsOf: fixture.source) == original)
+        #expect(!FileManager.default.fileExists(atPath: fixture.output.path))
+        #expect(try !fixture.hasTemporaryFiles())
+        #expect(VoiceIsolationRenderError.failure(kAudioUnitErr_TooManyFramesToProcess) == .processingFailed("AUSoundIsolation render status -10874"))
     }
 
 }

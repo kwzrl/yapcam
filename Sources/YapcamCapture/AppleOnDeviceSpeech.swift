@@ -125,7 +125,7 @@ enum OnDeviceSpeechPolicy {
         guard supportsOnDevice, available else { throw TranscriptionError.onDeviceUnavailable(locale) }
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
-        request.shouldReportPartialResults = false
+        request.shouldReportPartialResults = true
         request.taskHint = .dictation
         request.contextualStrings = keyterms
         return request
@@ -157,9 +157,14 @@ enum AppleOnDeviceSpeech {
         _ = try OnDeviceSpeechPolicy.request(locale: identifier,
             supportsOnDevice: recognizer.supportsOnDeviceRecognition, available: recognizer.isAvailable, keyterms: keyterms)
         return try await recognizeFile(url) { buffer in
+            // A window owns its recognizer as well as its callback history. Late
+            // cancellation from the previous task must not affect a reused instance.
+            guard let windowRecognizer = SFSpeechRecognizer(locale: locale) else {
+                throw TranscriptionError.onDeviceUnavailable(identifier)
+            }
             let request = try OnDeviceSpeechPolicy.request(locale: identifier,
-                supportsOnDevice: recognizer.supportsOnDeviceRecognition, available: recognizer.isAvailable, keyterms: keyterms)
-            let context = SpeechRequestContext(recognizer: recognizer, request: request, buffer: buffer, locale: identifier)
+                supportsOnDevice: windowRecognizer.supportsOnDeviceRecognition, available: windowRecognizer.isAvailable, keyterms: keyterms)
+            let context = SpeechRequestContext(recognizer: windowRecognizer, request: request, buffer: buffer, locale: identifier)
             return try await SpeechRecognitionJob().run { context.start($0) }
         }
     }
@@ -195,18 +200,22 @@ private final class SpeechRequestContext: @unchecked Sendable {
     }
     func start(_ complete: @escaping SpeechRecognitionJob.Completion) -> SpeechRecognitionJob.Cancel {
         let locale = locale
+        let results = SpeechRecognitionResults()
         let task = recognizer.recognitionTask(with: request) { result, error in
-            if let result, result.isFinal {
-                let words = result.bestTranscription.segments.compactMap { segment -> RecognizedSpeechWord? in
-                    guard let start = SpeechChunking.nanoseconds(segment.timestamp),
-                          let end = SpeechChunking.nanoseconds(segment.timestamp + segment.duration) else { return nil }
-                    return RecognizedSpeechWord(text: segment.substring, startNs: start, endNs: end, confidence: segment.confidence)
-                }
-                complete(.success(words))
-            } else if let error { complete(.failure(OnDeviceSpeechPolicy.recognitionError(error, locale: locale))) }
+            let words = result?.bestTranscription.segments.compactMap { segment -> RecognizedSpeechWord? in
+                guard let start = SpeechChunking.nanoseconds(segment.timestamp),
+                      let end = SpeechChunking.nanoseconds(segment.timestamp + segment.duration) else { return nil }
+                return RecognizedSpeechWord(text: segment.substring, startNs: start, endNs: end, confidence: segment.confidence)
+            } ?? []
+            let failure = error.map { OnDeviceSpeechPolicy.recognitionError($0, locale: locale) }
+            if let outcome = results.receive(words, isFinal: result?.isFinal == true, error: failure) {
+                complete(outcome)
+            }
         }
-        request.append(buffer)
-        request.endAudio()
+        do {
+            try SpeechAudioPackets.forEach(in: buffer) { request.append($0) }
+            request.endAudio()
+        } catch { complete(.failure(error)) }
         let cancellation = SpeechTaskCancellation(task: task)
         return { cancellation.task.cancel() }
     }
