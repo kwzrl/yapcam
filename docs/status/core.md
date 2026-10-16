@@ -1,12 +1,12 @@
-READY 9b0da01: ED-10 caption style + word timing/edit mapping + cold instructions/Swift APIs; Rust104/Core Swift74/Render11 portable +4 native skips, Clippy and signed build/codesign PASS. Integrated on main01f05df; checkpoint pushed to origin/team/core; consumer handoff below.
+READY 9b0da01: Core backlog empty; ED-10 caption style + word timing/edit mapping + cold instructions/Swift APIs; Rust104/Core Swift74/Render11 portable +4 native skips, Clippy and signed build/codesign PASS. Integrated on main01f05df; checkpoint pushed to origin/team/core; consumer handoff below.
 
 # Core status
 
-Updated 2026-10-15 19:23 UTC. Branch team/core; Lead checkpoint 9b0da01; main01f05df.
-Main includes 9b0da01 and matches all Core implementation/test/format paths exactly.
-Rebase attempted with a clean tree (status refresh preserved/restored); sandbox
-rejects .git/worktrees/core/rebase-merge creation. Lead rebase required. No Git
-metadata workaround or main push. Tested checkpoint remains on origin/team/core.
+Updated 2026-10-15 22:57 UTC. Branch team/core; Lead checkpoint cc548c6; main66d4166.
+Main includes the tested caption package and matches every Core implementation/test/
+format path. Checkpoint cc548c6 remains published to origin/team/core. Rebase onto
+new main attempted with a clean tree (status preserved/restored); Git sandbox again
+rejects rebase-merge creation. Lead rebase required; no metadata workaround.
 
 ## Next
 
@@ -19,11 +19,18 @@ Lead: checkpoint 9b0da01 includes all 15 package files, including the three new
 caption implementation/test files, and is integrated in main01f05df/published to origin/team/core. Required
 other-family review should cover word mapping/patch handling and renderer timing.
 Mirror public API additions in Lead-owned SWIFT_API.md. No C header change.
-19:23 UTC re-audit: brief, FEATURES Core backlog, reference Core gaps and consumer
-handoffs contain no additional assigned Core implementation. No source changed
-after the final green gate; only this status refresh remains uncommitted. Main and
-origin/team/core are unchanged since the prior audit; the same Git sandbox blocker
-remains, so no repeated rebase or unchanged test run was necessary.
+22:57 UTC re-audit: brief, FEATURES Core backlog and updated consumer handoffs
+contain no new Core assignment. Editor's latest "no persisted font field" request
+is stale: main already includes TextStyle.fontFamily, captionOptions(), persisted
+style.font_family and emitted text-layer font_family from 9b0da01; see contracts
+below. Lead should route that implementation handoff to Editor/Render. Editor now
+reports 30 s trailing autosave, closing the previous policy mismatch. No source
+changed after the final green gate; unchanged tests were not repeated. Only this
+status refresh remains uncommitted. Main and remote checkpoint are unchanged since
+the prior audit; no repeated rebase attempt against the same sandbox failure.
+Dispatch: Core queue is empty. Route caption-consumer integration to Editor/Render;
+resume Core implementation when a concrete Core defect or contract request arrives.
+
 
 Editor: canvas.captions records now carry style.font_family(sans/serif/mono),
 reveal(line/word), growth(full/expanding/centered), entrance(appear/fade/slide) and
