@@ -41,6 +41,8 @@ public final class EditorModel: ObservableObject {
     public private(set) var isPlaying: Bool { get { playhead.isPlaying } set { if playhead.isPlaying != newValue { playhead.isPlaying = newValue } } }
     /// Where this document's presets and remembered settings live (injectable; isolated outside the real app).
     public var presetStore: PresetStore = EditorPresets.currentStore
+    /// `cursor.set_id` values the open core accepts (from its `cursor_library` query); drives the cursor set carousel.
+    public var cursorSetIDs: [String] = []
     public var defaults: UserDefaults = EditorPresets.currentStore.defaults
     @Published public var paletteVisible = false
     @Published public var previewOptions = PreviewOptions()

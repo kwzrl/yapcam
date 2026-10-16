@@ -39,6 +39,8 @@ import UniformTypeIdentifiers
         if restored { model.markRecoveredUnsaved() }   // journal-only state must be written on close
         model.presetStore = presets; model.defaults = presets.defaults
         model.loadStoredPreviewOptions()
+        struct Library: Decodable { struct Item: Decodable { var id: String }; var sets: [Item] }
+        model.cursorSetIDs = ((try? project.query("{\"q\":\"cursor_library\"}", as: Library.self))?.sets ?? []).map(\.id)
         model.fitTimeline(width: 900)
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
         let transcriptURL = package.appendingPathComponent("recording/transcript.json")

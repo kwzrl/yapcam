@@ -257,6 +257,21 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(cursorSizes.map(\.value) == lib.logicalSizes.map(\.id))
     }
 
+    @Test func carouselChoicesAreAcceptedByCoreAndOneUndoStepEach() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let doc = try EditorDocument(package: d); let m = doc.model
+        let choices = m.cursorSetChoices()
+        #expect(choices.count >= 13 - 2)   // original (recorded) + every authored set core accepts
+        #expect(choices.first?.id == "original")
+        for c in choices { m.chooseCursorSet(c); #expect(m.lastError == nil); #expect(m.selectedCursorSetID() == c.id) }
+        let paper = try #require(choices.first { $0.id == "paper" })
+        m.chooseCursorSet(paper)
+        m.undo()
+        #expect(m.selectedCursorSetID() != "paper")
+        m.chooseCursorSet(paper); try doc.project.save()
+        #expect(try EditorDocument(package: d).model.selectedCursorSetID() == "paper")
+    }
+
     @Test func selectionsReachTheRenderConfigurationAndInvalidateTheCache() throws {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let doc = try EditorDocument(package: d); let m = doc.model
