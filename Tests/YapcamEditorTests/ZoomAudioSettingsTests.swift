@@ -213,3 +213,92 @@ import YapcamCore
         m.close()
     }
 }
+
+@MainActor @Suite struct TranscriptExportTests {
+    private func word(_ t: String, _ a: Int64, _ b: Int64) -> TextItem { TextItem.make(.caption, id: "w\(a)", start: a, end: b, text: t) }
+
+    @Test func srtVttAndTextUseTheWordsTimelineTimes() {
+        let w = [word("Hello", 1_000_000_000, 1_400_000_000), word("world.", 1_500_000_000, 2_100_000_000), word("Later", 5_000_000_000, 5_500_000_000)]
+        #expect(TranscriptExporter.render(w, as: .srt) == "1\n00:00:01,000 --> 00:00:02,100\nHello world.\n\n2\n00:00:05,000 --> 00:00:05,500\nLater\n")
+        #expect(TranscriptExporter.render(w, as: .vtt) == "WEBVTT\n\n00:00:01.000 --> 00:00:02.100\nHello world.\n\n00:00:05.000 --> 00:00:05.500\nLater\n")
+        #expect(TranscriptExporter.render(w, as: .txt) == "Hello world.\nLater\n")
+        #expect(TranscriptExporter.render([], as: .txt) == "")
+    }
+
+    @Test func exportedTimesFollowCutsAndSpeedThroughCore() throws {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("tx-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        // Words at 3.0 s and 4.0 s of the timeline (set as a whole list like the transcript import does).
+        m.writeTextList(.caption, [word("keep", 3_000_000_000, 3_400_000_000), word("later", 4_000_000_000, 4_400_000_000)])
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        m.cut([TimeSpan(startNs: 1_000_000_000, endNs: 2_000_000_000)])                 // 1 s cut before both words
+        m.seek(toNs: 3_000_000_000); m.splitAtPlayhead()                                 // second clip starts at 3 s of the cut timeline
+        let c2 = try #require(m.clips.last); m.setSpeed(clipID: c2.id, 2)                // 2× from there on
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        let words = m.transcriptWords
+        #expect(words.count == 2 && words[0].startNs == 2_000_000_000)                  // moved earlier by the cut
+        let srt = m.transcriptText(.srt)
+        #expect(srt.contains("00:00:02,000 -->"))                                        // edited time, not the source 3 s
+        if let second = words.last { #expect(second.startNs < 3_000_000_000 + 1_000_000_000 && second.startNs >= 2_000_000_000) }   // speed pulled it closer
+        m.close()
+    }
+}
+
+@MainActor @Suite struct TranscriptOptionTests {
+    @Test func keytermsAreParsedRememberedAndPassedWithRegenerate() async {
+        #expect(EditorModel.parseKeyterms(" Yapcam, SwiftUI ,yapcam,\n, Kilian ") == ["Yapcam", "SwiftUI", "Kilian"])
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let p = FakeProject()
+        let m = EditorModel(project: p, player: FakePlayer()); m.defaults = iso.defaults
+        m.keytermsText = "Yapcam, SwiftUI"; m.transcriptionLanguage = "de-DE"
+        final class Box: @unchecked Sendable { var got: [(TranscriptionOptions, Bool)] = [] }
+        let box = Box()
+        m.captionSourceWithOptions = { o, force in box.got.append((o, force)); return Data(#"{"words":[]}"#.utf8) }
+        m.generateCaptions(); await m.waitForCaptions()
+        m.regenerateTranscript(); await m.waitForCaptions()
+        #expect(box.got.map(\.1) == [false, true] && box.got[0].0 == TranscriptionOptions(keyterms: ["Yapcam", "SwiftUI"], language: "de-DE"))
+    }
+}
+
+@MainActor @Suite struct CursorRangesTests {
+    private func doc() throws -> (EditorDocument, URL) {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("cr-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d)
+        return (try EditorDocument(package: d, presets: EditorStorage.makeIsolated().store), d)
+    }
+
+    @Test func cursorSizeAndTogglesKeepTheirRangesAndSurviveReopen() throws {
+        let (doc, d) = try doc(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = doc.model
+        #expect(m.number("cursor.size_points") == 48 || m.value("cursor.size_points") == nil)          // new projects: 48 px default
+        for px in [16.0, 64, 128] { m.set("cursor.size_points", number: px); #expect(m.lastError == nil && m.number("cursor.size_points") == px) }
+        m.set("cursor.size_points", number: 129); #expect(m.lastError != nil && m.number("cursor.size_points") == 128)    // above 128 px is rejected
+        m.lastError = nil
+        m.set("cursor.size_points", number: 15); #expect(m.lastError != nil && m.number("cursor.size_points") == 128)     // below 16 px too
+        m.lastError = nil
+        for k in ["always_default", "rotate_on_move", "remove_shakes", "optimize_types"] {
+            #expect(!m.bool("cursor." + k)); m.set("cursor." + k, bool: true); #expect(m.bool("cursor." + k), "\(k)")
+        }
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        m.saveNow(); m.close()
+        let again = try EditorDocument(package: d, presets: EditorStorage.makeIsolated().store).model
+        #expect(again.number("cursor.size_points") == 128)
+        for k in ["always_default", "rotate_on_move", "remove_shakes", "optimize_types"] { #expect(again.bool("cursor." + k), "\(k) after reopen") }
+        again.close()
+    }
+
+    @Test func coreAcceptsAHiddenCaptionWordAndKeepsTheTranscript() throws {
+        let (doc, d) = try doc(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = doc.model
+        m.writeTextList(.caption, [TextItem.make(.caption, id: "w1", start: 1_000_000_000, end: 1_400_000_000, text: "hi")])
+        m.hideWord(id: "w1")
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.transcriptWords.count == 1 && m.isHidden(m.transcriptWords[0]))
+        m.unhideWord(id: "w1"); #expect(!m.isHidden(m.transcriptWords[0]))
+        m.close()
+    }
+}

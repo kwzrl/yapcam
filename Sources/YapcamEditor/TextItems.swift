@@ -145,9 +145,14 @@ extension EditorModel {
     // MARK: captions from speech
 
     /// Imports a transcript (recording/transcript.json, or the app's on-device transcriber) as captions.
-    public func generateCaptions() {
+    /// Re-runs recognition and replaces the transcript; hand edits (corrected or hidden words) are discarded. Cuts stay.
+    public func regenerateTranscript() { generateCaptions(regenerate: true) }
+
+    public func generateCaptions(regenerate: Bool = false) {
         guard captionState != .working else { return }
-        guard let source = captionSource else { captionState = .failed("Speech transcription isn't available in this build."); return }
+        let options = transcriptionOptions
+        let source: (@Sendable () async throws -> Data)? = captionSourceWithOptions.map { f in { @Sendable () async throws -> Data in try await f(options, regenerate) } } ?? captionSource
+        guard let source else { captionState = .failed("Speech transcription isn't available in this build."); return }
         captionState = .working
         let started = revision
         captionTask = Task { [weak self] in

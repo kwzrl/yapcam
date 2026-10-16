@@ -359,7 +359,7 @@ struct InspectorView: View {
         Section("Cursor") {
             ToggleRow(model: model, title: "Show cursor", path: "cursor.visible", defaultValue: true)
             if model.usesCursorPoints {
-                NumberRow(model: model, title: "Size", path: "cursor.size_points", range: 16...128, unit: "pt", format: "%.0f", defaultValue: 48)
+                NumberRow(model: model, title: "Size", path: "cursor.size_points", range: 16...128, unit: "px", format: "%.0f", defaultValue: 48)
             } else {
                 NumberRow(model: model, title: "Size", path: "cursor.size", range: 0.5...4, unit: "×")
             }
@@ -684,8 +684,10 @@ struct CaptionSection: View {
             switch model.captionState {
             case .working: HStack { ProgressView().controlSize(.small); Text("Transcribing on this Mac…") }
             case .failed(let m): Text(m).foregroundStyle(.red); Button("Dismiss") { model.captionState = .idle }
-            case .idle: Button(captions.isEmpty ? "Generate captions from speech" : "Regenerate captions") { model.generateCaptions() }
+            case .idle:
+                if captions.isEmpty { Button("Generate captions from speech") { model.generateCaptions() } } else { RegenerateButton(model: model) }
             }
+            if captions.isEmpty || model.captionState != .idle { TranscriptionOptionControls(model: model) }
             CaptionStyleControls(model: model)
             if case .text(.caption, let id) = model.selection, let t = captions.first(where: { $0.id == id }) { TextControls(model: model, item: t) }
             Button("Add caption at playhead") { model.addText(.caption) }

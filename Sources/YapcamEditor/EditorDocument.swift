@@ -44,6 +44,13 @@ import UniformTypeIdentifiers
         model.fitTimeline(width: 900)
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
         let transcriptURL = package.appendingPathComponent("recording/transcript.json")
+        model.captionSourceWithOptions = { options, force in
+            // An existing transcript is reused unless the user asked to regenerate it.
+            if !force, let data = try? Data(contentsOf: transcriptURL) { return data }
+            if let t = EditorWindows.transcriberWithOptions { return try await t(package, options) }
+            guard let t = EditorWindows.transcriber else { throw EditorError.transcriptionUnavailable }
+            return try await t(package)
+        }
         model.captionSource = {
             // An existing transcript is used as is; otherwise the app-provided on-device transcriber runs.
             if let data = try? Data(contentsOf: transcriptURL) { return data }

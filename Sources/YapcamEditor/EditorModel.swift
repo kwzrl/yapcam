@@ -62,6 +62,8 @@ public final class EditorModel: ObservableObject {
     @Published public var captionState: CaptionState = .idle
     /// Supplies transcript JSON (RecordingTranscript). Set by the document; nil = transcription unavailable.
     public var captionSource: (@Sendable () async throws -> Data)?
+    /// Options-aware transcription (keyterms, language); `force` = ignore an existing transcript file and recognise again.
+    public var captionSourceWithOptions: (@Sendable (TranscriptionOptions, Bool) async throws -> Data)?
     var captionTask: Task<Void, Never>?
     /// Project changed through a path that bypassed `perform` (transcript import, music import).
     func noteExternalEdit() { didEdit() }

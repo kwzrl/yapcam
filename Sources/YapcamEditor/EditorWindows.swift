@@ -7,6 +7,10 @@ import YapcamCore
     /// Set by the app (it links YapcamCapture): runs on-device transcription for a package and returns the
     /// RecordingTranscript JSON (also written to recording/transcript.json). Nil → captions can only use an existing transcript.
     nonisolated(unsafe) public static var transcriber: (@Sendable (URL) async throws -> Data)?
+    /// Same, with the editor's keyterms and language (capture: `contextualStrings`, locale). Preferred over `transcriber` when set.
+    nonisolated(unsafe) public static var transcriberWithOptions: (@Sendable (URL, TranscriptionOptions) async throws -> Data)?
+    /// Languages the on-device recogniser supports (from `SFSpeechRecognizer.supportedLocales()`); nil → only "Auto" is offered.
+    nonisolated(unsafe) public static var languageProvider: (@Sendable () -> [TranscriptionLanguage])?
 
     /// Opens (or focuses) the editor for a `.yapcam` package. Asks before restoring an
     /// unsaved autosave journal and offers relinking when media is missing.
