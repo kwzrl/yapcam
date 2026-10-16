@@ -1,4 +1,4 @@
-READY ed8c59a qa: audit vs 66d4166 (ED-10)
+READY HEAD qa: F12 20/20 pass, F11 narrowed (display/area pick+Return), exclusive window released
 READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
@@ -82,6 +82,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - Main 66d4166: editor caption typography landed (ED-10 -> integrated). Other Yapcam instance (pid 4403) still running.
 
+- Exclusive window done (10:15-10:25): F12 loop 20/20, hotkey full cycle incl. restart PASS, pick hotkeys partial. Test recordings and lock removed.
+
 ## In progress
 - M2 refinement of FEATURES.md values (preset lists, defaults).
 
@@ -107,8 +109,8 @@ READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 - F10 FIXED (verified on 3dd0d3b: editorInFront=true). Original: [ui, LOW] After Stop the editor opens but `editorInFront=false` in the self-test (main c1bf553). Repro: `open -n -W build/Yapcam.app --args --drive-input-selftest 12 --source display`, read probe.log. May be a self-test activation artifact; ui please confirm with a manual run.
 
-- F11 [ui, LOW] Hotkey hook: after the restart hotkey the script logs nothing more (stalls; probably the restart confirmation dialog blocks the script's `return` step). Pick hotkeys Opt-Cmd-3/4/5 followed by the posted Return do not start recording from the overlay; Ctrl-Cmd-Return in window/area mode says "Choose a window / Select an area first". Repro: `open -n build/Yapcam.app --args --ui-record-selftest 10 --hotkey-script "startStop,wait:3,restart,wait:1,return,wait:3,startStop"` and `--hotkey-script "recordArea,wait:1.5,return,wait:3,startStop"`; read probe.log. May be hook limits (overlay not key for posted Return); ui please confirm manually.
-- F12 [ui, LOW] `--after-recording save --save-to <file>` hung once after the package line (process alive 9 min, no outcome); 4 retries fine. Intermittent.
+- F11 NARROWED (27d27e9): restart + auto-confirm PASS; Window pick + Return PASS; Display and Area pick + posted Return do NOT start recording (display: phase stays idle with overlay shown; area: 'Select an area to record first'). Likely the overlay window is not key when opened by a global hotkey from another app, so a real Return would not start either: ui please check by hand. Original: [ui, LOW] Hotkey hook: after the restart hotkey the script logs nothing more (stalls; probably the restart confirmation dialog blocks the script's `return` step). Pick hotkeys Opt-Cmd-3/4/5 followed by the posted Return do not start recording from the overlay; Ctrl-Cmd-Return in window/area mode says "Choose a window / Select an area first". Repro: `open -n build/Yapcam.app --args --ui-record-selftest 10 --hotkey-script "startStop,wait:3,restart,wait:1,return,wait:3,startStop"` and `--hotkey-script "recordArea,wait:1.5,return,wait:3,startStop"`; read probe.log. May be hook limits (overlay not key for posted Return); ui please confirm manually.
+- F12 CLOSED (20/20 pass on 27d27e9, exclusive window). Original: [ui, LOW] `--after-recording save --save-to <file>` hung once after the package line (process alive 9 min, no outcome); 4 retries fine. Intermittent.
 
 - F13 [ui hook, LOW] `--editor-selftest --crash-after-autosave` gives up on save=clean after ~30 s but the editor now autosaves 30 s after the last edit (88d3ba4): increase the wait to >= 45 s. Journal recovery still PASSES (crash at 32 s and immediate).
 
