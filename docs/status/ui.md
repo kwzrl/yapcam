@@ -1,8 +1,20 @@
+READY ui: U1 start sound, U2 camera max resolution, U3 third-party notices (unit-tested; live/hardware untested). Next: R3-UI-1, R3-UI-2
+
 READY ui: preset+defaults test isolation fixed (swift test -j 6 ×3 green, 465 tests); rebased on f611874
 
 READY ui: QA self-test launch flags (--capture-selftest options, --ui-record-selftest, --drive-input-selftest) built, tested, run live; NOTE for QA: this app does NOT have Accessibility/Input Monitoring (logged accessibility=false)
 
 # ui status
+
+## Round 3 (2026-10-16)
+Environment for all lines: Mac mini M4, one 1680x1050 display, no camera, no microphone; debug build, `swift test -j 6`; Yapcam not launched (no live check this round yet).
+- **U1 start sound (GAP-CAP-7, AUD-09):** `Recording/StartSound.swift`. Chime synthesized in code (two decaying sine tones, 16-bit WAV in memory, no sampled/system audio), played by AVAudioPlayer at gain 0.33. `StartSoundGate` waits for completion or 540 ms, whichever first; player errors are logged (NSLog) and never shown. Order: countdown → start sound → capture start. Stop sound is also synthesized (replaced NSSound Tink/Pop). Capture already sets `excludesCurrentProcessAudio = true` (CaptureSessionServices.swift:58, CaptureGeometry.swift:127), so the chime cannot reach system-audio capture; no request needed. Unit tests: completes@200 ms → starts ≈200 ms; never completes → 530–650 ms; throws → immediate; order test with fake engine/player. Status: **integrated + unit-tested**; audible playback and absence from a real recording **untested live**.
+- **U2 camera max resolution (GAP-CAP-2):** "Max camera resolution" 720p/1080p/4K (default 1080p) in the camera popover and Settings → Recording (same `CameraResolutionRow`); persisted (`cameraMaxResolution`), forwarded `UIRecordingOptions` → `RecordingOptions.cameraMaxResolution`. With a camera selected it states what will be used, from the device's formats (AVFoundation `AVCaptureDevice.formats`); no camera → "Applies when a camera is used." Tests with injected formats: 720p-only + 4K → 720p; 4K device + 4K → 4K; cap below device. Recorded camera size is in the package manifest (`camera.pixel_size`, written by capture). Status: **integrated + unit-tested; untested (no hardware)** with a real camera.
+  - Request to capture: capture's `CameraFormatPolicy` is internal, so the UI mirrors its rule (largest native frame within cap, no upscale) in `CameraResolutionInfo.effective`. Please expose `public static func CameraFormatPolicy.effectiveSize(deviceID: String, maximum: CameraMaxResolution) -> (width: Int, height: Int)?` so the UI can drop its copy.
+  - Request to editor: show `camera.pixel_size` from the recording manifest in the recording-info area if one exists.
+- **U3 third-party notices:** `build-app.sh` copies `docs/THIRD_PARTY_NOTICES.md` to `Contents/Resources/THIRD_PARTY_NOTICES.txt` and fails the build if missing/empty; Help ▸ Third-Party Notices opens it (`ThirdPartyNotices`). Test: menu item exists with its action; opener receives the bundled file. Bundle check: `scripts/build-app.sh` run at this commit produced `build/Yapcam.app/Contents/Resources/THIRD_PARTY_NOTICES.txt` (16529 bytes); the build step fails if absent. Menu click itself untested live.
+- Tests: `swift test -j 6` 525 tests green.
+
 
 ## Done (verified)
 Verification method "snap" = `build/Yapcam.app/Contents/MacOS/Yapcam --snapshot-ui <dir>` renders our own windows/popovers to PNGs in light + dark and I looked at them. "build" = `scripts/build-app.sh` + `swift test` green, app launches and stays up, global hotkeys register without error.

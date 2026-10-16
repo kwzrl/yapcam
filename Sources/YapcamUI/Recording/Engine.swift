@@ -1,4 +1,5 @@
 import AppKit
+import YapcamCapture
 
 /// What the UI asks the capture layer to record. Mirrors `RecordingOptions` /
 /// `CaptureTarget` from docs/SWIFT_API.md; `LiveEngine` converts 1:1.
@@ -14,6 +15,7 @@ struct UIRecordingOptions {
     var systemAudio: Bool
     var microphoneID: String?
     var cameraID: String?
+    var cameraMaxResolution: CameraMaxResolution = .hd1080
     var recordKeystrokes: Bool
     var maxFPS: Int
     var outputDirectory: URL

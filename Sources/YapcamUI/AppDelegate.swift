@@ -257,6 +257,7 @@ import YapcamEditor
     @objc func editAddZoom() { EditorBridge.keyEditor()?.addZoomAtPlayhead() }
     @objc func editPalette() { EditorBridge.keyEditor()?.paletteVisible = true }
     @objc func showAbout() { AboutWindow.show() }
+    @objc func showThirdPartyNotices() { ThirdPartyNotices.open() }
     @objc func showStorageFolder() { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) }
 }
 

@@ -17,7 +17,7 @@ import YapcamEditor
             inner = RecordingSession(options: RecordingOptions(
                 target: target, systemAudio: options.systemAudio, microphoneID: options.microphoneID,
                 cameraID: options.cameraID, recordKeystrokes: options.recordKeystrokes, maxFPS: options.maxFPS,
-                excludeYapcamWindows: true, outputDirectory: options.outputDirectory))
+                excludeYapcamWindows: true, cameraMaxResolution: options.cameraMaxResolution, outputDirectory: options.outputDirectory))
         }
         var elapsed: TimeInterval { inner.elapsed }
         var micLevel: Float { inner.micLevel }

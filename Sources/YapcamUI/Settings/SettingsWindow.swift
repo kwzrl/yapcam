@@ -60,6 +60,7 @@ struct RecordingSettings: View {
     var body: some View {
         Form {
             Picker("Frame rate", selection: $s.maxFPS) { Text("30 fps").tag(30); Text("60 fps").tag(60) }
+            CameraResolutionRow()
             Toggle("Hide desktop icons while recording", isOn: $s.hideDesktopIcons)
             Text("Restarts Finder briefly. Icons are restored when recording ends, and on the next launch if Yapcam quit unexpectedly.")
                 .font(.caption).foregroundStyle(.secondary)

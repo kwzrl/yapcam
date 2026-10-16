@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import SwiftUI
 import Carbon.HIToolbox
@@ -1010,4 +1011,164 @@ import YapcamEditor
     }
 
     // (A show/hide test is deliberately absent: the overlays are process-wide singletons shared with the snapshot smoke test.)
+}
+
+// MARK: - Start sound (GAP-CAP-7)
+
+private struct ScriptedPlayer: CuePlayer {
+    enum Mode { case completes(Int), never, throwing }
+    let mode: Mode
+    struct Boom: Error {}
+    func play(_ cue: Cue, gain: Float) async throws {
+        switch mode {
+        case .completes(let ms): try await Task.sleep(for: .milliseconds(ms))
+        case .never: try await Task.sleep(for: .seconds(60))
+        case .throwing: throw Boom()
+        }
+    }
+}
+
+@Suite struct StartSoundGateTests {
+    private func elapsedMs(_ mode: ScriptedPlayer.Mode) async -> Double {
+        let t0 = ContinuousClock.now
+        await StartSoundGate.run(player: ScriptedPlayer(mode: mode), log: { _ in })
+        let d = ContinuousClock.now - t0
+        return Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15
+    }
+    @Test func startsAfterSoundFinishes() async {
+        let ms = await elapsedMs(.completes(200))
+        #expect(ms >= 190 && ms < 420, "\(ms)")
+    }
+    @Test func neverCompletingSoundCapsAt540() async {
+        let ms = await elapsedMs(.never)
+        #expect(ms >= 530 && ms <= 650, "\(ms)")
+    }
+    @Test func failingPlayerStartsImmediately() async {
+        let ms = await elapsedMs(.throwing)
+        #expect(ms < 300, "\(ms)")
+    }
+    @Test func gainAndLimitAreTheSpecValues() {
+        #expect(StartSoundGate.gain == 0.33)
+        #expect(StartSoundGate.limit == .milliseconds(540))
+    }
+    @Test func chimeIsOurOwnShortValidWav() {
+        for cue in [Cue.start, .stop] {
+            let wav = ChimeSynth.wav(cue)
+            #expect(wav.prefix(4) == "RIFF".data(using: .ascii)!)
+            #expect(ChimeSynth.duration(cue) < 0.54, "start chime must fit the gate")
+            #expect(wav.count == 44 + ChimeSynth.samples(cue).count * 2)
+            #expect(ChimeSynth.samples(cue).contains { abs($0) > 0.3 })
+        }
+        #expect((try? AVAudioPlayer(data: ChimeSynth.wav(.start))) != nil)
+    }
+}
+
+@MainActor @Suite struct StartSoundOrderTests {
+    @Test func countdownThenSoundThenCapture() async throws {
+        let log = EventLog()
+        let rec = RecordingController()   // own instance: the shared one is used by other suites
+        let settings = AppSettings.shared
+        let oldSounds = settings.playSounds, oldCountdown = settings.countdown
+        defer { settings.playSounds = oldSounds; settings.countdown = oldCountdown }
+        settings.playSounds = true; settings.countdown = 0
+        rec.engine = OrderEngine(log: log)
+        rec.cuePlayer = OrderPlayer(log: log)
+        rec.startSession( UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
+                                                    recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory))
+        for _ in 0..<100 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(rec.phase == .recording)
+        #expect(await log.events == ["sound-start", "sound-end", "capture-start"])
+        await rec.cancelAndWait()
+    }
+}
+
+actor EventLog { var events: [String] = []; func add(_ e: String) { events.append(e) } }
+private struct OrderPlayer: CuePlayer {
+    let log: EventLog
+    func play(_ cue: Cue, gain: Float) async throws {
+        await log.add("sound-start"); try await Task.sleep(for: .milliseconds(100)); await log.add("sound-end")
+    }
+}
+
+@MainActor private final class OrderSession: EngineSession {
+    let log: EventLog
+    init(log: EventLog) { self.log = log }
+    var elapsed: TimeInterval { 0 }
+    var micLevel: Float { 0 }
+    var warnings: [String] { [] }
+    var failure: EngineError? { nil }
+    func start() async throws { await log.add("capture-start") }
+    func pause() async throws {}
+    func resume() async throws {}
+    func stop() async throws -> URL { FileManager.default.temporaryDirectory }
+    func cancel() async {}
+}
+@MainActor private struct OrderEngine: RecordingEngine {
+    let log: EventLog
+    func makeSession(_ options: UIRecordingOptions) -> EngineSession { OrderSession(log: log) }
+    func registerExcluded(_ window: NSWindow) {}
+    func unregisterExcluded(_ window: NSWindow) {}
+    func openEditor(package: URL) {}
+    func interruptedPackages(in directory: URL) -> [URL] { [] }
+    func recover(_ package: URL) throws -> URL { package }
+}
+
+// MARK: - Camera max resolution (GAP-CAP-2)
+
+@MainActor @Suite struct CameraResolutionTests {
+    typealias S = CameraResolutionInfo.Size
+    let hd720Only = [S(width: 640, height: 480), S(width: 1280, height: 720)]
+    let uhd = [S(width: 1280, height: 720), S(width: 1920, height: 1080), S(width: 3840, height: 2160)]
+
+    @Test func lowResolutionDeviceWithBigChoiceShows720p() {
+        let t = CameraResolutionInfo.summary(maximum: .uhd4K, cameraSelected: true, formats: hd720Only)
+        #expect(t.contains("720p (1280×720)"), "\(t)")
+        #expect(t.contains("most this camera offers"))
+    }
+    @Test func fourKDeviceWith4KChoiceShows4K() {
+        #expect(CameraResolutionInfo.summary(maximum: .uhd4K, cameraSelected: true, formats: uhd) == "Will record at 4K (3840×2160).")
+    }
+    @Test func capBelowDeviceShowsCapAndWhatCameraCanDo() {
+        let t = CameraResolutionInfo.summary(maximum: .hd1080, cameraSelected: true, formats: uhd)
+        #expect(t.contains("1080p (1920×1080)") && t.contains("up to 4K"), "\(t)")
+        #expect(CameraResolutionInfo.effective(formats: uhd, maximum: .hd720) == S(width: 1280, height: 720))
+    }
+    @Test func noCameraExplainsWhenItApplies() {
+        #expect(CameraResolutionInfo.summary(maximum: .hd1080, cameraSelected: false, formats: nil) == "Applies when a camera is used.")
+    }
+    @Test func unknownDeviceFallsBackToHonestText() {
+        #expect(CameraResolutionInfo.summary(maximum: .hd1080, cameraSelected: true, formats: nil).contains("chosen when recording starts"))
+    }
+    @Test func choiceIsPersistedAndForwarded() throws {
+        let s = AppSettings.shared
+        let old = s.cameraMaxResolution; defer { s.cameraMaxResolution = old }
+        s.cameraMaxResolution = .uhd4K
+        #expect(AppDefaults.store.integer(forKey: "cameraMaxResolution") == 2160)
+        let sm = s.sourceMode; defer { s.sourceMode = sm }
+        s.sourceMode = .display
+        guard let o = try? RecordingController.shared.makeOptions() else { return }
+        #expect(o.cameraMaxResolution == .uhd4K)
+    }
+}
+
+// MARK: - Third-party notices (U3)
+
+@MainActor @Suite struct ThirdPartyNoticesTests {
+    @Test func helpMenuItemOpensTheBundledFile() throws {
+        _ = NSApplication.shared; let menu = MainMenu.build(target: AppDelegate())
+        let help = try #require(menu.items.first { $0.title == "Help" }?.submenu)
+        let item = try #require(help.items.first { $0.title == "Third-Party Notices" })
+        #expect(item.action == #selector(AppDelegate.showThirdPartyNotices))
+        // The resolver finds the file in a bundle that has it and opens exactly that URL.
+        let dir = FileManager.default.temporaryDirectory.appending(path: "notices-\(UUID().uuidString).bundle")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let res = dir.appending(path: "Contents/Resources")
+        try FileManager.default.createDirectory(at: res, withIntermediateDirectories: true)
+        try "Apache-2.0".write(to: res.appending(path: "THIRD_PARTY_NOTICES.txt"), atomically: true, encoding: .utf8)
+        try "<plist version=\"1.0\"><dict/></plist>".write(to: dir.appending(path: "Contents/Info.plist"), atomically: true, encoding: .utf8)
+        let bundle = try #require(Bundle(url: dir))
+        var opened: URL?
+        ThirdPartyNotices.open(bundle: bundle, opener: { opened = $0; return true })
+        #expect(opened?.lastPathComponent == "THIRD_PARTY_NOTICES.txt")
+    }
 }
