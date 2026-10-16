@@ -105,6 +105,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var presetsDirectory: URL? { didSet { d.set(presetsDirectory?.path, forKey: "presetsDirectory") } }
     /// Experimental: exports (quick export) omit exact duplicate frames (variable frame rate).
     @Published var experimentalVariableFrameRate: Bool { didSet { d.set(experimentalVariableFrameRate, forKey: "experimentalVariableFrameRate") } }
+    /// Editor autosave 30 s after the last edit (closing a window and quitting always save).
+    @Published var autosaveEnabled: Bool { didSet { d.set(autosaveEnabled, forKey: "autosaveEnabled"); EditorHooks.apply(self) } }
     @Published var microphoneID: String? { didSet { d.set(microphoneID, forKey: "microphoneID") } }
     @Published var cameraID: String? { didSet { d.set(cameraID, forKey: "cameraID") } }
     @Published var cameraMaxResolution: CameraMaxResolution { didSet { d.set(cameraMaxResolution.rawValue, forKey: "cameraMaxResolution") } }
@@ -161,6 +163,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         reuseLastProjectSettings = d.object(forKey: "reuseLastProjectSettings") as? Bool ?? false
         presetsDirectory = d.string(forKey: "presetsDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) }
         experimentalVariableFrameRate = d.object(forKey: "experimentalVariableFrameRate") as? Bool ?? false
+        autosaveEnabled = d.object(forKey: "autosaveEnabled") as? Bool ?? true
         microphoneID = d.string(forKey: "microphoneID")
         cameraID = d.string(forKey: "cameraID")
         cameraMaxResolution = CameraMaxResolution(rawValue: d.integer(forKey: "cameraMaxResolution")) ?? .hd1080
