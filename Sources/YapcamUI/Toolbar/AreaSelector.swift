@@ -31,7 +31,7 @@ import SwiftUI
         OverlayKeys.takeKeyboard(w)
         w.makeFirstResponder(view)
         // Return starts (unless a number field is being edited), Esc cancels: whatever has focus.
-        keyMonitor = OverlayKeys.install(start: { [weak view] in view?.confirm() }, cancel: { [weak view] in view?.onFinish?(nil) })
+        keyMonitor = OverlayKeys.install(window: w, start: { [weak view] in view?.confirm() }, cancel: { [weak view] in view?.onFinish?(nil) })
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.end(nil) }
         }

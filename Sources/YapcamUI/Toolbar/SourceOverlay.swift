@@ -369,7 +369,7 @@ private final class OverlayWindow: NSWindow {
         }
         let key = windows.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? windows.first
         OverlayKeys.takeKeyboard(key)
-        keyMonitor = OverlayKeys.install(start: { [weak self] in self?.startForTesting() }, cancel: { [weak self] in self?.hide() })
+        keyMonitor = OverlayKeys.install(window: key, start: { [weak self] in self?.startForTesting() }, cancel: { [weak self] in self?.hide() })
         // Display plugged/unplugged or rearranged: the windows would be on stale frames, so start over.
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.hide() }

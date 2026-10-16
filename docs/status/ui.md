@@ -1,3 +1,4 @@
+READY ui F16: first Return after a hotkey-opened overlay could go to another app (one-shot activation request lost) → overlay now re-claims the keyboard until it is key + global Return/Esc fallback; 3 new tests. Commit: see git log; debug tests green after build-core; release app builds; NOT verified live (QA owns live; please re-run f11-display-repeat).
 READY ui: start-sound tests deterministic (injected clock) + gate can no longer be held by a player that ignores cancellation (555 tests green ×2)
 
 READY ui: R3-UI-3,4,5,6,7,8(ui),11,13,15,16,17,18,20,21 fixed + unit-tested (554 tests, debug, not run live)

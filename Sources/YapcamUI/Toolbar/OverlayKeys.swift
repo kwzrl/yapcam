@@ -16,22 +16,54 @@ enum OverlayKeys {
         }
     }
 
-    /// Installs the monitor; returns a token for `remove`. Events are consumed when they trigger an action.
-    @MainActor static func install(start: @escaping () -> Void, cancel: @escaping () -> Void) -> Any? {
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+    /// Installs the monitors; returns a token for `remove`. Events are consumed when they trigger an action.
+    /// With a `window`, the overlay also keeps claiming the keyboard until it really is key (see `KeyClaim`),
+    /// and a global monitor stands in for the local one while another app still holds the keyboard.
+    @MainActor static func install(window: NSWindow? = nil, start: @escaping () -> Void, cancel: @escaping () -> Void) -> Any? {
+        let token = Token()
+        func perform(_ event: NSEvent, typing: Bool) -> Bool {
+            switch action(keyCode: event.keyCode, typing: typing) {
+            case .start: if !event.isARepeat { start() }; return true
+            case .cancel: if !event.isARepeat { cancel() }; return true
+            case .pass: return false
+            }
+        }
+        token.local = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             // A modal prompt (for example "Set size…") owns the keyboard: Esc/Return belong to it.
             if NSApp.modalWindow != nil { return event }
             let typing = NSApp.keyWindow?.firstResponder is NSText
             // Auto-repeat of a held key must not act twice (a held Return would skip the Get-ready countdown).
-            switch action(keyCode: event.keyCode, typing: typing) {
-            case .start: if !event.isARepeat { start() }; return nil
-            case .cancel: if !event.isARepeat { cancel() }; return nil
-            case .pass: return event
-            }
+            return perform(event, typing: typing) ? nil : event
         }
+        if let window {
+            // Global monitors only see keys that go to OTHER apps, i.e. exactly the case where the activation
+            // request has not (yet) taken effect: Return/Esc must still act on the overlay that is on screen.
+            token.global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+                MainActor.assumeIsolated { _ = perform(event, typing: false) }
+            }
+            let claim = KeyClaim(isReady: { NSApp.isActive && window.isKeyWindow }, claim: { [weak window] in
+                NSApp.activate(ignoringOtherApps: true)
+                window?.makeKeyAndOrderFront(nil)
+            })
+            token.claim = claim
+            claim.start()
+        }
+        return token
     }
 
-    @MainActor static func remove(_ token: Any?) { if let token { NSEvent.removeMonitor(token) } }
+    @MainActor final class Token {
+        var local: Any?, global: Any?
+        var claim: KeyClaim?
+    }
+
+    @MainActor static func remove(_ token: Any?) {
+        guard let token else { return }
+        if let t = token as? Token {
+            t.claim?.cancel()
+            if let m = t.local { NSEvent.removeMonitor(m) }
+            if let m = t.global { NSEvent.removeMonitor(m) }
+        } else { NSEvent.removeMonitor(token) }
+    }
 
     /// A hotkey fires while another app is in front: macOS only honors a request to become the active app
     /// (and so give the overlay the keyboard) with the explicit "ignore other apps" form.
@@ -59,5 +91,36 @@ enum OverlayKeys {
         guard let app = previous else { return }
         previous = nil
         if !app.isTerminated { activate(app) }
+    }
+}
+
+/// One request to become the active app is not a guarantee: when another app is mid-activation (for example a
+/// picker overlay of a screen recorder), it is dropped and the first Return goes to that app. So the claim is
+/// repeated until the overlay window is key, then stops.
+@MainActor final class KeyClaim {
+    private let isReady: () -> Bool
+    private let claim: () -> Void
+    private let interval: Duration
+    private let maxAttempts: Int
+    private var task: Task<Void, Never>?
+    private(set) var attempts = 0
+    private(set) var gaveUp = false
+
+    init(isReady: @escaping () -> Bool, claim: @escaping () -> Void, interval: Duration = .milliseconds(50), maxAttempts: Int = 60) {
+        self.isReady = isReady; self.claim = claim; self.interval = interval; self.maxAttempts = maxAttempts
+    }
+
+    func start() { task = Task { [weak self] in await self?.run() } }
+    func cancel() { task?.cancel(); task = nil }
+
+    /// Claims immediately, then again every `interval` until ready, cancelled, or `maxAttempts` claims were made.
+    func run() async {
+        while !Task.isCancelled {
+            if isReady() { return }
+            if attempts >= maxAttempts { gaveUp = true; return }
+            attempts += 1
+            claim()
+            try? await Task.sleep(for: interval)
+        }
     }
 }

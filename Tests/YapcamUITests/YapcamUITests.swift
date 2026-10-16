@@ -1014,6 +1014,34 @@ import YapcamEditor
         OverlayKeys.remove(nil)        // removing nothing is harmless
     }
 
+    /// F16: one activation request can be lost, so the first Return went to another app. The claim repeats until key.
+    @Test func keyClaimRepeatsUntilTheOverlayIsKey() async {
+        var ready = false, claims = 0
+        let c = KeyClaim(isReady: { ready }, claim: { claims += 1; if claims == 3 { ready = true } }, interval: .milliseconds(1), maxAttempts: 10)
+        await c.run()
+        #expect(claims == 3 && !c.gaveUp)       // the first two requests were "lost"; stops once key
+    }
+
+    @Test func keyClaimDoesNothingWhenAlreadyKeyAndGivesUpWhenNeverKey() async {
+        var claims = 0
+        let ok = KeyClaim(isReady: { true }, claim: { claims += 1 }, interval: .milliseconds(1))
+        await ok.run()
+        #expect(claims == 0)
+        let never = KeyClaim(isReady: { false }, claim: { claims += 1 }, interval: .milliseconds(1), maxAttempts: 5)
+        await never.run()
+        #expect(claims == 5 && never.gaveUp)
+    }
+
+    @Test func keyClaimStopsWhenCancelled() async {
+        var claims = 0
+        let c = KeyClaim(isReady: { false }, claim: { claims += 1 }, interval: .milliseconds(1), maxAttempts: 1_000_000)
+        c.start(); c.cancel()
+        try? await Task.sleep(for: .milliseconds(20))
+        let seen = claims
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(claims == seen)
+    }
+
     // (A show/hide test is deliberately absent: the overlays are process-wide singletons shared with the snapshot smoke test.)
 }
 
