@@ -64,7 +64,30 @@ private final class AreaOverlayWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
+/// Custom aspect ratio for the area (GAP-UI-6): W:H as typed, any positive pair up to 20:1.
+enum AreaAspect {
+    static let maxRatio: CGFloat = 20
+    static let customName = "Custom"
+    static func ratio(width: CGFloat, height: CGFloat) -> CGFloat? {
+        guard width.isFinite, height.isFinite, width > 0, height > 0 else { return nil }
+        let r = width / height
+        return r <= maxRatio && r >= 1 / maxRatio ? r : nil
+    }
+    /// The largest rect with `ratio` that fits `bounds`, centred on `rect` and kept inside `bounds`.
+    static func fit(_ rect: CGRect, ratio: CGFloat, in bounds: CGSize) -> CGRect {
+        var w = rect.width, h = w / ratio
+        if h > bounds.height { h = bounds.height; w = h * ratio }
+        if w > bounds.width { w = bounds.width; h = w / ratio }
+        var n = CGRect(x: rect.midX - w / 2, y: rect.midY - h / 2, width: w, height: h)
+        n.origin.x = min(max(0, n.origin.x), bounds.width - w)
+        n.origin.y = min(max(0, n.origin.y), bounds.height - h)
+        return n
+    }
+}
+
 private struct AspectPreset: Equatable {
+    static func custom(_ w: CGFloat, _ h: CGFloat) -> AspectPreset { .init(name: AreaAspect.customName, ratio: AreaAspect.ratio(width: w, height: h)) }
+    static let names = all.map(\.name) + [AreaAspect.customName]
     let name: String
     let ratio: CGFloat?   // width / height; nil = free
     static let all: [AspectPreset] = [
@@ -77,6 +100,8 @@ private final class AreaOverlayView: NSView {
     var rect: CGRect? { didSet { needsDisplay = true; updateBar() } }
     var onFinish: ((CGRect?) -> Void)?
     private var preset = AspectPreset.all[0] { didSet { applyPreset(); updateBar() } }
+    private var customW = AppSettings.shared.areaCustomRatioW
+    private var customH = AppSettings.shared.areaCustomRatioH
 
     private enum Drag { case none, create(CGPoint), move(CGPoint, CGRect), resize(Handle, CGRect) }
     private enum Handle: CaseIterable { case tl, t, tr, r, br, b, bl, l }
@@ -224,13 +249,7 @@ private final class AreaOverlayView: NSView {
 
     private func applyPreset() {
         guard let ratio = preset.ratio, let r = rect else { return }
-        var w = r.width, h = w / ratio
-        if h > bounds.height { h = bounds.height; w = h * ratio }
-        if w > bounds.width { w = bounds.width; h = w / ratio }
-        var n = CGRect(x: r.midX - w / 2, y: r.midY - h / 2, width: w, height: h)
-        n.origin.x = min(max(0, n.origin.x), bounds.width - w)
-        n.origin.y = min(max(0, n.origin.y), bounds.height - h)
-        rect = n
+        rect = AreaAspect.fit(r, ratio: ratio, in: bounds.size)
     }
 
     // MARK: Keys
@@ -276,7 +295,17 @@ private final class AreaOverlayView: NSView {
         let view = AreaBar(
             preset: preset.name, rect: rect, bounds: bounds.size,
             setRect: { [weak self] r in self?.setNumeric(r) },
-            choose: { [weak self] name in self?.preset = AspectPreset.all.first { $0.name == name } ?? AspectPreset.all[0] },
+            choose: { [weak self] name in
+                guard let self else { return }
+                self.preset = name == AreaAspect.customName ? .custom(self.customW, self.customH) : (AspectPreset.all.first { $0.name == name } ?? AspectPreset.all[0])
+            },
+            customRatio: (customW, customH),
+            setCustomRatio: { [weak self] w, h in
+                guard let self else { return }
+                self.customW = w; self.customH = h
+                AppSettings.shared.areaCustomRatioW = w; AppSettings.shared.areaCustomRatioH = h
+                if self.preset.name == AreaAspect.customName { self.preset = .custom(w, h) }
+            },
             confirm: { [weak self] in if let r = self?.rect { self?.onFinish?(r.integral) } },
             cancel: { [weak self] in self?.onFinish?(nil) })
         if let bar { bar.rootView = view }
@@ -309,6 +338,8 @@ private struct AreaBar: View {
     let bounds: CGSize
     let setRect: (CGRect) -> Void
     let choose: (String) -> Void
+    let customRatio: (CGFloat, CGFloat)
+    let setCustomRatio: (CGFloat, CGFloat) -> Void
     let confirm: () -> Void
     let cancel: () -> Void
 
@@ -318,9 +349,14 @@ private struct AreaBar: View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
                 Picker("Aspect", selection: Binding(get: { preset }, set: choose)) {
-                    ForEach(AspectPreset.all, id: \.name) { Text($0.name).tag($0.name) }
+                    ForEach(AspectPreset.names, id: \.self) { Text($0).tag($0) }
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 300).accessibilityLabel("Aspect ratio")
+                .pickerStyle(.segmented).labelsHidden().frame(width: 360).accessibilityLabel("Aspect ratio")
+                if preset == AreaAspect.customName {
+                    NumberField(label: "Ratio", value: customRatio.0) { v in setCustomRatio(v, customRatio.1) }
+                    Text(":").foregroundStyle(.secondary)
+                    NumberField(label: "to", value: customRatio.1) { v in setCustomRatio(customRatio.0, v) }
+                }
                 Divider().frame(height: 18)
                 Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
                 Button(action: confirm) {
@@ -365,7 +401,7 @@ private struct NumberField: View {
             Text(label).font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
             TextField("", text: $text, onCommit: { if let v = Double(text) { commit(CGFloat(v)) } else { sync() } })
                 .textFieldStyle(.roundedBorder).frame(width: 58).font(.system(size: 12).monospacedDigit())
-                .accessibilityLabel(label == "W" ? "Width" : label == "H" ? "Height" : label == "X" ? "Left" : "Top")
+                .accessibilityLabel(label == "W" ? "Width" : label == "H" ? "Height" : label == "X" ? "Left" : label == "Y" ? "Top" : label == "Ratio" ? "Ratio width" : "Ratio height")
         }
         .onAppear { sync() }
         .onChange(of: value) { _, _ in sync() }

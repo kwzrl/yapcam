@@ -1630,3 +1630,135 @@ extension UISmokeTests {
         await rec.cancelAndWait()
     }
 }
+
+// MARK: - Transcription options (AUD-10)
+
+@Suite struct TranscriptionWiringTests {
+    private actor Seen { private var items: [String] = []; private var terms: [[String]] = []
+        func add(_ l: String, _ k: [String]) { items.append(l); terms.append(k) }
+        func langs() -> [String] { items }; func keyterms() -> [[String]] { terms } }
+
+    @Test func keytermsAndChosenLanguageReachTheTranscriber() async throws {
+        let seen = Seen()
+        let run: TranscriptionWiring.Transcribe = { _, l, k in await seen.add(l, k); return Data("{}".utf8) }
+        _ = try await TranscriptionWiring.transcribe(package: URL(fileURLWithPath: "/p"),
+            options: TranscriptionOptions(keyterms: ["Yapcam", " Kilian ", "", "yapcam"], language: "de-DE"), using: run)
+        #expect(await seen.langs() == ["de-DE"])
+        #expect(await seen.keyterms() == [["Yapcam", "Kilian"]])
+    }
+
+    @Test func autoUsesTheSystemLanguage() async throws {
+        let seen = Seen()
+        let run: TranscriptionWiring.Transcribe = { _, l, k in await seen.add(l, k); return Data() }
+        _ = try await TranscriptionWiring.transcribe(package: URL(fileURLWithPath: "/p"), options: TranscriptionOptions(), using: run, system: "fr_FR")
+        #expect(await seen.langs() == ["fr_FR"])
+    }
+
+    @Test func languageListIsSortedAndDeduplicated() {
+        let l = TranscriptionWiring.languages(from: [Locale(identifier: "en-US"), Locale(identifier: "de-DE"), Locale(identifier: "en-US")], display: Locale(identifier: "en_US"))
+        #expect(l.map(\.id) == ["en-US", "de-DE"] && l[1].name.contains("German"))
+    }
+
+    @Test @MainActor func theAppSetsBothHooks() {
+        let saved = (EditorWindows.transcriber, EditorWindows.transcriberWithOptions, EditorWindows.languageProvider)
+        defer { (EditorWindows.transcriber, EditorWindows.transcriberWithOptions, EditorWindows.languageProvider) = saved }
+        EditorWindows.transcriberWithOptions = nil; EditorWindows.languageProvider = nil
+        AppDelegate().installTranscriber()
+        #expect(EditorWindows.transcriberWithOptions != nil && EditorWindows.languageProvider != nil)
+        let list = EditorWindows.languageProvider?() ?? []
+        #expect(list.contains { $0.id.hasPrefix("en") })
+    }
+}
+
+
+// MARK: - Settings partials (GAP-UI-6 / UI-10 / RND-9)
+
+@MainActor @Suite struct SettingsPartialsTests {
+    private func store() -> UserDefaults {
+        let name = "yapcam.test.partials.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!; d.removePersistentDomain(forName: name); return d
+    }
+
+    private func package(_ dir: URL, _ name: String) throws -> URL {
+        let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "Fixtures/synthetic/basic.yapcam")
+        let url = dir.appending(path: name, directoryHint: .isDirectory)
+        try FileManager.default.copyItem(at: fixture, to: url)
+        return url
+    }
+
+    @Test func customAspectRatioRules() {
+        #expect(AreaAspect.ratio(width: 5, height: 4) == 1.25)
+        #expect(AreaAspect.ratio(width: 0, height: 4) == nil)
+        #expect(AreaAspect.ratio(width: 100, height: 1) == nil)      // beyond 20:1
+        #expect(AreaAspect.ratio(width: .nan, height: 1) == nil)
+        let r = AreaAspect.fit(CGRect(x: 100, y: 100, width: 400, height: 400), ratio: 2.5, in: CGSize(width: 1000, height: 600))
+        #expect(abs(r.width / r.height - 2.5) < 0.001 && r.width == 400 && CGRect(x: 0, y: 0, width: 1000, height: 600).contains(r))
+        let tall = AreaAspect.fit(CGRect(x: 0, y: 0, width: 900, height: 100), ratio: 0.1, in: CGSize(width: 1000, height: 600))
+        #expect(tall.height <= 600 && abs(tall.width / tall.height - 0.1) < 0.001)
+    }
+
+    @Test func newSettingsDefaultAndPersist() {
+        let d = store()
+        let s = AppSettings(store: d)
+        #expect(!s.reuseLastProjectSettings && !s.experimentalVariableFrameRate && s.presetsDirectory == nil)
+        #expect(s.areaCustomRatioW == 16 && s.areaCustomRatioH == 10)
+        s.reuseLastProjectSettings = true; s.experimentalVariableFrameRate = true
+        s.presetsDirectory = URL(filePath: "/tmp/yp-presets", directoryHint: .isDirectory)
+        s.areaCustomRatioW = 5; s.areaCustomRatioH = 4
+        let again = AppSettings(store: d)
+        #expect(again.reuseLastProjectSettings && again.experimentalVariableFrameRate)
+        #expect(again.presetsDirectory?.path == "/tmp/yp-presets" && again.areaCustomRatioW == 5 && again.areaCustomRatioH == 4)
+        again.presetsDirectory = nil
+        #expect(AppSettings(store: d).presetsDirectory == nil)
+    }
+
+    @Test func presetsFolderIsAppliedToTheEditor() {
+        let saved = EditorPresets.globalDirectory
+        defer { EditorPresets.globalDirectory = saved }
+        let dir = URL(filePath: "/tmp/yp-presets-x", directoryHint: .isDirectory)
+        PresetsFolder.apply(dir)
+        #expect(EditorPresets.globalDirectory == dir)
+        PresetsFolder.apply(nil)
+        #expect(EditorPresets.globalDirectory == nil)
+    }
+
+    @Test func quickExportHonoursTheVariableFrameRateToggle() {
+        #expect(QuickExport.quickExportSettings(variableFrameRate: false).variableFrameRate == false)
+        #expect(QuickExport.quickExportSettings(variableFrameRate: true).variableFrameRate == true)
+    }
+
+    @Test func reuseLastProjectCopiesTheMostRecentLook() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yp-reuse-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = try package(dir, "A.yapcam")
+        let pa = try Project.create(package: a)
+        try pa.apply(.set(path: "canvas.padding", value: .number(0.37)))
+        try pa.save()
+        let b = try package(dir, "B.yapcam")
+        let pb = try Project.create(package: b)
+        #expect(ProjectActions.lastProject(excluding: b, in: dir)?.lastPathComponent == "A.yapcam")
+        ProjectActions.applyInitialLook(to: pb, package: b, reuseLast: true, in: dir)
+        func padding(_ p: Project) -> Double? {
+            let snap = try? p.snapshot()
+            guard let data = try? snap?.toJSON(), let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            return ((j["canvas"] as? [String: Any])?["padding"] as? NSNumber)?.doubleValue
+        }
+        #expect(abs((padding(pb) ?? 0) - 0.37) < 0.001)
+        // Off: nothing is copied.
+        let c = try package(dir, "C.yapcam")
+        let pc = try Project.create(package: c)
+        ProjectActions.applyInitialLook(to: pc, package: c, reuseLast: false, in: dir)
+        #expect(abs((padding(pc) ?? 0) - 0.37) > 0.001)
+    }
+
+    @Test func reuseWithNoEarlierProjectFallsBackQuietly() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "yp-reuse-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let only = try package(dir, "Only.yapcam")
+        let p = try Project.create(package: only)
+        #expect(ProjectActions.lastProject(excluding: only, in: dir) == nil)
+        ProjectActions.applyInitialLook(to: p, package: only, reuseLast: true, in: dir)     // must not throw or crash
+    }
+}

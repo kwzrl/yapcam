@@ -84,8 +84,38 @@ import YapcamCore
     static func openOrCreateProject(_ package: URL) throws -> Project {
         if FileManager.default.fileExists(atPath: package.appending(path: "project.json").path) { return try Project.open(package: package) }
         let project = try Project.create(package: package)
-        EditorPresets.applyDefaultPreset(to: project)
+        applyInitialLook(to: project, package: package)
         return project
+    }
+
+    /// A new project's starting look: the last project's when the user asked for that and there is one,
+    /// otherwise the default preset.
+    static func applyInitialLook(to project: Project, package: URL, reuseLast: Bool = AppSettings.shared.reuseLastProjectSettings,
+                                 in directory: URL = AppSettings.shared.storageDirectory) {
+        if reuseLast, let last = lastProject(excluding: package, in: directory), copyLook(from: last, to: project) { return }
+        EditorPresets.applyDefaultPreset(to: project)
+    }
+
+    /// The most recently saved project in `directory` other than `package`.
+    static func lastProject(excluding package: URL, in directory: URL) -> URL? {
+        let fm = FileManager.default
+        let skip = package.standardizedFileURL.path
+        let urls = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        func saved(_ u: URL) -> Date? {
+            try? u.appending(path: "project.json").resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        }
+        return urls.filter { $0.pathExtension == "yapcam" && $0.standardizedFileURL.path != skip }
+            .compactMap { u in saved(u).map { (u, $0) } }.max { $0.1 < $1.1 }?.0
+    }
+
+    /// Reads the look of `source` (never saves or changes it) and applies it to `project`.
+    private static func copyLook(from source: URL, to project: Project) -> Bool {
+        guard let src = try? Project.open(package: source) else { return false }
+        defer { src.close() }
+        let tmp = FileManager.default.temporaryDirectory.appending(path: "yapcam-lastlook-\(UUID().uuidString).yapcampreset")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        guard (try? src.exportPreset(to: tmp)) != nil else { return false }
+        return (try? project.importPreset(from: tmp)) != nil
     }
 
     /// Stores speaker notes in a freshly recorded package (creates project.json if needed).

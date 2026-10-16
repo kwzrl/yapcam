@@ -30,6 +30,7 @@ struct SettingsView: View {
             QuickExportSettings().tabItem { Label("Quick export", systemImage: "square.and.arrow.up") }
             ShortcutSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }
             StorageSettings().tabItem { Label("Storage", systemImage: "internaldrive") }
+            ExperimentalSettings().tabItem { Label("Experimental", systemImage: "flask") }
             AdvancedSettings().tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
         }
         .frame(width: 520, height: 400)
@@ -82,6 +83,9 @@ struct EditingSettings: View {
         Form {
             Toggle("Create zooms automatically", isOn: $s.createAutoZooms)
             Text("New recordings get zooms placed from your clicks. You can change or remove them in the editor.")
+                .font(.caption).foregroundStyle(.secondary)
+            Toggle("New projects reuse the last project's look", isOn: $s.reuseLastProjectSettings)
+            Text("Off: new projects start from your default preset (or the standard look). On: from the look of the most recently edited project instead; with no earlier project the default preset is used.")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Edits are saved automatically while you work.").font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped)
@@ -143,12 +147,34 @@ struct StorageSettings: View {
                     }
                 }
             }
+            LabeledContent("Presets folder") {
+                VStack(alignment: .trailing) {
+                    Text((PresetsFolder.effective(s.presetsDirectory).path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.middle)
+                    HStack {
+                        Button("Choose…") { choosePresets() }
+                        if s.presetsDirectory != nil { Button("Use Standard Folder") { s.presetsDirectory = nil; PresetsFolder.apply(nil) } }
+                        Button("Show in Finder") {
+                            let d = PresetsFolder.effective(s.presetsDirectory)
+                            try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+                            NSWorkspace.shared.open(d)
+                        }
+                    }
+                }
+            }
+            Text("Look presets saved from the editor are files in this folder. Existing presets are not moved; copy them over to keep using them.")
+                .font(.caption).foregroundStyle(.secondary)
             if let free = freeSpace {
                 LabeledContent("Free space", value: ByteCountFormatter.string(fromByteCount: free, countStyle: .file))
             }
             Text("Each recording is a .yapcam package in this folder. Nothing leaves your Mac.")
                 .font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped)
+    }
+    private func choosePresets() {
+        let p = NSOpenPanel()
+        p.canChooseDirectories = true; p.canChooseFiles = false; p.canCreateDirectories = true
+        p.prompt = "Choose"; p.directoryURL = PresetsFolder.effective(s.presetsDirectory)
+        if p.runModal() == .OK, let url = p.url { s.presetsDirectory = url; PresetsFolder.apply(url) }
     }
     private var freeSpace: Int64? {
         try? s.storageDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -210,5 +236,19 @@ struct ShortcutRecorder: View {
         recording = false
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+    }
+}
+
+/// Features that are off by default and may change.
+struct ExperimentalSettings: View {
+    @EnvironmentObject var s: AppSettings
+    var body: some View {
+        Form {
+            Toggle("Variable frame rate export", isOn: $s.experimentalVariableFrameRate)
+            Text("Leaves out frames that are exact copies of the previous one, which makes files of mostly still screens smaller. Applies to quick export after recording. Some players and editors handle variable frame rate poorly; leave off if you plan to edit the file elsewhere. GIFs are never affected.")
+                .font(.caption).foregroundStyle(.secondary)
+            LabeledContent("Recording engine", value: "ScreenCaptureKit")
+            Text("Yapcam has one capture engine, so there is nothing to choose.").font(.caption).foregroundStyle(.secondary)
+        }.formStyle(.grouped)
     }
 }
