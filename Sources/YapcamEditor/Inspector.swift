@@ -389,8 +389,16 @@ struct InspectorView: View {
                 DurationRow(model: model, title: "Idle after", path: "cursor.idle_timeout_ns", default: 2_000_000_000, range: 0.5...5)
             }
             ToggleRow(model: model, title: "Always use the default arrow", path: "cursor.always_default")
-            ToggleRow(model: model, title: "Tilt while moving", path: "cursor.rotate_on_move")
+            PickerRow(model: model, title: "Rotation", path: "cursor.rotation_mode", options: [("Fixed angle", "static"), ("Follow movement", "tilt")])
+            if model.string("cursor.rotation_mode", default: "static") == "tilt" {
+                NumberRow(model: model, title: "Tilt amount", path: "cursor.tilt_amount", range: 0...2, defaultValue: 1)
+            } else {
+                NumberRow(model: model, title: "Angle", path: "cursor.rotation_degrees", range: -180...180, unit: "°", format: "%.0f", defaultValue: 0)
+            }
             ToggleRow(model: model, title: "Remove tiny shakes", path: "cursor.remove_shakes")
+            if model.bool("cursor.remove_shakes") {
+                NumberRow(model: model, title: "Shake threshold", path: "cursor.shake_threshold", range: 100...2000, unit: "pt", format: "%.2f", scale: 0.001, defaultValue: 500)
+            }
             ToggleRow(model: model, title: "Reduce cursor-type flicker", path: "cursor.optimize_types")
             HoldCursorRow(model: model)
             PickerRow(model: model, title: "Click effect", path: "cursor.click_effect",
