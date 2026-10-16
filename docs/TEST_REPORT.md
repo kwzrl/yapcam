@@ -188,6 +188,26 @@ Defects: **F16** (ui, low, intermittent): the first Return after a hotkey-opened
 
 Not done: everything that needs a person: real mouse/keyboard flows, area drag, Cmd-Q relaunch, recent list, zoom/trim dragging, background/camera UI, permission loss, VoiceOver, AX audit, Screen Studio comparison, microphone, camera.
 
+## Round 4 (2026-10-17, night): programmatic checks on main c6ae74a
+
+Environment: Mac mini M4, macOS 26.3, one 1680x1050 display, no camera, no microphone. Debug build, Rust core rebuilt from the same tree
+(a stale core library had made core's own blur test fail until relinked: delete the xctest bundle after `build-core.sh`).
+These are programmatic checks (core project, render exporter, ffprobe, frame comparison). Nobody operated a window, menu or shortcut.
+The signed app was NOT launched: a Yapcam instance of the user (pid 9035) was running and the F16 batch posts real global shortcuts that it would receive.
+
+| Check | Procedure | Result |
+|---|---|---|
+| Blur mask in export (GAP-ED-16) | `Tests/E2E/Round4Tests.swift` testBlurMaskIsBlurNotOpaque: fixture project, `insertTimelineItem(.mask, kind blur)` 1.0-3.0 s, export 720p/30, frame at 1.5 s vs unmasked export, plus 0.3 s | PASS. Mask area differs (mean abs diff 14.6 of 255), outside the mask 0.2, texture kept (std 66.9 vs 76.8, an opaque cover would be near 0), frame before the mask unchanged |
+| Cursor sets Original / Touch in export (CUR-06/17) | testCursorSetsOriginalAndTouchInExport: `cursor.set_id` unset / "touch" / "coral" vs a `cursor.visible=false` export, frames at 1.0 and 2.0 s | PASS. Each set draws a cursor (4.1k-8.3k px differ from cursor-less), original vs touch differ by 12.4k / 13.8k px, original vs coral 7.8k / 7.3k px. `cursor.style`/shape/size alone changed nothing in the export when no set is chosen (recorded artwork is used); sets are the working control |
+| VFR export (GAP-RND-9) | testVariableFrameRateTimestamps: same project exported constant-rate and with `variableFrameRate`, `ffprobe -show_entries packet=pts_time` | PASS for validity: strictly increasing PTS, 150 frames, last PTS 4.967 s in both. Not shown: a saving on duplicate frames (synthetic source has none) |
+| Autosave off / on | Existing unit tests, not mine: `autosaveSwitchStopsTheTimerButNotSaveOrClose`, `autosaveDefaultsOnPersistsAndReachesTheEditor` | PASS (8 tests with the queue ones, 6.3 s). Off: no timer save, Cmd-S saves; on: debounce saves. Not exercised in the running app |
+| Export queue readouts / remembered contexts | `queuePhasesReachTheModelAndClearWhenDone`, `realExportFinishesAndClearsTheQueueStatus`, `dialogAndQuickExportRememberSeparately` | PASS as unit tests. Open: `ExportModel.remember(in: .quick, ...)` is never called by the app (only `.dialog` in EditorDocument.swift:40), so quick-export settings are not remembered |
+| F16 (display pick + Return) | not re-run | OPEN. ui also did not run it. Needs a free app slot (no other Yapcam instance): `scripts/qa/round3-wrapup.sh f11-display-repeat` |
+| F17 / F18 (scrub latency, 4K export speed) | took Lead's results from `~/Library/Logs/Yapcam/render-round4/*/result.json` | No new numbers: all three result files are `"status": "blocked"` ("Another session owns Yapcam" / "No Cocoa application session is visible"). Latest numbers stay those from main b1859a4 (render/Lead): scrub p95 232 ms (p50 149 ms) vs target 150 ms, 4K export 0.98x vs target 1.3x. Both OPEN-medium |
+
+Also run: `swift test --filter Round4Tests` (3 tests) green; FEATURES.md updated (GAP-ED-16, CUR-06, CUR-17 verified; GAP-RND-9, GAP-UI-10 integrated; GAP-RND-4 stays partial; counts: verified 29, integrated 70, partial 7).
+Still not done (no real input / hardware): pointer-driven editor flows (mask handles, carousel, settings), area drag, VoiceOver, permission loss, camera and microphone.
+
 ## Update log (keep current with each Lead integration)
 | Date | Main | What changed in this report |
 |---|---|---|
@@ -207,3 +227,4 @@ Not done: everything that needs a person: real mouse/keyboard flows, area drag, 
 | 2026-10-15 | 7d545a1 | Editor export sheet now exposes MP4/MOV/GIF, 4K, 24 fps, quality (EXP-02/04 integrated); no new test results by qa |
 
 - 2026-10-16: Round 3 section added (programmatic only; real-input tests not possible, QADriver never granted).
+- 2026-10-17: Round 4 section added (blur, cursor sets, VFR, autosave/queue unit tests; F16 and F17/F18 not re-measured, reasons in the table).
