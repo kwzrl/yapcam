@@ -349,9 +349,9 @@ enum RecordingPhase: Equatable {
                         guard let self else { return }
                         await self.deliver(url)
                     }
-                } else {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])      // self-tests only (isolated settings)
                 }
+                // Without the editor (self-tests, isolated settings) the package stays in `lastPackage`;
+                // revealing it in Finder opened one window per test run.
             } catch {
                 finish()
                 alert = AppAlert(title: "Recording could not be saved", error: error)
