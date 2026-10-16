@@ -103,6 +103,8 @@ public final class EditorModel: ObservableObject {
     /// Same policy as core's `ProjectAutosaver`: save 30 s after the last edit, and only if nothing changed meanwhile.
     /// (Unsaved edits are covered by core's recovery journal; closing the window saves at once.)
     public var autosaveDelay: Duration = .seconds(30)
+    /// Asked before each autosave is scheduled; defaults to the app-wide setting (`EditorWindows.autosaveEnabled`).
+    public var autosaveAllowed: () -> Bool = { EditorWindows.autosaveEnabled }
 
     public init(project: EditingProject, player: PlaybackEngine) {
         self.project = project
@@ -537,6 +539,7 @@ public final class EditorModel: ObservableObject {
 
     private func scheduleAutosave() {
         autosaveTask?.cancel()
+        guard autosaveAllowed() else { return }
         let delay = autosaveDelay, expected = revision
         autosaveTask = Task { [weak self] in
             try? await Task.sleep(for: delay)

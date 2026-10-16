@@ -292,7 +292,8 @@ struct InspectorView: View {
             HStack {
                 Button("Highlight") { model.addHighlightAtPlayhead(kind: .highlight) }
                 Button("Spotlight") { model.addHighlightAtPlayhead(kind: .spotlight) }
-                Button("Mask") { model.addHighlightAtPlayhead(kind: .mask) }
+                Button("Blur mask") { model.addHighlightAtPlayhead(kind: .blur) }
+                Button("Cover mask") { model.addHighlightAtPlayhead(kind: .mask) }
             }
             Text("Adds a 3 s region at the playhead. Drag its box in the preview; drag the yellow bar on the timeline to retime it.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -615,11 +616,12 @@ struct HighlightControls: View {
             Text("Screen (zoom/crop)").tag("source"); Text("Canvas (fixed)").tag("canvas")
         }
         LabeledContent("Time") { Text("\(formatTimecode(region.startNs)) – \(formatTimecode(region.endNs))").monospacedDigit() }
-        regionColor("Fill", get: { region.fill }, set: { c in model.updateHighlight(id: id) { $0.fill = c } })
-        if region.kind != .mask { regionColor("Outline", get: { region.stroke }, set: { c in model.updateHighlight(id: id) { $0.stroke = c } }) }
-        Stepper("Outline width \(Int(region.strokeWidth)) pt", value: Binding(get: { region.strokeWidth }, set: { v in model.updateHighlight(id: id) { $0.strokeWidth = v } }), in: 0...16)
+        if region.kind == .blur { BlurStrengthRow(model: model, region: region) }
+        if region.kind != .blur { regionColor("Fill", get: { region.fill }, set: { c in model.updateHighlight(id: id) { $0.fill = c } }) }
+        if region.kind != .mask && region.kind != .blur { regionColor("Outline", get: { region.stroke }, set: { c in model.updateHighlight(id: id) { $0.stroke = c } }) }
+        if region.kind != .blur { Stepper("Outline width \(Int(region.strokeWidth)) pt", value: Binding(get: { region.strokeWidth }, set: { v in model.updateHighlight(id: id) { $0.strokeWidth = v } }), in: 0...16) }
         Stepper("Corner radius \(Int(region.radius)) pt", value: Binding(get: { region.radius }, set: { v in model.updateHighlight(id: id) { $0.radius = v } }), in: 0...64, step: 2)
-        if region.kind != .mask {
+        if region.kind != .mask && region.kind != .blur {
             Stepper("Dim outside \(Int(region.dimOpacity * 100))%", value: Binding(get: { region.dimOpacity }, set: { v in model.updateHighlight(id: id) { $0.dimOpacity = min(max(v, 0.1), 0.9) } }), in: 0.1...0.9, step: 0.1)
             Button("Apply to all highlights") { model.applyHighlightStyleToAll(from: id) }.disabled(model.highlights.count < 2)
         }
@@ -628,6 +630,24 @@ struct HighlightControls: View {
     private func regionColor(_ title: String, get: @escaping () -> [Double], set: @escaping ([Double]) -> Void) -> some View {
         RestingColorPicker(title: title, opacity: false, get: get, set: set,
                            transform: { c in var c = c; if c[3] == 0 { c[3] = 0.3 }; return c })
+    }
+}
+
+/// Blur strength of a blur mask: previews while dragging, one undo step on release.
+struct BlurStrengthRow: View {
+    @ObservedObject var model: EditorModel
+    let region: HighlightRegion
+    @State private var drag: Double?
+    var body: some View {
+        let range = HighlightRegion.blurRadiusRange
+        LabeledContent("Blur strength") {
+            HStack {
+                Slider(value: Binding(get: { drag ?? region.blurRadius }, set: { drag = $0 }), in: range, step: 1) { editing in
+                    if !editing, let v = drag { drag = nil; if v != region.blurRadius { model.updateHighlight(id: region.id) { $0.blurRadius = v } } }
+                }.accessibilityLabel("Blur strength")
+                Text("\(Int(drag ?? region.blurRadius))").monospacedDigit().frame(width: 36, alignment: .trailing)
+            }
+        }
     }
 }
 
