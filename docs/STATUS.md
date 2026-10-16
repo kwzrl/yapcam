@@ -2,7 +2,29 @@
 
 Maintained by Lead. Team detail: `docs/status/<team>.md`. Feature state: `docs/FEATURES.md`.
 
-## Handover (2026-10-15 13:00) — current
+## Handover round 3 (2026-10-16 22:40) — current: release candidate 0.9.0
+
+- Integrated commit: `4f97d8d` (main, pushed). Package: `build/release/Yapcam-0.9.0-<build>.dmg`
+  (+ `.sha256`, `BUILD-INFO.txt`, `reproducibility.txt`) from `scripts/release/make-release.sh`;
+  dev app `build/Yapcam.app` (`scripts/build-app.sh`).
+- Tests on 4f97d8d: Rust 113 (1 ignored), XCTest 251 (16 skipped, 0 failures), Swift Testing 598 in
+  120 suites; strict Metal render suite and privacy/gitleaks: see TEST_REPORT "Round 3".
+- Round 3 fixed: F11 (Return/Esc in all overlays), F13 (transcription kept only the last part of a
+  file), F14 (speech clean-up made noisy speech worse), F15 (stale-build crash, explained), F16
+  (first Return could go to another app), review round 3 (2 high + 11 medium + 8 low ui/editor
+  findings, 1 high core audio-gain finding), Finder window per self-test recording.
+- Built in round 3: start sound (GAP-CAP-7), max camera resolution UI, per-app system audio,
+  pre-flight prompts, keyterms + language for transcription, transcript export (SRT/VTT/text),
+  regenerate, cursor sets (Original, Touch, 12 own) with variants and ranges, blur masks (core +
+  render), Experimental tab, custom area ratio, third-party notices in the bundle, versioned
+  reproducible release build without personal paths, DMG + checksum, notarization flow (prepared).
+- Not done (user decisions / no hardware): real mouse/keyboard acceptance (QADriver never granted),
+  permission loss, VoiceOver, Screen Studio comparison, camera/mic, Retina/multi-display, clean
+  second-Mac install, notarization submit. See KNOWN_LIMITATIONS.md.
+- Fleet: workspace "Yapcam · core" (wM), task files ~/yapcam-fleet/round3/, reviews in
+  ~/yapcam-fleet/reviews/review-{opus,codex}-3.md (fleet-local).
+
+## Handover (2026-10-15 13:00) — superseded
 
 - App: `~/yapcam/build/Yapcam.app` (built from main by `scripts/build-app.sh`).
 - Repo: https://github.com/kwzrl/yapcam (public, Apache-2.0). Integrated commit: see
