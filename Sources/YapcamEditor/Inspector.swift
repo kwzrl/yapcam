@@ -61,12 +61,31 @@ struct ColorRow: View {
     let title: String, path: String
     var opacity = false          // true: the picker edits alpha too
     var body: some View {
-        ColorPicker(title, selection: Binding(
-            get: { let c = model.color(path); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: c[3]) },
-            set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
-                   model.set(path, color: [n.redComponent, n.greenComponent, n.blueComponent, n.alphaComponent].map { Double($0) }) }),
-                    supportsOpacity: opacity)
+        RestingColorPicker(title: title, opacity: opacity, get: { model.color(path) }, set: { model.set(path, color: $0) })
     }
+}
+
+/// Color well that previews locally while the wheel moves and commits once when it rests (or the view goes away), so one
+/// drag is one undo step, one journal write and one preview rebuild instead of one per tick.
+struct RestingColorPicker: View {
+    let title: String
+    var opacity = true
+    let get: () -> [Double]
+    let set: ([Double]) -> Void
+    var transform: ([Double]) -> [Double] = { $0 }        // e.g. keep the stored alpha for pickers without opacity
+    @State private var pending: [Double]?
+    @State private var task: Task<Void, Never>?
+    var body: some View {
+        ColorPicker(title, selection: Binding(
+            get: { let c = pending ?? get(); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: opacity ? c[3] : 1) },
+            set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
+                   pending = [n.redComponent, n.greenComponent, n.blueComponent, opacity ? n.alphaComponent : get()[3]].map { Double($0) }
+                   task?.cancel()
+                   task = Task { try? await Task.sleep(for: .milliseconds(350)); if !Task.isCancelled { flush() } } }),
+                    supportsOpacity: opacity)
+        .onDisappear { task?.cancel(); flush() }
+    }
+    private func flush() { if let p = pending { pending = nil; set(transform(p)) } }
 }
 
 // MARK: inspector
@@ -598,11 +617,8 @@ struct HighlightControls: View {
         Button("Remove region", role: .destructive) { model.deleteSelection() }
     }
     private func regionColor(_ title: String, get: @escaping () -> [Double], set: @escaping ([Double]) -> Void) -> some View {
-        ColorPicker(title, selection: Binding(
-            get: { let c = get(); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: 1) },
-            set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
-                   let alpha = get()[3]; set([Double(n.redComponent), Double(n.greenComponent), Double(n.blueComponent), alpha == 0 ? 0.3 : alpha]) }),
-                    supportsOpacity: false)
+        RestingColorPicker(title: title, opacity: false, get: get, set: set,
+                           transform: { c in var c = c; if c[3] == 0 { c[3] = 0.3 }; return c })
     }
 }
 
@@ -668,11 +684,7 @@ struct TextColor: View {
     let get: () -> [Double]
     let set: ([Double]) -> Void
     var body: some View {
-        ColorPicker(title, selection: Binding(
-            get: { let c = get(); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: c[3]) },
-            set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
-                   set([Double(n.redComponent), Double(n.greenComponent), Double(n.blueComponent), Double(n.alphaComponent)]) }),
-                    supportsOpacity: true)
+        RestingColorPicker(title: title, opacity: true, get: get, set: set)
     }
 }
 
@@ -883,14 +895,17 @@ struct ZoomLensRows: View {
     @ObservedObject var model: EditorModel
     let zoomID: String
     let lens: ZoomLensParams
-    private func row(_ title: String, _ range: ClosedRange<Double>, _ get: Double, _ set: @escaping (inout ZoomLensParams, Double) -> Void) -> some View {
+    @State private var drag: ZoomLensParams?          // local value while a slider is held; committed once on release
+    private func row(_ title: String, _ range: ClosedRange<Double>, _ get: @escaping (ZoomLensParams) -> Double, _ set: @escaping (inout ZoomLensParams, Double) -> Void) -> some View {
         LabeledContent(title) {
-            Slider(value: Binding(get: { get }, set: { v in var l = lens; set(&l, v); model.setZoomLens(id: zoomID, l) }), in: range).accessibilityLabel(title)
+            Slider(value: Binding(get: { get(drag ?? lens) }, set: { v in var l = drag ?? lens; set(&l, v); drag = l }), in: range) { editing in
+                if !editing, let l = drag { drag = nil; model.setZoomLens(id: zoomID, l) }
+            }.accessibilityLabel(title)
         }
     }
     var body: some View {
-        row("Lens size", ZoomLensParams.radiusRange, lens.radius) { $0.radius = $1 }
-        row("Bevel", 0...1, lens.bevel) { $0.bevel = $1 }
-        row("Color fringing", 0...1, lens.chromaticAberration) { $0.chromaticAberration = $1 }
+        row("Lens size", ZoomLensParams.radiusRange, { $0.radius }) { $0.radius = $1 }
+        row("Bevel", 0...1, { $0.bevel }) { $0.bevel = $1 }
+        row("Color fringing", 0...1, { $0.chromaticAberration }) { $0.chromaticAberration = $1 }
     }
 }

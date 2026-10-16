@@ -127,10 +127,12 @@ struct LayoutOwnSettings: View {
     let layout: LayoutSegment
     private func num(_ k: String, _ d: Double) -> Double { if case .number(let v)? = layout.settings?[k] { v } else { d } }
     private func flag(_ k: String) -> Bool { if case .bool(let v)? = layout.settings?[k] { v } else { false } }
+    @State private var drag: [String: Double] = [:]        // local values while a slider is held; one commit on release
     private func slider(_ title: String, _ key: String, _ range: ClosedRange<Double>, _ d: Double, pct: Bool = false) -> some View {
         LabeledContent(title) {
-            Slider(value: Binding(get: { num(key, d) }, set: { model.setLayoutSetting(id: layout.id, key: key, .number($0)) }), in: range)
-                .accessibilityLabel(title)
+            Slider(value: Binding(get: { drag[key] ?? num(key, d) }, set: { drag[key] = $0 }), in: range) { editing in
+                if !editing, let v = drag.removeValue(forKey: key) { model.setLayoutSetting(id: layout.id, key: key, .number(v)) }
+            }.accessibilityLabel(title)
         }
     }
     var body: some View {

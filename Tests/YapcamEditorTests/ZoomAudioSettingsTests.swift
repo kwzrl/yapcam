@@ -302,3 +302,78 @@ import YapcamCore
         m.close()
     }
 }
+
+@MainActor @Suite struct ReviewRound3Tests {
+    private func fixture() throws -> URL {
+        let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let d = FileManager.default.temporaryDirectory.appendingPathComponent("r3-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: src, to: d); return d
+    }
+    private func words(_ m: EditorModel) -> EditorModel {
+        m.writeTextList(.caption, [("one", 1.0, 1.3), ("hidden", 1.6, 2.0), ("two", 3.5, 3.9)].map {
+            TextItem.make(.caption, id: "w-\($0.0)", start: Int64($0.1 * 1e9), end: Int64($0.2 * 1e9), text: $0.0) })
+        return m
+    }
+
+    @Test func R3UI9_hiddenWordsStillCountAsSpeechWhenTighteningPauses() {          // gap one→two is 2.2 s only without "hidden"
+        let m = words(EditorModel(project: FakeProject(durationNs: 10_000_000_000), player: FakePlayer()))
+        m.hideWord(id: "w-hidden")
+        let cuts = m.pauseCuts()
+        #expect(cuts.allSatisfy { c in !(c.startNs <= 1_600_000_000 && c.endNs >= 2_000_000_000) })     // the hidden word's span is never cut
+        #expect(cuts == [TimeSpan(startNs: 2_250_000_000, endNs: 3_500_000_000)])                        // only the real pause after it
+    }
+
+    @Test func R3UI10_germanTranscriptsKeepRealWords() {
+        let m = EditorModel(project: FakeProject(durationNs: 10_000_000_000), player: FakePlayer())
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }; m.defaults = iso.defaults
+        m.writeTextList(.caption, ["er", "eh", "äh", "ähm", "um"].enumerated().map {
+            TextItem.make(.caption, id: "f\($0)", start: Int64($0) * 500_000_000, end: Int64($0) * 500_000_000 + 400_000_000, text: $1) })
+        m.transcriptionLanguage = "de-DE"; #expect(m.fillerWordCount == 3)                // äh, ähm, um — not "er" (he) or "eh" (anyway)
+        m.transcriptionLanguage = "en-US"; #expect(m.fillerWordCount == 4)                // English adds "er"
+        m.transcriptionLanguage = "auto"; #expect(m.fillerWordCount == 3)                 // unknown language: only unambiguous fillers
+        #expect(fillerWords(forLanguage: "de_DE").contains("er") == false && fillerWords(forLanguage: "en").contains("er"))
+    }
+
+    @Test func R3UI12_lensAndLayoutValuesCommitOncePerRelease() throws {
+        let d = try fixture(); defer { try? FileManager.default.removeItem(at: d) }
+        let m = try EditorDocument(package: d, presets: EditorStorage.makeIsolated().store).model
+        m.seek(toNs: 500_000_000); m.addZoomAtPlayhead()
+        guard case .zoom(let id) = m.selection else { Issue.record("no zoom"); return }
+        m.setZoomLens(id: id, ZoomLensParams())                                          // one step: classic → loupe
+        let before = m.project.canUndo
+        #expect(before)
+        m.undo(); #expect(m.zooms.first { $0.id == id }?.lens == nil)                     // a single undo reverts the whole switch
+        m.redo()
+    }
+
+    @Test func R3UI14_clickingAChipDoesNotWriteAnything() {
+        let p = FakeProject(durationNs: 10_000_000_000)
+        let m = EditorModel(project: p, player: FakePlayer())
+        m.writeTextList(.caption, [TextItem.make(.caption, id: "c1", start: 1_000_000_000, end: 2_000_000_000, text: "hi")])
+        let rev = m.revision
+        m.previewRange(key: "text:caption:c1", current: TimeSpan(startNs: 1_000_000_000, endNs: 2_000_000_000), moveToStartNs: 1_000_000_000)
+        m.commitRange(key: "text:caption:c1")
+        #expect(m.revision == rev)                                                       // unchanged span: no edit, no undo step
+        m.previewRange(key: "text:caption:c1", current: TimeSpan(startNs: 1_000_000_000, endNs: 2_000_000_000), moveToStartNs: 1_500_000_000)
+        m.commitRange(key: "text:caption:c1"); #expect(m.revision == rev + 1)
+    }
+
+    @Test func R3UI8_defaultPresetHelperAppliesToAnExistingFreshProject() throws {
+        let a = try fixture(), b = try fixture()
+        defer { try? FileManager.default.removeItem(at: a); try? FileManager.default.removeItem(at: b) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let ma = try EditorDocument(package: a, presets: iso.store).model
+        ma.set("canvas.radius", number: 31); ma.savePreset(named: "r3")
+        iso.store.defaultName = "r3"; ma.close()
+        let seed = try EditorDocument(package: b, presets: EditorStorage.makeIsolated().store)   // writes project.json first, as after a recording
+        seed.model.saveNow(); seed.model.close()
+        let project = try Project.open(package: b)
+        #expect(EditorPresets.applyDefaultPreset(to: project, from: iso.store))
+        project.close()
+        let mb = try EditorDocument(package: b, presets: iso.store).model
+        #expect(mb.number("canvas.radius") == 31)
+        mb.close()
+        iso.store.defaultName = nil
+        let c = try Project.open(package: a); #expect(!EditorPresets.applyDefaultPreset(to: c, from: iso.store)); c.close()
+    }
+}

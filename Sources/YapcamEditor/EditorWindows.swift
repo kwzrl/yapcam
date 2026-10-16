@@ -43,6 +43,14 @@ import YapcamCore
         }
     }
 
+    /// Closes (and saves) the editor showing `package`, if one is open. Returns whether one was.
+    @discardableResult
+    public static func close(package: URL) -> Bool {
+        guard let c = controllers[package.standardizedFileURL.path] else { return false }
+        c.window?.close(); return true
+    }
+    public static func isOpen(package: URL) -> Bool { controllers[package.standardizedFileURL.path] != nil }
+
     /// Flushes pending edits in every open editor (call from applicationWillTerminate).
     public static func saveAll() { controllers.values.forEach { $0.editorDocument.model.saveNow() } }
 

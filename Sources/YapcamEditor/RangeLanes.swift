@@ -113,6 +113,8 @@ extension EditorModel {
 
     public func commitRange(key: String) {
         guard let r = zoomPreviewTake(key) else { return }
+        // A plain click on a chip previews its own span unchanged: nothing to write (no undo step, no dirty flag).
+        if let item = selectableItems.first(where: { $0.rangeKey == key }), item.startNs == r.start, item.endNs == r.end { return }
         if key.hasPrefix("cursor:"), let i = Int(key.dropFirst(7)), case .array(var rows)? = value("cursor.ranges"), rows.indices.contains(i),
            case .object(var o) = rows[i] {
             o["tl_start_ns"] = .number(Double(r.start)); o["tl_end_ns"] = .number(Double(r.end)); rows[i] = .object(o)

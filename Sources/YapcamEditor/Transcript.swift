@@ -1,7 +1,17 @@
 import SwiftUI
 
 /// Words of the transcript are the caption records. Deleting words cuts the video; hiding only removes the caption.
-public let fillerWords: Set<String> = ["um", "uh", "uhm", "umm", "er", "erm", "ah", "hm", "hmm", "mm", "mhm", "äh", "ähm", "öh", "eh"]
+/// Fillers that are not real words in any language we match; used when the transcript language is unknown ("auto") and as the base list.
+public let fillerWords: Set<String> = ["um", "uh", "uhm", "umm", "erm", "hm", "hmm", "mm", "mhm", "äh", "ähm", "öh"]
+/// Extra fillers per language. Ambiguous tokens stay out of other languages: "er" ("he") and "eh" ("anyway") are real German words.
+public let languageFillers: [String: Set<String>] = ["en": ["er", "ah"], "de": []]
+
+/// The filler words for a language tag ("en-US", "de_DE", "auto"): the base list plus that language's extras.
+public func fillerWords(forLanguage tag: String) -> Set<String> {
+    let lang = tag.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? "auto"
+    // Only the recognised-as-English list may treat "er"/"ah" as filler; other languages get the base list.
+    return fillerWords.union(languageFillers[lang] ?? [])
+}
 
 extension EditorModel {
     public var transcriptWords: [TextItem] { textItems(.caption).sorted { $0.startNs < $1.startNs } }
@@ -9,7 +19,12 @@ extension EditorModel {
     private func normalized(_ t: String) -> String {
         t.lowercased().trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
     }
-    public func isFiller(_ w: TextItem) -> Bool { fillerWords.contains(normalized(w.text)) }
+    /// Language of the transcript: the captions' own tag when set, else the language chosen for transcription ("auto" if neither).
+    public var transcriptLanguage: String {
+        for w in transcriptWords { if case .string(let l)? = w.extraStyle["language"], l != "auto" { return l } }
+        return transcriptionLanguage
+    }
+    public func isFiller(_ w: TextItem) -> Bool { fillerWords(forLanguage: transcriptLanguage).contains(normalized(w.text)) }
 
     /// Merge overlapping/adjacent spans so each stretch of video is cut once.
     static func merged(_ spans: [TimeSpan]) -> [TimeSpan] {
