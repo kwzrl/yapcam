@@ -128,11 +128,16 @@ struct LayoutOwnSettings: View {
     private func num(_ k: String, _ d: Double) -> Double { if case .number(let v)? = layout.settings?[k] { v } else { d } }
     private func flag(_ k: String) -> Bool { if case .bool(let v)? = layout.settings?[k] { v } else { false } }
     @State private var drag: [String: Double] = [:]        // local values while a slider is held; one commit on release
-    private func slider(_ title: String, _ key: String, _ range: ClosedRange<Double>, _ d: Double, pct: Bool = false) -> some View {
+    private func slider(_ title: String, _ key: String, _ range: ClosedRange<Double>, _ d: Double, pct: Bool = false, unit: String = "") -> some View {
         LabeledContent(title) {
-            Slider(value: Binding(get: { drag[key] ?? num(key, d) }, set: { drag[key] = $0 }), in: range) { editing in
-                if !editing, let v = drag.removeValue(forKey: key) { model.setLayoutSetting(id: layout.id, key: key, .number(v)) }
-            }.accessibilityLabel(title)
+            HStack {
+                Slider(value: Binding(get: { drag[key] ?? num(key, d) }, set: { drag[key] = $0 }), in: range) { editing in
+                    if !editing, let v = drag.removeValue(forKey: key) { model.setLayoutSetting(id: layout.id, key: key, .number(v)) }
+                }.accessibilityLabel(title)
+                let v = drag[key] ?? num(key, d)
+                Text(pct ? "\(Int((v * 100).rounded())) %" : String(format: unit.isEmpty ? "%.2f" : "%.0f", v) + (unit.isEmpty ? "" : " \(unit)")).sliderValueLabel()
+                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
+            }
         }
     }
     var body: some View {
@@ -140,9 +145,9 @@ struct LayoutOwnSettings: View {
         if layout.settings != nil {
             switch layout.mode {
             case "cutout":
-                slider("Size", "cutout_size", 0.2...1, 0.5)
+                slider("Size", "cutout_size", 0.2...1, 0.5, pct: true)
                 slider("Edge softness", "edge_softness", 0...1, 0.2)
-                slider("Edge inset", "edge_inset", 0...8, 0)
+                slider("Edge inset", "edge_inset", 0...8, 0, unit: "px")
             case "split":
                 Picker("Ratio", selection: Binding(get: { ratioKey }, set: { k in
                     model.setLayoutSetting(id: layout.id, key: "split_ratio", k == "auto" ? .null : .number(k == "half" ? 0.5 : 2.0 / 3)) })) {

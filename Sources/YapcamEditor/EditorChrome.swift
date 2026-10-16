@@ -109,21 +109,23 @@ struct EditorTopBar: View {
     @State private var presetNames: [String] = []
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: EditorMetrics.m) {
             Button { if let packageURL { NSWorkspace.shared.activateFileViewerSelecting([packageURL]) } } label: { Image(systemName: "folder") }
                 .help("Show in Finder").accessibilityLabel("Show in Finder").disabled(packageURL == nil)
             Button { confirmTrash = true } label: { Image(systemName: "trash") }
                 .help("Move this recording to the Trash").accessibilityLabel("Move recording to Trash").disabled(packageURL == nil)
             Spacer()
-            Text(title).font(.headline).lineLimit(1)
+            Text(title).font(.headline).lineLimit(1).truncationMode(.middle)
             if case .failed = model.saveState { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help("Couldn't save the project") }
             Spacer()
+            Divider().frame(height: 16)
             Button { model.undo() } label: { Image(systemName: "arrow.uturn.backward") }.disabled(!model.canUndo)
                 .help("Undo (⌘Z)").accessibilityLabel("Undo")
             Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }.disabled(!model.canRedo)
                 .help("Redo (⇧⌘Z)").accessibilityLabel("Redo")
             Button { model.paletteVisible = true } label: { Image(systemName: "command") }
                 .help("Command palette (⌘K)").accessibilityLabel("Commands")
+            Divider().frame(height: 16)
             Menu {
                 Button("Create preset from this look…") { if let n = EditorPresets.promptName() { model.savePreset(named: n); presetNames = model.presetStore.names() } }
                 Divider()
@@ -150,7 +152,7 @@ struct EditorTopBar: View {
                 .help("Export the video").accessibilityLabel("Export")
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 14).padding(.vertical, 8)
+        .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.s)
         .background(Color(nsColor: .windowBackgroundColor))
         .confirmationDialog("Move “\(title)” to the Trash?", isPresented: $confirmTrash, titleVisibility: .visible) {
             Button("Move to Trash", role: .destructive) {

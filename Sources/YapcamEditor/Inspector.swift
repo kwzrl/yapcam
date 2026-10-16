@@ -23,12 +23,13 @@ struct NumberRow: View {
                     .accessibilityLabel(title)
                     .accessibilityValue(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
                 Text(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
-                    .monospacedDigit().frame(width: 62, alignment: .trailing).accessibilityHidden(true)
+                    .sliderValueLabel()
                 if let d = defaultValue {
                     Button { value = d; model.set(path, number: d) } label: { Image(systemName: "arrow.counterclockwise") }
                         .buttonStyle(.borderless).help("Reset to default").accessibilityLabel("Reset \(title)")
                         .opacity(abs(value - d) > 1e-9 ? 1 : 0.25).disabled(abs(value - d) <= 1e-9)
-                }
+                        .frame(width: EditorMetrics.resetSlot)
+                } else { Color.clear.frame(width: EditorMetrics.resetSlot, height: 1) }
             }
         }
         .onAppear { value = model.number(path) }
@@ -208,7 +209,7 @@ struct InspectorView: View {
                     Text(itemTitle ?? section.title).font(.headline); Spacer()
                     if itemTitle != nil { Button("Done") { model.selection = .none }.buttonStyle(.borderless).help("Back to the section (Esc)") }
                 }
-                .padding(.horizontal, 14).padding(.vertical, 10)
+                .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.m)
                 .background(Color(nsColor: .windowBackgroundColor))
                 Divider()
                 Form {
@@ -376,7 +377,7 @@ struct InspectorView: View {
     }
 
     @ViewBuilder private var cursor: some View {
-        Section("Cursor") {
+        Section("Appearance") {
             ToggleRow(model: model, title: "Show cursor", path: "cursor.visible", defaultValue: true)
             if model.usesCursorPoints {
                 NumberRow(model: model, title: "Size", path: "cursor.size_points", range: 16...128, unit: "px", format: "%.0f", defaultValue: 48)
@@ -596,7 +597,8 @@ struct DurationRow: View {
             HStack {
                 Slider(value: $seconds, in: range) { e in editing = e; if !e { model.set(path, number: (seconds * 1e9).rounded()) } }
                     .accessibilityLabel(title).accessibilityValue(String(format: "%.1f seconds", seconds))
-                Text(String(format: "%.1f s", seconds)).monospacedDigit().frame(width: 46, alignment: .trailing).accessibilityHidden(true)
+                Text(String(format: "%.1f s", seconds)).sliderValueLabel()
+                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
             }
         }
         .onAppear { seconds = model.number(path, default: `default`) / 1e9 }
@@ -645,7 +647,8 @@ struct BlurStrengthRow: View {
                 Slider(value: Binding(get: { drag ?? region.blurRadius }, set: { drag = $0 }), in: range, step: 1) { editing in
                     if !editing, let v = drag { drag = nil; if v != region.blurRadius { model.updateHighlight(id: region.id) { $0.blurRadius = v } } }
                 }.accessibilityLabel("Blur strength")
-                Text("\(Int(drag ?? region.blurRadius))").monospacedDigit().frame(width: 36, alignment: .trailing)
+                Text("\(Int(drag ?? region.blurRadius)) px").sliderValueLabel()
+                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
             }
         }
     }
