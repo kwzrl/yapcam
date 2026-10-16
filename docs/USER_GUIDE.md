@@ -1,10 +1,18 @@
 # Yapcam user guide
 
 Yapcam records your screen on a Mac and lets you polish the result, all locally. No account,
-no cloud, no watermark. This guide covers what works on `main` today. Things I could not
-test on real hardware are marked **(untested live)**; see `docs/KNOWN_LIMITATIONS.md` for the full list.
+no cloud, no watermark. This guide covers release candidate 0.9.0. Things that were not
+tested on real hardware or by real mouse/keyboard use are marked **(untested live)**; see
+`docs/KNOWN_LIMITATIONS.md` for the full list.
 
-## Install and build
+## Install from the disk image
+
+Open `Yapcam-0.9.0-<build>.dmg`, drag **Yapcam** onto **Applications**, eject the image and start Yapcam
+from Applications. Compare the image with its `.sha256` file first (`shasum -a 256 -c <file>.sha256`).
+Release candidates that are not notarized by Apple show a Gatekeeper warning on first launch; open the
+app once with right-click → **Open**. See `docs/RELEASE.md` for how packages are built and signed.
+
+## Build from source
 
 Requirements: macOS 15+, Apple Silicon, Xcode 26 (or matching Command Line Tools), Rust stable.
 
@@ -16,7 +24,8 @@ open build/Yapcam.app
 
 The build signs with a local identity called `Yapcam Dev Signing`. Keep using the same
 identity: macOS ties privacy permissions to the signature, so a different one means granting
-everything again. There is no installer yet; run the app from `build/`.
+everything again. A development build runs from `build/`;
+a release package is made with `scripts/release/make-release.sh` (`docs/RELEASE.md`).
 
 ## Permissions
 
@@ -55,7 +64,10 @@ Top to bottom:
   the code but has no toolbar entry until it has been tested with a real device.
 - **Camera**, **Mic**, **System**: toggles (blue = on). The small chevron opens the device menu in a
   side popover; with no device it says "No camera" / "No microphone" and recording continues without.
-  Not tested with real mic/camera devices **(untested live)**.
+  The camera menu also has **Max camera resolution** (720p, 1080p default, 4K): a maximum, not a promise;
+  a camera that cannot deliver it records at its best lower format, and the menu shows what will be used.
+  Not tested with real mic/camera devices
+  **(untested live)**.
 - **Folder** opens the recordings folder; **Settings** opens a menu: Settings, Recordings, Speaker Notes,
   Permissions, Hide Toolbar, Quit.
 - The big **Record** button.
@@ -64,7 +76,9 @@ Speaker notes (Settings menu or Recording → Speaker Notes…) open a small win
 button shows the notes large in a floating window that never appears in the recording, with text size
 and auto-scroll speed. Notes are saved into the project when you stop.
 
-Press Start recording: if a countdown is set (None by default; 3, 5 or 10 s in Settings → General or the card's chevron), a "Get ready" card with a filling ring appears (Continue or Return starts at once, Esc cancels). Then the toolbar
+Press Start recording: a short start sound plays first (Settings → Recording; recording begins when it
+ends, after at most about half a second, even if sound playback fails; the sound is not recorded).
+If a countdown is set (None by default; 3, 5 or 10 s in Settings → General or the card's chevron), a "Get ready" card with a filling ring appears (Continue or Return starts at once, Esc cancels). Then the toolbar
 turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Marker** (a flag at this moment, saved with the recording), **Restart** (discard this take and start over) and
 **Cancel** (delete the recording); both ask first. While recording, the menu bar icon is a red stop button and the Dock icon shows ●. Stop (button, hotkey or menu bar) saves the recording and opens the editor at once, in front, on the new recording.
 
@@ -118,16 +132,27 @@ zooms from your clicks (Settings → Editing). These new after-recording paths a
 Open a recording from the Recordings window, **File → Open Recording…**, or by double-clicking a `.yapcam` package (the Finder association is declared in the app but **untested live**). **File → Import Video…** turns an existing MOV/MP4 into a project (screen track
 only, no cursor events).
 
-The editor has a preview, a timeline and an inspector with five tabs: **Look** (background, padding,
-corners, shadow, aspect ratio), **Overlays** (text, highlights, captions), **Cursor**, **Camera**, **Audio**.
+The editor has a top bar (project, undo/redo, Presets, Export), a large preview, a timeline and an
+inspector with an icon rail on the right. Sections, selectable with ⌘1…⌘0: **Background** (wallpaper,
+gradient, colour, image, padding, corners, shadow, inset), **Cursor** (cursor set — Original, Touch and
+12 own styles — size 16–128 px, smoothing, rotation/tilt, shake removal, hide when idle, click effect),
+**Camera layout** and **Camera style** (only with a camera track), **Captions** and **Edit by transcript**
+(only with speech), **Audio** (volumes, voice clean-up: Voice, Noise reduction, Podcast; background music,
+click sounds), **Keyboard shortcuts** overlay, **Animations**, and **Text, regions & intro/outro**.
 
 - **Timeline**: split at playhead (S or ⌘B), delete a selection (⌫), speed up a clip, undo/redo
   (⌘Z / ⇧⌘Z). Cuts shift video, audio and events together. J/K/L shuttle playback.
 - **Zoom**: add a zoom at the playhead (Z), drag its focus point on the preview, or let Yapcam
   generate automatic zooms from clicks.
-- **Captions**: "Generate captions from speech" uses Apple's on-device speech recognition. It asks for
-  Speech Recognition permission the first time; availability depends on the language packs on your
-  Mac **(untested live)**.
+- **Captions and transcript**: "Generate transcript from speech" uses Apple's on-device speech
+  recognition only (nothing leaves the Mac). Choose the language or Auto, and add **Keyterms** (names,
+  product words) to improve recognition. Style: size, font, word/line reveal, growth, entrance, colour,
+  position. **Edit by transcript**: delete words (cuts the video), hide words (captions only), correct a
+  word, remove filler words, tighten pauses. **Export transcript…** writes SRT, WebVTT or text with the
+  edited timing; **Regenerate** asks first because it discards transcript edits. Measured on generated
+  German and English speech files: about 9 % word error rate; Apple's recogniser often drops filler
+  words like "äh"/"um", so filler removal finds fewer than are spoken. Not tested with a real microphone
+  **(untested live)**.
 - **Autosave**: edits are journaled; if Yapcam quits unexpectedly, reopening the project offers to
   restore them.
 
