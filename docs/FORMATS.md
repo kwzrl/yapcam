@@ -709,12 +709,20 @@ use normal batch/history/journal/save/preset validation:
 
 | Path | Type / default / accepted values |
 |---|---|
-| `cursor.set_id` | nullable string, null; classic, paper, soft-slate, soft-cloud, lagoon, coral, sage, violet, gold, precision-dark, precision-light, signal |
+| `cursor.set_id` | nullable string; new-project default `original`, legacy missing-field default null; original, touch, classic, paper, soft-slate, soft-cloud, lagoon, coral, sage, violet, gold, precision-dark, precision-light, signal |
 | `cursor.shape` | nullable string, null; arrow, pointing_hand, touch, text, resize_horizontal, resize_vertical, resize_diagonal_nwse, resize_diagonal_nesw, open_hand, closed_hand |
 | `cursor.logical_size` | string, regular; small, regular, large, extra_large |
+| `cursor.variants` | object keyed by the 10 shape IDs above plus `crosshair` and `not_allowed`, values `standard` / `alternate`; missing fields default to `standard`; unknown keys/values or null rejected |
+| `cursor.variants.<shape_id>` | string `standard` / `alternate`, default `standard`; changes only that type, e.g. `cursor.variants.pointing_hand` |
 
-null palette/shape + regular size preserves the recorded/default rendering path.
-A selected palette or explicit shape opts into Render's original generated artwork.
+`original` explicitly selects captured artwork; `touch` forces Render's touch type.
+null palette/shape + regular size preserves the legacy recorded/default rendering path.
+One of the 12 authored palettes or an explicit shape selects generated artwork;
+`original` takes precedence and continues to use captured artwork. Variants are
+stored independently for every type and remain selected when switching sets;
+they apply to generated artwork, including touch, and do not modify captured PNGs.
+Replacing the whole variants object defaults omitted fields to standard; applying
+a portable preset merges supplied variant fields and preserves the others.
 Shape is independent of the legacy cursor.style; explicit shape takes precedence
 unless cursor.always_default is true, which forces effective shape arrow and legacy
 style pointer/code 1. Selected palette and logical size remain effective. Legacy
@@ -722,7 +730,8 @@ Core pointer still means the system-arrow shape; pointing_hand is an explicit ne
 shape. Recorded cursor_id metadata remains unchanged except always_default's ID 0.
 
 Root and timed render_options/effects_at append cursor_set_id, cursor_shape,
-cursor_logical_size. Shape is effective (arrow when always_default); palette/size
+cursor_logical_size and cursor_variants (all 12 shape keys with string values).
+Shape is effective (arrow when always_default); palette/size
 reflect the project selection. No new field or code is added to YcFrame/Extras.
 Renderer reads these cold options from the same immutable generation and maps them
 to RenderConfiguration.cursorSetID/cursorStyle/cursorSize. Logical sizes scale own
@@ -731,8 +740,12 @@ animated frame.cursor_scale; do not multiply that frame scale again in Core.
 Recorded PNG dimensions/semantics stay unchanged.
 
 New query `{"q":"cursor_library"}` returns
-`{sets:[{id,name}],shapes:[string],logical_sizes:[{id,scale}]}` with the IDs above.
-These descriptors mirror Render's 12 authored palettes, 10 shapes and 4 sizes; no
+`{sets:[{id,name}],shapes:[string],logical_sizes:[{id,scale}],variants:["standard","alternate"]}`
+with the IDs above. Set order is original, touch, then the 12 authored sets in
+Render's CursorCatalog order. The existing `shapes` list retains its 10 explicit
+override values; per-type variants also cover the captured crosshair/not_allowed
+types that Render recognizes automatically. These descriptors expose 14 set
+selections and 4 sizes; no
 reference/system bitmap or palette data is copied. Renderer/Editor must connect
 these fields and picker before claiming selections change preview/export pixels.
 
@@ -769,8 +782,8 @@ reset values on open. Save/reopen and snapshots keep the selected mode.
 | canvas.background.blur | 24 | 0 (inactive for solid backgrounds) |
 | canvas.motion_blur | 0 | 1 |
 | canvas.global_motion_blur | absent/null, independent strengths | 1 master multiplier; initial pixels unchanged |
-| cursor.set_id | null, recorded cursor artwork | `classic`, our authored palette |
-| cursor.style / shape / logical_size | `recorded` / null / `regular` | unchanged; a nonnull palette selects authored artwork |
+| cursor.set_id | null, recorded cursor artwork | `original`, captured artwork (CUR-06 wiring); earlier revision-1 projects with `classic` retain it |
+| cursor.style / shape / logical_size | `recorded` / null / `regular` | unchanged; set_id selects captured, touch or authored artwork |
 | cursor.size / size_points | multiplier1 / null | stored multiplier1 remains inactive; 48 logical points on our 32pt authored canvas |
 | cursor.smoothing / speed_preset | 0.15 / `custom` | 0 / `none` |
 | cursor.click_effect | `ring` | `none` |
@@ -792,10 +805,10 @@ rect [0.25,0.25,0.5,0.5] evaluates to (432,270,864,540), previously
 (480,270,960,540); a full-canvas fade is (0,0,1728,1080), previously
 (0,0,1920,1080). Consumers must derive these rectangles from the frame canvas.
 
-`cursor.set_id=null` remains an explicit request for recorded artwork; it does
-not restore the new factory palette. Restoring factory cursor selection requires
-`classic`. Tests specifically exercising recorded artwork should select null
-before capturing their baseline, or open a legacy project.
+`cursor.set_id=null` retains legacy selection behavior. Restoring the current
+factory cursor selection requires `original`. Existing projects keep explicit
+null, classic or any other stored selection; missing set_id decodes as null.
+Missing variants decode as standard for every type, preserving existing artwork.
 
 Auto zoom regeneration uses retained mouse-down events on the edited timeline.
 Each click contributes a window from 300ms before to 2500ms after it, with a 1ms

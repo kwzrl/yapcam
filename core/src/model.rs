@@ -211,6 +211,26 @@ impl ClipSettings {
     }
 }
 settings!(TypingSettings { speed: f64 = 3.0, dismissed: Vec<String> = vec![] });
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CursorVariant {
+    Standard,
+    Alternate,
+}
+settings!(CursorVariants {
+    arrow: CursorVariant = CursorVariant::Standard,
+    pointing_hand: CursorVariant = CursorVariant::Standard,
+    touch: CursorVariant = CursorVariant::Standard,
+    text: CursorVariant = CursorVariant::Standard,
+    resize_horizontal: CursorVariant = CursorVariant::Standard,
+    resize_vertical: CursorVariant = CursorVariant::Standard,
+    resize_diagonal_nwse: CursorVariant = CursorVariant::Standard,
+    resize_diagonal_nesw: CursorVariant = CursorVariant::Standard,
+    open_hand: CursorVariant = CursorVariant::Standard,
+    closed_hand: CursorVariant = CursorVariant::Standard,
+    crosshair: CursorVariant = CursorVariant::Standard,
+    not_allowed: CursorVariant = CursorVariant::Standard,
+});
 settings!(Cursor {
     visible: bool = true, size: f64 = 1.0, size_points: Option<f64> = None, physics_version: u32 = 0, smoothing: f64 = 0.15,
     hide_when_idle: bool = false, idle_timeout_ns: i64 = 2_000_000_000,
@@ -220,6 +240,7 @@ settings!(Cursor {
     loop_duration_ns: i64 = 400_000_000,
     style: String = "recorded".into(), motion_blur: f64 = 0.0,
     set_id: Option<String> = None, shape: Option<String> = None,
+    variants: CursorVariants = CursorVariants::default(),
     logical_size: String = "regular".into(),
     spotlight_radius: f64 = 0.0, key_overlay: KeyOverlay = KeyOverlay::default(),
     always_default: bool = false, rotate_on_move: bool = false,
@@ -610,7 +631,7 @@ impl ProjectData {
         data.canvas.motion_blur = 1.0;
         data.canvas.global_motion_blur = Some(1.0);
         data.cursor.size_points = Some(48.0);
-        data.cursor.set_id = Some("classic".into());
+        data.cursor.set_id = Some("original".into());
         data.cursor.click_effect = "none".into();
         data.cursor.smoothing = 0.0;
         data.cursor.speed_preset = "none".into();

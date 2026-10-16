@@ -1,3 +1,50 @@
+READY CUR-06 on a69456d (working tree; Lead checkpoint required) | debug app/release Rust | macOS26.3 arm64/Xcode26.6 | exact14 set IDs + original factory default +12 per-type variants; Rust111/Core Swift79/Clippy/signed app PASS; Render catalog5 PASS/1 opt-in skip. Editor paths and Render expectation handoff below.
+
+## CUR-06 wiring — Editor handoff
+
+FORMATS.md now documents exact Render catalog IDs: original, touch, then the12
+authored sets. New projects use original; opening saved projects preserves their
+selection. Per-type paths: cursor.variants.<shape_id>, values standard/alternate;
+all12 VectorCursorStyle.shapeID values including crosshair/not_allowed. Whole
+cursor.variants accepts an object (omitted types reset to standard); each leaf
+set is one history action. Queries emit cursor_variants. cursor_library adds
+variants=[standard,alternate]. Rust and Swift round-trip/rejection/history/
+migration/snapshot/cross-project-preset tests PASS. Typed variants are optional
+when decoding older render-options payloads. ABI3/schema1 unchanged.
+Only Core source/tests/Swift wrapper, explicitly assigned FORMATS, own status.
+Lead rebase after checkpoint: main3c6279f observed, own source matches current
+main; Git metadata handled by Lead. No Render/Editor files edited.
+
+Requests: Editor uses existing set(path:value:) with cursor.set_id and
+cursor.variants.<shape_id>; root/timed queries expose cursor_variants, typed
+CoreRenderOptions.cursorVariants dictionary. Existing explicit cursor.shape API
+keeps its10 values for source compatibility; variant keys include all12 Render
+types. Render/Lead: update ProjectAdapterTests.swift:26 factory cursorSetID
+expectation from classic to original (line191 diagnostic string also says classic).
+This is the requested factory selection change only; saved null/classic/other IDs
+remain unchanged. Earlier historical default tables below describe prior behavior.
+
+| Commit / build / environment | Procedure | Result |
+|---|---|---|
+| basea69456d / debug Rust + release archive / macOS26.3 arm64 M4, Xcode26.6 | cargo test, fmt --check, Clippy all-targets -Dwarnings | PASS111, 0 failed, 1 intentional scale ignore; formatting/Clippy PASS. All14 selections save/reopen; all12 type variants reach root/timed/effects queries; invalid commands preserve state/history. |
+| basea69456d / debug app / same host | canonical build-app.sh debug via temporary SwiftPM sandbox adapter; strict codesign; swift test --filter YapcamCoreTests | PASS signed app and79 Core Swift tests. Catalog order/IDs, optional dictionary decoding, all12 per-type keys, history/snapshot/save/reopen, cross-project presets, old null/classic/other selections covered. |
+| basea69456d / debug / same host | swift test --skip-build --filter CursorCatalogTests | PASS5, 0 failed, 1 opt-in golden-artifact skip. Render policy/selection/variants/thumbnail geometry checks; no native/live visual acceptance claim. |
+
+Current factory old→new: cursor.set_id classic→original, only during create.
+Existing cursor.style/shape/logical_size and all other defaults remain unchanged.
+Existing saved selections are never reset. Missing variants become standard for
+every type. Each leaf set uses normal one-step undo; partial portable presets
+merge variant choices, while replacing the full object resets omitted types.
+
+Lead checkpoint the7 owned changed files and rebase onto main3c6279f. Required
+other-family review: catalog match, factory-vs-open behavior, per-type preset
+merge and new defaults. Full-fleet tests await Render expectation update noted
+above. Log: /private/tmp/yapcam-core-cur06-ready.log. Completed run printed and
+removed its owned temp root; no app launch, process signal, new dependency,
+recording/credential commit or Apple contact. Task complete; stopped.
+
+---
+
 READY C3 on 47ecefb (working tree; Lead checkpoint required) | release0.9.0(535)+debug | macOS26.3 arm64/Xcode26.6 | two clean unsigned builds bit-identical, zero private paths, signed app/matching separate dSYM PASS; Rust109/Core Swift77/debug build PASS; DMG remains Lead-native.
 
 ## Round 3 C3 — release reproducibility

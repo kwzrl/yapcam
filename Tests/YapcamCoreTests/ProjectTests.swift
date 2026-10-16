@@ -1048,12 +1048,19 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
     try withFixture { package in
         let p = try Project.create(package: package)
         let catalog = try p.cursorLibrary()
-        #expect(catalog.sets.count == 12 && catalog.shapes.count == 10 && catalog.logicalSizes.count == 4)
-        #expect(catalog.sets.first?.id == "classic" && catalog.sets.last?.id == "signal")
+        #expect(catalog.sets.count == 14 && catalog.shapes.count == 10 && catalog.logicalSizes.count == 4)
+        #expect(catalog.sets.first?.id == "original" && catalog.sets.last?.id == "signal")
         #expect(catalog.shapes == CoreRenderOptions.CursorShape.allCases)
         #expect(catalog.logicalSizes.map(\.scale) == [0.75, 1, 1.5, 2])
+        #expect(catalog.sets.map(\.id) == ["original", "touch", "classic", "paper", "soft-slate", "soft-cloud", "lagoon", "coral", "sage", "violet", "gold", "precision-dark", "precision-light", "signal"])
+        #expect(catalog.variants == [.standard, .alternate])
+        for set in catalog.sets {
+            try p.apply(.set(path: "cursor.set_id", value: .string(set.id)))
+            #expect(try p.renderOptions().cursorSetId == set.id)
+        }
+        try p.apply(.set(path: "cursor.set_id", value: .string("original")))
         let original = try p.frame(atNs: 0)
-        #expect(try p.renderOptions().cursorSetId == "classic" && p.renderOptions().cursorShape == nil)
+        #expect(try p.renderOptions().cursorSetId == "original" && p.renderOptions().cursorShape == nil)
         #expect(try p.renderOptions().cursorLogicalSize == .regular)
         for shape in catalog.shapes {
             try p.apply(.set(path: "cursor.shape", value: .string(shape.rawValue)))
@@ -1089,12 +1096,75 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
     }
 }
 
+@Test func cursorPerTypeVariantsReachColdQueriesAndPersistAcrossHistoryAndPresets() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let types = CoreRenderOptions.CursorShape.allCases.map(\.rawValue) + ["crosshair", "not_allowed"]
+        #expect(try p.renderOptions().cursorVariants?.count == 12)
+        for type in types {
+            #expect(try p.renderOptions().cursorVariants?[type] == .standard)
+            try p.apply(.set(path: "cursor.variants.\(type)", value: .string("alternate")))
+            #expect(try p.renderOptions().cursorVariants?[type] == .alternate)
+            #expect(try p.renderOptions(atNs: 0).cursorVariants?[type] == .alternate)
+            #expect(try p.effects(atNs: 0).renderOptions.cursorVariants?[type] == .alternate)
+        }
+        let frozen = try p.snapshot()
+        try p.apply(.set(path: "cursor.variants.arrow", value: .string("standard")))
+        #expect(try frozen.renderOptions().cursorVariants?["arrow"] == .alternate)
+        try p.undo()
+        #expect(try p.renderOptions().cursorVariants?["arrow"] == .alternate)
+        try p.redo()
+        #expect(try p.renderOptions().cursorVariants?["arrow"] == .standard)
+        try p.save()
+        #expect(try Project.open(package: package).renderOptions() == p.renderOptions())
+        try withFixture { otherPackage in
+            let other = try Project.create(package: otherPackage)
+            let preset = package.appendingPathComponent("cursor.yapcampreset")
+            try p.exportPreset(to: preset)
+            try other.importPreset(from: preset)
+            #expect(try other.renderOptions().cursorVariants == p.renderOptions().cursorVariants)
+        }
+        let before = try p.toJSON()
+        for (path, value) in [
+            ("cursor.set_id", JSONValue.string("Original")),
+            ("cursor.variants", .object(["invented": .string("alternate")])),
+            ("cursor.variants", .null),
+            ("cursor.variants.not_allowed", .string("Alternate")),
+            ("cursor.variants.arrow", .bool(true)),
+            ("cursor.variants.pointer", .string("alternate"))
+        ] {
+            #expect(throws: CoreError.self) { try p.apply(.set(path: path, value: value)) }
+            #expect(try p.toJSON() == before)
+        }
+    }
+}
+
+@Test func olderCursorSetSelectionsRemainUnchangedWhenVariantsAreMissing() throws {
+    let selections: [String?] = [nil, "classic", "signal", "original", "touch"]
+    for selection in selections {
+        try withFixture { package in
+            let p = try Project.create(package: package)
+            var fields = try JSONSerialization.jsonObject(with: p.toJSON()) as! [String: Any]
+            var cursor = fields["cursor"] as! [String: Any]
+            cursor.removeValue(forKey: "variants")
+            cursor["set_id"] = selection.map { $0 as Any } ?? NSNull()
+            fields["cursor"] = cursor
+            try JSONSerialization.data(withJSONObject: fields).write(to: package.appendingPathComponent("project.json"))
+            let old = try Project.open(package: package)
+            #expect(try old.renderOptions().cursorSetId == selection)
+            #expect(try old.renderOptions().cursorVariants?.values.allSatisfy { $0 == .standard } == true)
+            try old.save()
+            #expect(try Project.open(package: package).renderOptions() == old.renderOptions())
+        }
+    }
+}
+
 @Test func alignedNewProjectDefaultsPreserveFrozenOlderAppearance() throws {
     try withFixture { package in
         let p = try Project.create(package: package)
         let options = try p.renderOptions()
         #expect(options.paddingRatio == 0.1 && options.cursorSizePoints == 48)
-        #expect(options.cursorSetId == "classic")
+        #expect(options.cursorSetId == "original")
         #expect(options.screenShadow?.style == "directional")
         #expect(abs((options.screenShadow?.offsetX ?? 0) - 25 / sqrt(2)) < 0.000001)
         let frame = try p.frame(atNs: 0)

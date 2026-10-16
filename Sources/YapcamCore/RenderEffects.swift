@@ -10,6 +10,7 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
         case resizeDiagonalNWSE = "resize_diagonal_nwse", resizeDiagonalNESW = "resize_diagonal_nesw"
         case openHand = "open_hand", closedHand = "closed_hand"
     }
+    public enum CursorVariant: String, Codable, Sendable, CaseIterable { case standard, alternate }
     public enum CursorLogicalSize: String, Codable, Sendable, CaseIterable, Hashable {
         case small, regular, large, extraLarge = "extra_large"
     }
@@ -25,6 +26,7 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public var cursorSizePoints: Double?
     public var cursorSetId: String?
     public var cursorShape: CursorShape?
+    public var cursorVariants: [String: CursorVariant]?
     public var cursorLogicalSize: CursorLogicalSize
     public var cursorStyle: CursorStyle
     public var cursorRotationRad: Double
@@ -124,6 +126,7 @@ public struct CoreCursorLibrary: Decodable, Sendable, Equatable {
     public var sets: [Palette]
     public var shapes: [CoreRenderOptions.CursorShape]
     public var logicalSizes: [LogicalSize]
+    public var variants: [CoreRenderOptions.CursorVariant]
 }
 extension Project {
     public func cursorLibrary() throws -> CoreCursorLibrary {
