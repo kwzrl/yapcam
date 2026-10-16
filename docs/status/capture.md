@@ -1,3 +1,4 @@
+READY f8a4770 signed debug speech tool / M4 macOS26.3 / fresh inputs verified; HOST: `zsh "$HOME/yapcam-team/capture/Tests/YapcamCaptureTests/Tools/launch_speech.zsh" "$HOME/Movies/Yapcam/QA/speech/capture-f14-tool/Yapcam.app" "$HOME/Movies/Yapcam/QA/speech/capture-f14"`
 READY dd39be4 F13 verified by Lead on a7d1526 (signed debug, M4): full-file EN/DE speech; weak filler recall measured; F14 owned by render
 READY 9b0cadc capture LOCAL implementation backlog empty; consumer wiring and native acceptance remain external
 READY 9b0cadc CAP-2/M3 camera sample failure hardening; 136 capture tests + Rust + signed build pass; native gates remain
@@ -15,6 +16,51 @@ READY 63f4abb package 2 injected-fault verification; unit tests pass
 READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 # capture status
+
+## F14 fresh signed native speech handoff (2026-10-16)
+
+**READY for Lead's native run.** Built from the exact clean **f8a4770** source
+snapshot, including render's new `SpeechNoiseReduction.swift`, on Mac mini M4,
+arm64 macOS26.3 / Swift6.3.3. Rust release archive rebuilt; all Swift modules and
+the speech harness rebuilt in **debug**, without skip-build or reused object
+files. App strict signature verification passes: **Yapcam Dev Signing**,
+**mov.yapcam.Yapcam**. No app launched by capture; native F14 SI-SDR, pause noise
+and listening acceptance remain pending Lead.
+
+App: `~/Movies/Yapcam/QA/speech/capture-f14-tool/Yapcam.app`.
+Fresh fixtures: `~/Movies/Yapcam/QA/speech/capture-f14`, prepared with
+`prepare_speech_rerun.py` from `capture-round3`. Each language contains only the
+five original inputs, verified byte-identical: clean/noisy/noise WAVs, screen MOV,
+ground truth. Previous outputs preserved. No recordings committed.
+
+The exact host launch command is the first line of this file. Its launcher
+atomically owns the QA app lock, refuses other running app instances, and uses
+`open -n -W` through LaunchServices. Speech permission is already granted; no
+permission-request flag needed. After it finishes, measure with:
+
+```sh
+python3 -B "$HOME/yapcam-team/capture/Tests/YapcamCaptureTests/Tools/speech_metrics.py" "$HOME/Movies/Yapcam/QA/speech/capture-f14"
+```
+
+This harness produces **default Voice** DSP (`dsp.caf`) for both languages,
+alongside transcription/edit checks and the optional Apple isolation attempt;
+it does not run all three DSP presets. Compare `metrics.json` against the retained
+F13 baseline: SI-SDR should not fall below input and final noise-only second should
+be reduced at least10dB. Render's separate all-preset objective checks are recorded
+in its status; these do not substitute for Lead's native rerun/listening.
+
+Provenance: adjacent `capture-f14-tool/build-provenance.json` records full commit,
+source SHA256s, configuration, environment and executable SHA256
+`6b9871bbf1e938c6b75462c222ae2874c0d378e7173435ee9b2c09c2be60ca0d`.
+Hashes verified against Git blobs at f8a4770. Build log:
+`/tmp/yapcam-capture-f14-build.log`. Both capture-owned temporary build directories
+were listed and removed by cleanup traps after successful signing.
+
+**Rebase handoff:** `git rebase main` still fails creating `rebase-merge` (sandbox
+metadata permission). Worktree HEAD remains **1a590ae**; no source changes made to
+other teams' files. To avoid a stale DSP binary, built via read-only `git archive`
+of f8a4770 into the disposable capture-owned directory. Lead should checkpoint this
+status and rebase the worktree; the prepared app already contains f8a4770.
 
 ## Round 3 speech verification (2026-10-16)
 
@@ -1087,15 +1133,16 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next
-No remaining F13 capture implementation or verification task: Lead verified the
-fix natively and AUD-10 is updated. Render owns F14 DSP quality; editor owns the
-German filler false-positive handoff. Reliable filler detection and strict word
-alignment remain limited by the measured results. Address new capture findings
-or a concrete assignment; no repeat build/native run for this documentation update.
+F14 tool preparation complete on f8a4770; await Lead's native run using the top-line
+command and metrics command above. No app launch by capture. No remaining F13
+implementation task: Lead verified the fix and AUD-10 is updated. Render owns F14
+DSP quality; editor owns the German filler false-positive handoff. Reliable filler
+detection and strict word alignment remain limited by the measured results.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint this native verification/status update. Capture is already
-   rebased onto main a7d1526 (Git metadata remains read-only here). UI reports isolation fixed; consume the capture
+1. Lead: checkpoint this F14 handoff/status update and rebase onto main f8a4770;
+   metadata writes remain denied, worktree HEAD1a590ae. Signed tool built from exact
+   f8a4770 snapshot is ready above. UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
    event marker query/TimelineMarker and editor presentation/snapping are complete;
    UI marker forwarding is the remaining implementation step. Lead: document public capture additions/optional derived UI sidecar in
