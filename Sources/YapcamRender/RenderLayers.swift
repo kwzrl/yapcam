@@ -35,11 +35,17 @@ public struct RenderConfiguration: Sendable, Equatable {
         case recorded, arrow, pointer, touch, text
         case resizeHorizontal, resizeVertical, resizeDiagonalNWSE, resizeDiagonalNESW
         case openHand, closedHand
+        case crosshair, notAllowed
     }
     public var cursorStyle: CursorStyle = .recorded
     /// Selecting an original set replaces recorded PNG artwork; nil keeps recorded/default behavior.
     public var cursorSetID: String? = nil
     public var cursorSize: VectorCursorSize = .regular
+    /// Per Core shape id; absent entries select the standard authored geometry.
+    public var cursorVariants: [String: VectorCursorVariant] = [:]
+    /// Evaluated button/pulse state independent of the optional click-ring effect.
+    /// nil preserves older Core's click_progress feedback when available.
+    public var cursorPressed: Bool? = nil
     public var cursorRotationRadians: Float = 0
     /// nil preserves custom-source legacy frame.motion_blur; Core supplies evaluated values.
     public var zoomMotionBlur: Float? = nil

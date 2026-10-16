@@ -18,7 +18,8 @@ func validateFrame(_ f: YcFrame,configuration c: RenderConfiguration,layers: [Re
             }
         }
     }
-    if let id=c.cursorSetID,VectorCursorLibrary.preset(id: id)==nil { throw RenderError.invalidSettings("Unknown original cursor set: \(id)") }
+    if let id=c.cursorSetID,!VectorCursorLibrary.catalog.contains(where: { $0.id == id }) { throw RenderError.invalidSettings("Unknown original cursor set: \(id)") }
+    guard c.cursorVariants.keys.allSatisfy({ VectorCursorStyle(shapeID: $0) != nil }) else { throw RenderError.invalidSettings("Unknown cursor variant shape") }
     func color(_ rgba: (Float,Float,Float,Float)) -> Bool { [rgba.0,rgba.1,rgba.2,rgba.3].allSatisfy { $0.isFinite && (0...1).contains($0) } }
     func rect(_ r: YcRect,nonempty: Bool = false) -> Bool { [r.x,r.y,r.w,r.h].allSatisfy { $0.isFinite } && (nonempty ? r.w>0 && r.h>0 : r.w>=0 && r.h>=0) }
     let lengths=[f.screen_corner_radius,f.shadow_radius,f.inset_width,f.background_blur,f.camera_corner_radius,c.cameraShadowRadius,c.cursorSpotlightRadius]

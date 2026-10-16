@@ -37,7 +37,9 @@ struct ProjectRenderOptions: Decodable {
 struct ProjectRenderBaseOptions: Decodable {
     let screenShadow: CoreRenderOptions.ScreenShadow?
     let cursorSetId: String?
-    let cursorShape: CoreRenderOptions.CursorShape?
+    let cursorShape: String?
+    let cursorVariants: [String: VectorCursorVariant]?
+    let cursorPressed: Bool?
     let cursorLogicalSize: CoreRenderOptions.CursorLogicalSize?
     let cameraStyle: CameraStyle?
     let cameraLayout: CoreCameraLayout?
