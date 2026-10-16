@@ -1,4 +1,27 @@
-READY GAP-ED-16 Core on 2bbe202 (working tree; Lead checkpoint required) | debug app/release Rust | macOS26.3 arm64/Xcode26.6 | blur kind/radius + additive extras companion implemented; Rust113/Core Swift81/Clippy/signed app PASS. Lead C header + Render/Editor integration handoffs below.
+READY RC0.9.0 FREEZE — Core checkpoint2ace315, source integrated on main ddfd9d4 | debug app/release Rust | macOS26.3 arm64/Xcode26.6 | last code gate Rust113/Core Swift81/Clippy/strict signed app PASS; no pending Core implementation or new scope. Open integration/RC notes below; status-only checkpoint remains.
+
+## RC0.9.0 freeze handoff
+
+Freeze accepted. Core's source work is checkpointed in2ace315; read-only comparison
+with main ddfd9d4 confirms Core source/tests/FORMATS match. Last code validation
+below remains applicable; this freeze update changes only this status file.
+No rebuild or live app launch was needed. Core stops here; Lead handles rebasing
+and the final status checkpoint under the existing Git ownership arrangement.
+
+Open RC integration items (not claimed completed): Lead-owned C header companion
+declaration and SWIFT_API additions below are still absent on main ddfd9d4;
+Render's Gaussian blur pass, Editor controls, and native preview/export pixel
+parity remain consumer acceptance work. Cross-family review of the companion
+layout and fallback semantics remains requested. Core's cold query/Swift adapter
+is implemented and tested independently of the header declaration.
+
+Lead-reported Render open-medium findings, recorded for the RC handoff (Core did
+not remeasure them; build configuration not supplied): main b1859a4, synthetic
+3840×2160/60fps source; F17 random scrub p50=149ms, p95=232ms (previous466ms),
+still open-medium. F18 4K export=0.98× real time, still open-medium. These are
+synthetic measurements, not 4K capture or real-input acceptance.
+
+---
 
 ## GAP-ED-16 — blur masks / Render + Editor handoff
 
@@ -41,7 +64,8 @@ and insertion-style kind/blurRadius to Lead-owned SWIFT_API.md.
 | base2bbe202 / debug Rust / same host | top-level panic regression for every Rust C export and every header declaration; 10000 random JSON FFI commands | PASS. New mask export included in panic coverage and every fuzz frame/error-time sample; counts match legacy extras, kinds/radii remain finite/in bounds. Only the named new export is permitted to await its Lead-owned header declaration. |
 | base2bbe202 / debug app / same host | canonical build-app.sh debug via temporary SwiftPM sandbox adapter; strict codesign; swift test --filter YapcamCoreTests | PASS signed app and81 Core Swift tests. New tests verify actual layer/companion query decoding, masks before final fade, inherited radius32, timing/history/snapshots/save/reopen, invalid edit rollback and exact legacy opaque-layer equality. |
 
-Checkpoint the12 changed owned files (FORMATS contract included), request required
+The12 changed owned files (FORMATS contract included) were checkpointed in2ace315.
+Request required
 other-family review of companion ABI/layout and blur/fallback semantics, then
 integrate with the Render Gaussian pass and Editor controls. New C header types
 are pending Lead, not claimed present. Cold queries and typed Swift methods work
