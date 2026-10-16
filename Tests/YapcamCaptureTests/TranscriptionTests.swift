@@ -443,3 +443,32 @@ func unrelatedSpeechWindowErrorsRemainFatalAndPreservePreviousTranscript(error: 
         if !transcript.warnings.isEmpty { #expect(transcript.isPartial) }
     }
 }
+
+
+@Test(arguments: [[], ["Yapcam", "Clara Weiß", "forty two"]])
+func transcriptionForwardsKeytermsToEverySegment(keyterms: [String]) async throws {
+    let fixture = try SpeechFixture(); defer { fixture.cleanup() }
+    let service = TranscriptionService(recognizeRequest: { url, locale, forwarded in
+        #expect(locale == "de-DE")
+        #expect(forwarded == keyterms)
+        #expect(["seg-000", "seg-001"].contains(url.deletingLastPathComponent().lastPathComponent))
+        return RecognizedSpeech(words: [RecognizedSpeechWord(text: "Clara", startNs: 0, endNs: 100_000_000, confidence: 1)])
+    })
+    let result: RecordingTranscript
+    if keyterms.isEmpty { result = try await service.transcribe(package: fixture.package, localeIdentifier: "de-DE") }
+    else { result = try await service.transcribe(package: fixture.package, localeIdentifier: "de-DE", keyterms: keyterms) }
+    #expect(result.words.count == 2 && Set(result.words.map(\.segmentIndex)) == [0, 1])
+    let json = try String(contentsOf: fixture.transcript, encoding: .utf8)
+    #expect(!json.contains("keyterms") && !json.contains("forty two"))
+}
+
+@Test(arguments: [TranscriptionError.unsupportedLocale("zz-ZZ"), .onDeviceModelNotInstalled("de-DE")])
+func typedSpeechAdmissionFailuresPreservePublishedTranscript(error: TranscriptionError) async throws {
+    let fixture = try SpeechFixture(); defer { fixture.cleanup() }
+    let previous = Data("previous transcript".utf8)
+    try previous.write(to: fixture.transcript)
+    let service = TranscriptionService(recognizeRequest: { _, _, _ in throw error })
+    await #expect(throws: error) { try await service.transcribe(package: fixture.package, keyterms: ["Yapcam"]) }
+    #expect(try Data(contentsOf: fixture.transcript) == previous)
+    #expect(!FileManager.default.fileExists(atPath: fixture.package.appendingPathComponent("recording/.capture.lock").path))
+}

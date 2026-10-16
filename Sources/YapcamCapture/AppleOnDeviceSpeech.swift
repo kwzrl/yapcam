@@ -102,28 +102,64 @@ enum SpeechChunking {
     }
 }
 
-/// Only file decoding and on-device Speech requests happen here. Requests are
-/// bounded in memory/time, sequential, and always refuse a network recognizer.
-enum AppleOnDeviceSpeech {
-    static func recognize(_ url: URL, locale identifier: String) async throws -> RecognizedSpeech {
-        try Task.checkCancellation()
-        switch TranscriptionService.authorizationState {
+/// Shared admission policy: tests exercise the same offline-only request that
+/// production uses, without asking for permission or downloading a language pack.
+enum OnDeviceSpeechPolicy {
+    static func authorize(_ state: PermissionState) throws {
+        switch state {
         case .notDetermined: throw TranscriptionError.authorizationRequired
         case .denied: throw TranscriptionError.authorizationDenied
         case .granted: break
         }
-        let key = identifier.replacingOccurrences(of: "_", with: "-").lowercased()
-        guard let locale = SFSpeechRecognizer.supportedLocales().first(where: {
-            $0.identifier.replacingOccurrences(of: "_", with: "-").lowercased() == key
-        }),
-              let recognizer = SFSpeechRecognizer(locale: locale), recognizer.supportsOnDeviceRecognition,
-              recognizer.isAvailable else { throw TranscriptionError.onDeviceUnavailable(identifier) }
+    }
+
+    static func locale(_ identifier: String, supported: Set<Locale>) throws -> Locale {
+        func key(_ value: String) -> String { value.replacingOccurrences(of: "_", with: "-").lowercased() }
+        guard let locale = supported.first(where: { key($0.identifier) == key(identifier) }) else {
+            throw TranscriptionError.unsupportedLocale(identifier)
+        }
+        return locale
+    }
+
+    static func request(locale: String, supportsOnDevice: Bool, available: Bool, keyterms: [String] = []) throws -> SFSpeechAudioBufferRecognitionRequest {
+        guard supportsOnDevice, available else { throw TranscriptionError.onDeviceUnavailable(locale) }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.requiresOnDeviceRecognition = true
+        request.shouldReportPartialResults = false
+        request.taskHint = .dictation
+        request.contextualStrings = keyterms
+        return request
+    }
+
+    /// Apple's documented legacy missing-assets code. Do not label generic
+    /// service outages or supportsOnDeviceRecognition=false as a missing model.
+    /// https://developer.apple.com/documentation/speech/sfspeechrecognitiontask/error
+    static func recognitionError(_ error: Error, locale: String) -> Error {
+        let native = error as NSError
+        if native.domain == "kLSRErrorDomain", native.code == 102 {
+            return TranscriptionError.onDeviceModelNotInstalled(locale)
+        }
+        return error
+    }
+}
+
+/// Only file decoding and on-device Speech requests happen here. Requests are
+/// bounded in memory/time, sequential, and always refuse a network recognizer.
+enum AppleOnDeviceSpeech {
+    static func recognize(_ url: URL, locale identifier: String, keyterms: [String] = []) async throws -> RecognizedSpeech {
+        try Task.checkCancellation()
+        try OnDeviceSpeechPolicy.authorize(TranscriptionService.authorizationState)
+        let locale = try OnDeviceSpeechPolicy.locale(identifier, supported: SFSpeechRecognizer.supportedLocales())
+        guard let recognizer = SFSpeechRecognizer(locale: locale) else {
+            throw TranscriptionError.onDeviceUnavailable(identifier)
+        }
+        // Admit before decoding, and construct every window with the same policy.
+        _ = try OnDeviceSpeechPolicy.request(locale: identifier,
+            supportsOnDevice: recognizer.supportsOnDeviceRecognition, available: recognizer.isAvailable, keyterms: keyterms)
         return try await recognizeFile(url) { buffer in
-            let request = SFSpeechAudioBufferRecognitionRequest()
-            request.requiresOnDeviceRecognition = true
-            request.shouldReportPartialResults = false
-            request.taskHint = .dictation
-            let context = SpeechRequestContext(recognizer: recognizer, request: request, buffer: buffer)
+            let request = try OnDeviceSpeechPolicy.request(locale: identifier,
+                supportsOnDevice: recognizer.supportsOnDeviceRecognition, available: recognizer.isAvailable, keyterms: keyterms)
+            let context = SpeechRequestContext(recognizer: recognizer, request: request, buffer: buffer, locale: identifier)
             return try await SpeechRecognitionJob().run { context.start($0) }
         }
     }
@@ -153,10 +189,12 @@ private final class SpeechRequestContext: @unchecked Sendable {
     let recognizer: SFSpeechRecognizer
     let request: SFSpeechAudioBufferRecognitionRequest
     let buffer: AVAudioPCMBuffer
-    init(recognizer: SFSpeechRecognizer, request: SFSpeechAudioBufferRecognitionRequest, buffer: AVAudioPCMBuffer) {
-        self.recognizer = recognizer; self.request = request; self.buffer = buffer
+    let locale: String
+    init(recognizer: SFSpeechRecognizer, request: SFSpeechAudioBufferRecognitionRequest, buffer: AVAudioPCMBuffer, locale: String) {
+        self.recognizer = recognizer; self.request = request; self.buffer = buffer; self.locale = locale
     }
     func start(_ complete: @escaping SpeechRecognitionJob.Completion) -> SpeechRecognitionJob.Cancel {
+        let locale = locale
         let task = recognizer.recognitionTask(with: request) { result, error in
             if let result, result.isFinal {
                 let words = result.bestTranscription.segments.compactMap { segment -> RecognizedSpeechWord? in
@@ -165,7 +203,7 @@ private final class SpeechRequestContext: @unchecked Sendable {
                     return RecognizedSpeechWord(text: segment.substring, startNs: start, endNs: end, confidence: segment.confidence)
                 }
                 complete(.success(words))
-            } else if let error { complete(.failure(error)) }
+            } else if let error { complete(.failure(OnDeviceSpeechPolicy.recognitionError(error, locale: locale))) }
         }
         request.append(buffer)
         request.endAudio()

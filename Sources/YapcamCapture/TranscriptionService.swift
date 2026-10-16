@@ -5,6 +5,7 @@ public enum TranscriptionTrack: String, Codable, Sendable { case microphone = "m
 
 public enum TranscriptionError: LocalizedError, Sendable, Equatable {
     case authorizationRequired, authorizationDenied, missingUsageDescription
+    case unsupportedLocale(String), onDeviceModelNotInstalled(String)
     case onDeviceUnavailable(String), invalidPackage(String), noAudioTrack
     case recognitionFailed(String), timedOut
 
@@ -13,6 +14,8 @@ public enum TranscriptionError: LocalizedError, Sendable, Equatable {
         case .authorizationRequired: "Allow Speech Recognition before transcribing."
         case .authorizationDenied: "Speech Recognition access is denied or restricted."
         case .missingUsageDescription: "The app needs NSSpeechRecognitionUsageDescription before requesting Speech Recognition access."
+        case .unsupportedLocale(let locale): "Speech recognition does not support \(locale)."
+        case .onDeviceModelNotInstalled(let locale): "The on-device speech model for \(locale) is not installed. Install the language model before transcribing offline."
         case .onDeviceUnavailable(let locale): "On-device speech recognition is unavailable for \(locale)."
         case .invalidPackage(let message): "Cannot transcribe this recording: \(message)"
         case .noAudioTrack: "The recording has no audio track for transcription."
@@ -100,19 +103,26 @@ struct RecognizedSpeechWord: Sendable {
 public actor TranscriptionService {
     typealias Recognize = @Sendable (URL, String) async throws -> [RecognizedSpeechWord]
     typealias RecognizeWithWarnings = @Sendable (URL, String) async throws -> RecognizedSpeech
-    private let recognize: RecognizeWithWarnings
+    typealias RecognizeRequest = @Sendable (URL, String, [String]) async throws -> RecognizedSpeech
+    private let recognize: RecognizeRequest
     private static let logger = Logger(subsystem: "mov.yapcam.Yapcam", category: "Transcription")
 
-    public init() { recognize = { try await AppleOnDeviceSpeech.recognize($0, locale: $1) } }
+    public init() { recognize = { try await AppleOnDeviceSpeech.recognize($0, locale: $1, keyterms: $2) } }
     init(recognize: @escaping Recognize) {
-        self.recognize = { RecognizedSpeech(words: try await recognize($0, $1)) }
+        self.recognize = { url, locale, _ in RecognizedSpeech(words: try await recognize(url, locale)) }
     }
-    init(recognizeWithWarnings: @escaping RecognizeWithWarnings) { recognize = recognizeWithWarnings }
+    init(recognizeWithWarnings: @escaping RecognizeWithWarnings) {
+        recognize = { url, locale, _ in try await recognizeWithWarnings(url, locale) }
+    }
+    init(recognizeRequest: @escaping RecognizeRequest) { recognize = recognizeRequest }
 
     /// nil selects mic when present in each segment, otherwise system audio.
     /// Explicit selection skips segments without that track; it never switches it.
+    /// Optional keyterms bias every on-device window (names, terminology, phrases).
+    /// They are forwarded unchanged and are never logged or written to the package.
     @discardableResult public func transcribe(package: URL, localeIdentifier: String = Locale.current.identifier,
-                                             track requestedTrack: TranscriptionTrack? = nil) async throws -> RecordingTranscript {
+                                             track requestedTrack: TranscriptionTrack? = nil,
+                                             keyterms: [String] = []) async throws -> RecordingTranscript {
         try Task.checkCancellation()
         guard package.isFileURL else { throw TranscriptionError.invalidPackage("Expected a local package") }
         let root = package.resolvingSymlinksInPath().standardizedFileURL
@@ -149,7 +159,7 @@ public actor TranscriptionService {
             }
             audioFound = true
             let base = segment.srcStartNs + offset
-            let recognition = try await recognize(audio, localeIdentifier)
+            let recognition = try await recognize(audio, localeIdentifier, keyterms)
             for window in recognition.noSpeechWindows {
                 guard window.lowerBound >= 0, window.upperBound > window.lowerBound,
                       window.lowerBound < sourceEnd - base else { continue }
