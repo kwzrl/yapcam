@@ -409,7 +409,7 @@ struct InspectorView: View {
             }
             PickerRow(model: model, title: "Cursor style", path: "cursor.style",
                       options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch"), ("Arrow", "arrow")])
-            NullableChoiceRow(model: model, title: "Cursor set", path: "cursor.set_id", automatic: "Recorded", options: cursorSets)
+            CursorSetCarousel(model: model)
             NullableChoiceRow(model: model, title: "Cursor shape", path: "cursor.shape", automatic: "Automatic", options: cursorShapes)
             PickerRow(model: model, title: "Cursor size", path: "cursor.logical_size", options: cursorSizes)
             NumberRow(model: model, title: "Motion blur", path: "cursor.motion_blur", range: 0...1)
