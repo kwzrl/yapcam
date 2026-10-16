@@ -31,6 +31,10 @@ public final class ExportModel: ObservableObject {
     @Published public var gifDisableLoop = false { didSet { persist() } }
     /// Quality (0…1) taken from the compression preset; GIF has none.
     public var quality: Double { preset.quality }
+    /// True when the app's experimental variable-frame-rate setting applies to the current format.
+    public var usesVariableFrameRate: Bool { format != .gif && variableFrameRateProvider() }
+    /// Defaults to the app-wide experimental setting (`EditorWindows.variableFrameRate`).
+    public var variableFrameRateProvider: () -> Bool = { EditorWindows.variableFrameRate() }
     public var options: ExportOptionSet { format.options }
     public var availablePresets: [CompressionPreset] { format.options.presets(atHeight: height) }
 
@@ -87,7 +91,8 @@ public final class ExportModel: ObservableObject {
     func makeRequest(destination: URL) -> ExportRequest {
         ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio && format.supportsAudio,
                       speech: includeAudio && format.supportsAudio ? speechProvider() : nil, format: format, quality: quality,
-                      compression: format == .gif ? nil : preset, gifHighQuality: gifHighQuality, gifDisableLoop: gifDisableLoop)
+                      compression: format == .gif ? nil : preset, gifHighQuality: gifHighQuality, gifDisableLoop: gifDisableLoop,
+                      variableFrameRate: variableFrameRateProvider() && format != .gif)
     }
     /// Size and time readout for the current choices (nil when the engine cannot plan them).
     public var estimate: ExportEstimateInfo? { engine.estimate(for: makeRequest(destination: URL(fileURLWithPath: "/dev/null"))) }

@@ -74,14 +74,14 @@ private func pkgCopy() throws -> URL {
         m.seek(toNs: 500_000_000)
         for kind in HighlightRegion.Kind.allCases { m.addHighlightAtPlayhead(kind: kind) }
         #expect(m.lastError == nil, "\(m.lastError ?? "")")
-        #expect(m.highlights.count == 3)
+        #expect(m.highlights.count == HighlightRegion.Kind.allCases.count)   // highlight, blur, cover, spotlight
         let extras = try doc.project.frameExtras(atNs: 1_000_000_000)
-        #expect(extras.highlight_count == 3)
+        #expect(extras.highlight_count == HighlightRegion.Kind.allCases.count)
         let effects = try doc.project.renderEffects(atNs: 1_000_000_000, canvasSize: CGSize(width: 1920, height: 1080))
-        #expect(effects.layers.count == 3)
+        #expect(effects.layers.count == HighlightRegion.Kind.allCases.count)
         // The editor's own render source forwards the same effects to preview and export.
         let viaSource = try ProjectRenderSource(doc.project).renderEffects(atNs: 1_000_000_000, canvasSize: CGSize(width: 1920, height: 1080))
-        #expect(viaSource.layers.count == 3)
+        #expect(viaSource.layers.count == HighlightRegion.Kind.allCases.count)
         // After the region ends there is nothing to draw.
         #expect(try doc.project.frameExtras(atNs: 4_500_000_000).highlight_count == 0)
     }
@@ -369,5 +369,76 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(a2.format == .gif && a2.gifDisableLoop)
         let q2 = ExportModel(engine: StubEngine(gate: Gate())); q2.remember(in: .quick, defaults: defaults)
         #expect(q2.format == .mp4hevc && q2.height == q.height)
+    }
+}
+
+@MainActor @Suite struct BlurMaskTests {
+    @Test func blurMaskIsStoredUndoableInheritedAndReachesTheRenderPath() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store); let m = doc.model
+        m.seek(toNs: 1_000_000_000)
+        let before = try FrameSnapshot.png(source: ProjectRenderSource(doc.project), atNs: 1_500_000_000)
+        m.addHighlightAtPlayhead(kind: .blur)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        let h = try #require(m.highlights.first)
+        #expect(h.kind == .blur && h.blurRadius == 32)
+        // The same core evaluation the compositor reads says Gaussian blur, strength 32.
+        let fx = try doc.project.maskEffects(atNs: 1_500_000_000)
+        #expect(fx.effects.first?.kind == 1 && fx.effects.first?.blurRadius == 32)
+        let blurred = try FrameSnapshot.png(source: ProjectRenderSource(doc.project), atNs: 1_500_000_000)
+        #expect(blurred != before)                       // preview/export path draws it
+        // Strength: one undo step; later blur masks inherit it.
+        m.updateHighlight(id: h.id) { $0.blurRadius = 90 }
+        #expect(m.highlights.first?.blurRadius == 90)
+        m.undo(); #expect(m.highlights.first?.blurRadius == 32)
+        m.updateHighlight(id: h.id) { $0.blurRadius = 90 }
+        m.seek(toNs: 2_000_000_000); m.addHighlightAtPlayhead(kind: .blur); #expect(m.lastError == nil)
+        #expect(m.highlights.last?.blurRadius == 90)
+        // Cover stays available and does not use the blur kind.
+        m.seek(toNs: 500_000_000); m.addHighlightAtPlayhead(kind: .mask)
+        #expect(m.highlights.last?.kind == .mask && m.lastError == nil, "\(m.lastError ?? "")")
+        try doc.project.save()
+        let re = try EditorDocument(package: d, presets: iso.store).model
+        #expect(re.highlights.map(\.kind) == [.blur, .blur, .mask] && re.highlights.first?.blurRadius == 90)
+        // Out-of-range strength is clamped by the editor, never sent to core as an error.
+        re.updateHighlight(id: re.highlights[0].id) { $0.blurRadius = 0 }
+        #expect(re.lastError == nil && re.highlights[0].blurRadius == 0)
+    }
+}
+
+@MainActor @Suite(.serialized) struct SettingsHooksTests {
+    @Test func autosaveSwitchStopsTheTimerButNotSaveOrClose() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        var on = false
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        m.autosaveDelay = .milliseconds(50); m.autosaveAllowed = { on }
+        #expect(EditorWindows.autosaveEnabled)        // app-wide default is on
+        m.seek(toNs: 1_000_000_000); m.addHighlightAtPlayhead(kind: .blur)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(m.saveState == .dirty)                      // nothing saved behind the user's back
+        m.saveNow()
+        #expect(m.saveState != .dirty)
+        on = true
+        m.updateHighlight(id: m.highlights[0].id) { $0.blurRadius = 10 }
+        for _ in 0..<100 where m.saveState == .dirty { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(m.saveState != .dirty)                      // back on: the debounce saves again
+    }
+
+    @Test func variableFrameRateHookReachesTheExportSettingsExceptForGIF() throws {
+        let e = ExportModel(engine: NullEngine())
+        #expect(EditorWindows.variableFrameRate() == false)   // app-wide default is off
+        #expect(e.makeRequest(destination: URL(fileURLWithPath: "/tmp/a.mp4")).variableFrameRate == false)
+        e.variableFrameRateProvider = { true }
+        let req = e.makeRequest(destination: URL(fileURLWithPath: "/tmp/a.mp4"))
+        #expect(req.variableFrameRate && RenderExportEngine.settings(for: req).variableFrameRate)
+        #expect(e.usesVariableFrameRate)
+        e.format = .gif
+        let gif = e.makeRequest(destination: URL(fileURLWithPath: "/tmp/a.gif"))
+        #expect(!gif.variableFrameRate && !RenderExportEngine.settings(for: gif).variableFrameRate && !e.usesVariableFrameRate)
+    }
+    private struct NullEngine: ExportEngine {
+        func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL { request.destination }
     }
 }

@@ -60,6 +60,10 @@ struct ExportSheet: View {
                 Picker("Compression", selection: $export.preset) { ForEach(export.availablePresets) { Text($0.label).tag($0) } }.pickerStyle(.menu)
                 Text(export.preset.hint).font(.caption).foregroundStyle(.secondary)
             }
+            if export.usesVariableFrameRate {
+                Text("Experimental variable frame rate is on (Settings): identical frames are left out, so the file has fewer frames than the frame rate suggests.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if let e = export.estimate {
                 Text("\(e.width)×\(e.height) · about \(ByteCountFormatter.string(fromByteCount: e.bytes, countStyle: .file)) · roughly \(Self.duration(e.renderSeconds)) to export")
                     .font(.caption).foregroundStyle(.secondary).accessibilityLabel("Estimate")

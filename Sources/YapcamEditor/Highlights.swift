@@ -11,13 +11,19 @@ public struct HighlightRegion: Equatable, Identifiable, Sendable {
     public var radius: Double, opacity: Double, dimOpacity: Double
     public var fill: [Double], stroke: [Double]
     public var strokeWidth: Double
+    /// Core `kind: "blur"`: the region shows a blurred copy of the picture (sensitive data) instead of drawing a cover.
+    public var isBlur = false
+    /// Gaussian strength in canvas pixels (core: 0…128, default 32).
+    public var blurRadius = HighlightRegion.defaultBlurRadius
+    public static let defaultBlurRadius = 32.0, blurRadiusRange = 0.0...128.0
     public var span: TimeSpan { TimeSpan(startNs: startNs, endNs: endNs) }
 
-    public enum Kind: String, CaseIterable, Sendable { case highlight, mask, spotlight
-        public var label: String { switch self { case .highlight: "Highlight"; case .mask: "Mask (hide)"; case .spotlight: "Spotlight" } }
+    public enum Kind: String, CaseIterable, Sendable { case highlight, blur, mask, spotlight
+        public var label: String { switch self { case .highlight: "Highlight"; case .blur: "Mask (blur)"; case .mask: "Mask (cover)"; case .spotlight: "Spotlight" } }
     }
     /// Which preset this region most closely matches (for the chip title and inspector).
     public var kind: Kind {
+        if isBlur { return .blur }
         if fill.count == 4, fill[3] >= 0.99, dimOpacity == 0 { return .mask }
         if strokeWidth == 0 && dimOpacity >= 0.5 { return .spotlight }
         return .highlight
@@ -29,7 +35,9 @@ public struct HighlightRegion: Equatable, Identifiable, Sendable {
         return h
     }
     public mutating func apply(_ kind: Kind) {
+        isBlur = kind == .blur
         switch kind {
+        case .blur: fill = [fill[0], fill[1], fill[2], 0]; dimOpacity = 0; strokeWidth = 0; stroke = [stroke[0], stroke[1], stroke[2], 0]
         case .highlight: fill = [fill[0], fill[1], fill[2], 0]; dimOpacity = 0.5; strokeWidth = max(strokeWidth, 3); stroke = [stroke[0], stroke[1], stroke[2], 1]
         case .mask: fill = [0.1, 0.1, 0.1, 1]; dimOpacity = 0; strokeWidth = 0; stroke = [0, 0, 0, 0]
         case .spotlight: fill = [fill[0], fill[1], fill[2], 0]; dimOpacity = 0.65; strokeWidth = 0; stroke = [stroke[0], stroke[1], stroke[2], 0]
@@ -55,7 +63,8 @@ extension EditorModel {
             return HighlightRegion(id: id, startNs: Int64(a), endNs: Int64(b), rect: rect.count == 4 ? rect : [0.25, 0.25, 0.5, 0.5], space: space,
                                    radius: num(o["radius"], 12), opacity: num(o["opacity"], 1), dimOpacity: num(o["dim_opacity"], 0.4),
                                    fill: fill.count == 4 ? fill : [1, 0.85, 0.2, 0], stroke: stroke.count == 4 ? stroke : [1, 0.85, 0.2, 1],
-                                   strokeWidth: num(o["stroke_width"], 3))
+                                   strokeWidth: num(o["stroke_width"], 3), isBlur: { if case .string("blur")? = o["kind"] { true } else { false } }(),
+                                   blurRadius: min(max(num(o["blur_radius"], HighlightRegion.defaultBlurRadius), 0), 128))
         }
     }
 
@@ -63,7 +72,8 @@ extension EditorModel {
         func arr(_ a: [Double]) -> JSONValue { .array(a.map { .number($0) }) }
         return .object(["id": .string(h.id), "tl_start_ns": .number(Double(h.startNs)), "tl_end_ns": .number(Double(h.endNs)),
                         "rect": arr(h.rect), "space": .string(h.space), "radius": .number(h.radius), "opacity": .number(h.opacity),
-                        "dim_opacity": .number(h.dimOpacity), "fill": arr(h.fill), "stroke": arr(h.stroke), "stroke_width": .number(h.strokeWidth)])
+                        "dim_opacity": .number(h.dimOpacity), "fill": arr(h.fill), "stroke": arr(h.stroke), "stroke_width": .number(h.strokeWidth),
+                        "kind": .string(h.isBlur ? "blur" : "highlight"), "blur_radius": .number(h.blurRadius)])
     }
     private func writeHighlights(_ hs: [HighlightRegion]) { set("canvas.highlights", .array(hs.map(json))) }
     func writeHighlightList(_ hs: [HighlightRegion]) { writeHighlights(hs) }
@@ -73,7 +83,7 @@ extension EditorModel {
         guard end - start >= minItemNs else { lastError = "Not enough room for a region here."; return }
         var h = HighlightRegion.preset(kind, id: "region-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end)
         // New regions inherit the style of the last edited one (when it is of the same kind).
-        if let last = lastRegionStyle, last.kind == kind { h.fill = last.fill; h.stroke = last.stroke; h.strokeWidth = last.strokeWidth; h.radius = last.radius; h.dimOpacity = last.dimOpacity; h.opacity = last.opacity }
+        if let last = lastRegionStyle, last.kind == kind { h.fill = last.fill; h.stroke = last.stroke; h.strokeWidth = last.strokeWidth; h.radius = last.radius; h.dimOpacity = last.dimOpacity; h.opacity = last.opacity; h.blurRadius = last.blurRadius }
         writeHighlights(highlights + [h])
         if lastError == nil { selection = .highlight(h.id) }
     }
@@ -85,7 +95,7 @@ extension EditorModel {
     public func applyHighlightStyleToAll(from id: String) {
         guard let src = highlights.first(where: { $0.id == id }) else { return }
         writeHighlights(highlights.map { var h = $0
-            if h.id != id, h.kind == src.kind { h.fill = src.fill; h.stroke = src.stroke; h.strokeWidth = src.strokeWidth; h.radius = src.radius; h.dimOpacity = src.dimOpacity; h.opacity = src.opacity }
+            if h.id != id, h.kind == src.kind { h.fill = src.fill; h.stroke = src.stroke; h.strokeWidth = src.strokeWidth; h.radius = src.radius; h.dimOpacity = src.dimOpacity; h.opacity = src.opacity; h.blurRadius = src.blurRadius }
             return h })
     }
     public func setHighlightKind(id: String, _ kind: HighlightRegion.Kind) { updateHighlight(id: id) { $0.apply(kind) } }

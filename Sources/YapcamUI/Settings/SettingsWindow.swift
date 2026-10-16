@@ -87,7 +87,10 @@ struct EditingSettings: View {
             Toggle("New projects reuse the last project's look", isOn: $s.reuseLastProjectSettings)
             Text("Off: new projects start from your default preset (or the standard look). On: from the look of the most recently edited project instead; with no earlier project the default preset is used.")
                 .font(.caption).foregroundStyle(.secondary)
-            Text("Edits are saved automatically while you work.").font(.caption).foregroundStyle(.secondary)
+            Toggle("Save edits automatically", isOn: $s.autosaveEnabled)
+            Text(s.autosaveEnabled ? "Edits are saved 30 seconds after your last change. Closing a project window and quitting always save."
+                                   : "Edits are saved only when you close the project window or quit. A crash can lose changes since then.")
+                .font(.caption).foregroundStyle(.secondary)
         }.formStyle(.grouped)
     }
 }
@@ -245,7 +248,7 @@ struct ExperimentalSettings: View {
     var body: some View {
         Form {
             Toggle("Variable frame rate export", isOn: $s.experimentalVariableFrameRate)
-            Text("Leaves out frames that are exact copies of the previous one, which makes files of mostly still screens smaller. Applies to quick export after recording. Some players and editors handle variable frame rate poorly; leave off if you plan to edit the file elsewhere. GIFs are never affected.")
+            Text("Leaves out frames that are exact copies of the previous one, which makes files of mostly still screens smaller. Applies to quick export and to the editor Export dialog. Some players and editors handle variable frame rate poorly; leave off if you plan to edit the file elsewhere. GIFs are never affected.")
                 .font(.caption).foregroundStyle(.secondary)
             LabeledContent("Recording engine", value: "ScreenCaptureKit")
             Text("Yapcam has one capture engine, so there is nothing to choose.").font(.caption).foregroundStyle(.secondary)

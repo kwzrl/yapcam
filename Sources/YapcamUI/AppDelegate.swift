@@ -86,6 +86,7 @@ import YapcamEditor
         DesktopIcons.restoreIfNeeded()
         installTranscriber()
         PresetsFolder.apply(AppSettings.shared.presetsDirectory)
+        EditorHooks.install(AppSettings.shared)
         AreaOutline.shared.start()
         offerRecovery()
         if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {

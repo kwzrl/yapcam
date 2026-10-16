@@ -305,7 +305,8 @@ struct RenderExportEngine: ExportEngine {
                               quality: compression == nil ? request.quality : nil,
                               includeAudio: request.includeAudio && request.format.supportsAudio,
                               speechEnhancement: request.speech.map(\.render), compression: compression,
-                              gifHighQuality: request.gifHighQuality, gifDisableLoop: request.gifDisableLoop)
+                              gifHighQuality: request.gifHighQuality, gifDisableLoop: request.gifDisableLoop,
+                              variableFrameRate: request.variableFrameRate)
     }
 
     func estimate(for request: ExportRequest) -> ExportEstimateInfo? {

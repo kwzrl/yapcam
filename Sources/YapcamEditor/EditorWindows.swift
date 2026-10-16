@@ -12,6 +12,11 @@ import YapcamCore
     /// Languages the on-device recogniser supports (from `SFSpeechRecognizer.supportedLocales()`); nil → only "Auto" is offered.
     nonisolated(unsafe) public static var languageProvider: (@Sendable () -> [TranscriptionLanguage])?
 
+    /// Settings > "Autosave while editing" (ui). When false the editor saves only on ⌘S and when the window closes.
+    nonisolated(unsafe) public static var autosaveEnabled = true
+    /// Settings > Experimental > variable frame rate for MP4/MOV (ui). Read when an export starts.
+    nonisolated(unsafe) public static var variableFrameRate: () -> Bool = { false }
+
     /// Opens (or focuses) the editor for a `.yapcam` package. Asks before restoring an
     /// unsaved autosave journal and offers relinking when media is missing.
     public static func open(package: URL) {
