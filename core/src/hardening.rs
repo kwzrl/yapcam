@@ -91,6 +91,7 @@ fn scale_60_minutes() {
     p.events = vec![events];
     p.data.cursor.key_overlay.enabled = true;
     p.data.cursor.smoothing = 1.0;
+    p.data.cursor.remove_shakes = true;
     p.data.cursor.speed_preset = "rapid".into();
     p.rebuild_key_overlay_index();
     crate::project::validate_data(&p.data).unwrap();
@@ -105,7 +106,7 @@ fn scale_60_minutes() {
         }
     }
     let owned = Owned(handle);
-    println!("SCALE workload=60min events=3600000 rate_hz=1000 clips=5000 zooms=1000 build_s={:.3} clock=Instant profile=release seed=0x19bc48", build.elapsed().as_secs_f64());
+    println!("SCALE workload=60min events=3600000 rate_hz=1000 clips=5000 zooms=1000 remove_shakes=true threshold=500 build_s={:.3} clock=Instant profile=release seed=0x19bc48", build.elapsed().as_secs_f64());
     let mut seed = 0x19bc48;
     let mut frame = crate::frame::Frame::default();
     let mut frames = Vec::with_capacity(2048);
@@ -180,6 +181,10 @@ fn scale_60_minutes() {
     }
     for (op, command) in [
         (
+            "shake_threshold",
+            r#"{"op":"set","path":"cursor.shake_threshold","value":1500}"#,
+        ),
+        (
             "set_speed",
             r#"{"op":"set_speed","clip_id":"scale-2500","speed":1.5}"#,
         ),
@@ -195,6 +200,7 @@ fn scale_60_minutes() {
     ] {
         let command = CString::new(command).unwrap();
         let mut samples = Vec::new();
+        let mut undo_samples = Vec::new();
         for _ in 0..8 {
             let start = Instant::now();
             assert_eq!(
@@ -203,13 +209,21 @@ fn scale_60_minutes() {
             );
             samples.push(start.elapsed().as_nanos() as u64);
             let mut did = 0;
+            let start = Instant::now();
             assert_eq!(unsafe { yc_undo(handle, &mut did) }, 0);
             assert_eq!(did, 1);
+            undo_samples.push(start.elapsed().as_nanos() as u64);
         }
         let stats = percentiles(samples);
         worst_edit = worst_edit.max(stats.2);
         println!(
             "SCALE {op} durable=true n=8 p50_ms={:.6} p99_ms={:.6} max_ms={:.6}",
+            stats.0, stats.1, stats.2
+        );
+        let stats = percentiles(undo_samples);
+        worst_edit = worst_edit.max(stats.2);
+        println!(
+            "SCALE {op}_undo durable=true n=8 p50_ms={:.6} p99_ms={:.6} max_ms={:.6}",
             stats.0, stats.1, stats.2
         );
     }
@@ -482,7 +496,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 7 => json!({"op":"add_zoom","zoom":random}),
                 8 => json!({"op":"update_zoom","id":"unknown","patch":random}),
                 9 => {
-                    json!({"op":"set","path":(["camera.position","cursor.stop_before_end_ns","audio.speech_enhancement_settings","canvas.animation","cursor.spring","audio.music","canvas.captions","canvas.screen_quality","canvas.inset_origin"][n as usize%9]),"value":random})
+                    json!({"op":"set","path":(["camera.position","cursor.stop_before_end_ns","audio.speech_enhancement_settings","canvas.animation","cursor.spring","audio.music","canvas.captions","canvas.screen_quality","canvas.inset_origin","cursor.rotation_mode","cursor.rotation_degrees","cursor.tilt_amount","cursor.shake_threshold"][n as usize%13]),"value":random})
                 }
                 10 => json!({"op":"add_media","role":"asset","path":"../../escape"}),
                 11 => json!({"op":"add_caption","caption":random}),

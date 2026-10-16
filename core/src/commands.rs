@@ -16,6 +16,7 @@ pub(crate) struct PreparedApply {
     pub next: Option<ProjectData>,
     pub changes: ChangeSet,
     pub keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
+    pub input: Vec<crate::input::InputCache>,
     pub group: Option<String>,
 }
 fn int(v: &Value, key: &str) -> Result<i64> {
@@ -38,7 +39,7 @@ impl Project {
         let prepared = self.prepare_apply(command)?;
         if let Some(next) = prepared.next {
             self.write_journal(&next)?;
-            drop(self.commit_apply(next, prepared.keys, prepared.group));
+            drop(self.commit_apply(next, prepared.keys, prepared.input, prepared.group));
         }
         Ok(prepared.changes)
     }
@@ -72,10 +73,12 @@ impl Project {
             next.as_ref()
                 .map_or(&self.data.timeline.clips, |p| &p.timeline.clips),
         );
+        let input = self.input_for(next.as_ref().unwrap_or(&self.data));
         Ok(PreparedApply {
             next,
             changes,
             keys,
+            input,
             group: if command["op"] == "coalesced_edit" {
                 command["key"].as_str().map(str::to_owned)
             } else {
@@ -83,13 +86,21 @@ impl Project {
             },
         })
     }
+    pub(crate) fn input_for(&self, next: &ProjectData) -> Vec<crate::input::InputCache> {
+        self.input
+            .iter()
+            .map(|input| input.with_threshold(next.cursor.shake_threshold))
+            .collect()
+    }
     pub(crate) fn commit_apply(
         &mut self,
         next: ProjectData,
         keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
+        input: Vec<crate::input::InputCache>,
         group: Option<String>,
-    ) -> Vec<ProjectData> {
+    ) -> (Vec<ProjectData>, Vec<crate::input::InputCache>) {
         self.key_overlay_index = keys;
+        let obsolete_input = std::mem::replace(&mut self.input, input);
         let now = std::time::Instant::now();
         let merge = group.as_ref().is_some_and(|key| {
             self.undo_group.as_ref().is_some_and(|(prior, time)| {
@@ -108,7 +119,7 @@ impl Project {
         }
         self.undo_group = group.map(|key| (key, now));
         // Drop obsolete states after releasing the FFI project lock.
-        obsolete
+        (obsolete, obsolete_input)
     }
     pub fn undo(&mut self) -> Result<bool> {
         if let Some(old) = self.undo.last() {
@@ -119,7 +130,10 @@ impl Project {
         let keys = self
             .key_overlay_index
             .for_clips(&self.undo.last().unwrap().timeline.clips);
-        Ok(self.commit_undo(keys))
+        let input = self.input_for(self.undo.last().unwrap());
+        let (did, obsolete) = self.commit_undo(keys, input);
+        drop(obsolete);
+        Ok(did)
     }
     pub fn redo(&mut self) -> Result<bool> {
         if let Some(next) = self.redo.last() {
@@ -130,32 +144,37 @@ impl Project {
         let keys = self
             .key_overlay_index
             .for_clips(&self.redo.last().unwrap().timeline.clips);
-        Ok(self.commit_redo(keys))
+        let input = self.input_for(self.redo.last().unwrap());
+        let (did, obsolete) = self.commit_redo(keys, input);
+        drop(obsolete);
+        Ok(did)
     }
     pub(crate) fn commit_undo(
         &mut self,
         keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
-    ) -> bool {
+        input: Vec<crate::input::InputCache>,
+    ) -> (bool, Vec<crate::input::InputCache>) {
         self.key_overlay_index = keys;
         self.undo_group = None;
         if let Some(previous) = self.undo.pop() {
             self.redo.push(std::mem::replace(&mut self.data, previous));
-            true
+            (true, std::mem::replace(&mut self.input, input))
         } else {
-            false
+            (false, input)
         }
     }
     pub(crate) fn commit_redo(
         &mut self,
         keys: std::sync::Arc<crate::key_overlay::KeyOverlayIndex>,
-    ) -> bool {
+        input: Vec<crate::input::InputCache>,
+    ) -> (bool, Vec<crate::input::InputCache>) {
         self.key_overlay_index = keys;
         self.undo_group = None;
         if let Some(next) = self.redo.pop() {
             self.undo.push(std::mem::replace(&mut self.data, next));
-            true
+            (true, std::mem::replace(&mut self.input, input))
         } else {
-            false
+            (false, input)
         }
     }
 }
@@ -584,6 +603,19 @@ pub(crate) fn apply_inner(
                 cs.changed.push("camera.style".into());
             }
             match path {
+                "cursor.rotate_on_move" => {
+                    p.cursor.rotation_mode = if p.cursor.rotate_on_move {
+                        "tilt"
+                    } else {
+                        "static"
+                    }
+                    .into();
+                    cs.changed.push("cursor.rotation_mode".into());
+                }
+                "cursor.rotation_mode" => {
+                    p.cursor.rotate_on_move = p.cursor.rotation_mode == "tilt";
+                    cs.changed.push("cursor.rotate_on_move".into());
+                }
                 "audio.mic_preset" => {
                     // Metadata defaults never reinterpret old DSP. Only an explicit
                     // preset edit selects our own offline processing recipe.

@@ -436,11 +436,7 @@ impl Project {
         }
         Ok(frame)
     }
-    pub fn audio_gain(&self, track: &str, tl_ns: i64) -> f32 {
-        let clip = time::timeline_to_source(&self.data.timeline.clips, tl_ns).map(|(i, _)| i);
-        self.audio_gain_for_clip(track, tl_ns, clip)
-    }
-    fn audio_gain_for_clip(&self, track: &str, tl_ns: i64, clip: Option<usize>) -> f32 {
+    pub(crate) fn audio_gain_for_clip(&self, track: &str, tl_ns: i64, clip: Option<usize>) -> f32 {
         let a = &self.data.audio;
         let (base, muted) = if track == "mic" {
             (a.mic_gain_db, a.mic_muted)

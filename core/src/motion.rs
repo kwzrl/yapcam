@@ -98,8 +98,15 @@ impl Project {
     /// shares source/cut/speed mapping and seek behavior with legacy frames.
     pub fn frame_motion(&self, tl_ns: i64) -> Result<FrameMotion> {
         let current = self.frame_geometry(tl_ns)?;
+        let cursor = &self.data.cursor;
+        let tilting = cursor.rotation_mode == "tilt" || cursor.rotate_on_move;
         let mut motion = FrameMotion {
             tl_ns,
+            cursor_rotation_rad: if !tilting && current.cursor_visible != 0 {
+                cursor.rotation_degrees.to_radians() as f32
+            } else {
+                0.0
+            },
             ..FrameMotion::default()
         };
         if tl_ns == 0 {
@@ -107,7 +114,6 @@ impl Project {
         }
         let prior_ns = tl_ns.saturating_sub(16_666_667).max(0);
         let prior = self.frame_geometry(prior_ns)?;
-        let cursor = &self.data.cursor;
         let duration = time::duration(&self.data.timeline.clips);
         let stopped = cursor.stop_before_end_ns > 0
             && tl_ns >= duration.saturating_sub(cursor.stop_before_end_ns).max(0);
@@ -126,10 +132,12 @@ impl Project {
                 motion.cursor_motion_blur = (cursor.motion_blur
                     * self.data.canvas.global_motion_blur.unwrap_or(1.0))
                     as f32;
-                if cursor.rotate_on_move {
+                if tilting {
                     let seconds = (tl_ns - prior_ns) as f64 / 1e9;
-                    motion.cursor_rotation_rad =
-                        ((dx / seconds / 600.0).clamp(-1.0, 1.0) * 15_f64.to_radians()) as f32;
+                    motion.cursor_rotation_rad = ((dx / seconds / 600.0).clamp(-1.0, 1.0)
+                        * 15_f64.to_radians()
+                        * cursor.tilt_amount)
+                        as f32;
                 }
             }
         }
@@ -187,6 +195,194 @@ mod tests {
         ];
         p.input[0] = InputCache::new(&p.events[0]);
         (f, p)
+    }
+    #[test]
+    fn static_and_scaled_tilt_goldens_use_existing_motion_abi_at_start_idle_and_cuts() {
+        let (_f, mut p) = make();
+        p.data.autosave = false;
+        assert_eq!(p.data.cursor.rotation_mode, "static");
+        assert_eq!(p.data.cursor.shake_threshold, 500.0);
+        p.apply(&json!({"op":"set","path":"cursor.rotation_degrees","value":90}))
+            .unwrap();
+        for t in [0, 350_000_000, 500_000_000] {
+            assert!(
+                (p.frame_motion(t).unwrap().cursor_rotation_rad - std::f32::consts::FRAC_PI_2)
+                    .abs()
+                    < 1e-6
+            );
+            assert!(
+                (p.query(&json!({"q":"render_options_at","tl_ns":t}))
+                    .unwrap()["cursor_rotation_rad"]
+                    .as_f64()
+                    .unwrap()
+                    - std::f64::consts::FRAC_PI_2)
+                    .abs()
+                    < 1e-6
+            );
+        }
+        p.apply(&json!({"op":"batch","commands":[
+            {"op":"set","path":"cursor.rotation_mode","value":"tilt"},
+            {"op":"set","path":"cursor.tilt_amount","value":2}]}))
+            .unwrap();
+        assert!(p.data.cursor.rotate_on_move);
+        assert!(
+            (p.frame_motion(350_000_000).unwrap().cursor_rotation_rad - 30_f32.to_radians()).abs()
+                < 1e-6
+        );
+        assert_eq!(
+            p.frame_motion(500_000_000).unwrap().cursor_rotation_rad,
+            0.0
+        );
+        assert_eq!(p.frame_motion(0).unwrap().cursor_rotation_rad, 0.0);
+        p.apply(&json!({"op":"set","path":"cursor.tilt_amount","value":0}))
+            .unwrap();
+        assert_eq!(
+            p.frame_motion(350_000_000).unwrap().cursor_rotation_rad,
+            0.0
+        );
+        p.undo().unwrap();
+        p.apply(&json!({"op":"split","at_tl_ns":350_000_000}))
+            .unwrap();
+        assert_eq!(
+            p.frame_motion(350_000_000).unwrap().cursor_rotation_rad,
+            0.0
+        );
+        p.apply(&json!({"op":"set","path":"cursor.rotation_mode","value":"static"}))
+            .unwrap();
+        assert!(!p.data.cursor.rotate_on_move);
+        assert!(
+            (p.frame_motion(350_000_000).unwrap().cursor_rotation_rad
+                - std::f32::consts::FRAC_PI_2)
+                .abs()
+                < 1e-6
+        );
+        p.apply(&json!({"op":"set","path":"cursor.rotation_degrees","value":-180}))
+            .unwrap();
+        assert_eq!(
+            p.frame_motion(0).unwrap().cursor_rotation_rad,
+            -std::f32::consts::PI
+        );
+        p.apply(&json!({"op":"set","path":"cursor.visible","value":false}))
+            .unwrap();
+        assert_eq!(p.frame_motion(0).unwrap().cursor_rotation_rad, 0.0);
+        let before = p.data.clone();
+        for (path, value) in [
+            ("rotation_mode", json!("follow")),
+            ("rotation_degrees", json!(180.01)),
+            ("rotation_degrees", json!(-180.01)),
+            ("tilt_amount", json!(-0.1)),
+            ("tilt_amount", json!(2.1)),
+            ("shake_threshold", json!(99)),
+            ("shake_threshold", json!(2001)),
+        ] {
+            assert!(p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"notes","value":"must roll back"},{"op":"set","path":format!("cursor.{path}"),"value":value}]})).is_err());
+            assert_eq!(p.data, before);
+        }
+    }
+    #[test]
+    fn threshold_frame_goldens_share_raw_data_and_follow_history_snapshots_and_reopen() {
+        let f = Fixture::new();
+        let events = [
+            event(0, 100.0),
+            event(100_000_000, 100.75),
+            event(200_000_000, 101.5),
+            event(300_000_000, 104.0),
+            event(400_000_000, 104.0),
+        ];
+        let bytes = events
+            .iter()
+            .map(|e| serde_json::to_string(e).unwrap() + "\n")
+            .collect::<String>();
+        let path = f.0.join("recording/seg-000/events.jsonl");
+        std::fs::write(&path, &bytes).unwrap();
+        let mut p = Project::create(&f.0).unwrap();
+        p.data.autosave = false;
+        p.apply(&json!({"op":"batch","commands":[
+            {"op":"set","path":"cursor.smoothing","value":0},
+            {"op":"set","path":"cursor.remove_shakes","value":true},
+            {"op":"set","path":"canvas.output_size","value":[320,200]},
+            {"op":"set","path":"canvas.padding","value":0}]}))
+            .unwrap();
+        let x = |p: &Project, t| p.frame(t).unwrap().cursor_x;
+        assert!((x(&p, 100_000_000) - 100.75).abs() < 1e-9);
+        let snapshot = p.clone();
+        p.apply(&json!({"op":"set","path":"cursor.shake_threshold","value":2000}))
+            .unwrap();
+        assert!((x(&p, 200_000_000) - 100.0).abs() < 1e-9);
+        assert!((x(&snapshot, 200_000_000) - 101.5).abs() < 1e-9);
+        assert!(std::sync::Arc::ptr_eq(
+            &p.input[0].positions,
+            &snapshot.input[0].positions
+        ));
+        assert!(!std::sync::Arc::ptr_eq(
+            &p.input[0].steady_positions,
+            &snapshot.input[0].steady_positions
+        ));
+        p.undo().unwrap();
+        assert!((x(&p, 200_000_000) - 101.5).abs() < 1e-9);
+        p.redo().unwrap();
+        assert!((x(&p, 200_000_000) - 100.0).abs() < 1e-9);
+        p.save(&f.0).unwrap();
+        let restored = Project::open(&f.0).unwrap();
+        assert_eq!(restored.data.cursor.shake_threshold, 2000.0);
+        assert_eq!(x(&p, 200_000_000), x(&restored, 200_000_000));
+        p.apply(&json!({"op":"set","path":"cursor.remove_shakes","value":false}))
+            .unwrap();
+        assert!((x(&p, 200_000_000) - 101.5).abs() < 1e-9);
+        p.apply(&json!({"op":"set","path":"cursor.shake_threshold","value":100}))
+            .unwrap();
+        p.apply(&json!({"op":"set","path":"cursor.remove_shakes","value":true}))
+            .unwrap();
+        assert!((x(&p, 100_000_000) - 100.75).abs() < 1e-9);
+        let mut retina = p.clone();
+        retina.session.tracks.screen.pixel_size = [640, 400];
+        assert_eq!(x(&retina, 100_000_000), x(&p, 100_000_000));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                p.frame(150_000_000).unwrap();
+                p.frame_extras(150_000_000).unwrap();
+                p.frame_motion(150_000_000).unwrap();
+            }),
+            0
+        );
+    }
+    #[test]
+    fn legacy_cursor_settings_and_preset_aliases_keep_the_old_one_point_deadband() {
+        let (f, mut p) = make();
+        p.data.autosave = false;
+        let mut raw = serde_json::to_value(&p.data).unwrap();
+        for key in [
+            "rotation_mode",
+            "rotation_degrees",
+            "tilt_amount",
+            "shake_threshold",
+        ] {
+            raw["cursor"].as_object_mut().unwrap().remove(key);
+        }
+        raw["cursor"]["rotate_on_move"] = true.into();
+        raw["cursor"]["remove_shakes"] = true.into();
+        let old = crate::project::decode_project(&serde_json::to_vec(&raw).unwrap()).unwrap();
+        assert_eq!(old.cursor.rotation_mode, "tilt");
+        assert_eq!(old.cursor.shake_threshold, 1000.0);
+        assert_eq!(old.cursor.tilt_amount, 1.0);
+        assert_eq!(old.cursor.rotation_degrees, 0.0);
+        std::fs::write(f.0.join("project.json"), serde_json::to_vec(&raw).unwrap()).unwrap();
+        let loaded = Project::open(&f.0).unwrap();
+        assert_eq!(loaded.input[0].shake_threshold, 1000.0);
+        p.apply(&json!({"op":"apply_preset","preset":{"cursor":{"rotate_on_move":true,"remove_shakes":true}}})).unwrap();
+        assert_eq!(p.data.cursor.rotation_mode, "tilt");
+        assert_eq!(p.data.cursor.shake_threshold, 1000.0);
+        p.apply(&json!({"op":"set","path":"cursor.rotate_on_move","value":false}))
+            .unwrap();
+        assert_eq!(p.data.cursor.rotation_mode, "static");
+        let prior = p.data.clone();
+        p.apply(&json!({"op":"apply_preset","preset":{"cursor":{"rotation_mode":"tilt","rotation_degrees":30,"tilt_amount":0.5,"shake_threshold":1500}}})).unwrap();
+        assert!(p.data.cursor.rotate_on_move);
+        assert_eq!(p.input[0].shake_threshold, 1500.0);
+        p.undo().unwrap();
+        assert_eq!(p.data, prior);
+        assert_eq!(p.input[0].shake_threshold, 1000.0);
     }
     #[test]
     fn aligned_screen_physics_early_lead_short_ramps_and_legacy_migration() {

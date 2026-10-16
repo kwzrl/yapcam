@@ -87,6 +87,10 @@ fn merge(target: &mut Value, patch: Value) {
 
 pub(crate) fn apply(data: &mut ProjectData, input: &Value) -> Result<Vec<String>> {
     let mut patch = filter(input, &schema());
+    if let Some(cursor) = patch.get_mut("cursor") {
+        let legacy_threshold = cursor.get("remove_shakes").is_some();
+        crate::model::migrate_cursor(cursor, legacy_threshold);
+    }
     // Only add_media may select imported image bytes. Never reinterpret a source
     // media index (or accidentally select an existing destination image).
     if patch["canvas"]["background"]["kind"] == "image" {

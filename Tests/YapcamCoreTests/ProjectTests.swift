@@ -10,6 +10,100 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
     try FileManager.default.copyItem(at: source, to: dest)
     return try body(dest)
 }
+@Test func fractionalSpeedBoundaryKeepsMutedAudioRowsSilentThroughABI() throws {
+    struct Row: Decodable {
+        var clipId: String
+        var gainStart: Double
+        var gainEnd: Double
+        var muted: Bool
+    }
+    for speed in [3.0, 1.2, 0.75, 1.6] {
+        for mutedFirst in [false, true] {
+            try withFixture { package in
+                let p = try Project.create(package: package)
+                try p.apply(.set(path: "autosave", value: .bool(false)))
+                try p.apply(.deleteRange(startNs: 4_000_000_000, endNs: 5_000_000_000))
+                try p.apply(.split(atNs: 1_000_000_000))
+                let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+                try p.apply(.setSpeed(clipID: clips[0].id, speed: speed))
+                try p.apply(.set(path: "audio.system_gain_db", value: .number(0)))
+                for (i, clip) in clips.enumerated() {
+                    try p.apply(.setClipSettings(clipID: clip.id, patch: ["system_gain": .number((i == 0) == mutedFirst ? 0 : 1)]))
+                }
+                func check(_ project: Project) throws {
+                    let rows = try project.query("{\"q\":\"audio_ranges\"}", as: [Row].self)
+                    #expect(rows.count >= 2)
+                    for row in rows {
+                        let muted = (row.clipId == clips[0].id) == mutedFirst
+                        #expect(row.muted == muted)
+                        #expect(row.gainStart == (muted ? 0 : 1))
+                        #expect(row.gainEnd == (muted ? 0 : 1))
+                    }
+                }
+                try check(p)
+                try check(p.snapshot())
+                try p.save()
+                try check(Project.open(package: package))
+            }
+        }
+    }
+}
+@Test func cursorRotationAndShakeControlsAffectFramesHistorySnapshotsAndSavedProjects() throws {
+    try withFixture { package in
+        let events = [0,100_000_000,200_000_000,300_000_000].enumerated().map { i,t in
+            "{\"t\":\(t),\"type\":\"move\",\"x\":\([100.0,100.75,101.5,104.0][i]),\"y\":100}\n"
+        }.joined()
+        let eventsURL = package.appendingPathComponent("recording/seg-000/events.jsonl")
+        try Data(events.utf8).write(to: eventsURL)
+        let p = try Project.create(package: package)
+        try p.apply(.batch([
+            .set(path:"autosave",value:.bool(false)),
+            .set(path:"canvas.output_size",value:.array([.number(320),.number(200)])),
+            .set(path:"canvas.padding",value:.number(0)),
+            .set(path:"cursor.smoothing",value:.number(0)),
+            .set(path:"cursor.remove_shakes",value:.bool(true)),
+            .set(path:"cursor.rotation_degrees",value:.number(90))
+        ]))
+        #expect(abs(try p.frame(atNs:100_000_000).cursor_x-100.75)<1e-9)
+        #expect(abs(try p.motion(atNs:0).cursorRotationRad - .pi/2)<1e-6)
+        #expect(abs(Double(try p.frameMotion(atNs:0).cursor_rotation_rad) - .pi/2)<1e-6)
+        let snapshot = try p.snapshot()
+        try p.apply(.set(path:"cursor.shake_threshold",value:.number(2000)))
+        #expect(abs(try p.frame(atNs:200_000_000).cursor_x-100)<1e-9)
+        #expect(abs(try snapshot.frame(atNs:200_000_000).cursor_x-101.5)<1e-9)
+        try p.undo()
+        #expect(abs(try p.frame(atNs:200_000_000).cursor_x-101.5)<1e-9)
+        try p.redo()
+        try p.save()
+        let reopened = try Project.open(package:package)
+        #expect(abs(try reopened.frame(atNs:200_000_000).cursor_x-100)<1e-9)
+        #expect(abs(try reopened.motion(atNs:0).cursorRotationRad - .pi/2)<1e-6)
+        try p.apply(.batch([.set(path:"cursor.rotation_mode",value:.string("tilt")),.set(path:"cursor.tilt_amount",value:.number(2))]))
+        #expect(try p.motion(atNs:0).cursorRotationRad == 0)
+        #expect(try p.motion(atNs:250_000_000).cursorRotationRad > 0)
+        let before = try p.toJSON()
+        #expect(throws:CoreError.self) { try p.apply(.set(path:"cursor.shake_threshold",value:.number(2001))) }
+        #expect(try p.toJSON()==before)
+        #expect(try Data(contentsOf:eventsURL)==Data(events.utf8))
+    }
+}
+@Test func olderCursorPackagesMigrateTiltAndKeepTheOnePointShakeThreshold() throws {
+    try withFixture { package in
+        let p = try Project.create(package:package)
+        var fields = try JSONSerialization.jsonObject(with:p.toJSON()) as! [String:Any]
+        var cursor = fields["cursor"] as! [String:Any]
+        for key in ["rotation_mode","rotation_degrees","tilt_amount","shake_threshold"] { cursor.removeValue(forKey:key) }
+        cursor["rotate_on_move"] = true; cursor["remove_shakes"] = true
+        fields["cursor"] = cursor
+        try JSONSerialization.data(withJSONObject:fields).write(to:package.appendingPathComponent("project.json"))
+        let opened = try Project.open(package:package)
+        let decoded = try opened.query("{\"q\":\"project\"}",as:[String:JSONValue].self)
+        guard case .object(let settings) = decoded["cursor"] else { Issue.record("Missing cursor settings"); return }
+        #expect(settings["rotation_mode"] == .string("tilt"))
+        #expect(settings["shake_threshold"]?.integerValue == 1000)
+        #expect(settings["tilt_amount"]?.integerValue == 1)
+    }
+}
 @Test func missingSourceDisplayNamesOpenForEveryKindAndDecodeInSwift() throws {
     for kind in ["display", "window", "area"] {
         for explicitNull in [false, true] {

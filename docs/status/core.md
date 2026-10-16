@@ -1,3 +1,90 @@
+READY C1 R3-01 + C2 on 926d3b6 (working tree; Lead checkpoint required) | debug/release | macOS26.3 arm64/Xcode26.6 | CLEAN signed app, Rust109/Core Swift77/Clippy PASS; renderer12 portable PASS/6 native skips; 60min scale PASS (frame p99=0.126ms; threshold edit/undo max28.98/26.12ms). Requests answers below.
+
+## Round 3 second assignment — 2026-10-16 12:26 UTC
+
+| Commit / build / environment | Procedure | Result |
+|---|---|---|
+| base926d3b6 / debug + release core / macOS26.3 arm64, Xcode26.6 | C1 full Rust/Core Swift + signed app before C2 | PASS Rust105/Core Swift75/Clippy. Both audio-range endpoints use the row's known clip index; automation remains timeline-based. Both tracks, both mute orders, speeds3/1.2/0.75/1.6 plus following1x, segment/envelope boundaries, snapshots/save/reopen covered. |
+| base926d3b6 / debug + release core / same host | C2 Rust unit/property/migration/FFI tests + Clippy -Dwarnings/fmt | PASS Rust109 (1 intentional scale ignore), including dense-vs-compact position/idle-clock oracle and zero-allocation frame/extras/motion. 10000-command FFI fuzz now includes the four new cursor paths. Frozen migration fixtures unchanged. |
+| base926d3b6 / CLEAN debug app + release Rust archive / same host | build-app.sh debug, strict codesign, Swift Core + ProjectAdapter/CoreLensLayout/MotionProject tests | PASS Core Swift77; renderer18 cases =12 portable PASS/6 explicit native Metal/media-service skips. New Swift tests cover C1 gain endpoints, C2 actual ABI/query/frame outputs, invalid edits, history, snapshots, save/reopen and legacy migration. No live/pixel acceptance claim. |
+| base926d3b6 / release / same host | scale_60_minutes, 3.6M events at1kHz, 5000clips/1000zooms, remove_shakes=true/threshold500 | PASS frame p50/p99/max0.072541/0.126000/0.308625ms. Threshold apply max28.981834ms; undo max26.117417ms. All measured edits <50ms. Save20.923084ms; project.json1136794bytes. |
+
+C1: core/src/query.rs keeps ownership at rounded fractional boundaries, using
+frame::audio_gain_for_clip for both endpoint times. The removed time-only helper
+cannot accidentally rediscover the adjacent clip. Muted rows remain zero through
+export interpolation instead of fading from the preceding unmuted clip.
+C1 completed its green gate before C2 implementation started.
+
+C2: FORMATS.md was updated first. New fields validate, persist, migrate, participate
+in history/snapshots and portable styles, and actually affect existing evaluated
+position/rotation outputs. Existing schema1/ABI3 and C structs are unchanged.
+Input indexes now share immutable recorded arrays. A threshold edit/history builds
+its positional index under a shared staging read lock, publishes it with project
+state and drops retired indexes after releasing the FFI write lock. No frame IO,
+allocation, index rebuild, or mutable seek simulation was introduced.
+The first dense-index scale trial exceeded budget (58.021917ms threshold edit).
+Compaction removed redundant held samples while retaining the last held sample
+before each accepted movement; exhaustive sample-clock/duplicate-time oracle
+matches the dense interpolation and idle clock. Final scale gate below passes.
+No source/test outside Core ownership was modified; FORMATS edits explicitly
+assigned by C2. No header, icon, release tooling or other-team status edits.
+
+## Requests answers — Editor E1 / GAP-ED-12
+
+Use existing set(path:value:) with these exact fields:
+
+| Path | Limits / new-project default | Effect |
+|---|---|---|
+| cursor.rotation_mode | static or tilt / static | Static angle or velocity tilt; synchronizes old rotate_on_move bool. |
+| cursor.rotation_degrees | finite−180…180 /0 | Clockwise static angle, active at time0, idle, cuts and stopped tail. Ignored in tilt mode. |
+| cursor.tilt_amount | finite0…2 /1 | Multiplies the existing ±15degree velocity response; amount2 gives up to±30degrees. Idle/stopped/hidden tilt is zero. |
+| cursor.shake_threshold | finite100…2000 millipoints /500 | Positional deadband only while cursor.remove_shakes=true; 1000millipoints=1 captured logical point. Independent of Retina/output scale. |
+
+Migration preserves old behavior: existing cursor objects missing the threshold
+receive1000 (old1pt filter); legacy rotate_on_move=true maps to tilt. Explicit new
+mode wins; old rotate_on_move set calls still work as a bidirectional alias.
+Old portable cursor patches with remove_shakes but no threshold use1000. New
+projects use500 (=0.5pt), with remove_shakes still false by default. Recorded
+session/events/click positions are unchanged. Details and limits are in FORMATS.md.
+
+Render: NO change needed for these fields. Existing ProjectAdapter forwards
+frameMotion.cursor_rotation_rad to RenderConfiguration.cursorRotationRadians;
+existing YcFrame cursor_x/y already carry the threshold-filtered position.
+Native pixel acceptance remains with Render/Lead (6 environment skips here).
+
+## Scale details / evidence
+
+Current filtered workload: frame n2048; overlay n1024; base edit/undo n64 each;
+threshold/structural edits and their undos n8 each. Times below in milliseconds.
+- layers p50/p99/max0.086708/0.111958/0.176417.
+- nondurable apply p50/p99=1.929500/2.408250; undo0.142042/0.150792.
+- durable apply15.936291/19.634167; undo14.981208/19.505750.
+- threshold apply22.254000/28.981834; undo22.896542/26.117417.
+- speed/split/insert-source/delete30min apply maxima15.230167/17.652792/17.643708/18.367292.
+- matching undo maxima14.835417/20.380041/15.460459/18.922791.
+- auto-zoom max18.464125; typing query1.603458; typing apply/undo maxima21.916125/15.198833.
+Logs: /private/tmp/yapcam-core-round3-c1-check.log;
+/private/tmp/yapcam-core-round3-c2-scale-final.log (Rust109 and compact scale);
+/private/tmp/yapcam-core-round3-c2-ready.log (final scale incl. threshold undo,
+clean signed app; initial new Swift test had Data/String typo, corrected);
+/private/tmp/yapcam-core-round3-c2-swift-final.log (Core77 + renderer12/6 PASS).
+All completed wrappers printed/removed only their own temp roots. No app launch,
+TCC reset, process signal, capture/media commit, credentials or Apple submission.
+Per current COMMON decision, notarization remains preparation only.
+
+## Lead checkpoint / next
+
+Checkpoint all14 modified owned files as core: fix fractional clip audio gains and
+add cursor rotation/deadband controls. Current main8bce820 includes R1–R3; Core
+baseline paths match926d3b6. Lead rebase after checkpoint (Git metadata is still
+sandbox read-only; no workaround/main push). Required other-family review should
+cover clip endpoint ownership, legacy aliases/migration, cache publication/history
+and compact interpolation. Mirror C2 public contract in Lead-owned SWIFT_API.md.
+Then run native renderer motion pixels and Editor control/live acceptance as their
+bindings land. No independent C1/C2 implementation remains. Stop at this READY.
+
+---
+
 READY R1/R3 and R2 tooling on 37cc463 (uncommitted, Lead checkpoint needed) | debug+release | macOS26.3 arm64/Xcode26.6 | version, hardened signature, syntax, Rust104/Core Swift74/Clippy PASS; DMG/sha256 BLOCKED by sandbox hdiutil device access; native handoff below.
 
 ## Round 3 release packaging — 2026-10-16 12:02 UTC

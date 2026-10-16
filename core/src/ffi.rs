@@ -244,18 +244,19 @@ pub unsafe extern "C" fn yc_apply(
                     project.journal_target(&next),
                     next,
                     prepared.keys,
+                    prepared.input,
                     prepared.group,
                 )
             });
             (staged, prepared.changes)
         };
-        if let Some((journal, next, keys, group)) = staged {
+        if let Some((journal, next, keys, input, group)) = staged {
             journal.write(&next)?; // No state/read/frame lock is held during disk IO.
             let obsolete = h
                 .inner
                 .write()
                 .map_err(|_| Error::new(99, "Poisoned project"))?
-                .commit_apply(next, keys, group);
+                .commit_apply(next, keys, input, group);
             drop(obsolete);
         }
         if !out.is_null() {
@@ -297,24 +298,26 @@ unsafe fn history(p: *mut YcProject, out: *mut u8, redo: bool) -> Result<()> {
         let stack = if redo { &project.redo } else { &project.undo };
         stack.last().cloned().map(|next| {
             let keys = project.key_overlay_index.for_clips(&next.timeline.clips);
-            (project.journal_target(&next), next, keys)
+            let input = project.input_for(&next);
+            (project.journal_target(&next), next, keys, input)
         })
     };
-    let Some((journal, next, keys)) = staged else {
+    let Some((journal, next, keys, input)) = staged else {
         return output(out, 0);
     };
     journal.write(&next)?;
-    let did = {
+    let (did, obsolete) = {
         let mut project = h
             .inner
             .write()
             .map_err(|_| Error::new(99, "Poisoned project"))?;
         if redo {
-            project.commit_redo(keys)
+            project.commit_redo(keys, input)
         } else {
-            project.commit_undo(keys)
+            project.commit_undo(keys, input)
         }
     };
+    drop(obsolete); // Release retired positional indexes outside the project lock.
     output(out, did as u8)
 }
 /// # Safety
