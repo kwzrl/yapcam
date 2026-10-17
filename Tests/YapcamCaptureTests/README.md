@@ -688,3 +688,43 @@ directories are listed and deleted by cleanup traps. No media is committed.
 Sandboxed native encoder failure (-12903) requires this command to run outside
 the sandbox; unit tests do not establish native HEVC quality acceptance or crash
 recovery. `CAPTURE_SIGKILL_PASS` lines are the required native evidence.
+
+
+## R5b consumer handoffs
+
+- `@MainActor CameraFormatPolicy.effectiveSize(deviceID:maximum:fps:)` is a
+  read-only optional `(width: Int, height: Int)` query. `fps` defaults60, with the
+  same30/29.97 fallback as recording; pass30 for a lower-rate source. Uses actual
+  connected camera formats and the production cap/rate chooser. nil means no
+  permission/device/compatible mode; no prompt, capture session or device mutation.
+- `TranscriptionService.supportedLocales() -> [Locale]` returns the native Speech
+  recognizer list in identifier order. It does not mean on-device assets are
+  installed; transcribe still throws typed locale/model/unavailable errors. UI can
+  replace its direct Speech query with this shared API without changing its picker.
+- `recording/seg-XXX/cursors.json` entries gain optional `shape`: `arrow`, `pointing_hand`,
+  `text`, `resize_horizontal`, `resize_vertical`, `resize_diagonal_nwse`,
+  `resize_diagonal_nesw`, `open_hand`, `closed_hand`, `crosshair`, `not_allowed`.
+  A shape is emitted only for an observed standard AppKit object identity. An
+  image-equivalent custom object, unknown snapshot or absent system observation
+  omits it; dedup keys include provenance, so identical PNG bytes cannot cause an
+  unknown cursor to inherit an earlier standard tag. PNG/hotspot/size stay intact.
+  **Public AppKit does not guarantee semantic identity across processes**; tags
+  may be sparse/absent in real recordings. No numeric/private cursor API or bitmap
+  classification is used. Native cross-app identification coverage is unverified.
+- Desktop icons already use `RecordingOptions.hideDesktopIcons` (defaultfalse)
+  and the ScreenCaptureKit filter. UI must forward its toggle instead of modifying
+  Finder preferences. Display/area captures share the filter; normal Finder folder
+  windows remain visible. A desktop-independent window capture has no desktop
+  icons to remove. This API needs no Finder restart/restoration.
+
+`CursorMetadataTests` inject retained object identities and CPU artwork snapshots
+for the journal test (native cursor objects/rasterization are unavailable in the
+standalone sandbox runner). They prove metadata/provenance, not global WindowServer
+recognition, and never set the user's cursor.
+`IncomingRequestTests` exercise format cap/rate/no-device selection and compare
+locale enumeration against the native recognizer without requesting authorization.
+Run the capture-only test script above; native codec certification belongs to Lead.
+Native Speech inventory is opt-in: `YAPCAM_CAPTURE_LOCALE_TESTS=1 zsh Tests/YapcamCaptureTests/Tools/run_capture_tests.zsh`.
+It passed in an earlier standalone run, but the later SwiftPM suite stalled in
+sandbox (no cause proven), so service inventory stays outside default regressions.
+It does not request Speech authorization or download models.

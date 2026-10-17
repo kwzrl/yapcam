@@ -23,7 +23,16 @@ struct CursorMetadata: Codable, Sendable {
     var file: String
     var hotspot: [Double]
     var sizePoints: [Double]
-    enum CodingKeys: String, CodingKey { case file, hotspot, sizePoints = "size_points" }
+    var shape: String? = nil
+    enum CodingKeys: String, CodingKey { case file, hotspot, sizePoints = "size_points", shape }
+}
+
+/// Separates WindowServer artwork acquisition from sidecar/journal persistence.
+struct CursorSnapshot: Sendable {
+    let png: Data
+    let hotspot: CGPoint
+    let sizePoints: CGSize
+    let shape: CapturedCursorShape?
 }
 
 /// A value snapshot separates input translation from the OS event tap. The tap
@@ -127,26 +136,37 @@ struct InputEventSnapshot: Sendable {
     private func poll() {
         do { try checkpoint(atHostNs: CaptureClock.now) } catch { report(error); return }
         if let point = CGEvent(source: nil)?.location { recordPosition(point, hostNs: CaptureClock.now) }
-        let cursor = NSCursor.currentSystem ?? .arrow
+        let observed = NSCursor.currentSystem
+        let cursor = observed ?? .arrow
         guard let image = cursor.image.cgImage(forProposedRect: nil, context: nil, hints: nil),
               let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+        recordCursor(CursorSnapshot(png: png, hotspot: cursor.hotSpot, sizePoints: cursor.image.size,
+            shape: CapturedCursorShape.identify(observed)), hostNs: CaptureClock.now)
+    }
+
+    /// Keep unknown artwork even when it has the same pixels as a standard cursor.
+    /// A missing system observation may use the old arrow fallback, but has no
+    /// positively observed shape and must not authorize vector substitution.
+    func recordCursor(_ snapshot: CursorSnapshot, hostNs: Int64) {
+        let shape = snapshot.shape?.rawValue
+        let png = snapshot.png
         let signature = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
-            + "-\(cursor.hotSpot.x)-\(cursor.hotSpot.y)-\(cursor.image.size.width)-\(cursor.image.size.height)-\(mapping.cursorScale)"
+            + "-\(snapshot.hotspot.x)-\(snapshot.hotspot.y)-\(snapshot.sizePoints.width)-\(snapshot.sizePoints.height)-\(mapping.cursorScale)-\(shape ?? "unknown")"
         let id: Int
         if let existing = cursorIDs[signature] { id = existing }
         else {
             id = cursorIDs.count
             do {
                 try PackageIO.writeBytes(png, to: directory.appendingPathComponent("cursors/\(id).png"))
-                cursors[String(id)] = CursorMetadata(file: "cursors/\(id).png", hotspot: [cursor.hotSpot.x * mapping.cursorScale, cursor.hotSpot.y * mapping.cursorScale],
-                                                    sizePoints: [cursor.image.size.width * mapping.cursorScale, cursor.image.size.height * mapping.cursorScale])
+                cursors[String(id)] = CursorMetadata(file: "cursors/\(id).png", hotspot: [snapshot.hotspot.x * mapping.cursorScale, snapshot.hotspot.y * mapping.cursorScale],
+                                                    sizePoints: [snapshot.sizePoints.width * mapping.cursorScale, snapshot.sizePoints.height * mapping.cursorScale], shape: shape)
                 try PackageIO.write(cursors, to: directory.appendingPathComponent("cursors.json"))
                 cursorIDs[signature] = id
             } catch { report(error); return }
         }
         if currentCursor != id {
             currentCursor = id
-            emit(CaptureEvent(t: relative(CaptureClock.now), type: "cursor", id: id))
+            emit(CaptureEvent(t: relative(hostNs), type: "cursor", id: id))
         }
     }
 
