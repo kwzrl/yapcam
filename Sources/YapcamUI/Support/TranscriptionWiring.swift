@@ -13,7 +13,18 @@ enum TranscriptionWiring {
             try await TranscriptionService.requestAuthorization()
         }
         let transcript = try await TranscriptionService().transcribe(package: package, localeIdentifier: locale, keyterms: keyterms)
+        if let text = partialNotice(for: transcript.warnings) {
+            await MainActor.run { RecordingController.shared.alert = AppAlert(title: "Captions may be incomplete", message: text) }
+        }
         return try JSONEncoder().encode(transcript)
+    }
+
+    /// What to tell the user when speech recognition skipped parts (nil when it processed everything).
+    static func partialNotice(for warnings: [TranscriptionWarning]) -> String? {
+        guard !warnings.isEmpty else { return nil }
+        let first = warnings.first!.message
+        let more = warnings.count > 1 ? " (and \(warnings.count - 1) more)" : ""
+        return "Some parts of the recording could not be turned into text: \(first)\(more). The captions that were found are kept; you can run Generate captions again or edit the text by hand."
     }
 
     /// "Auto" means the language the Mac is set to; anything else is the chosen locale as is.

@@ -169,6 +169,7 @@ click sounds), **Keyboard shortcuts** overlay, **Animations**, and **Text, regio
   German and English speech files: about 9 % word error rate; Apple's recogniser often drops filler
   words like "äh"/"um", so filler removal finds fewer than are spoken. Not tested with a real microphone
   **(untested live)**.
+- **File menu for the open project**: Rename Project…, Save As…, Copy and Zip Project, Show Project in Finder, Move to Trash… (asks first). **Settings → Editing → Editor appearance** chooses Dark (default), Light or Match system.
 - **Autosave**: edits are journaled; if Yapcam quits unexpectedly, reopening the project offers to
   restore them.
 

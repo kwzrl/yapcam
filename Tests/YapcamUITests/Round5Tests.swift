@@ -447,3 +447,14 @@ import Testing
         #expect(AppSettings(store: suite).actionAfterQuickExport == .revealInFinder)
     }
 }
+
+@Suite struct Round5TranscriptNoticeTests {
+    @Test func partialTranscriptsGetANoticeCompleteOnesDoNot() {
+        #expect(TranscriptionWiring.partialNotice(for: []) == nil)
+        let json = #"{"code":"no_speech","message":"No speech in part of the audio","src_start_ns":0,"src_end_ns":1,"segment_index":0,"track":"mic"}"#
+        let w = try! JSONDecoder().decode(TranscriptionWarning.self, from: Data(json.utf8))
+        let one = TranscriptionWiring.partialNotice(for: [w])!
+        #expect(one.contains("No speech in part of the audio") && !one.contains("more"))
+        #expect(TranscriptionWiring.partialNotice(for: [w, w, w])!.contains("2 more"))
+    }
+}
