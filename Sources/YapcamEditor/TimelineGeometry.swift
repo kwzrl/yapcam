@@ -13,7 +13,11 @@ public struct TimelineGeometry: Equatable, Sendable {
     }
 
     public func x(forNs ns: Int64) -> Double { Double(ns) / 1e9 * pixelsPerSecond - scrollOffsetPx }
-    public func ns(forX x: Double) -> Int64 { Int64(((x + scrollOffsetPx) / pixelsPerSecond) * 1e9) }
+    public func ns(forX x: Double) -> Int64 {
+        let v = ((x + scrollOffsetPx) / pixelsPerSecond) * 1e9
+        guard v.isFinite else { return 0 }                                   // NaN/inf from a broken pointer event must not trap
+        return Int64(min(max(v, -9e18), 9e18))
+    }
     public func contentWidth(durationNs: Int64) -> Double { Double(durationNs) / 1e9 * pixelsPerSecond }
 
     /// Zoom around an anchor x (e.g. cursor or playhead) keeping the anchored time stationary.

@@ -128,7 +128,7 @@ struct InsetOriginPad: View {
                 }
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 0)
-                    .onChanged { v in dot = CGPoint(x: min(max(v.location.x / g.size.width * 2 - 1, -1), 1), y: min(max(v.location.y / g.size.height * 2 - 1, -1), 1)) }
+                    .onChanged { v in if let d = PointerMath.pad(v.location, in: g.size) { dot = d } }
                     .onEnded { _ in if let d = dot { dot = nil; model.set("canvas.inset_origin", .array([.number(d.x), .number(d.y)])) } })
             }
             .aspectRatio(16.0 / 9, contentMode: .fit).frame(maxWidth: 150)

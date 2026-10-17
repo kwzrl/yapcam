@@ -169,7 +169,7 @@ struct FocusPickerOverlay: View {
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { v in model.previewFocus(fromPreview: CGPoint(x: v.location.x / geo.size.width, y: v.location.y / geo.size.height)) }
+                .onChanged { v in if let u = PointerMath.unit(v.location, in: geo.size) { model.previewFocus(fromPreview: u) } }
                 .onEnded { _ in model.commitFocusPreview() })
         }
         .help("Click to set the zoom focus point")
@@ -205,7 +205,7 @@ struct RectEditOverlay: View {
         self.model = model; self.current = current; self.preview = preview; self.commit = commit; self.base = base; playhead = model.playhead
     }
     @State private var start: (mode: Mode, rect: [Double], origin: CGPoint)?
-    enum Mode { case move, corner(Int) }   // 0 TL, 1 TR, 2 BL, 3 BR
+    enum Mode: Equatable { case move, corner(Int) }   // 0 TL, 1 TR, 2 BL, 3 BR
 
     private func nudge(_ dx: Double, _ dy: Double, resize: Bool) {
         guard let r = base() else { return }
@@ -236,13 +236,12 @@ struct RectEditOverlay: View {
                     if start == nil {
                         let r = g.previewRect(fromNormalized: rect, space: c.space)
                         let f = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
-                        let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.minX, y: f.maxY), CGPoint(x: f.maxX, y: f.maxY)]
-                        let hit = corners.firstIndex { hypot($0.x - v.startLocation.x, $0.y - v.startLocation.y) <= 14 }
-                        guard hit != nil || f.contains(v.startLocation) else { return }
-                        start = (hit.map { .corner($0) } ?? .move, rect, v.startLocation)
+                        guard let mode = PointerMath.rectHit(at: v.startLocation, frame: f) else { return }
+                        start = (mode, rect, v.startLocation)
                     }
                     guard let s = start else { return }
-                    let d = g.normalizedDelta(dx: (v.location.x - s.origin.x) / size.width, dy: (v.location.y - s.origin.y) / size.height, space: c.space)
+                    let pd = PointerMath.delta(from: s.origin, to: v.location, in: size)
+                    let d = g.normalizedDelta(dx: pd.width, dy: pd.height, space: c.space)
                     preview(HighlightGeometry.apply(rect: s.rect, delta: d, mode: s.mode))
                 }
                 .onEnded { _ in start = nil; commit() })

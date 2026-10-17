@@ -35,12 +35,13 @@ extension EditorModel {
                  ("canvas.background.color2", .array(GradientPresets.rotateHue(color("canvas.background.color2"), by: degrees).map { .number($0) }))])
     }
     public func applyGradientPreset(_ i: Int) {
+        guard GradientPresets.all.indices.contains(i) else { return }
         let p = GradientPresets.all[i]
         setMany([("canvas.background.kind", .string("gradient")), ("canvas.background.color", .array(p.1.map { .number($0) })), ("canvas.background.color2", .array(p.2.map { .number($0) }))])
     }
     public func randomizeGradient() { applyGradientPreset(Int.random(in: 0..<GradientPresets.all.count)) }
     public func randomizeBackgroundColor() {
-        let c = GradientPresets.all.randomElement()!.1
+        let c = (GradientPresets.all.randomElement() ?? GradientPresets.all[0]).1
         set("canvas.background.color", .array(c.map { .number($0) }))
     }
 }
