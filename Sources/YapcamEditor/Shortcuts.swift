@@ -25,6 +25,7 @@ extension EditorModel {
                 if mods.contains(.shift) || !copySelectedSettings() { copyFrameHandler?() }
                 return true
             case "v": return pasteSettings()
+            case "x": return cutSelection()
             case "d": if selectedZoom != nil { duplicateSelectedZoom(); return true }; return false
             case "=", "+": zoomTimeline(by: 1.25, anchorX: geometry.x(forNs: playheadNs)); return true
             case "-": zoomTimeline(by: 0.8, anchorX: geometry.x(forNs: playheadNs)); return true
