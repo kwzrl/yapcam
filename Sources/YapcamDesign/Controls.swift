@@ -162,11 +162,25 @@ public struct OptionRow<ID: Hashable, Cell: View>: View {
     }
 }
 
+/// Separator milled into the glass: a dark groove with a lit lower/right lip, fading out at both ends.
+/// `axis` is the direction the line runs (vertical between items in a row, horizontal between rows).
 public struct FadingHairline: View {
-    public init() {}
+    var axis: Axis
+    public init(axis: Axis = .vertical) { self.axis = axis }
     public var body: some View {
-        LinearGradient(colors: [.clear, Yap.hairline, .clear], startPoint: .top, endPoint: .bottom)
-            .frame(width: 1).padding(.vertical, 4)
+        let groove = Color.black.opacity(0.55), lip = Color.white.opacity(0.13)
+        let fade = LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.22),
+                                          .init(color: .black, location: 0.78), .init(color: .clear, location: 1)],
+                                  startPoint: axis == .vertical ? .top : .leading, endPoint: axis == .vertical ? .bottom : .trailing)
+        Group {
+            if axis == .vertical {
+                HStack(spacing: 0) { groove.frame(width: 1); lip.frame(width: 1) }.padding(.vertical, 4)
+            } else {
+                VStack(spacing: 0) { groove.frame(height: 1); lip.frame(height: 1) }.padding(.horizontal, 4)
+            }
+        }
+        .mask(fade)
+        .accessibilityHidden(true)
     }
 }
 

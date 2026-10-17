@@ -16,9 +16,26 @@ struct ToolbarView: View {
     @ObservedObject private var devices = DeviceModel.shared
     @State private var open: ToolbarPopover?
 
+    private var vertical: Bool { layout.vertical }
+    /// Row for the horizontal bar, column for the vertical one.
+    private func line<C: View>(_ spacing: CGFloat, @ViewBuilder _ content: () -> C) -> some View {
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: spacing)) : AnyLayout(HStackLayout(spacing: spacing))
+        return layout { content() }
+    }
+    private var separator: some View {
+        FadingHairline(axis: vertical ? .horizontal : .vertical)
+            .frame(width: vertical ? 40 : 2, height: vertical ? 2 : 40)
+            .padding(vertical ? .vertical : .horizontal, 3)
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
-            Grabber(onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil)
+        let recording = rec.phase == .recording || rec.phase == .paused
+        // The vertical widget needs room for the elapsed time across.
+        let thickness: CGFloat = recording ? (vertical ? 64 : 48) : 62
+        line(0) {
+            Grabber(vertical: vertical,
+                    onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil,
+                    onRotate: { layout.vertical.toggle() })
             Group {
                 switch rec.phase {
                 case .idle: idleControls
@@ -27,9 +44,9 @@ struct ToolbarView: View {
                 case .recording, .paused: recordingControls
                 }
             }
-            .padding(.trailing, 8)
+            .padding(vertical ? .bottom : .trailing, 8)
         }
-        .frame(height: rec.phase == .recording || rec.phase == .paused ? 48 : 62)
+        .frame(width: vertical ? thickness + (rec.phase == .idle ? 30 : 0) : nil, height: vertical ? nil : thickness)
         .panelSurface(cornerRadius: rec.phase == .recording || rec.phase == .paused ? 24 : 26)
         .padding(2)
         .accessibilityElement(children: .contain)
@@ -48,15 +65,15 @@ struct ToolbarView: View {
         }
     }
 
-    private var edge: Edge { layout.inLowerHalf ? .top : .bottom }
+    private var edge: Edge { vertical ? (layout.onLeftHalf ? .leading : .trailing) : (layout.inLowerHalf ? .top : .bottom) }
 
     // MARK: Idle: sources, devices, recents + gear
 
     private var idleControls: some View {
-        HStack(spacing: 3) {
+        line(3) {
             ForEach(SourceMode.toolbarModes) { sourceButton($0) }
 
-            FadingHairline().frame(height: 40).padding(.horizontal, 3)
+            separator
 
             deviceButton(symbol: camLabelOn ? "video.fill" : "video.slash", label: DeviceLabels.camera(name: cameraName), isOn: camOn, help: "Camera", menu: .camera)
                 .popover(isPresented: binding(.camera), arrowEdge: edge) { CameraPopover().environmentObject(settings).environmentObject(perms) }
@@ -68,7 +85,7 @@ struct ToolbarView: View {
                          help: "System audio", menu: .audio)
                 .popover(isPresented: binding(.audio), arrowEdge: edge) { SystemAudioPopover().environmentObject(settings) }
 
-            FadingHairline().frame(height: 40).padding(.horizontal, 3)
+            separator
 
             if recovery.count > 0 {
                 ToolbarButton(symbol: "exclamationmark.arrow.circlepath", label: "Recover", help: "Recover an unfinished recording", active: false) {
@@ -139,7 +156,7 @@ struct ToolbarView: View {
     // MARK: Countdown / busy
 
     private func countdownControls(_ n: Int) -> some View {
-        HStack(spacing: 10) {
+        line(10) {
             Text("\(n)").font(.system(size: 26, weight: .bold).monospacedDigit()).foregroundStyle(Yap.title)
                 .frame(width: 44)
                 .accessibilityLabel("Recording starts in \(n) seconds")
@@ -160,13 +177,14 @@ struct ToolbarView: View {
 
     private var recordingControls: some View {
         let paused = rec.phase == .paused
-        return HStack(spacing: 6) {
+        return line(6) {
             Button(action: rec.toggleStartStop) {
-                HStack(spacing: 7) {
+                line(7) {
                     Image(systemName: "stop.circle.fill").font(.system(size: 22)).foregroundStyle(Yap.record)
                     Text(RecordingTimeFormat.string(rec.elapsed))
                         .font(.system(size: 14, weight: .semibold).monospacedDigit())
                         .foregroundStyle(paused ? Yap.faint : Yap.technical)
+                        .fixedSize()
                         .accessibilityLabel(paused ? "Recording paused" : "Recording time")
                         .accessibilityValue(Announcer.timeDescription(rec.elapsed))
                 }
@@ -180,7 +198,7 @@ struct ToolbarView: View {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Yap.technical)
                     .help((rec.warnings + (rec.lowDisk ? ["Low disk space: recording may stop soon."] : [])).joined(separator: "\n"))
             }
-            FadingHairline().frame(height: 28)
+            FadingHairline(axis: vertical ? .horizontal : .vertical).frame(width: vertical ? 28 : 2, height: vertical ? 2 : 28)
             iconButton(paused ? "play.circle" : "pause.circle", label: paused ? "Resume" : "Pause",
                        help: "\(paused ? "Resume" : "Pause") (\(settings.pauseShortcut.display))", action: rec.togglePause)
             iconButton("arrow.counterclockwise", label: "Restart", help: "Discard this take and start over (asks first)", action: rec.confirmRestart)
@@ -188,7 +206,7 @@ struct ToolbarView: View {
             iconButton("trash", label: "Cancel recording", help: "Cancel and delete the recording (asks first)", action: rec.confirmCancel)
             if rec.workingLong { Text("Working…").font(Yap.Font.caption).foregroundStyle(Yap.caption) }
         }
-        .padding(.leading, 4)
+        .padding(vertical ? .top : .leading, 4)
     }
 
     private func iconButton(_ symbol: String, label: String, help: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
@@ -209,30 +227,51 @@ struct ToolbarView: View {
 
 // MARK: - Components
 
+/// Bar handle: close (idle only), rotate between horizontal and vertical, and the drag grip. Stacked across the bar.
 private struct Grabber: View {
+    var vertical: Bool
     var onClose: (() -> Void)?
+    var onRotate: () -> Void
+
     var body: some View {
-        VStack(spacing: 4) {
+        let stack = vertical ? AnyLayout(HStackLayout(spacing: 1)) : AnyLayout(VStackLayout(spacing: 0))
+        stack {
             if let onClose {
-                Button(action: onClose) {
-                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
-                        .frame(width: 22, height: 22).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).foregroundStyle(Yap.caption)
-                .help("Close (Esc)")
-                .accessibilityLabel("Close toolbar")
+                HandleButton(symbol: "xmark", help: "Close (Esc)", label: "Close toolbar", action: onClose)
             }
-            HStack(spacing: 3) {
-                ForEach(0..<2, id: \.self) { _ in
-                    VStack(spacing: 3) { ForEach(0..<3, id: \.self) { _ in Circle().frame(width: 3, height: 3) } }
+            HandleButton(symbol: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2",
+                         help: vertical ? "Make the toolbar horizontal" : "Make the toolbar vertical",
+                         label: vertical ? "Make toolbar horizontal" : "Make toolbar vertical", action: onRotate)
+            Grid(horizontalSpacing: 3, verticalSpacing: 3) {
+                ForEach(0..<(vertical ? 2 : 3), id: \.self) { _ in
+                    GridRow { ForEach(0..<(vertical ? 3 : 2), id: \.self) { _ in Circle().frame(width: 3, height: 3) } }
                 }
             }
             .foregroundStyle(Yap.faint)
+            .frame(width: 18, height: 16)
             .help("Drag to move")
             .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
         }
-        .frame(width: 30).frame(maxHeight: .infinity)
+        .frame(width: vertical ? nil : 30, height: vertical ? 30 : nil)
+        .frame(maxWidth: vertical ? .infinity : nil, maxHeight: vertical ? nil : .infinity)
         .contentShape(Rectangle())
+    }
+}
+
+private struct HandleButton: View {
+    let symbol: String, help: String, label: String
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 9, weight: .bold))
+                .foregroundStyle(hover ? Yap.label : Yap.caption)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(Color.white.opacity(hover ? 0.10 : 0)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain).onHover { hover = $0 }
+        .help(help).accessibilityLabel(label)
     }
 }
 

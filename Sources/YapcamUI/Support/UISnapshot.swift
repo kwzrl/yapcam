@@ -37,6 +37,14 @@ import SwiftUI
                 try? await Task.sleep(for: .milliseconds(400))
                 write(toolbar.panel, "toolbar-\(label(phase))-\(name)", dir, dark: name == "dark")
             }
+            // Vertical bar (extra files, not part of the smoke list).
+            toolbar.debugSetVertical(true)
+            for phase in [RecordingPhase.idle, .recording] {
+                RecordingController.shared.debugSetPhase(phase)
+                try? await Task.sleep(for: .milliseconds(400))
+                write(toolbar.panel, "toolbar-vertical-\(label(phase))-\(name)", dir, dark: name == "dark")
+            }
+            toolbar.debugSetVertical(false)
             RecordingController.shared.debugSetPhase(.idle)
             for w in NSApp.windows where w !== toolbar.panel && w.isVisible && !w.title.isEmpty {
                 write(w, "\(w.title.replacingOccurrences(of: " ", with: "-").lowercased())-\(name)", dir, dark: name == "dark")
