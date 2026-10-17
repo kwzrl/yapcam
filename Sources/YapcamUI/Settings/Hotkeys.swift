@@ -9,7 +9,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .startStop: "Start / finish recording"
+        case .startStop: "Open the picker, or finish recording"
         case .recordDisplay: "Record display"
         case .recordWindow: "Record window"
         case .recordArea: "Record area"

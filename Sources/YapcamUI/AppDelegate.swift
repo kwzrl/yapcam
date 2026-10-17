@@ -245,6 +245,38 @@ import YapcamEditor
     @objc func quickExportSave() { QuickExport.shared.runOnLast(.save) }
     @objc func showNotes() { NotesWindow.shared.show() }
     @objc func showSettings() { SettingsWindow.shared.show() }
+
+    // MARK: Dock menu (right-click on the Dock icon)
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        for it in DockMenu.items(phase: RecordingController.shared.phase, showInDock: AppSettings.shared.showInDock) {
+            if it.kind == .separator { menu.addItem(.separator()); continue }
+            let sel: Selector
+            switch it.kind {
+            case .finish: sel = #selector(dockFinish)
+            case .pauseResume: sel = #selector(dockPauseResume)
+            case .restart: sel = #selector(dockRestart)
+            case .cancel: sel = #selector(dockCancel)
+            case .cancelCountdown: sel = #selector(dockCancelCountdown)
+            case .settings: sel = #selector(showSettings)
+            case .newRecording: sel = #selector(dockNewRecording)
+            case .openLast: sel = #selector(openLastRecording)
+            case .keepInDock: sel = #selector(dockToggleKeep)
+            case .separator: continue
+            }
+            let mi = NSMenuItem(title: it.title, action: sel, keyEquivalent: "")
+            mi.target = self; mi.isEnabled = it.enabled; mi.state = it.checked ? .on : .off
+            menu.addItem(mi)
+        }
+        return menu
+    }
+    @objc func dockFinish() { RecordingController.shared.stop() }          // an explicit menu click: no confirmation
+    @objc func dockPauseResume() { RecordingController.shared.togglePause() }
+    @objc func dockRestart() { RecordingController.shared.confirmRestart() }
+    @objc func dockCancel() { RecordingController.shared.confirmCancel() }
+    @objc func dockCancelCountdown() { RecordingController.shared.cancelCountdown() }
+    @objc func dockNewRecording() { ToolbarPanelController.shared.show() }
+    @objc func dockToggleKeep() { AppSettings.shared.showInDock.toggle() }
     @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil, all: true) }
     @objc func openProject() {
         let p = NSOpenPanel()

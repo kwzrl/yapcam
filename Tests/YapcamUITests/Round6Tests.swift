@@ -39,7 +39,10 @@ import Testing
             SourceChoice.window(UInt32(i)).apply(to: s)
             SourceChoice.confirmedArea(display: UInt32(i), rect: CGRect(x: 0, y: 0, width: 300, height: 200))?.apply(to: s)
         }
-        try await Task.sleep(for: .milliseconds(300))
+        // Wait for the debounce to fire (a fixed sleep was flaky when the machine was busy), then for it to go quiet.
+        var waited = 0
+        while fired == 0 && waited < 100 { try await Task.sleep(for: .milliseconds(50)); waited += 1 }
+        try await Task.sleep(for: .milliseconds(200))
         #expect(fired >= 1 && fired < 10)          // coalesced, not one per change
         #expect(s.displayID == 50 && s.windowID == 50 && s.sourceMode == .area)
         bag.cancel()

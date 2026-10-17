@@ -12,7 +12,20 @@ import SwiftUI
     /// Pure rule, unit-tested: when the preview is on screen.
     static func shouldShow(barVisible: Bool, phase: RecordingPhase, cameraID: String?, cameraAvailable: Bool,
                            permissionGranted: Bool, hidden: Bool) -> Bool {
-        barVisible && phase == .idle && cameraID != nil && cameraAvailable && permissionGranted && !hidden
+        // While a take is counting down, running or paused the preview stays (it is excluded from the capture).
+        let takeActive: Bool
+        switch phase { case .idle, .finishing: takeActive = false; default: takeActive = true }
+        return (barVisible || takeActive) && phase != .finishing && cameraID != nil && cameraAvailable && permissionGranted && !hidden
+    }
+
+    /// Paused takes dim the preview (it keeps the last frame).
+    static func opacity(for phase: RecordingPhase) -> Double { phase == .paused ? 0.45 : 1 }
+
+    /// Where the user left the panel on this display, if that spot is still on a screen.
+    static func savedOrigin(_ stored: [Double]?, screens: [CGRect], size: CGFloat = 168) -> CGPoint? {
+        guard let stored, stored.count == 2 else { return nil }
+        let p = CGPoint(x: stored[0], y: stored[1])
+        return screens.contains { $0.intersects(CGRect(origin: p, size: CGSize(width: size, height: size))) } ? p : nil
     }
 
     private var panel: NSPanel?
@@ -21,7 +34,7 @@ import SwiftUI
     private var bag = Set<AnyCancellable>()
     private let model = PreviewModel()
 
-    final class PreviewModel: ObservableObject { @Published var session: AVCaptureSession? }
+    final class PreviewModel: ObservableObject { @Published var session: AVCaptureSession?; @Published var opacity = 1.0 }
 
     func start() {
         guard bag.isEmpty else { return }
@@ -40,7 +53,8 @@ import SwiftUI
                                    cameraID: s.cameraID, cameraAvailable: DeviceModel.shared.isAvailable(camera: s.cameraID),
                                    permissionGranted: PermissionsModel.shared.state(.camera) == .granted, hidden: s.hideCameraPreview)
         guard show, let id = s.cameraID else { hide(); return }
-        if shownFor != id { startSession(id) }
+        if shownFor != id { startSession(id) }     // an existing session carries on from the picker into the take
+        model.opacity = Self.opacity(for: RecordingController.shared.phase)
         place()
         panel?.orderFrontRegardless()
     }
@@ -59,6 +73,12 @@ import SwiftUI
             p.isMovableByWindowBackground = true; p.isReleasedWhenClosed = false; p.hidesOnDeactivate = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             p.contentView = NSHostingView(rootView: PreviewView(model: model))
+            NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: p, queue: .main) { n in
+                MainActor.assumeIsolated {
+                    guard let w = n.object as? NSWindow, w.isVisible else { return }
+                    AppDefaults.store.set([Double(w.frame.origin.x), Double(w.frame.origin.y)], forKey: "cameraPreviewOrigin")
+                }
+            }
             RecordingController.shared.engine.registerExcluded(p)
             panel = p
         }
@@ -77,7 +97,11 @@ import SwiftUI
         if let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: bar.midX, y: bar.midY)) }), origin.y + 168 > screen.visibleFrame.maxY {
             origin.y = bar.minY - 168 - 12
         }
-        if !panel.isVisible { panel.setFrameOrigin(origin) }
+        if !panel.isVisible {
+            let key = "cameraPreviewOrigin"
+            origin = Self.savedOrigin(AppDefaults.store.array(forKey: key) as? [Double], screens: NSScreen.screens.map(\.frame)) ?? origin
+            panel.setFrameOrigin(origin)
+        }
     }
 
     func hide() {
@@ -92,6 +116,7 @@ import SwiftUI
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                 .padding(4)
+                .opacity(model.opacity)
                 .accessibilityLabel("Camera preview")
         }
     }

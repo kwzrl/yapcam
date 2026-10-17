@@ -383,12 +383,12 @@ import Testing
 }
 
 @MainActor @Suite struct Round5CameraPreviewTests {
-    @Test func previewShowsOnlyWhileTheIdleBarHasAUsableCamera() {
+    @Test func previewShowsWhileTheBarIsUpOrATakeRuns() {
         func show(bar: Bool = true, phase: RecordingPhase = .idle, id: String? = "cam", available: Bool = true, granted: Bool = true, hidden: Bool = false) -> Bool {
             CameraPreviewPanel.shouldShow(barVisible: bar, phase: phase, cameraID: id, cameraAvailable: available, permissionGranted: granted, hidden: hidden)
         }
         #expect(show())
-        #expect(!show(bar: false) && !show(phase: .recording) && !show(id: nil) && !show(available: false) && !show(granted: false) && !show(hidden: true))
+        #expect(!show(bar: false) && !show(phase: .finishing) && !show(id: nil) && !show(available: false) && !show(granted: false) && !show(hidden: true))
     }
 }
 

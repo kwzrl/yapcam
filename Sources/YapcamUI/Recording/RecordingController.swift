@@ -99,11 +99,13 @@ enum RecordingPhase: Equatable {
     // MARK: Entry points (toolbar button, menu, global shortcut)
 
     func toggleStartStop() {
-        switch phase {
-        case .idle: begin()
-        case .countdown: cancelCountdown()
-        case .recording, .paused: stop()
-        case .starting, .finishing: break
+        switch StartStopRule.action(phase: phase, pickerVisible: ToolbarPanelController.shared.isVisible,
+                                    overlayActive: SourceOverlay.shared.isActive || AreaSelector.shared.isActive) {
+        case .showPicker: ToolbarPanelController.shared.show()
+        case .begin: begin()
+        case .cancelCountdown: cancelCountdown()
+        case .stop: stop()
+        case .none: break
         }
     }
 
