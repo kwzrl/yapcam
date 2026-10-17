@@ -33,9 +33,7 @@ struct ToolbarView: View {
         // The vertical widget needs room for the elapsed time across.
         let thickness: CGFloat = recording ? (vertical ? 64 : 44) : 46
         line(0) {
-            Grabber(vertical: vertical,
-                    onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil,
-                    onRotate: { layout.vertical.toggle() })
+            Grabber(vertical: vertical, onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil)
             Group {
                 switch rec.phase {
                 case .idle: idleControls
@@ -228,54 +226,28 @@ struct ToolbarView: View {
 
 // MARK: - Components
 
-/// Bar handle: close (white circle, idle only), horizontal/vertical switch, and the drag grip.
-/// Side by side in the horizontal bar, stacked in the vertical one, so the bar stays thin either way.
+/// Start of the bar: the white close circle and a milled separator (idle only). The bar itself is the drag
+/// handle; horizontal/vertical lives in the gear menu.
 private struct Grabber: View {
     var vertical: Bool
     var onClose: (() -> Void)?
-    var onRotate: () -> Void
 
     var body: some View {
-        let stack = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 0))
+        let stack = vertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
         stack {
             if let onClose {
                 Button(action: onClose) { Image(systemName: "xmark") }
                     .buttonStyle(CircleButtonStyle(active: true, size: 20))
                     .help("Close (Esc)").accessibilityLabel("Close toolbar")
                     .frame(width: 30, height: 30)
+                FadingHairline(axis: vertical ? .horizontal : .vertical)
+                    .frame(width: vertical ? 40 : 2, height: vertical ? 2 : 30)
+                    .padding(vertical ? .vertical : .horizontal, 5)
+            } else {
+                Color.clear.frame(width: vertical ? 1 : 6, height: vertical ? 6 : 1)
             }
-            HandleButton(symbol: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2",
-                         help: vertical ? "Make the toolbar horizontal" : "Make the toolbar vertical",
-                         label: vertical ? "Make toolbar horizontal" : "Make toolbar vertical", action: onRotate)
-            Grid(horizontalSpacing: 3.5, verticalSpacing: 3.5) {
-                ForEach(0..<(vertical ? 2 : 3), id: \.self) { _ in
-                    GridRow { ForEach(0..<(vertical ? 3 : 2), id: \.self) { _ in Circle().frame(width: 3, height: 3) } }
-                }
-            }
-            .foregroundStyle(Yap.caption)
-            .frame(width: 26, height: 26)
-            .contentShape(Rectangle())
-            .help("Drag to move")
-            .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
         }
         .padding(vertical ? .top : .leading, 6)
-    }
-}
-
-private struct HandleButton: View {
-    let symbol: String, help: String, label: String
-    let action: () -> Void
-    @State private var hover = false
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 14, weight: .medium))
-                .foregroundStyle(hover ? Yap.title : Yap.caption)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(Color.white.opacity(hover ? 0.08 : 0)))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain).onHover { hover = $0 }
-        .help(help).accessibilityLabel(label)
     }
 }
 
