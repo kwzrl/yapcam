@@ -105,6 +105,7 @@ struct TimelineView: View {
         case rangeMove(key: String, grabOffsetNs: Int64)
         case rangeStart(key: String)
         case rangeEnd(key: String)
+        case clipEdge(id: String, edge: ClipTrim.Edge)
     }
 
     var body: some View {
@@ -200,7 +201,7 @@ struct TimelineView: View {
                     }
                 }
                 .overlay(alignment: .topLeading) { clipFace(entry.clip) }
-                .modifier(ChipChrome(selected: selected, grips: false))
+                .modifier(ChipChrome(selected: selected, grips: true))
                 .frame(width: max(w - 1, 1), height: TimelineLayout.clipTrackHeight)
                 .offset(x: x, y: layout.clipTop)
                 .accessibilityElement(children: .ignore)
@@ -405,6 +406,9 @@ struct TimelineView: View {
                     if let c = currentSpan(key) { model.previewRange(key: key, current: c, startNs: model.snapped(ns)) }
                 case .rangeEnd(let key):
                     if let c = currentSpan(key) { model.previewRange(key: key, current: c, endNs: model.snapped(ns)) }
+                case .clipEdge(let id, let edge):
+                    // The guide shows where the edge will land (clamped to the minimum length and the trimmed source).
+                    model.snapGuideNs = model.trimPlan(clipID: id, edge: edge, targetNs: model.snapped(ns, includePlayhead: false))?.edgeNs
                 }
             }
             .onEnded { v in
@@ -412,6 +416,9 @@ struct TimelineView: View {
                 case .scrub: model.seek(toNs: model.playheadNs, precise: true)
                 case .zoomMove(let id, _), .zoomStart(let id), .zoomEnd(let id): model.commitZoomPreview(id: id)
                 case .rangeMove(let k, _), .rangeStart(let k), .rangeEnd(let k): model.commitRange(key: k)
+                case .clipEdge(let id, let edge):
+                    if dragMoved { model.trimClipEdge(clipID: id, start: edge == .start, toNs: model.snapped(g.ns(forX: v.location.x), includePlayhead: false)) }
+                    else { model.seek(toNs: model.snapped(g.ns(forX: v.location.x), includePlayhead: false), precise: true) }
                 case .zoomCreate(let s):
                     model.zoomCreatePreview = nil
                     if dragMoved { model.addZoom(fromNs: s, toNs: model.snapped(g.ns(forX: v.location.x), includePlayhead: false)) } else { model.addZoom(fromNs: s) }
@@ -503,6 +510,7 @@ struct TimelineView: View {
             model.seek(toNs: model.snapped(ns, includePlayhead: false), precise: true)
             model.splitAtPlayhead()
             return .inert
+        case .clipEdge(let id, let edge): model.selection = .clip(id); return .clipEdge(id: id, edge: edge)
         case .nothing: return .inert
         }
     }

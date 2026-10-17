@@ -31,6 +31,7 @@ enum TimelineClick {
         case zoomToggleSelect(id: String)
         case zoomDrag(id: String, part: ZoomPart)
         case clipCut(atNs: Int64)
+        case clipEdge(id: String, edge: ClipTrim.Edge)         // S-EDT-23: drag the end of a clip
         case nothing
     }
 
@@ -71,7 +72,11 @@ enum TimelineClick {
         }
         let clip = i.clips.first(where: { p.x >= g.x(forNs: $0.startNs) && p.x < g.x(forNs: $0.endNs) })
         if p.y < l.zoomTop - TimelineLayout.gap, let clip {
-            return i.cutTool ? .clipCut(atNs: ns) : .scrub(selectClip: clip.id)
+            if i.cutTool { return .clipCut(atNs: ns) }
+            let w = g.x(forNs: clip.endNs) - g.x(forNs: clip.startNs), h = min(TimelineLayout.edgeHandle, w / 3)
+            if p.x <= g.x(forNs: clip.startNs) + h { return .clipEdge(id: clip.id, edge: .start) }
+            if p.x >= g.x(forNs: clip.endNs) - h { return .clipEdge(id: clip.id, edge: .end) }
+            return .scrub(selectClip: clip.id)
         }
         return .scrub(selectClip: nil)
     }

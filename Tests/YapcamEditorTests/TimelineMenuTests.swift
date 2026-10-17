@@ -135,3 +135,64 @@ import Testing
         #expect(menu.items.first { $0.title == "Remove" }?.isEnabled == false)
     }
 }
+
+/// S-EDT-23: edge-drag trim of clips.
+@MainActor @Suite struct ClipTrimTests {
+    static let sec: Int64 = 1_000_000_000
+    let plain: (mic: Double, system: Double, hideCursor: Bool, disableSmoothing: Bool) = (1, 1, false, false)
+    func clip(speed: Double = 1) -> ClipTrim.Clip { .init(id: "a", startNs: 4 * Self.sec, srcStartNs: 4 * Self.sec, srcEndNs: 10 * Self.sec, speed: speed) }
+    func plan(_ edge: ClipTrim.Edge, _ target: Int64, clip c: ClipTrim.Clip? = nil, before: Int64 = 0, after: Int64 = 0) -> ClipTrim.Plan {
+        ClipTrim.plan(clip: c ?? clip(), edge: edge, targetNs: target, minLengthNs: 100_000_000, restorableBeforeNs: before, restorableAfterNs: after, settings: plain)
+    }
+
+    @Test func shrinkingDeletesTheDraggedPartAndStaysAboveTheMinimumLength() {
+        #expect(plan(.start, 6 * Self.sec).commands == [.deleteRange(startNs: 4 * Self.sec, endNs: 6 * Self.sec)])
+        #expect(plan(.end, 8 * Self.sec).commands == [.deleteRange(startNs: 8 * Self.sec, endNs: 10 * Self.sec)])
+        let p = plan(.start, 50 * Self.sec)                                             // dragged far past the other end
+        #expect(p.deltaNs == -(6 * Self.sec - 100_000_000) && p.commands.count == 1)    // leaves the 100 ms minimum
+        #expect(plan(.end, 4 * Self.sec).edgeNs == 4 * Self.sec + 100_000_000)
+    }
+
+    @Test func growingRestoresOnlyWhatWasCutAwayNextToTheEdge() {
+        let g = plan(.end, 11 * Self.sec, after: 5 * Self.sec)
+        #expect(g.commands == [.insertSource(startNs: 10 * Self.sec, endNs: 11 * Self.sec, atNs: 10 * Self.sec, speed: 1, micGain: 1, systemGain: 1, hideCursor: false, disableSmoothing: false)])
+        let s = plan(.start, 3 * Self.sec, before: 4 * Self.sec)
+        #expect(s.commands == [.insertSource(startNs: 3 * Self.sec, endNs: 4 * Self.sec, atNs: 4 * Self.sec, speed: 1, micGain: 1, systemGain: 1, hideCursor: false, disableSmoothing: false)])
+        #expect(plan(.end, 99 * Self.sec, after: 2 * Self.sec).deltaNs == 2 * Self.sec)  // clamped to the available source
+        #expect(plan(.end, 11 * Self.sec).commands.isEmpty && plan(.start, 3 * Self.sec).commands.isEmpty)     // nothing cut away: nothing to grow
+    }
+
+    @Test func speedScalesTheSourceDelta() {
+        let c = clip(speed: 2)                                                           // 6 s of source = 3 s on the timeline: ends at 7 s
+        #expect(c.endNs == 7 * Self.sec)
+        let g = plan(.end, 8 * Self.sec, clip: c, after: 10 * Self.sec)                 // +1 s on the timeline = +2 s of source
+        #expect(g.commands == [.insertSource(startNs: 10 * Self.sec, endNs: 12 * Self.sec, atNs: 7 * Self.sec, speed: 2, micGain: 1, systemGain: 1, hideCursor: false, disableSmoothing: false)])
+    }
+
+    @Test func modelCommitsOneUndoStepAndBringsTheMaterialBack() throws {
+        let p = FakeProject(durationNs: 20 * Self.sec), m = EditorModel(project: p, player: FakePlayer())
+        let id = m.clips[0].id
+        #expect(m.trimClipEdge(clipID: id, start: true, toNs: 5 * Self.sec))             // cut 5 s off the head
+        #expect(m.durationNs == 15 * Self.sec && m.clips[0].srcStartNs == 5 * Self.sec)
+        #expect(m.trimClipEdge(clipID: m.clips[0].id, start: false, toNs: 10 * Self.sec))   // and the tail beyond 10 s
+        #expect(m.durationNs == 10 * Self.sec)
+        let grow = m.clips[0].id
+        #expect(m.trimClipEdge(clipID: grow, start: false, toNs: 13 * Self.sec))        // pull the tail back by 3 s
+        #expect(m.durationNs == 13 * Self.sec)
+        m.undo(); #expect(m.durationNs == 10 * Self.sec)                                 // one undo step
+        #expect(!m.trimClipEdge(clipID: "missing", start: true, toNs: 0))
+    }
+
+    @Test func clickRouterGivesEdgeDragsAnEdgeAndScissorsKeepCutting() {
+        let l = TimelineLayout(lanes: []), g = TimelineGeometry(pixelsPerSecond: 100)
+        func input(_ x: Double, cut: Bool = false) -> TimelineClick.Input {
+            .init(point: CGPoint(x: x, y: l.clipTop + 10), layout: l, geometry: g, cutTool: cut, multiSelect: false, durationNs: 20 * Self.sec,
+                  zooms: [], rangeItems: [], rangePreview: [:], typing: [], clips: [("a", 0, 10 * Self.sec), ("b", 10 * Self.sec, 20 * Self.sec)])
+        }
+        #expect(TimelineClick.decide(input(1003)) == .clipEdge(id: "b", edge: .start))
+        #expect(TimelineClick.decide(input(997)) == .clipEdge(id: "a", edge: .end))
+        #expect(TimelineClick.decide(input(1997)) == .clipEdge(id: "b", edge: .end))
+        #expect(TimelineClick.decide(input(500)) == .scrub(selectClip: "a"))
+        #expect(TimelineClick.decide(input(1003, cut: true)) == .clipCut(atNs: 10_030_000_000))
+    }
+}
