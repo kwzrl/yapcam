@@ -6,7 +6,30 @@ Build and signing setup: see `docs/SETUP.md` (`scripts/setup-signing.sh` creates
 "Yapcam Dev Signing" identity; `scripts/build-app.sh` builds and signs `build/Yapcam.app`).
 A fresh clone builds without manual steps (Lead check 05:05, main aa70d91).
 
-## 0. Release candidate 0.9.0 summary (2026-10-16, Lead)
+## 0. Release candidate 0.10.0 summary (2026-10-17, Lead)
+
+Build under test: main `fa475e6`, package `build/release/Yapcam-0.10.0-705.dmg`
+(SHA-256 `b60e10f02a0f18bf22404e9f4a6a245798ffdff0aaf3cf9e3d12ef5f0206e60b`), Mac mini M4, macOS 26.3,
+one 1680×1050 non-Retina display, no camera, no microphone. Signed "Yapcam Dev Signing", hardened
+runtime, entitlements camera + audio input only, not timestamped, not notarized (NOT DISTRIBUTABLE).
+Two unsigned builds are bit-identical; no personal paths.
+
+| Check | Result |
+|---|---|
+| Rust (core) | 134 passed, 1 ignored |
+| XCTest | 277, 16 skipped, 0 failures |
+| Swift Testing | 751 tests in 156 suites, all passed |
+| Strict Metal render suite (release, `YAPCAM_REQUIRE_RENDER_HARDWARE=1`, main abe4e6a) | 252, 10 skipped, 0 failures |
+| gitleaks 6d6e873..fa475e6 | no leaks |
+| Screen Studio 4.0.4 parity (qa matrix, code + tests, not live) | 127/129 in scope match, 6 out of scope |
+| DMG launch, programmatic (copy of the app from the DMG) | `--editor-export-selftest`: 1728×1080 H.264 + AAC, 8.13 s, PASS; `--ui-record-selftest`: recording ok; after-recording `widget` shows the quick export widget, `create` opens the editor in front |
+| Review round R5 (independent read of 6d6e873..abe4e6a) | 4 findings (hardware-encoding switch only in quick export, keyframed mask trim/move rejected, lens zoom + any highlight failed, static-frame heartbeat could drop a real frame) + 2 minor; all fixed with regression tests |
+
+Not done for 0.10.0: real mouse/keyboard use, camera, microphone, Retina/multi-display, first install on
+another Mac, notarization, F17/F18 native re-measurement (blocked: the user's Yapcam instance was running
+and must not be quit), F16 live re-run (same reason).
+
+## 0b. Release candidate 0.9.0 summary (2026-10-16, Lead)
 
 Build under test: main `7e3af60` (code = `4f97d8d` + docs), Mac mini M4, macOS 26.3, one 1680×1050
 non-Retina display, no camera, no microphone. Signed "Yapcam Dev Signing", not notarized.
