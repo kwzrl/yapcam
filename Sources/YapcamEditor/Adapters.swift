@@ -415,12 +415,16 @@ extension CoreRenderOptions.CursorLogicalSize {
     }
 }
 extension CoreRenderOptions.CursorShape {
+    /// Keyed by core's shape id (not an exhaustive switch over the enum) so the adapter builds with every core that adds
+    /// shapes; ids render does not know draw as the arrow.
     var render: RenderConfiguration.CursorStyle {
-        switch self {
-        case .arrow: .arrow; case .pointingHand: .pointer; case .touch: .touch; case .text: .text
-        case .resizeHorizontal: .resizeHorizontal; case .resizeVertical: .resizeVertical
-        case .resizeDiagonalNWSE: .resizeDiagonalNWSE; case .resizeDiagonalNESW: .resizeDiagonalNESW
-        case .openHand: .openHand; case .closedHand: .closedHand
+        switch rawValue {
+        case "pointing_hand": .pointer; case "touch": .touch; case "text": .text
+        case "resize_horizontal": .resizeHorizontal; case "resize_vertical": .resizeVertical
+        case "resize_diagonal_nwse": .resizeDiagonalNWSE; case "resize_diagonal_nesw": .resizeDiagonalNESW
+        case "open_hand": .openHand; case "closed_hand": .closedHand
+        case "crosshair": .crosshair; case "not_allowed": .notAllowed
+        default: .arrow
         }
     }
 }
