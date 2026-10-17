@@ -129,7 +129,9 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch, arrow }
     public var cursorStyle: CursorStyle
     public var cursorMotionBlur: Double; public var cursorSpotlightRadius: Double
-    public var backgroundNoise: Double; public var windowChrome: Bool
+    public var backgroundNoise: Double
+    public var backgroundWallpaperId: String?; public var backgroundWallpaperIndex: UInt32?
+    public var windowChrome: Bool
     public var cameraBackgroundRemoval: Bool; public var cameraFaceFraming: Bool
     public var cameraShadowRadius: Double
 }
@@ -369,3 +371,12 @@ configuration.cursorSetID. Always-default already produces effective shape arrow
 If shape is nil, retain the existing extras style mapping. Do not change frame scale
 for logical size; Render's generated artwork owns that multiplier. Native/Core
 imports remain acyclic; these are additive JSON options, not ABI struct changes.
+
+
+Wave 3 adds optional `backgroundWallpaperId` and `backgroundWallpaperIndex` to
+root and timed `CoreRenderOptions`. New revision-3 projects publish Render's own
+Deep Slate entry as `deep-slate` / index 1; older Core query payloads decode both
+as nil. These identify a Render-library selection and are distinct from the
+project-media `canvas.background.asset` index. The current Deep Slate entry is an
+analytic gradient, so its colors and angle continue to render through `YcFrame`
+without a C ABI change.

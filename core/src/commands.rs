@@ -420,6 +420,8 @@ pub(crate) fn apply_inner(
             if role == "background" {
                 p.canvas.background.kind = "image".into();
                 p.canvas.background.asset = index as u32;
+                p.canvas.background.wallpaper_id = None;
+                p.canvas.background.wallpaper_index = None;
                 cs.changed.push("canvas.background".into());
             }
             cs.created_ids.push(format!("asset-{index}"));
@@ -615,6 +617,21 @@ pub(crate) fn apply_inner(
             }
             *target = value.clone();
             *p = serde_json::from_value(data)?;
+            if matches!(
+                path,
+                "canvas.background.kind"
+                    | "canvas.background.color"
+                    | "canvas.background.color2"
+                    | "canvas.background.angle_deg"
+                    | "canvas.background.asset"
+            ) {
+                p.canvas.background.wallpaper_id = None;
+                p.canvas.background.wallpaper_index = None;
+                cs.changed.extend([
+                    "canvas.background.wallpaper_id".into(),
+                    "canvas.background.wallpaper_index".into(),
+                ]);
+            }
             if let Some(old) = old_masks {
                 if let Some(mask) = p.canvas.highlights.iter().rev().find(|h| !old.contains(h)) {
                     p.insertion_styles.mask = Some(crate::editing::mask_style(mask));

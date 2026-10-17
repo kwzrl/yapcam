@@ -6,10 +6,10 @@ use crate::{
 use serde_json::json;
 
 #[test]
-fn revision_two_factory_defaults_and_camera_geometry_preserve_existing_projects() {
+fn revision_three_factory_defaults_and_camera_geometry_preserve_existing_projects() {
     let fixture = Fixture::new();
     let mut p = Project::create(&fixture.0).unwrap();
-    assert_eq!(p.data.defaults_revision, 2);
+    assert_eq!(p.data.defaults_revision, 3);
     assert!(!p.data.camera.mirrored);
     assert_eq!(p.data.camera.position, [1.0, 1.0]);
     assert_eq!(p.data.camera.size, 0.5);
@@ -600,4 +600,117 @@ fn adaptive_text_keeps_shortcuts_clear_of_caption_and_camera_at_multiple_positio
             );
         }
     }
+}
+
+#[test]
+fn wave_three_defaults_presets_masks_and_layout_modes_match_the_reference_contract() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+
+    // E4.1/E4.3: Wave 3 chose Render's own dark Deep Slate wallpaper. Its
+    // analytic gradient remains renderable by old frame consumers, while the
+    // stable identity and catalog index restore the Wallpaper selection.
+    assert_eq!(p.data.defaults_revision, 3);
+    assert_eq!(p.data.canvas.background.kind, "gradient");
+    assert_eq!(
+        p.data.canvas.background.wallpaper_id.as_deref(),
+        Some(FACTORY_WALLPAPER_ID)
+    );
+    assert_eq!(
+        p.data.canvas.background.wallpaper_index,
+        Some(FACTORY_WALLPAPER_INDEX)
+    );
+    assert_eq!(
+        p.data.canvas.background.color,
+        [
+            0x18 as f32 / 255.0,
+            0x2b as f32 / 255.0,
+            0x42 as f32 / 255.0,
+            1.0
+        ]
+    );
+    assert_eq!(p.data.canvas.background.angle_deg, 115.0);
+    assert_eq!(p.frame(0).unwrap().background_kind, 1);
+    let options = p.query(&json!({"q":"render_options"})).unwrap();
+    assert_eq!(options["background_wallpaper_id"], FACTORY_WALLPAPER_ID);
+    assert_eq!(
+        options["background_wallpaper_index"],
+        FACTORY_WALLPAPER_INDEX
+    );
+    let background = p.data.canvas.background.clone();
+    p.apply(&json!({"op":"set","path":"canvas.background.color","value":[0.1,0.2,0.3,1]}))
+        .unwrap();
+    assert_eq!(p.data.canvas.background.wallpaper_id, None);
+    assert_eq!(p.data.canvas.background.wallpaper_index, None);
+    p.undo().unwrap();
+    assert_eq!(p.data.canvas.background, background);
+
+    // E8.2 and E13.3 are factory-aware so legacy decoding stays unchanged.
+    let captions = p.query(&json!({"q":"caption_defaults"})).unwrap();
+    assert_eq!(captions["font_size_ratio"], 0.05);
+    assert_eq!(captions["growth"], "expanding");
+    p.apply(&json!({"op":"insert_mask","patch":{"kind":"highlight"}}))
+        .unwrap();
+    assert_eq!(p.data.canvas.highlights[0].kind, "highlight");
+    assert_eq!(p.data.canvas.highlights[0].dim_opacity, 0.5);
+
+    // E11.1: §2a.11's model default is a custom spring, not either preset.
+    assert_eq!(
+        (
+            p.data.zoom_settings.spring.tension,
+            p.data.zoom_settings.spring.friction,
+            p.data.zoom_settings.spring.mass
+        ),
+        (125.0, 12.0, 1.5)
+    );
+    let mut settings = p.data.zoom_settings.clone();
+    settings.animation_style = "focused".into();
+    let focused = crate::motion::zoom_spring(&settings);
+    assert_eq!(
+        (focused.tension, focused.friction, focused.mass),
+        (250.0, 40.0, 2.25)
+    );
+    settings.animation_style = "smooth".into();
+    let smooth = crate::motion::zoom_spring(&settings);
+    assert_eq!(
+        (smooth.tension, smooth.friction, smooth.mass),
+        (170.0, 50.0, 3.0)
+    );
+
+    // E6.6: disabled ranges fall through, "camera" is fullscreen-camera and
+    // "screen" is screen-only/hide-camera in the compact persisted vocabulary.
+    synthetic_camera(&mut p);
+    p.apply(&json!({"op":"set","path":"camera.layouts","value":[
+        {"id":"disabled","enabled":false,"tl_start_ns":0,"tl_end_ns":1_000_000_000_i64,"mode":"camera"},
+        {"id":"full","tl_start_ns":1_000_000_000_i64,"tl_end_ns":2_000_000_000_i64,"mode":"camera"},
+        {"id":"screen-only","tl_start_ns":2_000_000_000_i64,"tl_end_ns":3_000_000_000_i64,"mode":"screen"}
+    ]}))
+    .unwrap();
+    let disabled = p.frame(500_000_000).unwrap();
+    assert_eq!((disabled.screen.present, disabled.camera.present), (1, 1));
+    let full = p.frame(1_500_000_000).unwrap();
+    assert_eq!((full.screen.present, full.camera.present), (0, 1));
+    let screen_only = p.frame(2_500_000_000).unwrap();
+    assert_eq!(
+        (screen_only.screen.present, screen_only.camera.present),
+        (1, 0)
+    );
+
+    p.save(&fixture.0).unwrap();
+    let reopened = Project::open(&fixture.0).unwrap();
+    assert_eq!(reopened.data, p.data);
+    assert_eq!(
+        reopened.query(&json!({"q":"render_options"})).unwrap()["background_wallpaper_id"],
+        FACTORY_WALLPAPER_ID
+    );
+
+    // Previously saved revision-2 projects are values, not migration targets.
+    let mut old = p.data.clone();
+    old.defaults_revision = 2;
+    old.canvas.background = Background::default();
+    let old = crate::project::decode_project(&serde_json::to_vec(&old).unwrap()).unwrap();
+    assert_eq!(old.defaults_revision, 2);
+    assert_eq!(old.canvas.background.kind, "solid");
+    assert_eq!(old.canvas.background.wallpaper_id, None);
+    assert_eq!(old.canvas.background.color, [0.12, 0.14, 0.18, 1.0]);
 }

@@ -108,9 +108,23 @@ pub(crate) fn apply(data: &mut ProjectData, input: &Value) -> Result<Vec<String>
             .unwrap()
             .remove("preset");
     }
+    let clear_wallpaper_identity =
+        patch["canvas"]["background"]
+            .as_object()
+            .is_some_and(|background| {
+                ["kind", "color", "color2", "angle_deg"]
+                    .iter()
+                    .any(|field| background.contains_key(*field))
+                    && !background.contains_key("wallpaper_id")
+                    && !background.contains_key("wallpaper_index")
+            });
     let changed = patch.as_object().unwrap().keys().cloned().collect();
     let mut next = serde_json::to_value(&*data)?;
     merge(&mut next, patch);
+    if clear_wallpaper_identity {
+        next["canvas"]["background"]["wallpaper_id"] = Value::Null;
+        next["canvas"]["background"]["wallpaper_index"] = Value::Null;
+    }
     *data = serde_json::from_value(next)?;
     Ok(changed)
 }
