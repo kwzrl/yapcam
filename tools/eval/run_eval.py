@@ -142,7 +142,9 @@ def summarize_stream(stream, wall=None):
         if e.get('type') == 'user':
             for c in (e.get('message', {}).get('content') or []):
                 if isinstance(c, dict) and c.get('type') == 'tool_result' and c.get('is_error') and calls:
-                    calls[-1]['error'] = True
+                    text = c.get('content')
+                    text = text if isinstance(text, str) else ' '.join(x.get('text', '') for x in text or [] if isinstance(x, dict))
+                    calls[-1]['error'] = text[:300] or True
         if e.get('type') == 'result': result = e
     return {'session_id': session, 'calls': calls, 'answer': result.get('result', ''), 'is_error': result.get('is_error'),
             'cost_usd': result.get('total_cost_usd'), 'turns': result.get('num_turns'), 'duration_s': (result.get('duration_ms') or 0) / 1000 or wall,
@@ -232,6 +234,8 @@ def score(run_dir):
         'answer_words': [len((p.get('answer') or '').split()) for p in meta['prompts']],
         'tool_calls': [len(p['calls']) for p in meta['prompts']],
         'tool_errors': [sum(bool(c.get('error')) for c in p['calls']) for p in meta['prompts']],
+        'vision_hint_errors': [sum('Vision hint' in str(c.get('error', '')) for c in p['calls']) for p in meta['prompts']],
+        'after_errors': meta.get('after_errors', {}),
     }
     roles = {}
     for sen in golden['sentences']:
@@ -335,8 +339,14 @@ def main():
             print(f'  -> {r["turns"]} turns, ${r["cost_usd"]}, {r["duration_s"]:.0f}s, {len(r["calls"])} calls: {r["answer"][:300]!r}', flush=True)
         project = mcp.call('read_project')
         (out / 'after.project.json').write_text(json.dumps(project, indent=1))
-        (out / 'after.moments.json').write_text(json.dumps(mcp.call('moments'), indent=1))
-        (out / 'after.check.json').write_text(json.dumps(mcp.call('check'), indent=1))
+        # The app enriches moments/check with pixel hints; record a failure of that path, then read without hints.
+        meta['after_errors'] = {}
+        for name in ('moments', 'check'):
+            try: result = mcp.call(name)
+            except RuntimeError as e:
+                meta['after_errors'][name] = str(e)
+                result = mcp.call(name, {'static_cuts_s': [], 'visual_view_changes_s': [], **({'visual_view_changes': []} if name == 'check' else {})})
+            (out / f'after.{name}.json').write_text(json.dumps(result, indent=1))
         duration = mcp.call('project_summary')['duration_ns'] / 1e9
         result = mcp.call('capture', {'times': capture_times(project, duration)}, raw=True)
         meta['after_capture'] = save_images(result, out, 'after-capture')
