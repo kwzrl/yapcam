@@ -490,7 +490,7 @@ private struct EditorTopBar: View {
     private var agentToggle: some View {
         let help = mock.agentOn ? (chatShown ? "Hide chat" : (mock.unread ? "Show chat: something new" : "Show chat"))
                                 : "Edit with an agent (Claude Code, Codex)"
-        return SlotButton(symbol: "sparkles", label: "Agent", help: help, active: chatShown, compact: true, attention: mock.unread && !chatShown) {
+        return SlotButton(symbol: "bubble.left", label: "Chat", help: help, active: chatShown, compact: true, attention: mock.unread && !chatShown) {
             withAnimation(Yap.Motion.select) {
                 if !mock.agentOn { mock.agent = .on; if narrow { mock.chatOverlay = true } }
                 else if narrow { mock.chatOverlay.toggle() }

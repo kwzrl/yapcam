@@ -119,7 +119,7 @@ private struct AgentToggle: View {
         let unread = log.unread > 0 && !chatShown
         let help = model.agentEnabled ? (chatShown ? "Hide chat" : (unread ? "Show chat: something new" : "Show chat"))
                                       : "Edit with an agent (Claude Code, Codex)"
-        SlotButton(symbol: "sparkles", label: "Agent", help: help, active: chatShown, compact: true, attention: unread) {
+        SlotButton(symbol: "bubble.left", label: "Chat", help: help, active: chatShown, compact: true, attention: unread) {
             withAnimation(Yap.Motion.select) { action() }
         }
     }
