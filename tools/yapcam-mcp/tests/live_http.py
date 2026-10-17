@@ -68,6 +68,14 @@ assert call('project_summary', {'project': next(d['name'] for d in documents if 
 failed = rpc('tools/call', {'name':'batch','arguments':{'commands':[{'op':'delete_range','tl_start_ns':0,'tl_end_ns':100000000}, {'op':'invalid'}]}})
 assert failed['isError']
 assert call('read_project') == before
+# Even internal drag-group commands cannot merge separate agent calls.
+depth = call('project_summary')['undo_steps']
+for value in ['first MCP step', 'second MCP step']:
+    call('apply', {'command': {'op':'coalesced_edit', 'key':'agent-test', 'command':{'op':'set','path':'notes','value':value}}})
+assert call('project_summary')['undo_steps'] == depth + 2
+assert call('undo')['changed']
+assert call('undo')['changed']
+assert call('read_project') == before
 for label, extra, expected in [
     ('missing token', [], '401'),
     ('foreign origin', ['-H', f'Authorization: Bearer {token}', '-H', 'Origin: https://evil.example'], '403'),
