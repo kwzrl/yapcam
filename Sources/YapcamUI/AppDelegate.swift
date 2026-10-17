@@ -97,12 +97,11 @@ import YapcamEditor
         }
 
         // Re-apply settings that need side effects.
-        Task { @MainActor in
-            for await _ in settings.objectWillChange.values {
-                try? await Task.sleep(for: .milliseconds(50))
-                self.applyLiveSettings()
-            }
-        }
+        // A sink, not `objectWillChange.values`: AsyncPublisher traps when two settings change back to back
+        // (e.g. Start on the display overlay sets displayID and sourceMode) while the loop is still sleeping.
+        settingsObserver = settings.objectWillChange
+            .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.applyLiveSettings() } }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -205,6 +204,7 @@ import YapcamEditor
     }
 
     private var trayObserver: AnyCancellable?
+    private var settingsObserver: AnyCancellable?
     private var phaseObserver: AnyCancellable?
 
     /// While recording the menu bar icon becomes a stop button; idle it is the app glyph with its menu.
