@@ -6,7 +6,8 @@ import YapcamEditor
     static func install(_ settings: AppSettings) {
         apply(settings)
         // Read when an export starts, so the Experimental toggle takes effect without a restart.
-        EditorWindows.variableFrameRate = { MainActor.assumeIsolated { settings.experimentalVariableFrameRate } }
+        let store = settings.d
+        EditorWindows.variableFrameRate = { AppSettings.variableFrameRateInStore(store) }
     }
 
     static func apply(_ settings: AppSettings) { EditorWindows.autosaveEnabled = settings.autosaveEnabled }

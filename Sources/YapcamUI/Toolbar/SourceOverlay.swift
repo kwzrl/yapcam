@@ -448,14 +448,12 @@ private final class OverlayWindow: NSWindow {
     }
 
     private func startDisplay(_ id: UInt32) {
-        let s = AppSettings.shared
-        s.displayID = id; s.sourceMode = .display
+        SourceChoice.display(id).apply(to: AppSettings.shared)
         hide(); beginSoon()
     }
 
     private func startWindow(_ id: UInt32) {
-        let s = AppSettings.shared
-        s.windowID = id; s.sourceMode = .window
+        SourceChoice.window(id).apply(to: AppSettings.shared)
         hide(); beginSoon()
     }
 

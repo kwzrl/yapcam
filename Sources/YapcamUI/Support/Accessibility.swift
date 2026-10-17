@@ -45,7 +45,7 @@ extension EnvironmentValues {
     }
 
     static func timeDescription(_ t: TimeInterval) -> String {
-        let s = Int(t), h = s / 3600, m = (s / 60) % 60, sec = s % 60
+        let s = t.isFinite ? Int(min(max(t, 0), 1e9)) : 0, h = s / 3600, m = (s / 60) % 60, sec = s % 60
         var parts: [String] = []
         if h > 0 { parts.append("\(h) hour\(h == 1 ? "" : "s")") }
         if m > 0 { parts.append("\(m) minute\(m == 1 ? "" : "s")") }

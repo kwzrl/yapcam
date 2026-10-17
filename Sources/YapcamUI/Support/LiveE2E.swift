@@ -78,14 +78,14 @@ import YapcamRender
                     let asset = AVURLAsset(url: pkg.appending(path: rel))
                     let type: AVMediaType = rel.hasSuffix("mov") ? .video : .audio
                     do {
-                        let track = try await asset.loadTracks(withMediaType: type).first
+                        guard let track = try await asset.loadTracks(withMediaType: type).first else { log("asset \(rel): no \(type.rawValue) track"); continue }
                         let r = try AVAssetReader(asset: asset)
-                        let out = AVAssetReaderTrackOutput(track: track!, outputSettings: type == .video ? [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA] : [AVFormatIDKey: kAudioFormatLinearPCM])
+                        let out = AVAssetReaderTrackOutput(track: track, outputSettings: type == .video ? [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA] : [AVFormatIDKey: kAudioFormatLinearPCM])
                         r.add(out); r.startReading()
                         var n = 0
                         while out.copyNextSampleBuffer() != nil { n += 1 }
                         let dur = try await asset.load(.duration)
-                        let tr = try await track!.load(.timeRange)
+                        let tr = try await track.load(.timeRange)
                         log("asset \(rel) duration \(dur.seconds) trackRange \(tr.start.seconds)+\(tr.duration.seconds)")
                         log("reader \(rel): status \(r.status.rawValue) samples \(n) error \(String(describing: r.error as NSError?))")
                     } catch { log("reader \(rel) setup failed: \(error as NSError)") }

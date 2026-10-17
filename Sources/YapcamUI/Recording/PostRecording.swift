@@ -90,7 +90,7 @@ import YapcamRender
 
     /// "about 20 s left" from elapsed time and progress; nil until there is enough progress to estimate.
     nonisolated static func remainingText(elapsed: TimeInterval, progress: Double) -> String? {
-        guard progress >= 0.03, progress < 1, elapsed > 1 else { return nil }
+        guard progress >= 0.03, progress < 1, elapsed > 1, elapsed.isFinite else { return nil }
         let left = Int((elapsed / progress * (1 - progress)).rounded())
         return left < 60 ? "about \(max(left, 1)) s left" : "about \((left + 59) / 60) min left"
     }
