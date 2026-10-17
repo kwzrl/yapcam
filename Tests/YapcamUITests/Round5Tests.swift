@@ -326,3 +326,19 @@ import Testing
         #expect(d.detail.hasPrefix("3024×1964 • ") && d.detail.hasSuffix(" FPS"))
     }
 }
+
+@MainActor @Suite struct Round5WidgetTests {
+    @Test func summaryDescribesTheStoredSettings() {
+        #expect(QuickExport.summary(AppSettings.defaultQuickExport) == "1080p MP4 · 30 fps · Social · with audio")
+        var e = AppSettings.defaultQuickExport; e.outputHeight = 2160; e.fps = 60; e.compression = .studio; e.includeAudio = false
+        #expect(QuickExport.summary(e) == "4K MP4 · 60 fps · Studio · no audio")
+        var g = AppSettings.defaultQuickExport; g.format = .gif; g.outputHeight = 480; g.fps = 15
+        #expect(QuickExport.summary(g) == "480p GIF · 15 fps")
+    }
+    @Test func settingsCanOpenOnATab() {
+        SettingsTabs.shared.selection = .quickExport
+        #expect(SettingsTabs.shared.selection == .quickExport)
+        SettingsTabs.shared.selection = .general
+        #expect(SettingsTab.allCases.count == 7)
+    }
+}

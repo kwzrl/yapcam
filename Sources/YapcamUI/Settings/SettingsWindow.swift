@@ -7,7 +7,8 @@ import YapcamRender
     static let shared = SettingsWindow()
     private var window: NSWindow?
 
-    func show() {
+    func show(tab: SettingsTab? = nil) {
+        if let tab { SettingsTabs.shared.selection = tab }
         if window == nil {
             let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 480),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -23,16 +24,24 @@ import YapcamRender
     }
 }
 
+enum SettingsTab: String, CaseIterable { case general, recording, editing, quickExport, shortcuts, experimental, advanced }
+
+@MainActor final class SettingsTabs: ObservableObject {
+    static let shared = SettingsTabs()
+    @Published var selection = SettingsTab.general
+}
+
 struct SettingsView: View {
+    @ObservedObject private var tabs = SettingsTabs.shared
     var body: some View {
-        TabView {
-            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
-            RecordingSettings().tabItem { Label("Recording", systemImage: "record.circle") }
-            EditingSettings().tabItem { Label("Editing", systemImage: "slider.horizontal.3") }
-            QuickExportSettings().tabItem { Label("Quick export", systemImage: "square.and.arrow.up") }
-            ShortcutSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }
-            ExperimentalSettings().tabItem { Label("Experimental", systemImage: "flask") }
-            AdvancedSettings().tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
+        TabView(selection: $tabs.selection) {
+            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }.tag(SettingsTab.general)
+            RecordingSettings().tabItem { Label("Recording", systemImage: "record.circle") }.tag(SettingsTab.recording)
+            EditingSettings().tabItem { Label("Editing", systemImage: "slider.horizontal.3") }.tag(SettingsTab.editing)
+            QuickExportSettings().tabItem { Label("Quick export", systemImage: "square.and.arrow.up") }.tag(SettingsTab.quickExport)
+            ShortcutSettings().tabItem { Label("Shortcuts", systemImage: "keyboard") }.tag(SettingsTab.shortcuts)
+            ExperimentalSettings().tabItem { Label("Experimental", systemImage: "flask") }.tag(SettingsTab.experimental)
+            AdvancedSettings().tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }.tag(SettingsTab.advanced)
         }
         .frame(width: 560, height: 480)
     }

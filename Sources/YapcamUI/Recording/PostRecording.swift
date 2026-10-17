@@ -174,6 +174,17 @@ import YapcamRender
     }
 
     /// The user's quick export settings (Settings → Quick export) plus the experimental variable-frame-rate switch.
+    /// "1080p MP4 · 30 fps · Social · with audio": the widget's "Will export" line.
+    static func summary(_ e: ExportSettings) -> String {
+        let res = e.outputHeight == 2160 ? "4K" : "\(e.outputHeight)p"
+        var parts = ["\(res) \(e.format == .gif ? "GIF" : e.format.rawValue.uppercased())", "\(e.fps) fps"]
+        if e.format != .gif {
+            if let c = e.compression { parts.append(c.title) }
+            parts.append(e.includeAudio ? "with audio" : "no audio")
+        }
+        return parts.joined(separator: " · ")
+    }
+
     static func quickExportSettings(base: ExportSettings = AppSettings.defaultQuickExport, variableFrameRate: Bool) -> ExportSettings {
         var e = base
         e.variableFrameRate = base.format == .gif ? false : variableFrameRate
@@ -288,6 +299,7 @@ struct QuickExportWidgetView: View {
     @ObservedObject var model: QuickExportWidgetModel
     let close: () -> Void
     @EnvironmentObject var export: QuickExport
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -300,12 +312,16 @@ struct QuickExportWidgetView: View {
                 .frame(width: 96, height: 60).clipShape(RoundedRectangle(cornerRadius: 6))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(model.package?.deletingPathExtension().lastPathComponent ?? "Recording").font(.system(size: 13, weight: .medium)).lineLimit(1)
-                    Text("Will export 1080p MP4 with audio").font(.caption).foregroundStyle(.secondary)
+                    Text("Will export \(QuickExport.summary(settings.quickExport))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     status
                 }
                 Spacer(minLength: 0)
-                Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Close").accessibilityLabel("Close")
+                VStack(spacing: 8) {
+                    Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Close").accessibilityLabel("Close")
+                    Button { SettingsWindow.shared.show(tab: .quickExport) } label: { Image(systemName: "gearshape").font(.system(size: 11)) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Quick export settings").accessibilityLabel("Quick export settings")
+                }
             }
             HStack(spacing: 8) {
                 Button("Copy") { run(.copy) }
