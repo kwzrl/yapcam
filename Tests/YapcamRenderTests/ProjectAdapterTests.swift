@@ -176,9 +176,11 @@ final class ProjectAdapterTests: XCTestCase {
     func testEveryPersistedCursorSelectionMapsOnRealProjectAndSnapshot() throws {
         let project=try Project.create(package: package)
         let library=try project.cursorLibrary()
-        XCTAssertEqual(library.sets.count,14)
+        XCTAssertGreaterThanOrEqual(library.sets.count,14)
         XCTAssertEqual(library.sets.prefix(2).map(\.id),["original","touch"])
-        XCTAssertEqual(library.sets.map(\.id),VectorCursorLibrary.catalog.map(\.id))
+        let accepted=Set(library.sets.map(\.id))
+        XCTAssertEqual(library.sets.map(\.id),VectorCursorLibrary.catalog.filter { accepted.contains($0.id) }.map(\.id),
+                       "Every persisted Core selection must have authored art; newer Render options await Core R5-C03")
         XCTAssertEqual(Set(library.shapes),Set(shapes.map { $0.0 }))
         XCTAssertEqual(Set(library.shapes),Set(CoreRenderOptions.CursorShape.allCases))
         XCTAssertEqual(Set(library.logicalSizes.map(\.id)),Set(sizes.map { $0.0 }))
@@ -237,13 +239,13 @@ final class ProjectAdapterTests: XCTestCase {
         let reopened=try Project.open(package: package)
         XCTAssertEqual(try reopened.renderEffects(atNs: 0,canvasSize: canvas).configuration,selected)
         try project.apply(.set(path: "cursor.always_default",value: .bool(true)))
-        var expected=selected; expected.cursorStyle = .arrow
+        var expected=selected; expected.cursorStyle = .arrow; expected.cursorAlwaysUseDefault = true
         XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,expected)
         XCTAssertEqual(try frozen.renderEffects(atNs: 0,canvasSize: canvas).configuration,selected)
         try project.undo()
         XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,selected)
         try project.apply(.set(path: "cursor.shape",value: .null))
-        expected.cursorStyle = .touch
+        expected.cursorStyle = .touch; expected.cursorAlwaysUseDefault = false
         XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration,expected)
         try project.apply(.set(path: "cursor.style",value: .string("recorded")))
         XCTAssertEqual(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration.cursorSetID,"coral","Palette alone must select authored artwork")

@@ -17,7 +17,13 @@ final class BackgroundBlur {
         pipeline=try device.makeRenderPipelineState(descriptor: descriptor)
     }
     func encode(source: TextureFrame,canvas: SIMD2<Float>,radius: Float,crop: SIMD4<Float> = SIMD4(0,0,1,1),in cb: MTLCommandBuffer) throws -> MTLTexture {
-        let full=source.geometry.displaySize
+        try encode(texture: source.texture,geometry: source.geometry,canvas: canvas,radius: radius,crop: crop,in: cb)
+    }
+    /// Imported images and generated wallpapers share the same linear-light pass
+    /// as decoded media. Radius stays in canvas pixels at every output size.
+    func encode(texture: MTLTexture,geometry: SourceGeometry,canvas: SIMD2<Float>,radius: Float,
+                crop: SIMD4<Float> = SIMD4(0,0,1,1),in cb: MTLCommandBuffer) throws -> MTLTexture {
+        let full=geometry.displaySize
         let display=CGSize(width: full.width*CGFloat(crop.z),height: full.height*CGFloat(crop.w))
         let scale=min(1,512/max(display.width,display.height))
         let width=max(1,Int((display.width*scale).rounded())), height=max(1,Int((display.height*scale).rounded()))
@@ -26,8 +32,8 @@ final class BackgroundBlur {
         guard let linear=device.makeTexture(descriptor: descriptor) else { throw RenderError.metal("Cannot allocate background blur surface") }
         let pass=MTLRenderPassDescriptor(); pass.colorAttachments[0].texture=linear; pass.colorAttachments[0].loadAction = .dontCare; pass.colorAttachments[0].storeAction = .store
         guard let encoder=cb.makeRenderCommandEncoder(descriptor: pass) else { throw RenderError.metal("Cannot encode background downsample") }
-        var transform=[source.geometry.rowX,source.geometry.rowY,crop,SIMD4(Float(full.width),Float(full.height),0,0)]
-        encoder.setRenderPipelineState(pipeline); encoder.setFragmentTexture(source.texture,index: 0)
+        var transform=[geometry.rowX,geometry.rowY,crop,SIMD4(Float(full.width),Float(full.height),0,0)]
+        encoder.setRenderPipelineState(pipeline); encoder.setFragmentTexture(texture,index: 0)
         encoder.setFragmentBytes(&transform,length: transform.count*MemoryLayout<SIMD4<Float>>.stride,index: 0)
         encoder.drawPrimitives(type: .triangle,vertexStart: 0,vertexCount: 3); encoder.endEncoding()
         guard radius>0 else { return linear }

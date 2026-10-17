@@ -12,11 +12,11 @@ final class CursorCatalogTests: XCTestCase {
         return Data(stride(from: 3,to: raw.count,by: 4).map { raw[$0] })
     }
 
-    func testCatalogHasOriginalTouchAndTwelveDifferentGeometryFamilies() throws {
+    func testCatalogHasOriginalTouchAndTwentyTwoDifferentGeometryFamilies() throws {
         XCTAssertEqual(VectorCursorLibrary.catalog.prefix(2).map(\.id),["original","touch"])
-        XCTAssertEqual(VectorCursorLibrary.catalog.count,14)
-        XCTAssertEqual(Set(VectorCursorLibrary.presets.map(\.geometry)).count,12)
-        XCTAssertEqual(Set(VectorCursorLibrary.catalog.map(\.id)).count,14)
+        XCTAssertEqual(VectorCursorLibrary.catalog.count,24)
+        XCTAssertEqual(Set(VectorCursorLibrary.presets.map(\.geometry)).count,22)
+        XCTAssertEqual(Set(VectorCursorLibrary.catalog.map(\.id)).count,24)
         XCTAssertEqual(Set(VectorCursorStyle.allCases.map(\.shapeID)).count,12)
         for style in VectorCursorStyle.allCases {
             XCTAssertEqual(VectorCursorStyle(shapeID: style.shapeID),style)
@@ -64,7 +64,7 @@ final class CursorCatalogTests: XCTestCase {
                 let art = try VectorCursorLibrary.artwork(style,setID: preset.id,heightPoints: 32,rasterScale: 4)
                 XCTAssertTrue(masks.insert(try alpha(art.image)).inserted,"Geometry must differ: \(preset.id)/\(style)")
             }
-            XCTAssertEqual(masks.count,12)
+            XCTAssertEqual(masks.count,22)
         }
     }
 
@@ -128,14 +128,15 @@ final class CursorCatalogTests: XCTestCase {
             CGImageDestinationAddImage(destination,image,nil); XCTAssertTrue(CGImageDestinationFinalize(destination))
         }
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
-        let sheet = try XCTUnwrap(CGContext(data: nil,width: 640,height: 400,bitsPerComponent: 8,bytesPerRow: 640*4,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+        let rows=(VectorCursorLibrary.catalog.count+3)/4
+        let sheet = try XCTUnwrap(CGContext(data: nil,width: 640,height: rows*100,bitsPerComponent: 8,bytesPerRow: 640*4,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
         var hashes: [String:String] = [:]
         for (index,item) in VectorCursorLibrary.catalog.enumerated() {
             let image = try VectorCursorLibrary.thumbnail(setID: item.id)
             XCTAssertEqual(image.width,160); XCTAssertEqual(image.height,100)
             hashes[item.id] = SHA256.hash(data: try bytes(image)).map { String(format: "%02x",$0) }.joined()
             try png(image,item.id)
-            sheet.draw(image,in: CGRect(x: index%4*160,y: 300-index/4*100,width: 160,height: 100))
+            sheet.draw(image,in: CGRect(x: index%4*160,y: (rows-1-index/4)*100,width: 160,height: 100))
             if item.kind == .recorded { continue }
             let atlas = try XCTUnwrap(CGContext(data: nil,width: 384,height: 64,bitsPerComponent: 8,bytesPerRow: 384*4,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
             for (x,style) in VectorCursorStyle.allCases.enumerated() {
@@ -155,7 +156,7 @@ final class CursorCatalogTests: XCTestCase {
         }
         costs.removeFirst(); costs.sort()
         let report: [String:Any] = ["revision": ProcessInfo.processInfo.environment["YAPCAM_CURSOR_REVISION"] ?? "working tree",
-            "procedure": "CPU catalog thumbnails, 14 x 160x100, one warmup then 20 grids; local goldens awaiting visual review",
+            "procedure": "CPU catalog thumbnails, \(VectorCursorLibrary.catalog.count) x 160x100, one warmup then 20 grids; local goldens awaiting visual review",
             "grid_p50_ms": costs[9],"grid_p95_ms": costs[18],"thumbnail_sha256": hashes,
             "order": VectorCursorLibrary.catalog.map(\.id),"types": VectorCursorStyle.allCases.map(\.shapeID),"variants": VectorCursorVariant.allCases.map(\.rawValue)]
         try JSONSerialization.data(withJSONObject: report,options: [.prettyPrinted,.sortedKeys]).write(to: root.appendingPathComponent("manifest.json"))

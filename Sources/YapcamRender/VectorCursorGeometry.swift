@@ -6,9 +6,12 @@ import Foundation
 func drawAuthoredCursor(_ style: VectorCursorStyle,preset: VectorCursorSet,variant: VectorCursorVariant,
                         pressed: Bool,in c: CGContext,space: CGColorSpace) {
     let geometry = preset.geometry
-    let index = CGFloat(VectorCursorSet.Geometry.allCases.firstIndex(of: geometry)!)
+    let ordinal = CGFloat(VectorCursorSet.Geometry.allCases.firstIndex(of: geometry)!)
+    // Interleave new detail proportions between the old twelve. Existing pixels
+    // stay stable, and extra sets cannot push fingers/strokes outside the cell.
+    let index = ordinal<12 ? ordinal : ordinal-11.5
     let alternate = variant == .alternate
-    let angular = [VectorCursorSet.Geometry.cutPaper,.kite,.chevron,.facet,.technical].contains(geometry)
+    let angular = [VectorCursorSet.Geometry.cutPaper,.kite,.chevron,.facet,.technical,.stepped,.lance,.pennant,.doubleNib,.bracket].contains(geometry)
     let width = min(2.2,CGFloat(preset.weight))
     func color(_ v: SIMD4<Float>) -> CGColor { CGColor(colorSpace: space,components: [CGFloat(v.x),CGFloat(v.y),CGFloat(v.z),CGFloat(v.w)])! }
     c.setLineJoin(angular ? .miter : .round); c.setMiterLimit(2)
@@ -78,9 +81,43 @@ func drawAuthoredCursor(_ style: VectorCursorStyle,preset: VectorCursorSet,varia
                 path.addLines(between: points([(3,3),(5,25),(10,18),(20,16)])); path.closeSubpath()
             case .accessible:
                 path.addLines(between: points([(3,3),(3,27),(8,22),(12,29),(19,26),(15,19),(21,19)])); path.closeSubpath()
+            case .plume:
+                path.move(to: CGPoint(x: 3,y: 3)); path.addLine(to: CGPoint(x: 4,y: 25))
+                path.addQuadCurve(to: CGPoint(x: 10,y: 20),control: CGPoint(x: 8,y: 27))
+                path.addLine(to: CGPoint(x: 14,y: 28)); path.addLine(to: CGPoint(x: 17,y: 26)); path.addLine(to: CGPoint(x: 13,y: 17))
+                path.addQuadCurve(to: CGPoint(x: 3,y: 3),control: CGPoint(x: 28,y: 18)); path.closeSubpath()
+            case .stepped:
+                path.addLines(between: points([(3,3),(3,26),(7,26),(7,21),(10,21),(13,29),(17,27),(13,18),(21,18),(21,14),(17,14),(17,10),(13,10),(13,7)])); path.closeSubpath()
+            case .lance:
+                path.addLines(between: points([(3,3),(6,26),(10,21),(15,29),(18,27),(13,18),(21,16)])); path.closeSubpath()
+                path.addPath(polygon(points([(7,11),(9,18),(15,16)])))
+            case .scallop:
+                path.move(to: CGPoint(x: 3,y: 3)); path.addLine(to: CGPoint(x: 3,y: 23))
+                path.addQuadCurve(to: CGPoint(x: 8,y: 21),control: CGPoint(x: 4,y: 29))
+                path.addQuadCurve(to: CGPoint(x: 15,y: 29),control: CGPoint(x: 8,y: 30))
+                path.addQuadCurve(to: CGPoint(x: 17,y: 24),control: CGPoint(x: 22,y: 29))
+                path.addLine(to: CGPoint(x: 13,y: 17)); path.addQuadCurve(to: CGPoint(x: 20,y: 14),control: CGPoint(x: 24,y: 21)); path.closeSubpath()
+            case .pennant:
+                path.addLines(between: points([(3,3),(3,28),(7,24),(7,18),(13,28),(17,26),(12,17),(21,15),(15,12),(12,12)])); path.closeSubpath()
+            case .ribbon:
+                path.move(to: CGPoint(x: 3,y: 3)); path.addLine(to: CGPoint(x: 5,y: 26)); path.addLine(to: CGPoint(x: 10,y: 20))
+                path.addCurve(to: CGPoint(x: 18,y: 27),control1: CGPoint(x: 11,y: 31),control2: CGPoint(x: 16,y: 32))
+                path.addLine(to: CGPoint(x: 13,y: 17)); path.addQuadCurve(to: CGPoint(x: 21,y: 15),control: CGPoint(x: 25,y: 20)); path.closeSubpath()
+            case .doubleNib:
+                path.addLines(between: points([(3,3),(3,26),(8,21),(12,28),(16,26),(12,18),(21,17),(17,12),(14,14),(10,9)])); path.closeSubpath()
+            case .bracket:
+                path.addLines(between: points([(3,3),(3,27),(8,23),(8,20),(12,29),(16,27),(12,17),(21,17),(16,12),(12,12),(12,9)])); path.closeSubpath()
+            case .droplet:
+                path.move(to: CGPoint(x: 3,y: 3))
+                path.addCurve(to: CGPoint(x: 5,y: 24),control1: CGPoint(x: 3,y: 12),control2: CGPoint(x: 1,y: 22))
+                path.addQuadCurve(to: CGPoint(x: 10,y: 20),control: CGPoint(x: 7,y: 27)); path.addLine(to: CGPoint(x: 14,y: 28))
+                path.addQuadCurve(to: CGPoint(x: 18,y: 26),control: CGPoint(x: 19,y: 31)); path.addLine(to: CGPoint(x: 13,y: 18))
+                path.addCurve(to: CGPoint(x: 3,y: 3),control1: CGPoint(x: 29,y: 21),control2: CGPoint(x: 15,y: 8)); path.closeSubpath()
+            case .comet:
+                path.addLines(between: points([(3,3),(4,26),(9,21),(14,29),(18,26),(13,18),(21,18),(17,14),(19,12),(12,10)])); path.closeSubpath()
             }
         }
-        paint(path,evenOdd: geometry == .cutPaper || geometry == .technical)
+        paint(path,evenOdd: geometry == .cutPaper || geometry == .technical || geometry == .lance)
     case .pointer:
         let finger: CGFloat = (alternate ? 1.35 : 1.85)+index*0.035
         let left: CGFloat = 3.5+index*0.15, right: CGFloat = 24-index*0.06

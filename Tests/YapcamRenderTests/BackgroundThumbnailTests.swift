@@ -5,7 +5,9 @@ import CoreGraphics
 final class BackgroundThumbnailTests: XCTestCase {
     func testCatalogIsStableFilterableAndEncodesPickerMetadata() throws {
         let entries = BackgroundLibrary.catalog()
-        XCTAssertEqual(entries.count, 12)
+        XCTAssertEqual(entries.count, 182)
+        XCTAssertEqual(BackgroundPreset.Category.allCases.count,9)
+        XCTAssertEqual(BackgroundPreset.Category.allCases.map { BackgroundLibrary.catalog(category: $0).count },[18,24,21,20,23,17,18,10,31])
         XCTAssertEqual(BackgroundLibrary.defaultPreset.id, "deep-slate")
         XCTAssertEqual(Set(entries.map(\.id)).count, entries.count)
         for entry in entries {
@@ -104,11 +106,14 @@ final class BackgroundThumbnailTests: XCTestCase {
         let cache = BackgroundThumbnailCache()
         let start = ProcessInfo.processInfo.systemUptime
         var images: [CGImage] = []
-        for preset in BackgroundLibrary.presets {
+        // A category is the visible grid; the bounded cache intentionally cannot
+        // retain all182 full-size cells simultaneously.
+        let visible=BackgroundLibrary.presets.filter { $0.category == .rays }
+        for preset in visible {
             images.append(try await cache.image(for: preset, width: 160, height: 100))
         }
         let generated = ProcessInfo.processInfo.systemUptime
-        for (index, preset) in BackgroundLibrary.presets.enumerated() {
+        for (index, preset) in visible.enumerated() {
             let image = try await cache.image(for: preset, width: 160, height: 100)
             XCTAssertTrue(image === images[index])
         }

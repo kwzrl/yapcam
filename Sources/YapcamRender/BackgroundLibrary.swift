@@ -5,8 +5,10 @@ import UniformTypeIdentifiers
 import YapcamCore
 
 public struct BackgroundPreset: Identifiable, Sendable, Equatable {
-    public enum Category: String, CaseIterable, Sendable, Codable { case gradients, landscapes, geometry }
-    public enum Artwork: Sendable { case gradient, aurora, strata, orbit }
+    public enum Category: String, CaseIterable, Sendable, Codable {
+        case gradients, landscapes, dusk, geometry, currents, pearlescent, midnight, glass, rays
+    }
+    public enum Artwork: Sendable { case gradient, aurora, strata, orbit, dunes, ribbons, prism, stars, panes, rays }
     public let id: String
     public let title: String
     public let category: Category
@@ -28,7 +30,7 @@ public enum BackgroundLibrary {
     private static func preset(_ id: String,_ title: String,_ category: BackgroundPreset.Category,_ artwork: BackgroundPreset.Artwork,_ a: UInt32,_ b: UInt32,_ c: UInt32,_ angle: Float = 45) -> BackgroundPreset {
         BackgroundPreset(id: id,title: title,category: category,artwork: artwork,colors: [color(a),color(b),color(c)],angleDegrees: angle)
     }
-    public static let presets: [BackgroundPreset] = [
+    private static let originalPresets: [BackgroundPreset] = [
         preset("quiet-dawn","Quiet Dawn",.gradients,.gradient,0xF2D6BC,0x7599BD,0xFFFFFF,-20),
         preset("deep-slate","Deep Slate",.gradients,.gradient,0x182B42,0x706988,0xFFFFFF,115),
         preset("soft-sage","Soft Sage",.gradients,.gradient,0xC4D5BE,0x466D63,0xFFFFFF,35),
@@ -42,6 +44,37 @@ public enum BackgroundLibrary {
         preset("golden-rings","Golden Rings",.geometry,.orbit,0x2D363F,0xAA8758,0xD9C7A3),
         preset("cool-rings","Cool Rings",.geometry,.orbit,0x233544,0x527F91,0xAEC7C6)
     ]
+    /// Nine authored collections, 182 choices. Existing IDs and their pixels are
+    /// stable. Each collection has its own analytic composition and palette range;
+    /// there are no system wallpapers, photographs, downloads or vendor assets.
+    public static let presets: [BackgroundPreset] = {
+        let collections: [(BackgroundPreset.Category,Int,String,BackgroundPreset.Artwork,Float)] = [
+            (.gradients,18,"Quiet",.gradient,0.59),(.landscapes,24,"Horizon",.strata,0.36),
+            (.dusk,21,"Afterglow",.dunes,0.96),(.geometry,20,"Contour",.orbit,0.11),
+            (.currents,23,"Current",.ribbons,0.53),(.pearlescent,17,"Luster",.prism,0.75),
+            (.midnight,18,"Nightfall",.stars,0.65),(.glass,10,"Pane",.panes,0.48),
+            (.rays,31,"Radiance",.rays,0.08)
+        ]
+        func hsv(_ h: Float,_ s: Float,_ v: Float) -> SIMD3<Float> {
+            let hue=(h-floor(h))*6, sector=Int(hue), f=hue-Float(sector)
+            let p=v*(1-s),q=v*(1-s*f),t=v*(1-s*(1-f))
+            switch sector { case 0: return SIMD3(v,t,p); case 1: return SIMD3(q,v,p)
+            case 2: return SIMD3(p,v,t); case 3: return SIMD3(p,q,v)
+            case 4: return SIMD3(t,p,v); default: return SIMD3(v,p,q) }
+        }
+        return collections.flatMap { category,count,name,artwork,hue -> [BackgroundPreset] in
+            let legacy=originalPresets.filter { $0.category == category }
+            return legacy+(legacy.count..<count).map { index in
+                let phase=Float(index)/Float(count), dark=category == .midnight
+                let saturation: Float=category == .pearlescent || category == .glass ? 0.28 : 0.58
+                return BackgroundPreset(id: "\(category.rawValue)-\(index+1)",title: "\(name) \(index+1)",category: category,artwork: artwork,
+                    colors: [hsv(hue+phase*0.35,saturation,dark ? 0.07+phase*0.1 : 0.25+phase*0.16),
+                             hsv(hue+phase*0.35+0.16,saturation*0.68,dark ? 0.22+phase*0.16 : 0.72+phase*0.22),
+                             hsv(hue+phase*0.35+0.32,saturation*0.3,dark ? 0.65 : 0.98)],
+                    angleDegrees: phase*170-70)
+            }
+        }
+    }()
     /// Original library in display order. nil includes all categories; no media I/O.
     public static func catalog(category: BackgroundPreset.Category? = nil) -> [Entry] {
         presets.filter { category == nil || $0.category == category }.map {
@@ -90,6 +123,33 @@ public enum BackgroundLibrary {
                     let px=(u-0.55)*Float(width)/Float(height), py=v-0.55
                     let radius=sqrt(px*px+py*py)
                     t=0.5+0.3*cos(radius*24); accent=max(0,1-radius)*0.15
+                case .dunes:
+                    let ridge=v+0.16*sin(4*u+angle)+0.05*sin(9*u-angle)
+                    t=min(1,max(0,ridge)); accent=0.35*exp(-pow(ridge-0.55,2)/0.012)
+                case .ribbons:
+                    let wave=sin(7*u+4*v+angle)+0.35*sin(13*v-3*u)
+                    t=0.5+0.32*wave; accent=0.3*exp(-pow(wave-0.6,2)/0.08)
+                case .prism:
+                    t=0.5+0.25*sin(4*u+angle)+0.2*cos(5*v-angle)
+                    accent=0.45*pow(max(0,sin(8*(u+v)+angle)),3)
+                case .stars:
+                    t=0.25+0.45*exp(-pow(v-0.6-0.15*sin(u*4+angle),2)/0.035)
+                    let cellX=floor(u*29),cellY=floor(v*19)
+                    let seed=sin(cellX*127.1+cellY*311.7+angle*3)*43758.55
+                    if seed-floor(seed)>0.94 {
+                        let x=u*29-cellX-0.5,y=v*19-cellY-0.5
+                        accent=0.7*exp(-(x*x+y*y)/0.003)
+                    }
+                case .panes:
+                    let diagonal=u*1.2+v*0.7+angle*0.2
+                    t=0.3+0.5*v
+                    let stripe=diagonal-floor(diagonal*3)/3
+                    accent=0.28*exp(-pow(stripe-0.025,2)/0.0009)+0.15*max(0,1-stripe*3)
+                case .rays:
+                    let x=u-0.22,y=v-0.15
+                    let direction=atan2(y,x),distance=sqrt(x*x+y*y)
+                    t=min(1,distance*0.9)
+                    accent=0.4*pow(max(0,cos(direction*7+angle)),8)*exp(-distance*1.5)
                 }
                 t=min(1,max(0,t))
                 let rgb=(colors[0]*(1-t)+colors[1]*t)*(1-accent)+colors[2]*accent
@@ -116,9 +176,17 @@ public enum BackgroundLibrary {
                 .set(path: "canvas.background.angle_deg",value: .number(Double(preset.angleDegrees)))
             ]))
         }
+        return try await applyWallpaper(preset,to: project,width: width,height: height)
+    }
+    /// A wallpaper choice always becomes an imported image, including analytic
+    /// gradients. This keeps Wallpaper selected and enables its blur control.
+    /// The original apply API retains its gradient-settings behavior for callers.
+    @discardableResult public static func applyWallpaper(_ preset: BackgroundPreset,to project: Project,
+                                                        width: Int = 3840,height: Int = 2160) async throws -> ChangeSet {
+        try Task.checkCancellation()
         let directory=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-wallpaper-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        defer { print("Cleanup render wallpaper import: \(directory.path)"); try? FileManager.default.removeItem(at: directory) }
         let url=directory.appendingPathComponent("background.png")
         let generation=Task.detached(priority: .userInitiated) {
             let image=try image(for: preset,width: width,height: height)

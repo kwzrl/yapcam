@@ -185,7 +185,14 @@ public final class FrameCompositor: @unchecked Sendable {
             cursorRect=placedCursor(size: geometry.size,hotspot: geometry.hotspot)
         }
         var background = empty
-        if frame.background_kind == 2 { background = try image(project.renderBackgroundAsset(index: frame.background_asset)) }
+        if frame.background_kind == 2 {
+            background = try image(project.renderBackgroundAsset(index: frame.background_asset))
+            if frame.background_blur>0 {
+                background = try backgroundBlur.encode(texture: background,
+                    geometry: SourceGeometry(size: CGSize(width: background.width,height: background.height)),
+                    canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)),radius: frame.background_blur,in: cb)
+            }
+        }
         if frame.background_kind == 3, frame.background_blur>0, let screen { background = try backgroundBlur.encode(source: screen,canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)),radius: frame.background_blur,in: cb) }
         func rect(_ r: YcRect) -> SIMD4<Float> { SIMD4(Float(r.x), Float(r.y), Float(r.w), Float(r.h)) }
         func color(_ c: (Float, Float, Float, Float)) -> SIMD4<Float> { SIMD4(c.0, c.1, c.2, c.3) }
