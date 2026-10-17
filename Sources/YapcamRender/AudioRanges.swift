@@ -23,12 +23,18 @@ public struct RenderAudioRange: Sendable, Decodable {
         }
     }
     func fileNs(atTimelineNs ns: Int64) -> Int64 {
-        fileStartNs+Self.scaledOffset(ns-tlStartNs,from: tlEndNs-tlStartNs,to: fileEndNs-fileStartNs)
+        let time=min(tlEndNs,max(tlStartNs,ns))
+        return fileStartNs+Self.scaledOffset(time-tlStartNs,from: tlEndNs-tlStartNs,to: fileEndNs-fileStartNs)
     }
     func timelineNs(atFileNs ns: Int64) -> Int64 {
-        tlStartNs+Self.scaledOffset(ns-fileStartNs,from: fileEndNs-fileStartNs,to: tlEndNs-tlStartNs)
+        let time=min(fileEndNs,max(fileStartNs,ns))
+        return tlStartNs+Self.scaledOffset(time-fileStartNs,from: fileEndNs-fileStartNs,to: tlEndNs-tlStartNs)
     }
     private static func scaledOffset(_ offset: Int64,from length: Int64,to outputLength: Int64) -> Int64 {
+        // A zero physical span represents an unavailable device tail. Callers
+        // normally skip it, but direct clock queries must remain total.
+        guard length > 0, outputLength > 0 else { return 0 }
+        let offset=min(length,max(0,offset))
         // Full-width integer multiplication preserves clocks beyond Double's exact range.
         let product=UInt64(offset).multipliedFullWidth(by: UInt64(outputLength))
         let divisor=UInt64(length)

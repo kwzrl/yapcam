@@ -38,6 +38,12 @@ final class PreviewSettingsTests: XCTestCase {
         XCTAssertEqual(PreviewClock.time(anchorNs: before,elapsed: 100,rate: 8,durationNs: duration),duration)
         XCTAssertEqual(PreviewClock.time(anchorNs: 0,elapsed: Double.greatestFiniteMagnitude,rate: 8,durationNs: .max),.max)
         XCTAssertEqual(PreviewClock.time(anchorNs: 100,elapsed: -1,rate: 1,durationNs: duration),100)
+        XCTAssertEqual(PreviewClock.position(.min,durationNs: .min),0)
+        XCTAssertEqual(PreviewClock.position(.max,durationNs: duration),duration-1)
+        XCTAssertEqual(PreviewClock.playerTime(seconds: .nan,fallbackNs: 123,durationNs: duration),123)
+        XCTAssertEqual(PreviewClock.playerTime(seconds: -.infinity,fallbackNs: .max,durationNs: duration),duration-1)
+        XCTAssertEqual(PreviewClock.playerTime(seconds: Double.greatestFiniteMagnitude,fallbackNs: 0,durationNs: .max),.max)
+        XCTAssertEqual(PreviewClock.playerTime(seconds: 1.25,fallbackNs: 0,durationNs: duration),1_250_000_000)
     }
 
     @MainActor func testControlsResizeBackingRestoreDefaultsAndKeepSnapshotOnHost() throws {

@@ -43,6 +43,24 @@ public struct PreviewSettings: Equatable, Sendable {
 }
 
 enum PreviewClock {
+    /// A malformed custom source must not underflow `durationNs - 1` while a
+    /// user seek is being clamped.
+    static func position(_ requestedNs: Int64, durationNs: Int64) -> Int64 {
+        guard durationNs > 0 else { return 0 }
+        return max(0,min(requestedNs,durationNs-1))
+    }
+
+    /// AVFoundation clocks are floating point and may report invalid or very
+    /// large finite values for damaged media. Saturate before converting.
+    static func playerTime(seconds: Double, fallbackNs: Int64, durationNs: Int64) -> Int64 {
+        let end=max(0,durationNs)
+        guard seconds.isFinite else { return position(fallbackNs,durationNs: durationNs) }
+        let nanoseconds=seconds*1e9
+        guard nanoseconds.isFinite, nanoseconds<Double(Int64.max), nanoseconds<Double(end) else { return end }
+        guard nanoseconds>0 else { return 0 }
+        return min(end,Int64(nanoseconds.rounded()))
+    }
+
     /// Saturates before converting to Int64, including a long sleep or huge timeline.
     static func time(anchorNs: Int64, elapsed: Double, rate: Double, durationNs: Int64) -> Int64 {
         let end=max(0,durationNs), anchor=max(0,min(anchorNs,end))

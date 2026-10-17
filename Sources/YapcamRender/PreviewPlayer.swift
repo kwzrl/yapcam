@@ -97,7 +97,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
     public func togglePlay() { isPlaying ? pause() : play() }
     public func seek(toNs ns: Int64, precise: Bool) {
         atEnd = ns >= project.durationNs
-        currentNs = max(0, min(ns, max(0, project.durationNs - 1)))
+        currentNs = PreviewClock.position(ns,durationNs: project.durationNs)
         anchorNs = currentNs; anchorHost = ProcessInfo.processInfo.systemUptime
         seekGeneration += 1; redrawRevision += 1
         let tolerance = precise ? CMTime.zero : CMTime(value: 1, timescale: 30)
@@ -212,11 +212,11 @@ struct PreviewAudioStartupDiagnostics: Encodable {
             guard player.currentItem?.status != .failed else { error = player.currentItem?.error?.localizedDescription ?? "Audio playback failed"; isPlaying = false; player.pause(); view?.isPaused = true; finishMetrics(); return }
             guard player.currentItem?.status == .readyToPlay else { return }
             let seconds = player.currentTime().seconds
-            time = seconds.isFinite ? Int64((seconds * 1e9).rounded()) : currentNs
+            time = PreviewClock.playerTime(seconds: seconds,fallbackNs: currentNs,durationNs: project.durationNs)
         } else if audioLoading { return }
         else { time = PreviewClock.time(anchorNs: anchorNs,elapsed: ProcessInfo.processInfo.systemUptime-anchorHost,rate: previewSettings.playbackRate,durationNs: project.durationNs) }
         if time >= project.durationNs {
-            currentNs = max(0, project.durationNs - 1); atEnd = true; isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
+            currentNs = PreviewClock.position(.max,durationNs: project.durationNs); atEnd = true; isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
             finishMetrics()
         } else { currentNs = max(0, time) }
     }

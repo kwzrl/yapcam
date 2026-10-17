@@ -21,4 +21,16 @@ final class AudioRangeTests: XCTestCase {
         row.tlEndNs=0
         XCTAssertThrowsError(try row.validate())
     }
+
+    func testZeroPhysicalSpanAndOutOfRangeQueriesClampWithoutTrapping() throws {
+        let missing=RenderAudioRange(track: .mic,path: "missing.wav",fileStartNs: 50,fileEndNs: 50,tlStartNs: 100,tlEndNs: 200)
+        try missing.validate()
+        XCTAssertEqual(missing.fileNs(atTimelineNs: 150),50)
+        XCTAssertEqual(missing.timelineNs(atFileNs: 50),100)
+        let row=RenderAudioRange(track: .mic,path: "audio.wav",fileStartNs: 10,fileEndNs: 20,tlStartNs: 100,tlEndNs: 200)
+        XCTAssertEqual(row.fileNs(atTimelineNs: .min),10)
+        XCTAssertEqual(row.fileNs(atTimelineNs: .max),20)
+        XCTAssertEqual(row.timelineNs(atFileNs: .min),100)
+        XCTAssertEqual(row.timelineNs(atFileNs: .max),200)
+    }
 }
