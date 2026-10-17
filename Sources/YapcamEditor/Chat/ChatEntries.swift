@@ -32,7 +32,8 @@ private struct UserBubble: View {
     }
 }
 
-/// An agent turn: who acted, its reply, the changes (a row jumps the playhead to its spot), Keep / Undo.
+/// An agent turn: who acted, its reply (first paragraph, "More" for the rest), the changes (a row jumps the playhead
+/// to its spot), Keep / Undo.
 private struct AgentTurn: View {
     @ObservedObject var model: EditorModel
     let entry: AgentEntry
@@ -40,10 +41,7 @@ private struct AgentTurn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(entry.source).font(Yap.Font.caption).foregroundStyle(Yap.faint).padding(.leading, 8)
-            if !entry.text.isEmpty {
-                Text(entry.text).font(Yap.Font.body).foregroundStyle(Yap.body)
-                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).padding(.horizontal, 8)
-            }
+            if let reply = ChatReply.visibleText(of: entry) { ChatReplyText(text: reply).padding(.horizontal, 8) }
             if !entry.changes.isEmpty { changes; ChatDecision(model: model, entry: entry).padding(.leading, 8).padding(.top, 2) }
         }
     }
@@ -53,8 +51,9 @@ private struct AgentTurn: View {
             Text(Self.countTitle(entry.changes.count)).font(.system(size: 13, weight: .semibold)).foregroundStyle(Yap.title)
                 .padding(.horizontal, 8).padding(.bottom, 2)
             ForEach(entry.changes) { c in
-                ValueRow(symbol: c.symbol, title: c.label, value: c.timeNs.map { formatTimecode($0, showFraction: false) } ?? "",
-                         help: c.timeNs == nil ? c.label : "Show on the timeline") {
+                let value = c.timeNs.map { formatTimecode($0, showFraction: false) } ?? ""
+                ValueRow(symbol: ChatChangeStyle.symbol(for: c), title: ChatChangeStyle.title(c.label, value: value), value: value,
+                         help: c.timeNs == nil ? c.label : "\(c.label): show on the timeline") {
                     guard let t = c.timeNs else { return }
                     model.bottomPanel = .timeline
                     model.seek(toNs: min(max(t, 0), model.durationNs))
@@ -65,6 +64,94 @@ private struct AgentTurn: View {
     }
 
     static func countTitle(_ n: Int) -> String { n == 1 ? "1 change" : "\(n) changes" }
+}
+
+/// What part of an agent reply the chat shows.
+enum ChatReply {
+    /// The reply, or nil when there is none or it only repeats the change rows (MCP turns log their labels as text).
+    static func visibleText(of entry: AgentEntry) -> String? {
+        let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text != entry.changes.map(\.label).joined(separator: ", ") else { return nil }
+        return text
+    }
+
+    /// The reply split at its first blank line: the lead paragraph and whatever follows (nil when nothing does).
+    static func split(_ text: String) -> (lead: String, rest: String?) {
+        let paragraphs = text.components(separatedBy: "\n").split { $0.trimmingCharacters(in: .whitespaces).isEmpty }
+            .map { $0.joined(separator: "\n") }
+        guard let lead = paragraphs.first else { return (text, nil) }
+        let rest = paragraphs.dropFirst().joined(separator: "\n\n")
+        return (lead, rest.isEmpty ? nil : rest)
+    }
+}
+
+/// The reply, collapsed to its first paragraph at most three lines tall; "More" shows all of it.
+struct ChatReplyText: View {
+    let text: String
+    @State private var expanded = false
+    @State private var clipped = false
+    static let collapsedLines = 3
+
+    var body: some View {
+        let parts = ChatReply.split(text)
+        VStack(alignment: .leading, spacing: 4) {
+            if expanded {
+                reply(text)
+            } else {
+                reply(parts.lead).lineLimit(Self.collapsedLines)
+                    .background(alignment: .topLeading) { overflowProbe(parts.lead) }
+            }
+            if expanded || parts.rest != nil || clipped {
+                Button(expanded ? "Less" : "More") { withAnimation(Yap.Motion.select) { expanded.toggle() } }
+                    .buttonStyle(.plain).font(Yap.Font.caption).foregroundStyle(Yap.caption)
+                    .accessibilityHint(expanded ? "Shows only the first paragraph" : "Shows the whole reply")
+            }
+        }
+    }
+
+    private func reply(_ s: String) -> some View {
+        Text(s).font(Yap.Font.body).foregroundStyle(Yap.body)
+            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+    }
+
+    /// The lead paragraph laid out without a line limit, invisible: taller than the visible text → it was cut.
+    private func overflowProbe(_ s: String) -> some View {
+        GeometryReader { box in
+            Text(s).font(Yap.Font.body).fixedSize(horizontal: false, vertical: true)
+                .frame(width: box.size.width, alignment: .leading).hidden()
+                .onGeometryChange(for: Bool.self) { $0.size.height > box.size.height + 1 } action: { clipped = $0 }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// How a change row looks: a symbol per kind of edit, and the title without the time the row already shows in yellow.
+enum ChatChangeStyle {
+    static func symbol(for change: AgentChange) -> String {
+        switch change.symbol {
+        case "scissors": return "scissors"
+        case "plus.magnifyingglass", "minus.magnifyingglass", "magnifyingglass": return change.symbol
+        case "text.bubble", "textformat": return "textformat"
+        case "sparkles": break
+        default: return change.symbol
+        }
+        let l = change.label.lowercased()
+        func starts(_ prefixes: String...) -> Bool { prefixes.contains { l.hasPrefix($0) } }
+        if starts("cut", "trim", "split", "removed filler", "tightened") { return "scissors" }
+        if starts("zoom", "adjusted zoom", "added automatic zoom") { return "plus.magnifyingglass" }
+        if starts("caption", "text", "edited caption", "generated captions") { return "textformat" }
+        if starts("background", "padding", "applied visual preset", "adjusted canvas") { return "paintbrush" }
+        if starts("clip speed", "sped up") { return "gauge.with.needle" }
+        if starts("updated speaker notes") { return "note.text" }
+        if l.hasSuffix(": on") || l.hasSuffix(": off") || starts("adjusted") { return "slider.horizontal.3" }
+        return "sparkles"
+    }
+
+    /// "Zoom 1.8× on click 0:42" with 0:42 in the value column reads "Zoom 1.8× on click".
+    static func title(_ label: String, value: String) -> String {
+        guard !value.isEmpty, label.hasSuffix(" " + value) else { return label }
+        return String(label.dropLast(value.count + 1))
+    }
 }
 
 /// Keep / Undo for an open entry; afterwards a quiet note. Undo works only on the latest step (the editor's undo).
