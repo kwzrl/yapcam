@@ -3,6 +3,7 @@ import AppKit
 import UniformTypeIdentifiers
 import AVFoundation
 import SwiftUI
+import YapcamDesign
 import YapcamCore
 import YapcamEditor
 import YapcamRender
@@ -315,8 +316,11 @@ import YapcamRender
             p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true
             p.level = .floating; p.isMovableByWindowBackground = true; p.isReleasedWhenClosed = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            p.contentView = NSHostingView(rootView: QuickExportWidgetView(model: model, close: { [weak self] in self?.panel?.orderOut(nil) })
+            let host = NSHostingView(rootView: QuickExportWidgetView(model: model, close: { [weak self] in self?.panel?.orderOut(nil) })
                 .environmentObject(QuickExport.shared))
+            host.sizingOptions = [.intrinsicContentSize]
+            p.contentView = host
+            p.setContentSize(host.fittingSize)
             RecordingController.shared.engine.registerExcluded(p)
             panel = p
         }
@@ -357,40 +361,47 @@ struct QuickExportWidgetView: View {
     @EnvironmentObject var export: QuickExport
     @ObservedObject private var settings = AppSettings.shared
 
+    // Panel corner 22, content inset 12: inner corners are concentric (10).
+    private let radius: CGFloat = 22, inset: CGFloat = 12
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.08))
+                    Color.white.opacity(0.06)
                     if let m = model.movie { LoopingPreview(url: m) }
                     else if let t = model.thumbnail { Image(nsImage: t).resizable().scaledToFill() }
-                    else { Image(systemName: "film").foregroundStyle(.tertiary) }
+                    else { Image(systemName: "film").foregroundStyle(Yap.faint) }
                 }
-                .frame(width: 96, height: 60).clipShape(RoundedRectangle(cornerRadius: 6))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.package?.deletingPathExtension().lastPathComponent ?? "Recording").font(.system(size: 13, weight: .medium)).lineLimit(1)
-                    Text("Will export \(QuickExport.summary(settings.quickExport))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .frame(width: 112, height: 70)
+                .clipShape(RoundedRectangle(cornerRadius: Yap.concentric(radius, inset: inset), style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.package?.deletingPathExtension().lastPathComponent ?? "Recording")
+                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(Yap.title).lineLimit(1)
+                    Text(QuickExport.summary(settings.quickExport)).technical().lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     status
                 }
-                Spacer(minLength: 0)
-                VStack(spacing: 8) {
-                    Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Close").accessibilityLabel("Close")
-                    Button { SettingsWindow.shared.show(tab: .quickExport) } label: { Image(systemName: "gearshape").font(.system(size: 11)) }
-                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Quick export settings").accessibilityLabel("Quick export settings")
+                .padding(.top, 2)
+                Spacer(minLength: 4)
+                HStack(spacing: 6) {
+                    Button { SettingsWindow.shared.show(tab: .quickExport) } label: { Image(systemName: "gearshape") }
+                        .buttonStyle(CircleButtonStyle(size: 26)).help("Quick export settings").accessibilityLabel("Quick export settings")
+                    Button(action: close) { Image(systemName: "xmark") }
+                        .buttonStyle(CircleButtonStyle(size: 26)).help("Close").accessibilityLabel("Close")
                 }
             }
             HStack(spacing: 8) {
-                Button("Copy") { run(.copy) }
-                Button("Save…") { run(.save) }
+                Button("Copy") { run(.copy) }.buttonStyle(CapsuleButtonStyle(.secondary, height: 30))
+                Button("Save…") { run(.save) }.buttonStyle(CapsuleButtonStyle(.secondary, height: 30))
                 Spacer()
                 Button("Edit") { if let p = model.package { RecordingController.shared.engine.openEditor(package: p); close() } }
+                    .buttonStyle(CapsuleButtonStyle(.primary, height: 30))
                     .keyboardShortcut(.defaultAction)
             }
-            .controlSize(.small).disabled(isWorking)
+            .disabled(isWorking)
         }
-        .padding(14).frame(width: 340)
-        .panelSurface(cornerRadius: 14)
+        .padding(inset).frame(width: 380)
+        .panelSurface(cornerRadius: radius)
     }
 
     private var isWorking: Bool { if case .working = export.state { true } else { false } }
@@ -398,19 +409,26 @@ struct QuickExportWidgetView: View {
     @ViewBuilder private var status: some View {
         switch export.state {
         case .working(let p):
-            HStack(spacing: 6) {
-                ProgressView(value: p).controlSize(.small).frame(maxWidth: 110)
+            HStack(spacing: 8) {
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Yap.recess)
+                        Capsule().fill(Color.white).frame(width: max(g.size.width * p, 6))
+                    }
+                }
+                .frame(width: 90, height: 5)
+                .accessibilityElement().accessibilityLabel("Export progress").accessibilityValue("\(Int(p * 100)) percent")
                 Text(QuickExport.remainingText(elapsed: Date().timeIntervalSince(export.startedAt ?? Date()), progress: p) ?? "\(Int(p * 100))%")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Button("Stop") { confirmStop() }.buttonStyle(.link).font(.caption)
+                    .font(Yap.Font.technical).foregroundStyle(Yap.technical).lineLimit(1)
+                Button("Stop") { confirmStop() }.buttonStyle(.plain).font(Yap.Font.caption).foregroundStyle(Yap.label)
             }
         case .done(let m):
             HStack(spacing: 6) {
-                Label(m, systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green).lineLimit(1)
-                if let u = export.lastOutput { Button("Show in Finder") { FinderReveal.show(u) }.buttonStyle(.link).font(.caption) }
+                Label(m, systemImage: "checkmark").font(Yap.Font.caption).foregroundStyle(Yap.label).lineLimit(1)
+                if let u = export.lastOutput { Button("Show in Finder") { FinderReveal.show(u) }.buttonStyle(.plain).font(Yap.Font.caption).foregroundStyle(Yap.body) }
             }
-        case .failed(let m): Label(m, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange).lineLimit(2)
-        case .idle: EmptyView()
+        case .failed(let m): Label(m, systemImage: "exclamationmark.triangle").font(Yap.Font.caption).foregroundStyle(Yap.technical).lineLimit(2)
+        case .idle: Text("Ready to edit or export").font(Yap.Font.caption).foregroundStyle(Yap.caption).lineLimit(1)
         }
     }
 

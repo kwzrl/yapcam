@@ -99,7 +99,7 @@ import SwiftUI
         }))
         out.append(("quick-export-widget", {
             RecordingController.shared.debugSetPhase(.idle)
-            return host(QuickExportWidgetView(model: QuickExportWidgetModel(), close: {}).environmentObject(QuickExport.shared), width: 340)
+            return host(QuickExportWidgetView(model: QuickExportWidgetModel(), close: {}).environmentObject(QuickExport.shared), width: 380)
         }))
         out.append(("popover-recents", { host(RecentsPopover(dismiss: {}), width: 300) }))
         out.append(("popover-after-recording", { host(AfterRecordingPopover(), width: 290) }))
