@@ -18,6 +18,12 @@ import AppKit
             i.target = target
             return i
         }
+        func afterRecordingItem() -> NSMenuItem {
+            let host = NSMenuItem(title: "After Recording", action: nil, keyEquivalent: "")
+            let m = AfterRecordingMenu.populated(); m.delegate = AfterRecordingMenu.mainMenuDelegate
+            host.submenu = m
+            return host
+        }
         func add(_ title: String, _ items: [NSMenuItem]) {
             let m = NSMenu(title: title)
             items.forEach(m.addItem)
@@ -41,8 +47,13 @@ import AppKit
         add("File", [
             item("Open Recording…", #selector(AppDelegate.openProject), "o"),
             item("Import Video…", #selector(AppDelegate.importVideo), "i"),
+            item("Recover Recording…", #selector(AppDelegate.recoverRecording)),
             item("Recordings…", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
+            .separator(),
+            item("Save As…", #selector(AppDelegate.saveProjectAs), "s", mods: [.command, .shift]),
+            item("Show Project in Finder", #selector(AppDelegate.showProjectInFinder)),
+            item("Copy and Zip Project", #selector(AppDelegate.copyAndZipProject)),
             .separator(),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: nil),
         ])
@@ -70,6 +81,7 @@ import AppKit
             item("Restart Recording…", #selector(AppDelegate.restartRecording)),
             item("Cancel Recording…", #selector(AppDelegate.cancelRecording)),
             .separator(),
+            afterRecordingItem(),
             shortcutItem("Speaker Notes…", #selector(AppDelegate.showNotes), .toggleNotes),
             item("Show Toolbar", #selector(AppDelegate.toggleToolbar)),
             .separator(),

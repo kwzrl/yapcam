@@ -8,7 +8,7 @@ import SwiftUI
         var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
                  "popover-notes", "teleprompter", "overlay-display", "overlay-window", "get-ready", "quick-export-widget", "popover-after-recording", "popover-recents",
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
-                 "settings-storage", "settings-advanced"]
+                 "settings-editing", "settings-quick-export", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
         return n
     }()
@@ -104,7 +104,8 @@ import SwiftUI
         out.append(("settings-general", { host(GeneralSettings().frame(height: 380), width: 520) }))
         out.append(("settings-recording", { host(RecordingSettings().frame(height: 380), width: 520) }))
         out.append(("settings-shortcuts", { host(ShortcutSettings().frame(height: 380), width: 520) }))
-        out.append(("settings-storage", { host(StorageSettings().frame(height: 380), width: 520) }))
+        out.append(("settings-editing", { host(EditingSettings().frame(height: 380), width: 520) }))
+        out.append(("settings-quick-export", { host(QuickExportSettings().frame(height: 380), width: 520) }))
         out.append(("settings-advanced", { host(AdvancedSettings().frame(height: 380), width: 520) }))
         if let v = AreaSelector.shared.debugContentView { out.append(("area-overlay", { v })) }
         return out

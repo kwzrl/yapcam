@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Floating, non-activating vertical toolbar. Draggable by its background/grabber;
+/// Floating, non-activating horizontal bar (the recording picker, and the widget while recording). Draggable by its background/grabber;
 /// remembers its position per display (as a fraction of the display frame) and
 /// stays on screen when displays change.
 @MainActor final class ToolbarPanelController: NSObject, NSWindowDelegate {
@@ -17,7 +17,7 @@ import SwiftUI
 
     private override init() {
         super.init()
-        let p = ToolbarPanel(contentRect: CGRect(x: 0, y: 0, width: 64, height: 300),
+        let p = ToolbarPanel(contentRect: CGRect(x: 0, y: 0, width: 560, height: 64),
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
@@ -48,20 +48,39 @@ import SwiftUI
         }
 
         RecordingController.shared.$phase.removeDuplicates()
-            .sink { [weak self] _ in DispatchQueue.main.async { self?.refit() } }.store(in: &bag)
+            .sink { [weak self] phase in DispatchQueue.main.async { self?.refit(); if phase == .recording { self?.stepAsideFromArea() } } }.store(in: &bag)
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
+    private var keyMonitor: Any?
+
+    /// Esc on the bar: deselect the open source, or close the bar when none is open; 1 / 2 / 3 pick a source.
+    /// Only while the bar itself has the keyboard (not a popover or another app).
+    private func installKeys() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, NSApp.keyWindow === panel, RecordingController.shared.phase == .idle, NSApp.modalWindow == nil,
+                  !(panel.firstResponder is NSText) else { return event }
+            let plain = event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+            if event.keyCode == 53 { SourcePicker.escape(); return nil }
+            if case .mode(let m) = OverlayKeys.action(keyCode: event.keyCode, typing: false, plain: plain) { SourcePicker.open(m); return nil }
+            return event
+        }
+    }
+
     func show() {
+        installKeys()
+        CameraPreviewPanel.shared.start()
         refit(initial: true)
         panel.orderFrontRegardless()
+        CameraPreviewPanel.shared.update()
         // SwiftUI reports its real size only after the first layout pass; fit again once it has run.
         DispatchQueue.main.async { [weak self] in self?.refit() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refit() }
     }
 
-    func hide() { panel.orderOut(nil) }
+    func hide() { panel.orderOut(nil); CameraPreviewPanel.shared.update() }
     var isVisible: Bool { panel.isVisible }
     func toggle() { isVisible ? hide() : show() }
 
@@ -77,19 +96,26 @@ import SwiftUI
             panel.setFrame(CGRect(origin: .zero, size: size), display: false)
             panel.setFrameOrigin(initialOrigin(for: size))
         } else {
-            var f = panel.frame
-            let top = f.maxY
-            f.size = size
-            f.origin.y = top - size.height
-            panel.setFrame(f, display: true)
+            panel.setFrame(ToolbarGeometry.resized(panel.frame, to: size), display: true)
         }
         clampToScreen()
         updateSide()
     }
 
+    /// Area recordings: the widget moves off the recorded rectangle (it is excluded from the capture either way).
+    private func stepAsideFromArea() {
+        let s = AppSettings.shared
+        guard s.sourceMode == .area, let local = s.areaRect, let screen = Displays.screen(for: s.areaDisplayID) else { return }
+        let global = AreaGeometry.globalRect(fromLocal: local, screenFrame: screen.frame)
+        let moved = ToolbarGeometry.avoiding(panel.frame, recorded: global, in: screen.visibleFrame)
+        if moved != panel.frame { isAdjusting = true; panel.setFrame(moved, display: true); isAdjusting = false }
+    }
+
     // MARK: Position (rules live in ToolbarGeometry)
 
-    private func key(_ id: UInt32) -> String { "toolbarPos.\(id)" }
+    private func key(_ id: UInt32) -> String { "\(Self.positionKeyPrefix)\(id)" }
+    /// The horizontal bar has its own saved positions (the old vertical toolbar's spots would not fit).
+    static let positionKeyPrefix = "toolbarPos2."
 
     private var screens: [ScreenInfo] {
         NSScreen.screens.compactMap { s in
@@ -145,11 +171,13 @@ import SwiftUI
     private func updateSide() {
         guard let screen = currentScreen() else { return }
         layout.onLeftHalf = ToolbarGeometry.onLeftHalf(frame: panel.frame, of: screen)
+        layout.inLowerHalf = ToolbarGeometry.inLowerHalf(frame: panel.frame, of: screen)
     }
 }
 
 @MainActor final class ToolbarLayoutModel: ObservableObject {
     @Published var onLeftHalf = false
+    @Published var inLowerHalf = true
     /// Moves the toolbar by (dx, dy) points; used by VoiceOver actions and keyboard users.
     var move: (CGFloat, CGFloat) -> Void = { _, _ in }
 }

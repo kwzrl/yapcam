@@ -4,12 +4,15 @@ import AppKit
 /// They are applied by a local key monitor, so they hold no matter which control inside the overlay has focus
 /// (a SwiftUI menu or text field would otherwise swallow Return) and whether or not the overlay is key yet.
 enum OverlayKeys {
-    enum Action: Equatable { case start, cancel, pass }
+    enum Action: Equatable { case start, cancel, mode(SourceMode), pass }
 
     /// `typing` is true while a text field is being edited: Return then belongs to the field (it commits the
     /// value); the next Return starts.
-    static func action(keyCode: UInt16, typing: Bool) -> Action {
+    static func action(keyCode: UInt16, typing: Bool, plain: Bool = true) -> Action {
         switch keyCode {
+        case 18 where !typing && plain: return .mode(.display)     // 1 / 2 / 3 pick Display / Window / Area while the picker is open
+        case 19 where !typing && plain: return .mode(.window)
+        case 20 where !typing && plain: return .mode(.area)
         case 53: return .cancel                       // Esc always cancels
         case 36, 76: return typing ? .pass : .start   // Return / keypad Enter
         default: return .pass
@@ -19,10 +22,13 @@ enum OverlayKeys {
     /// Installs the monitors; returns a token for `remove`. Events are consumed when they trigger an action.
     /// With a `window`, the overlay also keeps claiming the keyboard until it really is key (see `KeyClaim`),
     /// and a global monitor stands in for the local one while another app still holds the keyboard.
-    @MainActor static func install(window: NSWindow? = nil, start: @escaping () -> Void, cancel: @escaping () -> Void) -> Any? {
+    @MainActor static func install(window: NSWindow? = nil, start: @escaping () -> Void, cancel: @escaping () -> Void,
+                                   mode: ((SourceMode) -> Void)? = nil) -> Any? {
         let token = Token()
-        func perform(_ event: NSEvent, typing: Bool) -> Bool {
-            switch action(keyCode: event.keyCode, typing: typing) {
+        func perform(_ event: NSEvent, typing: Bool, allowMode: Bool = true) -> Bool {
+            let plain = event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+            switch action(keyCode: event.keyCode, typing: typing, plain: plain) {
+            case .mode(let m): if allowMode, let mode { if !event.isARepeat { mode(m) }; return true }; return false
             case .start: if !event.isARepeat { start() }; return true
             case .cancel: if !event.isARepeat { cancel() }; return true
             case .pass: return false
@@ -39,7 +45,7 @@ enum OverlayKeys {
             // Global monitors only see keys that go to OTHER apps, i.e. exactly the case where the activation
             // request has not (yet) taken effect: Return/Esc must still act on the overlay that is on screen.
             token.global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-                MainActor.assumeIsolated { _ = perform(event, typing: false) }
+                MainActor.assumeIsolated { _ = perform(event, typing: false, allowMode: false) }
             }
             let claim = KeyClaim(isReady: { NSApp.isActive && window.isKeyWindow }, claim: { [weak window] in
                 NSApp.activate(ignoringOtherApps: true)

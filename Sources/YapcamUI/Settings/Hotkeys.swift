@@ -119,12 +119,11 @@ extension KeyCombo {
 @MainActor enum HotkeyActions {
     static func perform(_ action: HotkeyAction) {
         let rec = RecordingController.shared
-        let settings = AppSettings.shared
         switch action {
         case .startStop: rec.toggleStartStop()
-        case .recordDisplay: if rec.phase == .idle { settings.sourceMode = .display; SourceOverlay.shared.show(.display) }
-        case .recordWindow: if rec.phase == .idle { settings.sourceMode = .window; SourceOverlay.shared.show(.window) }
-        case .recordArea: if rec.phase == .idle { settings.sourceMode = .area; AreaPicker.begin() }
+        case .recordDisplay: SourcePicker.open(.display)
+        case .recordWindow: SourcePicker.open(.window)
+        case .recordArea: SourcePicker.open(.area)
         case .pauseResume: rec.togglePause()
         case .restart: rec.confirmRestart()
         case .marker: rec.addMarker()

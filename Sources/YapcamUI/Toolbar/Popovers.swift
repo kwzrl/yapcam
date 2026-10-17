@@ -84,13 +84,14 @@ struct MicrophonePopover: View {
                     Text("Connect one and it appears here.").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
-                SelectableRow(selected: settings.microphoneID == nil) { settings.microphoneID = nil } content: {
-                    Text("Off")
-                }
                 ForEach(devices.microphones) { m in
                     SelectableRow(selected: settings.microphoneID == m.id) { settings.microphoneID = m.id } content: {
-                        Text(m.name).lineLimit(1)
+                        Text(DeviceLabels.menuName(m.name, isDefault: m.id == devices.defaultMicrophoneID)).lineLimit(1)
                     }
+                }
+                Divider()
+                SelectableRow(selected: settings.microphoneID == nil) { settings.microphoneID = nil } content: {
+                    Text("Don't record microphone")
                 }
                 if settings.microphoneID != nil && !devices.isAvailable(microphone: settings.microphoneID) {
                     Label("Selected microphone is not connected. Recording without it.", systemImage: "exclamationmark.triangle")
@@ -102,9 +103,7 @@ struct MicrophonePopover: View {
             }
         }
         .padding(14).frame(width: 280)
-        .onAppear { devices.reload(); devices.startMeter(deviceID: settings.microphoneID) }
-        .onChange(of: settings.microphoneID) { _, id in devices.startMeter(deviceID: id) }
-        .onDisappear { devices.stopMeter() }
+        .onAppear { devices.reload() }       // the bar owns the level meter
     }
 }
 
@@ -126,16 +125,17 @@ struct CameraPopover: View {
                     Text("Connect one and it appears here.").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
-                SelectableRow(selected: settings.cameraID == nil) { settings.cameraID = nil } content: { Text("Off") }
                 ForEach(devices.cameras) { c in
                     SelectableRow(selected: settings.cameraID == c.id) { settings.cameraID = c.id } content: {
-                        Text(c.name).lineLimit(1)
+                        Text(DeviceLabels.menuName(c.name, isDefault: c.id == devices.defaultCameraID)).lineLimit(1)
                     }
                 }
+                Divider()
+                SelectableRow(selected: settings.cameraID == nil) { settings.cameraID = nil } content: { Text("Don't record camera") }
                 if settings.cameraID != nil && !devices.isAvailable(camera: settings.cameraID) {
                     Label("Selected camera is not connected. Recording without it.", systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
-                } else if settings.cameraID != nil {
+                } else if settings.cameraID != nil && !settings.hideCameraPreview {
                     CameraPreview(session: devices.previewSession)
                         .frame(height: 140).clipShape(RoundedRectangle(cornerRadius: 8))
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.8)))
@@ -143,10 +143,12 @@ struct CameraPopover: View {
             }
             Divider()
             CameraResolutionRow()
+            Toggle("Hide camera preview", isOn: $settings.hideCameraPreview)
         }
         .padding(14).frame(width: 280)
-        .onAppear { devices.reload(); devices.startPreview(deviceID: settings.cameraID) }
-        .onChange(of: settings.cameraID) { _, id in devices.startPreview(deviceID: id) }
+        .onAppear { devices.reload(); devices.startPreview(deviceID: settings.hideCameraPreview ? nil : settings.cameraID) }
+        .onChange(of: settings.cameraID) { _, id in devices.startPreview(deviceID: settings.hideCameraPreview ? nil : id) }
+        .onChange(of: settings.hideCameraPreview) { _, hide in devices.startPreview(deviceID: hide ? nil : settings.cameraID) }
         .onDisappear { devices.stopPreview() }
     }
 }

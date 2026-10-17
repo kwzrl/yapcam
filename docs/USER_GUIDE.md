@@ -45,47 +45,58 @@ any time from **Yapcam → Permissions…**. If macOS says screen recording is d
 even though you turned it on, you probably rebuilt with a different signing identity: toggle
 Yapcam off and on again in System Settings and restart the app.
 
-## Recording with the toolbar
+## Recording with the picker
 
-A narrow floating toolbar sits at the right edge of your screen. Drag it by the dotted grabber
-at the top; it remembers its position per display and stays on screen when displays change. The **×**
-at the top hides it (bring it back from the menu bar item or by clicking the Dock icon). Yapcam's own
-windows are excluded from the recording.
+Yapcam opens a floating bar (the recording picker), by default at the bottom center of your screen.
+Drag it by the dotted grabber on its left; it remembers its position per display and stays on screen when
+displays change. The **×** on the left (or **Esc**) closes it; bring it back from the menu bar item or by
+clicking the Dock icon. Yapcam's own windows are excluded from the recording.
 
-Top to bottom:
+Left to right:
 
-- **Display / Window / Area**: one click picks the source and shows its overlay with a big
-  **Start recording** button (the chevron next to it has frame rate, countdown and system audio: Off, All apps or Selected apps).
-  *Display* dims the display under your pointer and shows its name and size (move to another display and
-  the card follows). *Window* highlights the window under the pointer; click it or press Start recording.
-  *Area* lets you drag a rectangle (aspect presets Free, 16:9, 4:3, 1:1, 9:16; arrow keys move it,
-  Shift+arrows resize, Option moves by 10); Start recording or Return begins. Esc cancels any overlay.
-  The toolbar's own Record button starts with the last used source. Recording a USB iPhone/iPad exists in
-  the code but has no toolbar entry until it has been tested with a real device.
-- **Camera**, **Mic**, **System**: toggles (blue = on). The small chevron opens the device menu in a
-  side popover; with no device it says "No camera" / "No microphone" and recording continues without.
-  The camera menu also has **Max camera resolution** (720p, 1080p default, 4K): a maximum, not a promise;
-  a camera that cannot deliver it records at its best lower format, and the menu shows what will be used.
-  Not tested with real mic/camera devices
-  **(untested live)**.
-- **Folder** opens the recordings folder; **Settings** opens a menu: Settings, Recordings, Speaker Notes,
-  Permissions, Hide Toolbar, Quit.
-- The big **Record** button.
+- **Display / Window / Area** (keys **1 / 2 / 3** while the picker is open): one click picks the source and
+  shows its overlay with a big **Start recording** button; its chevron holds the after-recording action
+  and the countdown. Click the highlighted mode again, or press Esc, to deselect it; Esc with no mode
+  selected closes the picker. *Display* dims the display under your pointer and shows its name, size and
+  refresh rate (right-click the Display button to choose a display directly). *Window* highlights the window
+  under the pointer with a card (app icon, name, size and **Resize**): Resize sets an exact window size
+  (16:9, 4:3, 9:16, 16:10, square, only sizes that fit your display, **Custom…**, **Save current size**)
+  and needs Accessibility; **Adjust recording area** turns the window into an area; the ⋯ menu has Ignore
+  this window, Reset ignored windows, Select window, Bring to front, Record entire display.
+  *Area* ("Drag area you want to record") lets you drag a rectangle (minimum 150×150; aspect Any, 16:9, 4:3, 1:1,
+  3:4, 9:16 or Custom; X/Y/W/H fields; **Saved sizes**); arrow keys move it by 1 point, ⇧ by 10, ⌘+arrows
+  resize by 1, ⌘⇧ by 10. Start recording or Return begins; Esc cancels. Recording a USB iPhone/iPad exists in
+  the code but has no picker entry until it has been tested with a real device.
+- **Camera, Microphone, System audio**: one button each, showing the current choice ("No camera", the device
+  name, "Record system audio", "Sound from 3 apps", "No system audio"). A click opens the menu: devices
+  (the system default is marked), **Don't record …**; the camera menu also has **Max camera resolution**
+  (720p, 1080p default, 4K: a maximum, not a promise) and **Hide camera preview**; the microphone menu shows a live level.
+  A floating camera preview shows while you pick. System audio is off by default; *Record system audio from
+  selected apps* lists the running apps to tick. Not tested with real mic/camera devices **(untested live)**.
+- **Recover** appears when unfinished recordings exist. **Recent** lists your recent projects with search
+  and stays open next to the picker if you leave it open. The **gear** menu is described below.
 
-Speaker notes (Settings menu or Recording → Speaker Notes…) open a small window; its **Teleprompter**
+Speaker notes (gear menu, Recording → Speaker Notes…, ⌘⌥/) open a small window; its **Teleprompter**
 button shows the notes large in a floating window that never appears in the recording, with text size
-and auto-scroll speed. Notes are saved into the project when you stop.
+(12–32), auto-scroll speed (0–25) and notepad opacity (0.4–1); ⌘⌥. plays and pauses. Notes are saved into the
+project when you stop.
+
+**Gear menu**: *While Recording*: Hide Desktop Icons (off), Hide Dock Icon (on), Highlight Recorded Area (on),
+Show Speaker Notes. *After Recording*: Open Quick Export Widget (on) and the after-recording action.
+*Recording Countdown*: None, 3, 5 or 10 seconds. *Advanced → Recording Engine*: Yapcam has one engine,
+ScreenCaptureKit. Then Settings…, Projects…, Permissions….
 
 Press Start recording: a short start sound plays first (Settings → Recording; recording begins when it
 ends, after at most about half a second, even if sound playback fails; the sound is not recorded).
-If a countdown is set (None by default; 3, 5 or 10 s in Settings → General or the card's chevron), a "Get ready" card with a filling ring appears (Continue or Return starts at once, Esc cancels). Then the toolbar
-turns into a compact view with the timer, **Pause/Resume**, **Stop**, **Marker** (a flag at this moment, saved with the recording), **Restart** (discard this take and start over) and
-**Cancel** (delete the recording); both ask first. While recording, the menu bar icon is a red stop button and the Dock icon shows ●. Stop (button, hotkey or menu bar) saves the recording and opens the editor at once, in front, on the new recording.
+If a countdown is set (None by default), a "Get ready" card with a filling ring appears (Continue or Return starts at once, Esc cancels). Then the picker
+turns into the recording widget (48 pt tall): **Stop** with the timer, **Pause/Resume**, **Restart** (discard this take and start over), **Marker** (a flag at this moment, saved with the recording) and
+**Cancel** (delete the recording); restart and cancel ask first. While recording, the menu bar icon is a red stop button; the Dock icon is hidden (Hide Dock Icon) or shows ●. Stop (button, hotkey or menu bar) saves the recording and opens the editor at once, in front, on the new recording.
+Your take is written to disk as it records, so it can be recovered after a crash.
 
-**System audio** (speaker button, or Settings → Recording): *Off*, *All apps* (the default) or *Selected apps*, where you tick the running apps to record. Before a recording starts, Yapcam checks for problems (a chosen camera or microphone that is unplugged, a camera with no microphone, a possibly covered microphone, a missing permission, a selected app that has closed) and asks what to do: continue, choose another device, open System Settings, or cancel. Nothing is asked when everything is fine.
+Before a recording starts, Yapcam checks for problems (a chosen camera or microphone that is unplugged, a camera with no microphone, a possibly covered microphone, a missing permission, a selected app that has closed) and asks what to do: continue, choose another device, open System Settings, or cancel. Nothing is asked when everything is fine.
 
-Verified live on this Mac (display, window and area capture, pause/resume, system audio): Record → countdown → recording → Stop → the editor
-opens on the new recording, and the toolbar, countdown and timer are **not** in the recorded video.
+Verified live on this Mac (display, window and area capture, pause/resume, system audio) with the earlier vertical toolbar: Record → countdown → recording → Stop → the editor
+opens on the new recording, and the toolbar, countdown and timer are **not** in the recorded video. The horizontal picker of this version has been tested offscreen only **(untested live)**.
 The first time you record, macOS may show a prompt that Yapcam wants to bypass the system window
 picker and capture your screen directly; choose **Allow** (macOS asks again from time to time).
 
@@ -114,20 +125,23 @@ Other menu shortcuts: ⌘, Settings · ⇧⌘R Recordings window · ⌘O Open Re
 
 ## After recording
 
-The chevron on the Record button chooses what happens at Stop: **Create project** (default, the editor opens at
-once), **Export and copy to clipboard**, or **Export and save to file** (1080p MP4 with audio, no editor). The
-button then reads "Start recording", "Record & Copy" or "Record & Save". Optionally a small quick-export widget
-(Copy, Save…, Edit) appears instead of the editor (Settings → Quick export). New recordings also get automatic
-zooms from your clicks (Settings → Editing). These new after-recording paths are unit-tested but **untested live**.
+The after-recording action (gear menu, the chevron on the Start recording button, or Recording → After Recording) chooses what happens at Stop: **Create project** (default, the editor opens at
+once), **Export and copy to clipboard**, or **Export and save to file** (no editor). The
+button then reads "Start recording", "Record & Copy" or "Record & Save". By default a small quick-export widget
+(preview, "Will export …", Copy, Save…, Edit, and a settings button) appears bottom left instead of the editor (turn it off in the gear menu or Settings → Quick export). Quick export uses the format,
+resolution, frame rate, compression and codec you set in Settings → Quick export. New recordings also get automatic
+zooms from your clicks (Settings → Recording). These after-recording paths are unit-tested but **untested live**.
 
 ## Settings
 
-- **General**: countdown, Dock icon, menu bar item.
-- **Recording**: frame rate (30/60), hide desktop icons while recording, start/stop sounds, keystroke
-  recording. Hiding icons restarts Finder briefly and restores icons afterwards, even after a crash
-  **(untested live)**. Sounds play before capture starts and after it stops, never inside the recording.
-- **Shortcuts**, **Storage** (recordings folder, free space), **Advanced** (reset toolbar position,
-  show onboarding again, export diagnostics, open logs folder).
+Tabs: **General**, **Recording**, **Editing**, **Quick export**, **Shortcuts**, **Experimental**, **Advanced**.
+
+- **General**: Start Yapcam at login (works from the installed app), Hide Dock Icon, menu bar item, review permissions, Reset preferences (keeps your recordings, the recents list and the recordings folder).
+- **Recording**: Save new projects to (recordings folder, free space), Highlight recorded area, Create zooms automatically, Show recording widget, Countdown, Max camera resolution, start/stop sounds (on), keystroke recording (on; needs Input Monitoring).
+- **Editing**: Use last project settings as default for new recordings, autosave every 30 s, Save presets in.
+- **Quick export**: format, resolution, frame rate, compression, codec, audio; the widget toggle; the after-recording action.
+- **Shortcuts**: *Recording* (rebindable; "Not able to register" when macOS refuses a combination) and *Editing* (the editor's fixed keys, for reference).
+- **Experimental**: variable frame rate export. **Advanced**: frame-rate cap, hide desktop icons (restarts Finder briefly and restores icons afterwards, even after a crash **(untested live)**), reset picker position, onboarding, diagnostics, logs.
 
 ## Editing basics
 
@@ -176,20 +190,20 @@ edit session (split, delete, zoom, padding, undo/redo) survived a hard kill and 
 
 | What | Where |
 |---|---|
-| Recordings (`Name.yapcam` packages) | `~/Movies/Yapcam/` (change in Settings → Storage) |
+| Recordings (`Name.yapcam` packages) | `~/Movies/Yapcam/` (change in Settings → Recording) |
 | Presets | `~/Library/Application Support/Yapcam/Presets/*.yapcampreset` |
 | Logs | `~/Library/Logs/Yapcam/probe.log` |
 | Settings | the app's preferences (`mov.yapcam.Yapcam`) |
 
 A `.yapcam` package is a folder: `project.json` (your edits, written atomically, previous version kept
 as `project.json.prev`), `recording/` (raw screen, audio, camera and event files, untouched by edits)
-and `autosave/`. In the Recordings window, right-click a recording to rename, duplicate, show in Finder,
-**Extract Raw Files…** or move to the Trash. Nothing is ever uploaded.
+and `autosave/`. In the Recordings window, right-click a recording to rename, duplicate, show in Finder, **Save As…**,
+**Copy and Zip** (a zip of the project goes on the clipboard), **Remove from Recents**, **Extract Raw Files…** or move to the Trash. The search box filters by name; the magnifier button finds `.yapcam` packages elsewhere on your Mac. **File → Open Recording…** accepts several packages at once. Nothing is ever uploaded.
 
 ## Recovery
 
 - **Interrupted recording**: if Yapcam or your Mac stopped mid-recording, the next launch offers to
-  recover what was written to disk (also shown as a banner in the Recordings window). If the recording
+  recover what was written to disk (also **File → Recover Recording…**, the picker's **Recover** button and a banner in the Recordings window). If the recording
   stops itself (for example low disk space) you get an alert and the part recorded so far is kept.
   Recovery of the *editor's* unsaved edits after a hard kill is verified live; recovering a recording interrupted mid-capture is covered by capture's tests.
 - **Unsaved edits**: the editor offers to restore or discard them when you reopen the project.

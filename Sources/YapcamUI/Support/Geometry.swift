@@ -36,14 +36,18 @@ enum ToolbarGeometry {
         return screens.first
     }
 
-    /// Where a toolbar of `size` goes on `screen`: the saved spot, else right edge, vertically centered.
+    /// Where a toolbar of `size` goes on `screen`: the saved spot, else bottom center (horizontal bar) or right edge.
     static func origin(size: CGSize, on screen: ScreenInfo, saved: Fraction?) -> CGPoint {
         let raw: CGPoint
         if let saved {
             raw = CGPoint(x: screen.frame.minX + saved.x * screen.frame.width,
                           y: screen.frame.minY + saved.y * screen.frame.height - size.height)
         } else {
-            raw = CGPoint(x: screen.visibleFrame.maxX - size.width - defaultInset, y: screen.visibleFrame.midY - size.height / 2)
+            if size.width > size.height {      // horizontal bar: bottom center, above the Dock
+                raw = CGPoint(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.minY + defaultInset * 2)
+            } else {
+                raw = CGPoint(x: screen.visibleFrame.maxX - size.width - defaultInset, y: screen.visibleFrame.midY - size.height / 2)
+            }
         }
         return clamp(CGRect(origin: raw, size: size), to: screen.visibleFrame).origin
     }
@@ -69,6 +73,26 @@ enum ToolbarGeometry {
 
     /// Popovers open toward the display's center: right of the toolbar when it sits on the left half.
     static func onLeftHalf(frame: CGRect, of screen: ScreenInfo) -> Bool { frame.midX < screen.frame.midX }
+
+    /// The horizontal bar's popovers open upward when it sits in the lower half of the display, else downward.
+    static func inLowerHalf(frame: CGRect, of screen: ScreenInfo) -> Bool { frame.midY < screen.frame.midY }
+
+    /// The widget must not sit on what is being recorded: when `frame` overlaps `recorded`, move it just below the
+    /// area (or just above when there is no room below) inside `visible`; unchanged when it does not overlap or fits nowhere.
+    static func avoiding(_ frame: CGRect, recorded: CGRect, in visible: CGRect) -> CGRect {
+        guard frame.intersects(recorded) else { return frame }
+        let gap: CGFloat = 10
+        var below = frame; below.origin.y = recorded.minY - frame.height - gap
+        if below.minY >= visible.minY + edgeInset { return below }
+        var above = frame; above.origin.y = recorded.maxY + gap
+        if above.maxY <= visible.maxY - edgeInset { return above }
+        return frame
+    }
+
+    /// New frame after the bar's content changed size (idle ↔ recording): the center stays where it was.
+    static func resized(_ frame: CGRect, to size: CGSize) -> CGRect {
+        CGRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height)
+    }
 }
 
 /// Coordinate rules for the area overlay. Saved areas are display-local points with a top-left
@@ -81,6 +105,32 @@ enum AreaGeometry {
     static func canRecord(_ r: CGRect?) -> Bool {
         guard let r else { return false }
         return r.width >= recordMin && r.height >= recordMin
+    }
+
+    enum Arrow { case left, right, up, down }
+
+    /// Arrow-key editing like the reference: arrows move by 1 pt (⇧: 10), ⌘+arrows resize by 1 pt (⌘⇧: 10).
+    /// The result stays inside `bounds` and never gets smaller than `minSide`.
+    static func nudged(_ r: CGRect, _ arrow: Arrow, shift: Bool, command: Bool, in bounds: CGSize) -> CGRect {
+        let step: CGFloat = shift ? 10 : 1
+        let dx: CGFloat = arrow == .left ? -step : arrow == .right ? step : 0
+        let dy: CGFloat = arrow == .up ? -step : arrow == .down ? step : 0
+        var n = r
+        if command { n.size.width += dx; n.size.height += dy } else { n.origin.x += dx; n.origin.y += dy }
+        n.size.width = min(max(minSide, n.width), bounds.width); n.size.height = min(max(minSide, n.height), bounds.height)
+        n.origin.x = min(max(0, n.origin.x), bounds.width - n.width)
+        n.origin.y = min(max(0, n.origin.y), bounds.height - n.height)
+        return n
+    }
+
+    /// "Minimal size is 150×150px." text shown while the area is too small.
+    static var minimalSizeMessage: String { "Minimal size is \(Int(recordMin))×\(Int(recordMin))px." }
+
+    /// Saved area dimensions ("1280x720"), newest first, without duplicates, at most 12.
+    static func saving(_ size: CGSize, into list: [String]) -> [String] {
+        let t = "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
+        var l = list; l.removeAll { $0 == t }; l.insert(t, at: 0)
+        return Array(l.prefix(12))
     }
 
     /// Saved area → AppKit global rect on the display with frame `screenFrame`.

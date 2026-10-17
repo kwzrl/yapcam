@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import AVFoundation
 import SwiftUI
 import YapcamCore
@@ -104,22 +105,22 @@ import YapcamRender
         QuickExportWidget.shared.showProgress()
         do {
             let out = try await Self.runGuarded(package: package, name: name)
-            Probe.log("quick-export rendered \(name).mp4 in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+            Probe.log("quick-export rendered \(out.lastPathComponent) in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
             switch action {
             case .copy:
                 let pb = NSPasteboard.general
                 pb.clearContents()
                 pb.writeObjects([out as NSURL])
-                state = .done("Copied \(name).mp4 to the clipboard")
+                state = .done("Copied \(out.lastPathComponent) to the clipboard")
             case .save:
                 if let dest = Self.testSaveURL {
                     try Self.replaceFile(at: dest, with: out)
                     state = .done("Saved \(dest.lastPathComponent)")
                 } else {
                     let panel = NSSavePanel()
-                    panel.nameFieldStringValue = "\(name).mp4"
+                    panel.nameFieldStringValue = out.lastPathComponent
                     panel.directoryURL = AppSettings.shared.storageDirectory
-                    panel.allowedContentTypes = [.mpeg4Movie]
+                    panel.allowedContentTypes = [UTType(filenameExtension: out.pathExtension) ?? .mpeg4Movie]
                     if panel.runModal() == .OK, let dest = panel.url {
                         try Self.replaceFile(at: dest, with: out)
                         state = .done("Saved \(dest.lastPathComponent)")
@@ -172,8 +173,22 @@ import YapcamRender
         }
     }
 
-    static func quickExportSettings(variableFrameRate: Bool) -> ExportSettings {
-        ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, quality: 0.8, includeAudio: true, variableFrameRate: variableFrameRate)
+    /// The user's quick export settings (Settings → Quick export) plus the experimental variable-frame-rate switch.
+    /// "1080p MP4 · 30 fps · Social · with audio": the widget's "Will export" line.
+    static func summary(_ e: ExportSettings) -> String {
+        let res = e.outputHeight == 2160 ? "4K" : "\(e.outputHeight)p"
+        var parts = ["\(res) \(e.format == .gif ? "GIF" : e.format.rawValue.uppercased())", "\(e.fps) fps"]
+        if e.format != .gif {
+            if let c = e.compression { parts.append(c.title) }
+            parts.append(e.includeAudio ? "with audio" : "no audio")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    static func quickExportSettings(base: ExportSettings = AppSettings.defaultQuickExport, variableFrameRate: Bool) -> ExportSettings {
+        var e = base
+        e.variableFrameRate = base.format == .gif ? false : variableFrameRate
+        return e
     }
 
     /// The export runs off the main thread and races a watchdog, so neither a slow encoder nor a hung one can
@@ -182,8 +197,8 @@ import YapcamRender
         let dir = cacheDirectory
         // A new file per run: a cancelled worker that is still writing can never collide with the next export.
         let runDir = dir.appending(path: UUID().uuidString.prefix(8).description, directoryHint: .isDirectory)
-        let out = runDir.appending(path: "\(name).mp4")
-        let exportSettings = quickExportSettings(variableFrameRate: await MainActor.run { AppSettings.shared.experimentalVariableFrameRate })
+        let exportSettings = await MainActor.run { quickExportSettings(base: AppSettings.shared.quickExport, variableFrameRate: AppSettings.shared.experimentalVariableFrameRate) }
+        let out = runDir.appending(path: "\(name).\(exportSettings.format.rawValue)")
         let tracker = ProgressTracker()
         let result: Result<URL, Error> = await withCheckedContinuation { continuation in
             let once = ResumeOnce(continuation)
@@ -264,9 +279,16 @@ import YapcamRender
 @MainActor final class QuickExportWidgetModel: ObservableObject {
     @Published var package: URL?
     @Published var thumbnail: NSImage?
+    /// The raw screen movie of the first segment: the widget loops a silent preview of it.
+    @Published var movie: URL?
     func loadThumbnail() {
-        thumbnail = nil
+        thumbnail = nil; movie = nil
         guard let pkg = package else { return }
+        if let seg = (try? FileManager.default.contentsOfDirectory(at: pkg.appending(path: "recording"), includingPropertiesForKeys: nil))?
+            .filter({ $0.lastPathComponent.hasPrefix("seg-") }).sorted(by: { $0.path < $1.path }).first {
+            let m = seg.appending(path: "screen.mov")
+            if FileManager.default.fileExists(atPath: m.path) { movie = m }
+        }
         Task.detached {
             let seg = (try? FileManager.default.contentsOfDirectory(at: pkg.appending(path: "recording"), includingPropertiesForKeys: nil))?
                 .filter { $0.lastPathComponent.hasPrefix("seg-") }.sorted { $0.path < $1.path }.first
@@ -284,24 +306,30 @@ struct QuickExportWidgetView: View {
     @ObservedObject var model: QuickExportWidgetModel
     let close: () -> Void
     @EnvironmentObject var export: QuickExport
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.08))
-                    if let t = model.thumbnail { Image(nsImage: t).resizable().scaledToFill() }
+                    if let m = model.movie { LoopingPreview(url: m) }
+                    else if let t = model.thumbnail { Image(nsImage: t).resizable().scaledToFill() }
                     else { Image(systemName: "film").foregroundStyle(.tertiary) }
                 }
                 .frame(width: 96, height: 60).clipShape(RoundedRectangle(cornerRadius: 6))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(model.package?.deletingPathExtension().lastPathComponent ?? "Recording").font(.system(size: 13, weight: .medium)).lineLimit(1)
-                    Text("Will export 1080p MP4 with audio").font(.caption).foregroundStyle(.secondary)
+                    Text("Will export \(QuickExport.summary(settings.quickExport))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     status
                 }
                 Spacer(minLength: 0)
-                Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Close").accessibilityLabel("Close")
+                VStack(spacing: 8) {
+                    Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Close").accessibilityLabel("Close")
+                    Button { SettingsWindow.shared.show(tab: .quickExport) } label: { Image(systemName: "gearshape").font(.system(size: 11)) }
+                        .buttonStyle(.plain).foregroundStyle(.secondary).help("Quick export settings").accessibilityLabel("Quick export settings")
+                }
             }
             HStack(spacing: 8) {
                 Button("Copy") { run(.copy) }
@@ -361,5 +389,33 @@ private final class ResumeOnce: @unchecked Sendable {
     func resume(_ r: Result<URL, Error>) {
         lock.lock(); let c = continuation; continuation = nil; lock.unlock()
         c?.resume(returning: r)
+    }
+}
+
+/// Silent, looping preview of a movie (the quick export widget).
+struct LoopingPreview: NSViewRepresentable {
+    let url: URL
+    func makeNSView(context: Context) -> NSView {
+        let v = PlayerHost()
+        v.play(url)
+        return v
+    }
+    func updateNSView(_ v: NSView, context: Context) { if let h = v as? PlayerHost, h.url != url { h.play(url) } }
+
+    final class PlayerHost: NSView {
+        private(set) var url: URL?
+        private var player: AVQueuePlayer?
+        private var looper: AVPlayerLooper?
+        private let layerHost = AVPlayerLayer()
+        override init(frame: NSRect) { super.init(frame: frame); wantsLayer = true; layerHost.videoGravity = .resizeAspectFill; layer = layerHost }
+        required init?(coder: NSCoder) { fatalError() }
+        func play(_ url: URL) {
+            self.url = url
+            let q = AVQueuePlayer(); q.isMuted = true
+            looper = AVPlayerLooper(player: q, templateItem: AVPlayerItem(url: url))
+            player = q; layerHost.player = q
+            q.play()
+        }
+        override func removeFromSuperview() { player?.pause(); super.removeFromSuperview() }
     }
 }

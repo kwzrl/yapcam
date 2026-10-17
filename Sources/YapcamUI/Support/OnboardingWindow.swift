@@ -65,7 +65,10 @@ struct OnboardingView: View {
             HStack {
                 Button("Check again") { perms.refresh() }
                 Spacer()
-                Button(perms.state(.screen) == .granted ? "Done" : "Continue without screen access") { close() }
+                Button(perms.state(.screen) == .granted ? (model.showAll ? "Done" : "Start recording") : "Continue without screen access") {
+                    close()
+                    if perms.state(.screen) == .granted, !model.showAll { ToolbarPanelController.shared.show() }
+                }
                     .keyboardShortcut(.defaultAction)
             }
         }

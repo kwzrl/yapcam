@@ -35,7 +35,7 @@ import SwiftUI
 struct TeleprompterView: View {
     let close: () -> Void
     @EnvironmentObject var rec: RecordingController
-    @AppStorage("teleprompterSize", store: AppDefaults.store) private var size = 28.0
+    @AppStorage("teleprompterSize", store: AppDefaults.store) private var size = PrompterRanges.fontDefault
     @AppStorage("teleprompterSpeed", store: AppDefaults.store) private var speed = 0.0     // 0…25, 0 = manual (×4 = points per second)
     @AppStorage("teleprompterOpacity", store: AppDefaults.store) private var notepadOpacity = 1.0
     @State private var position = ScrollPosition()
@@ -51,14 +51,14 @@ struct TeleprompterView: View {
                 Text("Teleprompter").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                 Spacer()
                 Image(systemName: "textformat.size.smaller").foregroundStyle(.secondary)
-                Slider(value: $size, in: 16...64).frame(width: 90).accessibilityLabel("Text size")
+                Slider(value: $size, in: PrompterRanges.font).frame(width: 90).accessibilityLabel("Text size")
                 Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
                 Image(systemName: "tortoise").foregroundStyle(.secondary)
-                Slider(value: $speed, in: 0...25).frame(width: 80).help(speed == 0 ? "Auto-scroll off" : "Auto-scroll speed")
+                Slider(value: $speed, in: PrompterRanges.speed).frame(width: 80).help(speed == 0 ? "Auto-scroll off" : "Auto-scroll speed")
                     .accessibilityLabel("Auto-scroll speed").accessibilityValue(speed == 0 ? "Off" : "speed \(Int(speed)) of 25")
                 Image(systemName: "hare").foregroundStyle(.secondary)
                 Image(systemName: "circle.lefthalf.filled").foregroundStyle(.secondary).accessibilityHidden(true)
-                Slider(value: $notepadOpacity, in: 0.4...1).frame(width: 60).help("Notepad opacity").accessibilityLabel("Notepad opacity")
+                Slider(value: $notepadOpacity, in: PrompterRanges.opacity).frame(width: 60).help("Notepad opacity").accessibilityLabel("Notepad opacity")
                 Button { offset = 0; position.scrollTo(y: 0) } label: { Image(systemName: "arrow.up.to.line") }.help("Back to top").accessibilityLabel("Back to top")
                 Button(action: close) { Image(systemName: "xmark") }.help("Close")
             }
@@ -66,7 +66,7 @@ struct TeleprompterView: View {
             Divider()
             ScrollView {
                 Text(rec.notes.isEmpty ? "No notes yet. Type them in the Notes popover on the toolbar." : rec.notes)
-                    .font(.system(size: size))
+                    .font(.system(size: PrompterRanges.clampedFont(size)))
                     .foregroundStyle(rec.notes.isEmpty ? .secondary : .primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
@@ -84,4 +84,13 @@ struct TeleprompterView: View {
             if !reduceMotion || tickCount % 20 == 0 { position.scrollTo(y: offset) }
         }
     }
+}
+
+/// Value ranges of the speaker-notes prompter (reference: speed 0–25, notepad opacity 0.4–1, font size 12–32).
+enum PrompterRanges {
+    static let speed: ClosedRange<Double> = 0...25
+    static let opacity: ClosedRange<Double> = 0.4...1
+    static let font: ClosedRange<Double> = 12...32
+    static let fontDefault = 20.0
+    static func clampedFont(_ v: Double) -> Double { min(max(v, font.lowerBound), font.upperBound) }
 }

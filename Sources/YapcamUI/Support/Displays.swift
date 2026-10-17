@@ -6,6 +6,11 @@ struct DisplayInfo: Identifiable, Equatable {
     let frame: CGRect          // global points
     let scale: CGFloat
     var pixelSize: CGSize { CGSize(width: frame.width * scale, height: frame.height * scale) }
+    /// The display's refresh rate in Hz (recording follows it); 60 when macOS reports none.
+    var refreshRate: Int { Self.rate(CGDisplayCopyDisplayMode(id)?.refreshRate) }
+    static func rate(_ hz: Double?) -> Int { guard let hz, hz > 1 else { return 60 }; return Int(hz.rounded()) }
+    /// "3024×1964 • 120 FPS" on the display card.
+    var detail: String { "\(Int(pixelSize.width))×\(Int(pixelSize.height)) • \(refreshRate) FPS" }
     var isMain: Bool { CGDisplayIsMain(id) != 0 }
 }
 

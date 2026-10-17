@@ -13,6 +13,9 @@ struct ProjectEntry: Identifiable, Equatable {
 @MainActor final class RecentProjectsModel: ObservableObject {
     @Published private(set) var projects: [ProjectEntry] = []
     @Published private(set) var interrupted: [URL] = []
+    /// Found by "On your Mac" (Spotlight) outside the recordings folder.
+    @Published private(set) var onThisMac: [ProjectEntry] = []
+    @Published private(set) var scanning = false
     @Published private(set) var thumbnails: [URL: NSImage] = [:]
     private var requested = Set<URL>()
 
@@ -29,6 +32,34 @@ struct ProjectEntry: Identifiable, Equatable {
                          modified: (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
                          bytes: Self.size(of: u))
         }.sorted { $0.modified > $1.modified }
+    }
+
+    /// Package paths from `mdfind` output: only .yapcam packages, none in the Trash, none already listed.
+    nonisolated static func parseScan(_ output: String, excluding known: Set<String>) -> [URL] {
+        output.split(separator: "\n").map(String.init).filter {
+            $0.hasSuffix(".yapcam") && !$0.contains("/.Trash/") && !known.contains($0)
+        }.map { URL(filePath: $0, directoryHint: .isDirectory) }
+    }
+
+    /// "On your Mac": asks Spotlight for .yapcam packages anywhere and lists the ones not in the recordings folder.
+    func scanMac() {
+        guard !scanning else { return }
+        scanning = true
+        let known = Set(projects.map(\.url.path))
+        Task.detached {
+            let p = Process()
+            p.executableURL = URL(filePath: "/usr/bin/mdfind")
+            p.arguments = ["kMDItemFSName == '*.yapcam'"]
+            let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+            var found: [ProjectEntry] = []
+            if (try? p.run()) != nil {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile(); p.waitUntilExit()
+                found = Self.parseScan(String(decoding: data, as: UTF8.self), excluding: known).map { u in
+                    ProjectEntry(url: u, modified: (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast, bytes: 0)
+                }.sorted { $0.modified > $1.modified }
+            }
+            await MainActor.run { self.onThisMac = found; self.scanning = false }
+        }
     }
 
     private static func size(of dir: URL) -> Int64 {
@@ -132,15 +163,32 @@ struct RecentProjectsView: View {
                     Row(entry: p, thumbnail: model.thumbnails[p.url], open: { open(p) },
                         reveal: { NSWorkspace.shared.activateFileViewerSelecting([p.url]) },
                         rename: { model.rename(p) }, duplicate: { model.duplicate(p) }, removeFromRecents: { model.removeFromRecents(p) },
-                        extract: { model.extractRaw(p) }, trash: { model.trash(p) })
+                        extract: { model.extractRaw(p) }, saveAs: { ProjectActions.saveAs(p.url) }, zip: { ProjectActions.copyAndZip(p.url) },
+                        trash: { model.trash(p) })
                         .onAppear { model.loadThumbnail(p) }
                 }
+            }
+            if !model.onThisMac.isEmpty {
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("On your Mac").font(.headline)
+                    ForEach(model.onThisMac.prefix(20)) { p in
+                        HStack {
+                            Text(p.name).lineLimit(1)
+                            Text((p.url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Spacer()
+                            Button("Open") { open(p) }
+                            Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([p.url]) }
+                        }.controlSize(.small)
+                    }
+                }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
             }
             if let message { Text(message).font(.caption).foregroundStyle(.orange).padding(8) }
         }
         .frame(minWidth: 480, minHeight: 320)
         .toolbar {
             ToolbarItem { Button { ProjectActions.importVideo() } label: { Image(systemName: "square.and.arrow.down") }.help("Import a video") }
+            ToolbarItem { Button { model.scanMac() } label: { Image(systemName: "magnifyingglass.circle") }.help("Find recordings on this Mac").disabled(model.scanning) }
             ToolbarItem { Button { model.reload() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh") }
             ToolbarItem { Button { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) } label: { Image(systemName: "folder") }.help("Show folder in Finder") }
         }
@@ -184,6 +232,8 @@ struct RecentProjectsView: View {
         let duplicate: () -> Void
         let removeFromRecents: () -> Void
         let extract: () -> Void
+        let saveAs: () -> Void
+        let zip: () -> Void
         let trash: () -> Void
         var body: some View {
             HStack(spacing: 12) {
@@ -210,6 +260,8 @@ struct RecentProjectsView: View {
                 Button("Rename…", action: rename)
                 Button("Duplicate", action: duplicate)
                 Button("Remove from Recents", action: removeFromRecents)
+                Button("Save As…", action: saveAs)
+                Button("Copy and Zip", action: zip)
                 Button("Extract Raw Files…", action: extract)
                 Divider()
                 Button("Move to Trash", role: .destructive, action: trash)

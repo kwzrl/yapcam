@@ -1,5 +1,6 @@
 import AppKit
 import YapcamCapture
+import YapcamRender
 import Carbon.HIToolbox
 import SwiftUI
 
@@ -116,6 +117,12 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var openEditorAfterRecording: Bool { didSet { d.set(openEditorAfterRecording, forKey: "openEditor") } }
     @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "playSounds") } }
     @Published var hideDesktopIcons: Bool { didSet { d.set(hideDesktopIcons, forKey: "hideDesktopIcons") } }
+    /// While a recording runs the Dock icon is hidden (reference "Hide Dock Icon", default on). The menu bar item stays.
+    @Published var hideDockWhileRecording: Bool { didSet { d.set(hideDockWhileRecording, forKey: "hideDockWhileRecording") } }
+    /// The recents list stays open next to the picker (reference: openRecentProjectsWithRecordingPicker, off).
+    @Published var showRecentsWithPicker: Bool { didSet { d.set(showRecentsWithPicker, forKey: "showRecentsWithPicker") } }
+    /// Camera preview in the picker's camera menu ("Hide camera preview").
+    @Published var hideCameraPreview: Bool { didSet { d.set(hideCameraPreview, forKey: "hideCameraPreview") } }
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
     @Published var showMenuBarItem: Bool { didSet { d.set(showMenuBarItem, forKey: "showMenuBarItem") } }
     @Published var storageDirectory: URL { didSet { d.set(storageDirectory.path, forKey: "storageDirectory") } }
@@ -124,11 +131,20 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var highlightRecordedArea: Bool { didSet { d.set(highlightRecordedArea, forKey: "highlightRecordedArea") } }
     @Published var removedRecents: Set<String> { didSet { d.set(Array(removedRecents), forKey: "removedRecents") } }
     @Published var savedWindowSizes: [String] { didSet { d.set(savedWindowSizes, forKey: "savedWindowSizes") } }
+    /// Area sizes the user saved in the area toolbar ("1280x720").
+    @Published var savedAreaSizes: [String] { didSet { d.set(savedAreaSizes, forKey: "savedAreaSizes") } }
+    /// Export settings used by quick export and the quick export widget (Settings → Quick export).
+    @Published var quickExport: ExportSettings { didSet { d.set(try? JSONEncoder().encode(quickExport), forKey: "quickExport.v1") } }
     @Published var showRecordingWidget: Bool { didSet { d.set(showRecordingWidget, forKey: "showRecordingWidget") } }
     @Published var createAutoZooms: Bool { didSet { d.set(createAutoZooms, forKey: "createAutoZooms") } }
     @Published var afterRecording: AfterRecording { didSet { d.set(afterRecording.rawValue, forKey: "afterRecording") } }
     @Published var showQuickExportWidget: Bool { didSet { d.set(showQuickExportWidget, forKey: "showQuickExportWidget") } }
     @Published var hasCompletedOnboarding: Bool { didSet { d.set(hasCompletedOnboarding, forKey: "onboarded") } }
+
+    /// 1080p MP4, 30 fps, H.264, "Social" compression, with audio.
+    static var defaultQuickExport: ExportSettings {
+        ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, includeAudio: true, compression: .social)
+    }
 
     static var defaultStorage: URL {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Movies/Yapcam", directoryHint: .isDirectory)
@@ -155,7 +171,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         deviceID = d.string(forKey: "deviceID")
         lastCameraID = d.string(forKey: "lastCameraID")
         lastMicrophoneID = d.string(forKey: "lastMicrophoneID")
-        systemAudio = d.object(forKey: "systemAudio") as? Bool ?? true
+        systemAudio = d.object(forKey: "systemAudio") as? Bool ?? false      // reference default: off
         systemAudioSelectedOnly = d.object(forKey: "systemAudioSelectedOnly") as? Bool ?? false
         systemAudioApps = d.stringArray(forKey: "systemAudioApps") ?? []
         areaCustomRatioW = CGFloat(d.object(forKey: "areaCustomRatioW") as? Double ?? 16)
@@ -169,11 +185,14 @@ struct KeyCombo: Codable, Equatable, Hashable {
         cameraMaxResolution = CameraMaxResolution(rawValue: d.integer(forKey: "cameraMaxResolution")) ?? .hd1080
         let cd = d.object(forKey: "countdown") as? Int ?? 0
         countdown = [0, 3, 5, 10].contains(cd) ? cd : 0
-        recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? false
+        recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? true     // reference default: on (still needs Input Monitoring)
         maxFPS = d.object(forKey: "maxFPS") as? Int == 30 ? 30 : 60
         openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
-        playSounds = d.object(forKey: "playSounds") as? Bool ?? false
+        playSounds = d.object(forKey: "playSounds") as? Bool ?? true
         hideDesktopIcons = d.object(forKey: "hideDesktopIcons") as? Bool ?? false
+        hideDockWhileRecording = d.object(forKey: "hideDockWhileRecording") as? Bool ?? true
+        showRecentsWithPicker = d.object(forKey: "showRecentsWithPicker") as? Bool ?? false
+        hideCameraPreview = d.object(forKey: "hideCameraPreview") as? Bool ?? false
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
         storageDirectory = d.string(forKey: "storageDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) } ?? Self.defaultStorage
@@ -181,10 +200,13 @@ struct KeyCombo: Codable, Equatable, Hashable {
         highlightRecordedArea = store.object(forKey: "highlightRecordedArea") as? Bool ?? true
         removedRecents = Set(store.stringArray(forKey: "removedRecents") ?? [])
         savedWindowSizes = store.stringArray(forKey: "savedWindowSizes") ?? []
+        savedAreaSizes = store.stringArray(forKey: "savedAreaSizes") ?? []
+        quickExport = (d.data(forKey: "quickExport.v1").flatMap { try? JSONDecoder().decode(ExportSettings.self, from: $0) })
+            .map { $0.closestValidPreset(for: .file) } ?? AppSettings.defaultQuickExport
         showRecordingWidget = store.object(forKey: "showRecordingWidget") as? Bool ?? true
         createAutoZooms = store.object(forKey: "createAutoZooms") as? Bool ?? true
         afterRecording = AfterRecording(rawValue: store.string(forKey: "afterRecording") ?? "") ?? .createProject
-        showQuickExportWidget = store.object(forKey: "showQuickExportWidget") as? Bool ?? false
+        showQuickExportWidget = store.object(forKey: "showQuickExportWidget") as? Bool ?? true
         hasCompletedOnboarding = d.bool(forKey: "onboarded")
     }
 
@@ -200,4 +222,42 @@ struct KeyCombo: Codable, Equatable, Hashable {
 
     var startStopShortcut: KeyCombo { combo(for: .startStop) ?? .none }
     var pauseShortcut: KeyCombo { combo(for: .pauseResume) ?? .none }
+}
+
+extension AppSettings {
+    /// The activation policy the app should have: a hidden Dock icon stays hidden; with the Dock icon shown it
+    /// goes away while a recording runs when `hideDockWhileRecording` is on.
+    static func activationPolicy(showInDock: Bool, hideWhileRecording: Bool, recording: Bool) -> NSApplication.ActivationPolicy {
+        guard showInDock else { return .accessory }
+        return recording && hideWhileRecording ? .accessory : .regular
+    }
+    var activationPolicy: NSApplication.ActivationPolicy {
+        let phase = RecordingController.shared.phase
+        return Self.activationPolicy(showInDock: showInDock, hideWhileRecording: hideDockWhileRecording, recording: phase == .recording || phase == .paused)
+    }
+}
+
+extension AppSettings {
+    /// "Reset preferences": every preference goes back to its default. The recordings folder, the recents list and the
+    /// onboarding flag stay (resetting them would hide existing recordings or replay the welcome).
+    func resetToDefaults() {
+        let name = "yapcam.reset.\(UUID().uuidString)"
+        let scratch = UserDefaults(suiteName: name)!
+        defer { scratch.removePersistentDomain(forName: name) }
+        let f = AppSettings(store: scratch)
+        sourceMode = f.sourceMode; displayID = f.displayID; windowID = f.windowID; areaDisplayID = f.areaDisplayID; areaRect = f.areaRect
+        deviceID = f.deviceID; lastCameraID = f.lastCameraID; lastMicrophoneID = f.lastMicrophoneID
+        systemAudio = f.systemAudio; systemAudioSelectedOnly = f.systemAudioSelectedOnly; systemAudioApps = f.systemAudioApps
+        areaCustomRatioW = f.areaCustomRatioW; areaCustomRatioH = f.areaCustomRatioH
+        reuseLastProjectSettings = f.reuseLastProjectSettings; presetsDirectory = f.presetsDirectory
+        experimentalVariableFrameRate = f.experimentalVariableFrameRate; autosaveEnabled = f.autosaveEnabled
+        microphoneID = f.microphoneID; cameraID = f.cameraID; cameraMaxResolution = f.cameraMaxResolution
+        countdown = f.countdown; recordKeystrokes = f.recordKeystrokes; maxFPS = f.maxFPS
+        openEditorAfterRecording = f.openEditorAfterRecording; playSounds = f.playSounds; hideDesktopIcons = f.hideDesktopIcons
+        hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview
+        showInDock = f.showInDock; showMenuBarItem = f.showMenuBarItem
+        shortcuts = f.shortcuts; highlightRecordedArea = f.highlightRecordedArea; savedWindowSizes = f.savedWindowSizes; savedAreaSizes = f.savedAreaSizes
+        quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms
+        afterRecording = f.afterRecording; showQuickExportWidget = f.showQuickExportWidget
+    }
 }

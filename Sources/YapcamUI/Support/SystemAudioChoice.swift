@@ -4,9 +4,19 @@ import YapcamCapture
 
 /// What "System audio" records (GAP-CAP-1). Existing users keep "All apps" when their old on/off toggle was on.
 enum SystemAudioChoice: String, CaseIterable, Identifiable {
-    case off, all, selected
+    case all, selected, off          // the reference's menu order
     var id: String { rawValue }
-    var title: String { switch self { case .off: "Off"; case .all: "All apps"; case .selected: "Selected apps" } }
+    var title: String {
+        switch self { case .all: "Record system audio from all apps"; case .selected: "Record system audio from selected apps"; case .off: "Don't record system audio" }
+    }
+    /// Text on the picker bar's system-audio button.
+    func buttonLabel(appCount: Int) -> String {
+        switch self {
+        case .all: "Record system audio"
+        case .selected: appCount == 1 ? "Sound from 1 app" : "Sound from \(appCount) apps"
+        case .off: "No system audio"
+        }
+    }
 }
 
 extension AppSettings {
@@ -62,7 +72,7 @@ struct SystemAudioPicker: View {
             Picker("System audio", selection: $settings.systemAudioChoice) {
                 ForEach(SystemAudioChoice.allCases) { Text($0.title).tag($0) }
             }
-            .pickerStyle(.segmented).labelsHidden()
+            .pickerStyle(.radioGroup).labelsHidden()
             .accessibilityLabel("System audio source")
             if settings.systemAudioChoice == .selected { checklist }
         }

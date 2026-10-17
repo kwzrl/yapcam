@@ -7,6 +7,7 @@ import SwiftUI
     static let shared = NotesWindow()
     private var window: NSPanel?
 
+    var isVisible: Bool { window?.isVisible == true }
     func toggle() { if window?.isVisible == true { window?.orderOut(nil) } else { show() } }
 
     func show() {
