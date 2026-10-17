@@ -354,9 +354,9 @@ only; capture-side A/V sync on a real recording stays open (TCC).
 | R5-10 | Timeline | C, X, Backspace, V, S, Cmd+C/X/V full set | editor | split/ripple/merge chords partly done (TimelineCommands.swift:56) | integrated | Matrix P4 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
 | R5-11 | Export | Separate remembered store for quick export | ui+render | remember(in: .quick) not called; only .dialog (EditorDocument.swift:41) | integrated | Matrix X5 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
 
-Parity matrix on abe4e6a (135 rows, match = equal in code, not user-verified): 127 match; 6 out of scope; 2 gaps open (B.Shortcuts, B.Advanced); wave 3 closed the other rows (W4 shares R5-02). Per area match/total: Recording flow 41/44, Settings 7/9, Editor 49/50, Project/timeline 6/6, Export 9/10, Project handling 6/6, Website 9/10 (to be recounted after Lead's next integration).
+Parity matrix on a12448c (135 rows, match = equal in code, not user-verified): 127 match; 6 out of scope; 2 gaps open (B.Shortcuts, B.Advanced); wave 3 closed the other rows (W4 shares R5-02). Per area match/total: Recording flow 41/44, Settings 7/9, Editor 49/50, Project/timeline 6/6, Export 9/10, Project handling 6/6, Website 9/10 (final recount on a12448c).
 
-## Status counts (round-5 update, main abe4e6a; section R rows added as partial; others as in round 4 (main c6ae74a);  rows other than the six listed in TEST_REPORT "Round 4" are as audited on 63e239b; 176 rows incl. section J)
+## Status counts (round-5 update, main a12448c; section R rows added as partial; others as in round 4 (main c6ae74a);  rows other than the six listed in TEST_REPORT "Round 4" are as audited on 63e239b; 176 rows incl. section J)
 | Status | Rows |
 |---|---:|
 | verified live (programmatic, signed app) | 21 |

@@ -208,14 +208,14 @@ The signed app was NOT launched: a Yapcam instance of the user (pid 9035) was ru
 Also run: `swift test --filter Round4Tests` (3 tests) green; FEATURES.md updated (GAP-ED-16, CUR-06, CUR-17 verified; GAP-RND-9, GAP-UI-10 integrated; GAP-RND-4 stays partial; counts: verified 29, integrated 70, partial 7).
 Still not done (no real input / hardware): pointer-driven editor flows (mask handles, carousel, settings), area drag, VoiceOver, permission loss, camera and microphone.
 
-## Round 5 (2026-10-17, night): parity pass on main abe4e6a, nothing live
+## Round 5 (2026-10-17, night): parity pass on main a12448c, nothing live
 Environment: Mac mini M4, debug build, merged tree abe4e6a, Rust core rebuilt and test bundle relinked. The user's Yapcam instance was running, so no app was launched (no self-test, no hotkeys).
 
 | What | How | Result |
 |---|---|---|
-| Swift Testing | `swift test --disable-sandbox -j 6` on abe4e6a | 741 tests in 153 suites passed |
-| XCTest incl. E2E Round4Tests (blur, cursor sets, VFR) | same run; last count I captured: 270 on a96173e. Lead reports 276 on abe4e6a | Lead's number; my abe4e6a XCTest count not captured |
-| Rust core | Lead reports 133 on abe4e6a | not re-run by qa |
+| Swift Testing | `swift test --disable-sandbox -j 6` on a12448c | 747 tests in 155 suites passed |
+| XCTest incl. E2E Round4Tests (blur, cursor sets, VFR) | same run; last count I captured: 270 on a96173e. Lead reports 276 on a12448c | Lead's number; my abe4e6a XCTest count not captured |
+| Rust core | core rebuilt for the run; count is Lead's | not re-run by qa |
 | Parity matrix | 135 rows from reference-spec + website features, states from code reading and the teams' R5 tables | 127 match, 2 gaps, 6 out of scope (re-verified against owners' W3 evidence) |
 | Privacy scan | scripts/qa/privacy-scan.sh | ui test file Round5Tests.swift uses fake /Users/a paths (false positive, request to ui) |
 
@@ -244,4 +244,4 @@ Not verified: any live app behaviour, hardware (camera, microphone), real input,
 - 2026-10-16: Round 3 section added (programmatic only; real-input tests not possible, QADriver never granted).
 - 2026-10-17: Round 4 section added (blur, cursor sets, VFR, autosave/queue unit tests; F16 and F17/F18 not re-measured, reasons in the table).
 
-- 2026-10-17: Round 5 section added (parity matrix, suites on abe4e6a, nothing live).
+- 2026-10-17: Round 5 section added (parity matrix, suites on a12448c, nothing live).

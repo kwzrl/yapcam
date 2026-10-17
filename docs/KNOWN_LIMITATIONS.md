@@ -43,7 +43,7 @@ Mac mini M4, one non-Retina 1680×1050 display, no camera, no microphone, no sec
 - Cloud features (links, comments, accounts, payments, telemetry, auto-update) are out of scope by the
   user's decision; Loom-style sharing is prepared architecturally only.
 - GIF has no audio (format limit).
-- Round 5 parity gaps left (FEATURES.md section R): Settings > Shortcuts cannot yet rebind the editing keys (editor API exists), and the editor's export dialog does not yet read the "Disable hardware-accelerated encoding" setting (quick export does). Hide Desktop Icons, Esc two-step and other wave-3 items are code/test verified only, not live.
+- Round 5 parity gaps left (FEATURES.md section R): Settings > Shortcuts cannot yet rebind the editing keys (editor API exists), and the "Disable hardware-accelerated encoding" setting does not reach the editor's export dialog until ui assigns EditorWindows.hardwareEncodingEnabled (quick export honours it). Hide Desktop Icons, Esc two-step and other wave-3 items are code/test verified only, not live.
 
 ## Process notes
 - Codex-team worktrees cannot write `.git`; Lead commits their work, so history contains
