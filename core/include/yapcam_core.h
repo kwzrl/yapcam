@@ -128,6 +128,8 @@ YcStatus yc_project_clone(const YcProject *p, YcProject **out);   // snapshot fo
 void yc_project_free(YcProject *p);
 
 // Apply an edit command (docs/FORMATS.md). out_json receives {"changed":[…]}; may be NULL.
+YcStatus yc_mcp_catalog(char **out_json);
+YcStatus yc_mcp_handle(YcProject *p, const char *request, char **out_json);
 YcStatus yc_apply(YcProject *p, const char *command_json, char **out_json);
 YcStatus yc_undo(YcProject *p, uint8_t *did_undo);
 YcStatus yc_redo(YcProject *p, uint8_t *did_redo);
