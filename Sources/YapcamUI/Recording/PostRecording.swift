@@ -279,9 +279,16 @@ import YapcamRender
 @MainActor final class QuickExportWidgetModel: ObservableObject {
     @Published var package: URL?
     @Published var thumbnail: NSImage?
+    /// The raw screen movie of the first segment: the widget loops a silent preview of it.
+    @Published var movie: URL?
     func loadThumbnail() {
-        thumbnail = nil
+        thumbnail = nil; movie = nil
         guard let pkg = package else { return }
+        if let seg = (try? FileManager.default.contentsOfDirectory(at: pkg.appending(path: "recording"), includingPropertiesForKeys: nil))?
+            .filter({ $0.lastPathComponent.hasPrefix("seg-") }).sorted(by: { $0.path < $1.path }).first {
+            let m = seg.appending(path: "screen.mov")
+            if FileManager.default.fileExists(atPath: m.path) { movie = m }
+        }
         Task.detached {
             let seg = (try? FileManager.default.contentsOfDirectory(at: pkg.appending(path: "recording"), includingPropertiesForKeys: nil))?
                 .filter { $0.lastPathComponent.hasPrefix("seg-") }.sorted { $0.path < $1.path }.first
@@ -306,7 +313,8 @@ struct QuickExportWidgetView: View {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.08))
-                    if let t = model.thumbnail { Image(nsImage: t).resizable().scaledToFill() }
+                    if let m = model.movie { LoopingPreview(url: m) }
+                    else if let t = model.thumbnail { Image(nsImage: t).resizable().scaledToFill() }
                     else { Image(systemName: "film").foregroundStyle(.tertiary) }
                 }
                 .frame(width: 96, height: 60).clipShape(RoundedRectangle(cornerRadius: 6))
@@ -381,5 +389,33 @@ private final class ResumeOnce: @unchecked Sendable {
     func resume(_ r: Result<URL, Error>) {
         lock.lock(); let c = continuation; continuation = nil; lock.unlock()
         c?.resume(returning: r)
+    }
+}
+
+/// Silent, looping preview of a movie (the quick export widget).
+struct LoopingPreview: NSViewRepresentable {
+    let url: URL
+    func makeNSView(context: Context) -> NSView {
+        let v = PlayerHost()
+        v.play(url)
+        return v
+    }
+    func updateNSView(_ v: NSView, context: Context) { if let h = v as? PlayerHost, h.url != url { h.play(url) } }
+
+    final class PlayerHost: NSView {
+        private(set) var url: URL?
+        private var player: AVQueuePlayer?
+        private var looper: AVPlayerLooper?
+        private let layerHost = AVPlayerLayer()
+        override init(frame: NSRect) { super.init(frame: frame); wantsLayer = true; layerHost.videoGravity = .resizeAspectFill; layer = layerHost }
+        required init?(coder: NSCoder) { fatalError() }
+        func play(_ url: URL) {
+            self.url = url
+            let q = AVQueuePlayer(); q.isMuted = true
+            looper = AVPlayerLooper(player: q, templateItem: AVPlayerItem(url: url))
+            player = q; layerHost.player = q
+            q.play()
+        }
+        override func removeFromSuperview() { player?.pause(); super.removeFromSuperview() }
     }
 }

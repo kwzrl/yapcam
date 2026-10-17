@@ -1,4 +1,4 @@
-R5 progress: all H/M rows resolved (match / out-of-scope / named blocker); mic level on the bar button + widget steps aside from an area recording added; next: L rows (looping quick-export preview) then READY
+R5 progress (L rows done too): all H/M rows resolved (match / out-of-scope / named blocker); mic level on the bar button + widget steps aside from an area recording added; next: L rows (looping quick-export preview) then READY
 READY R5 b54cb45 | picker bar + widget + gear menu + settings tabs + projects + quick export settings per Screen Studio parity (see ## R5 parity; open items and requests listed there) | swift test -j 6 green (XCTest 256, 0 failures; Swift Testing all passed); not run live (user instance running)
 READY R4 8a64f9c | item 1 autosave + VFR toggles wired to EditorWindows.autosaveEnabled / variableFrameRate (merged team/editor 848d0a6); item 3 nothing open in ui paths; item 2 F16 re-run NOT done (see below) | swift test 603 green x2
 R4 item 2 (F16 re-run): not run. Reason: a Yapcam instance (pid 9035, started 22:41, from the main checkout build, no app lock) was running the whole time; rule says never launch next to a running instance and never kill one I did not start. Needs a free app slot: `round3-wrapup.sh f11-display-repeat` style, 3 batches x 5.
@@ -60,7 +60,7 @@ Legend: match / out-of-scope / blocker (named). Verdicts below are the state aft
 | A6 other stop paths | dock click asks "Finish recording?"; low disk auto-stop | AppDelegate.swift:116; lowDisk | match |
 | A6 errors | crash recovered; "Recover now" | capture recovery + offerRecovery | match |
 | A7 after-recording action | Create project / Export+copy / Export+save, via record menu | AfterRecordingPopover (record button chevron) | match (card chevron, gear, Record menu) |
-| A7 quick export widget | title field, export actions, open editor | QuickExportWidget (PostRecording.swift) | match except title field (title field belongs to the cloud link flow = out-of-scope) and looping preview (static still; L) |
+| A7 quick export widget | title field, export actions, open editor | QuickExportWidget (PostRecording.swift) | match (looping silent preview of the raw screen movie; title field belongs to the cloud link flow = out-of-scope) |
 | A7 autosave 30 s | on | EditorHooks (R4) | match |
 | A8 hotkeys | defaults list | Hotkeys.swift:44-58 identical incl. ⌘⌥C/S/Z; "⌘⌃S link" cloud | match |
 | A8 Not able to register | shown | Settings Shortcuts | match |
@@ -96,7 +96,6 @@ Open / not done (reason):
 - Advanced: disable hardware acceleration needs a render/editor hook.
 - Update banner, cloud/account items, device frames: out of scope (COMMON.md).
 - Crop recorded area (project action): editor-owned; request below.
-- Quick export widget preview is a still, not a looping video (L).
 - Nothing in R5 was run live: the user's Yapcam instance was running (rule: never launch or kill a second one).
 ### Requests (R5)
 - editor: "Crop recorded area" project action if wanted in the File menu.

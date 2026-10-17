@@ -372,3 +372,20 @@ import Testing
         #expect(ToolbarGeometry.avoiding(bar, recorded: visible, in: visible) == bar)
     }
 }
+
+@MainActor @Suite struct Round5PreviewTests {
+    @Test func widgetFindsTheFirstSegmentMovie() throws {
+        let pkg = FileManager.default.temporaryDirectory.appending(path: "yapcam-r5-\(UUID().uuidString).yapcam", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: pkg) }
+        for seg in ["seg-002", "seg-001"] {
+            let d = pkg.appending(path: "recording/\(seg)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: d.appending(path: "screen.mov"))
+        }
+        let m = QuickExportWidgetModel()
+        m.package = pkg; m.loadThumbnail()
+        #expect(m.movie?.deletingLastPathComponent().lastPathComponent == "seg-001")
+        m.package = pkg.appending(path: "nothing"); m.loadThumbnail()
+        #expect(m.movie == nil)
+    }
+}
