@@ -1,5 +1,8 @@
 # Example: a 30–45 s "what's new" clip
 
+Calls are written as `{"name","arguments"}` shorthand for the Yapcam MCP tools; call the tools
+themselves, and pass numbers as JSON numbers, not strings.
+
 Request: "Cut a 40-second what's-new clip from this for the changelog." Recording: 4:30 release demo covering
 six features; the user named none.
 

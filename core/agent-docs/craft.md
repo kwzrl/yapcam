@@ -27,8 +27,13 @@ Hard rules. Break one only when the user asks for it, and say so.
   sit on empty space of the next page. `moments` exposes event-based `view_change_s`; `zoom_on_click` ends
   0.05 s before it and extends the lead to keep ≥ 1 s. `start_s`/`end_s` override timing in seconds within these
   safety bounds. Verify with `grab`: metadata can miss changes. If there is not 1 s of room, zoom on the result.
+  Recordings often carry no window metadata (`view_change_s` null): then call `view_changes` for the clicks you
+  will zoom BEFORE zooming and pass `end_s` = change − 0.05 to `zoom_on_click`, never a raw `update_zoom` after.
 - Keep nearby context visible with `include:[click_index,{x,y,w,h}]` (normalized source rectangles). The tool
-  fits the union at 1.3–2× or refuses if it cannot fit; verify the field/result/toast in `capture`.
+  fits the union at 1.3–2× or refuses if it cannot fit; verify the field/result/toast in `capture`. `include`
+  sets the framing only: when an included click comes later, pass `end_s` so the zoom still covers it.
+- When the result appears away from the click (a toast, a banner in a corner), end the zoom about 0.5 s after the
+  click (keep ≥ 1 s) so the viewer sees the result at 1×, or `include` its rectangle if that still fits.
 - Never stack or overlap zooms. Leave at least ~0.5 s at 1× between two zooms, or chain them as one zoom that pans.
 - At most about one zoom per 8–10 s of video. A zoom that is everywhere means nothing.
 - No zoom during fast typing (the frame jitters with the caret). Zoom on the result of the typing instead; `check` flags `zoom_during_typing`.

@@ -1,5 +1,8 @@
 # Example: feature walkthrough with zooms on the key clicks
 
+Calls are written as `{"name","arguments"}` shorthand for the Yapcam MCP tools; call the tools
+themselves, and pass numbers as JSON numbers, not strings.
+
 Request: "Make this a walkthrough of the new export dialog." Recording: 58 s, already tight, 1440×900 screen.
 
 ## 1. Read and pick the story clicks

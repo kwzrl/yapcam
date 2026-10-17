@@ -1,5 +1,8 @@
 # Example: tighten a raw demo
 
+Calls are written as `{"name","arguments"}` shorthand for the Yapcam MCP tools; call the tools
+themselves, and pass numbers as JSON numbers, not strings.
+
 Request: "Clean this up, it's too long." Recording: 2:14 demo of creating an API key in a dashboard.
 
 ## 1. Read

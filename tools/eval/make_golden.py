@@ -344,7 +344,9 @@ def spoken(word):
 
 
 # ------------------------------------------------------------------------------------------------------- build
-def build(name, spec, out_root):
+def build(name, spec, out_root, focus=True):
+    """focus=False omits focus/window-title events, like real Yapcam captures (capture writes none)."""
+    if not focus: name += '-nofocus'
     pkg = out_root / f'{name}.yapcam'
     if pkg.exists(): shutil.rmtree(pkg)
     seg = pkg / 'recording/seg-000'
@@ -381,7 +383,7 @@ def build(name, spec, out_root):
     cursor = [720.0, 600.0]
     events.append((0.0, {'type': 'cursor', 'id': 1}))
     events.append((0.0, {'type': 'move', 'x': cursor[0], 'y': cursor[1]}))
-    events.append((0.0, {'type': 'focus', 'app_bundle_id': 'com.google.Chrome', 'window_rect': [0, 0, W, H], 'window_title': spec['title']}))
+    if focus: events.append((0.0, {'type': 'focus', 'app_bundle_id': 'com.google.Chrome', 'window_rect': [0, 0, W, H], 'window_title': spec['title']}))
     page = spec['start']['page']
     def move_to(target, at, dur=0.45):
         steps = max(2, int(dur * 60))
@@ -426,7 +428,7 @@ def build(name, spec, out_root):
         patch = {}
         if 'goto' in a:
             page = a['goto']; patch['page'] = page
-            events.append((at + 0.15, {'type': 'focus', 'app_bundle_id': 'com.google.Chrome', 'window_rect': [0, 0, W, H],
+            if focus: events.append((at + 0.15, {'type': 'focus', 'app_bundle_id': 'com.google.Chrome', 'window_rect': [0, 0, W, H],
                                        'window_title': 'Acme Cloud — ' + page.replace('_', ' ').title()}))
         for k in ('focus', 'select', 'toast'):
             if k in a: patch[k] = a[k]
@@ -516,12 +518,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default=str(Path.home() / 'yapcam-spike/eval/golden'))
     ap.add_argument('--only', default='')
+    ap.add_argument('--no-focus', action='store_true', help='build <name>-nofocus variants without focus events')
     args = ap.parse_args()
     out = Path(args.out).expanduser(); out.mkdir(parents=True, exist_ok=True)
     only = [s for s in args.only.split(',') if s]
     for name, spec in SCENARIOS.items():
         if only and name not in only: continue
-        g = build(name, spec, out)
+        g = build(name, spec, out, focus=not args.no_focus)
         print(f"{name}: {g['duration_s']:.1f} s, {len(g['words'])} words, {len(g['clicks'])} clicks "
               f"({sum(c['meaningful'] for c in g['clicks'])} meaningful), {len(g['filler_words'])} fillers, {len(g['long_pauses'])} long pauses")
     (out / 'conversation.json').write_text(json.dumps(CONVERSATION, indent=1))
