@@ -1,3 +1,4 @@
+READY R5 1b9238b | editor parity pass: dark stage + floating inspector card, pill option groups, colour rows with hex+eyedropper, large icon rail, preview-quality bar, centred transport, waveform in clip track, click/drag to add zoom, transcript actions on top, 3 s zoom, inset/corner/gradient/favourites/hide-cursor/loop details, Reel preview, ⌘K settings, recent presets, polish3 slider fix | swift test -j 6 --skip UISmokeTests 616 pass, debug, M4; snapshots only, not the live app; open items + requests in '## R5 parity' / 'R5 requests'
 R5 02:50 63cc8cb | done: dark stage + floating card + pills + colour row (hex/eyedropper) + rails + preview-quality bar + centred transport + waveform + click/drag add zoom + transcript actions first + 3 s zoom + parity audit | next: bg blur for wallpaper/image, corner snaps, inset ranges+2D pad, gradient hue/presets, favourites, Reel mode, ⌘K settings, loop default, snapshots r5
 READY R4-polish3 922807c | item 6 was REAL, not a snapshot artifact: measured in an NSHostingView at 396 pt, every NSSlider was 47 pt wide at x=225 (row 75…366, content from 187). Cause: inside a grouped Form a Slider with an empty label gets its own leading label column; fix `.labelsHidden()` on the content of SliderRow -> 85 pt tracks starting at x=187 (cameraStyle 131, captions 125 where rows differ). New test SliderLayoutTests asserts every slider in every inspector section >= row − label − value − reset slot − gaps − 4 (fails with 47). Snapshots ~/Movies/Yapcam/QA/ui-polish/after3/ | swift test -j 6 --skip UISmokeTests 603 pass, debug, M4; snapshots+layout test only, not the live app
 READY R4-polish2 6edf242 | all 8 Lead fixes, snapshots (light+dark, 2x) in ~/Movies/Yapcam/QA/ui-polish/after2/ (outside repo) | swift test -j 6 --skip UISmokeTests 602 pass, debug, M4; reviewed snapshots only, NOT the live app (hover handles and the trash command are unverified with a real pointer); see 'R4 polish 2' below
@@ -276,30 +277,30 @@ Legend: match / mismatch / missing / out-of-scope. "now" = Yapcam at this commit
 | mini-rail | left mini rail with preview tools | PreviewLeftRail (fit, zoom %) ; zoom -/+ moved to the bar | partial (reel toggle added below) |
 | top-bar | name centred, ⌘K, undo/redo, Presets, prominent Export with icon | EditorTopBar: all present, Export = accent PrimaryButtonStyle + share icon, ⌘E | match |
 | 2a.1-title | project title rename | not in the editor (rename lives in ui's Projects window) | missing (request ui) |
-| 2a.1-presets | create/rename/update/default/remove, badges, "Recently used" group | all except "Recently used" | mismatch (L) |
-| 2a.1-export-disabled | Export disabled with tooltip while another export runs | not disabled; queue status shown in the sheet instead | mismatch (L) |
+| 2a.1-presets | create/rename/update/default/remove, badges, "Recently used" group | all incl. Recently used (5, remembered) | **done** |
+| 2a.1-export-disabled | Export disabled with tooltip while another export runs | disabled with tooltip while this document's export runs | **done** (another document's export: queue status in the sheet) |
 | above-preview | "Auto" aspect menu, Crop, Preview quality menu, zoom -/+ | PreviewControlsBar | match |
 | 2a.2-aspect | Auto,16:9,1:1,4:3,9:16,3:4,4:5 + hints | AspectPreset (Inspector.swift) | match |
 | 2a.2-preview | size 480–2160, resolution Full/Half/Quarter, speed 0.25–8 | PreviewOptions | match |
 | transport | centred under the preview | TransportBar (time ⏮ ▶ ⏭ duration centred; tools right) | match |
 | 2a.2-keys | Space, K, L, J (speed up on repeat), ←/→, ⇧←/⇧→, ⌘←/⌘→, ⌘=/⌘- | Shortcuts.swift / EditorView.swift handleKey | match except variable-rate J/L shuttle (engine) |
-| reel-mode | Reel preview mode: Off / Instagram / TikTok safe areas | missing | **missing (H, implementing)** |
-| cmdk-settings | ⌘K lists every editor action and settings | actions + sections; settings only partly | mismatch (implementing) |
+| reel-mode | Reel preview mode: Off / Instagram / TikTok safe areas | `ReelMode`/`ReelOverlay` (ReelMode.swift), menu in the preview bar + ⌘K, preview-only, remembered | **done** (own drawing, approximate zones) |
+| cmdk-settings | ⌘K lists every editor action and settings | `settingCommands` (SettingCommands.swift): sections, aspect, preview options, 15 on/off settings, backgrounds, shadow, camera layout, click effect, caption colour, filler/pauses/SRT | **done** |
 
 ### Inspector sections (2a.3–2a.12)
 | id | reference | Yapcam now | status |
 |---|---|---|---|
 | 2a.3 | order, ⌘1…⌘0, visibility rules, Esc back to root | InspectorSection (Inspector.swift:117), digits 1…9,0 incl. transcript ⌘6, audio ⌘7 | match (device frame out of scope) |
 | 2a.4-bg-type | Wallpaper, Gradient, Color, Image (+Unsplash out of scope) | pills Wallpaper/Gradient/Color/Image/Blur (Blur = Yapcam extra "blurred screen") | match + extra |
-| 2a.4-wallpapers | categories dropdown, favourites by right-click, random button | category chips from render's own library, random; favourites missing | **mismatch (M, implementing favourites)** |
-| 2a.4-color | colour + randomize | colour row; no randomize | missing (L) |
-| 2a.4-gradient | 2 colours + randomize + Hue 0–360 + preset grid | 2 colours + angle | **missing hue/presets/randomize (M)** |
-| 2a.4-bg-blur | 0–100 step 0.1, only wallpaper/image | shown only in Blur mode | **mismatch (H, fixing)** |
+| 2a.4-wallpapers | categories dropdown, favourites by right-click, random button | category chips + Favourites chip (right-click / VoiceOver action, remembered), random | **done** |
+| 2a.4-color | colour + randomize | colour row + "Random colour" (own palette) | **done** |
+| 2a.4-gradient | 2 colours + randomize + Hue 0–360 + preset grid | 2 colours, hue slider (both stops, one undo step), 16 own presets in an 8-column grid, random gradient, angle | **done** |
+| 2a.4-bg-blur | 0–100 step 0.1, only wallpaper/image | shown only in Blur mode: render applies `background_blur` only for kind 3 (FrameCompositor.swift:182), so a slider for wallpaper/image would do nothing | **blocked: request render** |
 | 2a.4-padding | 0–25 %, % display | PaddingRow | match |
-| 2a.4-corners | 0–128, snap suggestions 0,12,16,20,26 | slider no snaps | **mismatch (M, fixing)** |
-| 2a.4-inset | toggle; size 0.125–24, colour, opacity, origin pad; on → size 4/alpha .25/#888 | size 1–24, colour, two position sliders | **mismatch (M, fixing size range, defaults, 2D pad)** |
+| 2a.4-corners | 0–128, snap suggestions 0,12,16,20,26 | slider sticks to 0/12/16/20/26 within 1.2 % of the range | **done** |
+| 2a.4-inset | toggle; size 0.125–24, colour, opacity, origin pad; on → size 4/alpha .25/#888 | size 0.125–24, colour+alpha, 2-D pad, on restores last use else 4/.25/#888 in one undo step | **done** |
 | 2a.4-shadow | intensity 0–0.6 (0.3) + Classic/Directional + advanced distance 0–100 (25), angle 0–180 (45), blur 0–30 (20) | ShadowRows same values | match |
-| 2a.5-cursor | hide, size 16–128, set carousel + variants, always pointer, hide idle 0.5–5 (2 s), loop 1–4 (1 s), click effect None/Circle/Ripple, click sound None/Magic Mouse/MX Master + volume, rotation, stop at end 0–5 s step 50 ms, shakes 100–2000/500, optimize | all present; loop default on-enable 0.4 s (ref 1.0 s); click sound variants Soft/Crisp (own sounds) volume in dB; stop-at-end is a toggle+duration row | **mismatch: loop default (L fix), collapsible Rotation/Advanced groups (L)** |
+| 2a.5-cursor | hide, size 16–128, set carousel + variants, always pointer, hide idle 0.5–5 (2 s), loop 1–4 (1 s), click effect None/Circle/Ripple, click sound None/Magic Mouse/MX Master + volume, rotation, stop at end 0–5 s step 50 ms, shakes 100–2000/500, optimize | all present; loop default on-enable 0.4 s (ref 1.0 s); click sound variants Soft/Crisp (own sounds) volume in dB; stop-at-end is a toggle+duration row | Hide cursor toggle (others collapse), loop on = 1 s, collapsible Rotation/Advanced groups, Rotate cursor + Tilt | **done**; reference's second rotate mode "Follow (directional)" does not exist in core: request core |
 | 2a.6-camera-layout | hide camera, layouts overlay/split/cutout, 8-pt grid, aspect, size .1–.75, smaller during zoom .25–.8, cutout 3-pt, size .2–1, softness, inset, split ratio/flip/fill, avoid empty area, corners, hide during silence 2–15 | CameraLayoutSettings / CameraPositionRow | match except "Avoid empty area" **missing (core field? request)** |
 | 2a.7-camera-style | 12 grades, custom preset, .cube LUT, intensity, sharpen, crop, mirror, face tracking | CameraStylePanel | match |
 | 2a.8-captions | language, keyterms, generate/regenerate, export, size .05–.125, font, reveal, growth, animation, colour, position | CaptionStyle.swift, Transcript options | match (own labels) |
@@ -328,3 +329,11 @@ Legend: match / mismatch / missing / out-of-scope. "now" = Yapcam at this commit
 | srt-export | .srt of the edited video | TranscriptExport | match |
 | aspect-switch | zooms/layouts/captions stay sensible | all stored in normalised coordinates, verified by existing aspect tests | match |
 | masks | Sensitive data blends, Highlight dims rest | done R4 | match |
+
+### R5 requests (other teams) and open items
+- **render**: blur pass for wallpaper/image backgrounds (`background_blur` only drawn for kind 3, FrameCompositor.swift:182) so the reference's 0–100 "Background blur" can be shown for those kinds. Editor will show the slider once frames honour it.
+- **core**: cursor `rotation_mode: "follow"` (directional) next to static/tilt; camera "Avoid empty area"; `disabled` flag for masks and camera layouts (zooms have `enabled`).
+- **render/core assets**: background audio library (Commercial/Electronic/Instrumental/Lo-fi, own tracks; only one built-in track now).
+- **ui**: `EditorWindows.appearance` (Dark default/Light/System) needs a Settings > Editing control; File > Move to Trash… → `EditorWindows.requestTrashOfKeyEditor()`; editor-title rename lives in ui; `EditorWindows.autosaveEnabled` / `variableFrameRate` toggles (from R4).
+- **editor open**: smooth-waveform option, variable-rate J/L shuttle (engine), mask/layout disable toggles (core), VoiceOver of the new pills is not probe-verifiable (AppKit probe cannot see SwiftUI-only nodes; the old radio-button test was replaced by an option-list test), NSColorSampler/hover handles/real drags unverified (no real pointer).
+- Snapshots (light+dark, 1280×800, 2x): ~/Movies/Yapcam/QA/ui-polish/r5/.
