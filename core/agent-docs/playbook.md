@@ -9,9 +9,10 @@ integer NANOSECONDS. After any cut the timeline shifts: re-read `moments` before
 
 ## The loop
 
-1. **Understand the request.** What should the viewer get from this video? If the ask is vague and the change would
-   be destructive for the whole video ("make it better", "make it short"), ask one question first. Small, clear asks:
-   just do them.
+1. **Understand the request.** What should the viewer get from this video? A vague ask ("make it nice", "clean it
+   up") means the standard pass: tighten (start, fillers, false starts, dead air) and zooms on the story clicks, no
+   text. Do it, everything is undoable. Ask one question first only when the ask would drop content the user may
+   want ("make it short" without a length, "cut the boring parts"). Small, clear asks: just do them.
 2. **Read `moments` first.** Sentences, clicks, keys, typing, zooms and cuts in one timeline. Call `project_summary`
    if you need duration and counts. Read the transcript through `moments`, not by guessing from audio.
 3. **Write a brief** for anything beyond a single tweak, 2–4 lines, in your reply or your head: target length,
@@ -23,9 +24,15 @@ integer NANOSECONDS. After any cut the timeline shifts: re-read `moments` before
    Captions LAST, after every cut is final.
 7. **Verify after every stage** with `check` + `capture`. Capture the points where things can break: each cut point
    (±0.2 s), zoom starts and ends, the first and the last frame. Look at the sheet. A clean `check` does not mean the
-   picture looks right: a zoom can frame empty space, text can cover the click.
+   picture looks right: a zoom can frame empty space, text can cover the click. The LAST change of a stage gets a
+   capture too: if you retime or move something after your capture, capture it again. A 12-cell sheet is too
+   small to read UI labels: use `per_sheet` 4–6 (or `grab`) when you need to read text on screen.
 8. **Fix the largest viewer-facing problem first**, then re-verify. Stop when the remaining issues are invisible.
-9. **Summarize in 1–3 short lines**: what changed, new length, anything the user should look at.
+9. **Summarize in 1–3 short lines, ≤ 50 words, no bullets or headings**: what changed, new length, anything the
+   user should look at. Do not explain your reasoning, list what you did NOT do, or mention that you did not save.
+   Mention a `check` warning only when you left it on purpose, in a few words.
+   Good: "Cut 39 s to 24 s: removed the false start, 3 fillers and long pauses. Clicks on Reports, Last 30 days
+   and Export stay intact."
 
 ## Scale the effort to the ask
 

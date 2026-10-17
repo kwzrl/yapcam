@@ -49,7 +49,7 @@ Read the resource yapcam://playbook first, and yapcam://craft before adding zoom
 Loop: read `moments` → short brief → cuts → `check` → layers (zooms, text, captions last) → `check` + `capture` → fix the biggest viewer-facing problem → 1–3 line summary.
 Intention tools take SECONDS on the current timeline; raw apply/batch take integer NANOSECONDS. Re-read after cuts.
 Every mutating call is one undo step: put one logical step's raw commands in one `batch`.
-Never export unless asked. Ask before destructive whole-video changes when the request is vague.";
+Never export unless asked. A vague ask (\"make it nice\") gets the standard pass; ask first only before dropping content the user may want.";
 
 /// A doc by name: `playbook`, `yapcam://craft`, `examples/tighten`, `chat` (system prompt template with `{document}`)
 /// or `instructions`.

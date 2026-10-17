@@ -22,6 +22,10 @@ Hard rules. Break one only when the user asks for it, and say so.
 - Scale 1.5–2× typical (1.8× default). Above 2.5× only for tiny UI, and never on a blurry source.
 - Lead 0.3–0.5 s: the zoom is in place before the click lands.
 - Hold until the result is readable (typically 1.5–3 s), then release. A zoom is 1–8 s long.
+- A click that navigates (new page, modal, the view changes) ends the zoom on its button: the zoomed frame would
+  sit on empty space of the next page. `grab` 0.3 s after the click to see if the view changed. If it did, start
+  the zoom earlier (lead 0.8–1 s) and end it at the change so it still lasts ≥ 1 s, or skip the click and zoom on
+  the result of the new page instead. Never shrink a zoom below 1 s to dodge the change.
 - Never stack or overlap zooms. Leave at least ~0.5 s at 1× between two zooms, or chain them as one zoom that pans.
 - At most about one zoom per 8–10 s of video. A zoom that is everywhere means nothing.
 - No zoom during fast typing (the frame jitters with the caret). Zoom on the result of the typing instead.
@@ -32,6 +36,8 @@ Hard rules. Break one only when the user asks for it, and say so.
 
 - Visual budget 0: never darken, blur or cover the picture to make text legible. The recording is the content.
 - Text is one short line (≤ 6 words), placed where nothing happens, never on the action or the cursor path.
+  A title in the padding keeps a margin (rect y ≥ 0.02, not flush with the edge) and appears with the screen it
+  names, not over the previous step.
   No boxes, no eyebrows, no badges, no emoji unless asked.
 - One flourish per beat: a zoom OR a text OR a highlight, not all three at once.
 - Spotlight/highlight only to guide the eye to ONE thing the viewer would otherwise miss.
