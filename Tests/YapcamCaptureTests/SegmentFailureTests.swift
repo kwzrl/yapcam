@@ -150,6 +150,38 @@ private final class TestCaptureSink: CaptureTrackSink, @unchecked Sendable {
     #expect(pixels.count == 3 && Set(pixels).count == 1)
 }
 
+@Test func heartbeatNeverSuppressesALaterDeliveredRealFrameWithEarlierPTS() async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let observer = TestWriterObserver()
+    let host: Int64 = 4_000_000_000
+    let writer = SegmentWriter(directory: dir, hostStartNs: host, maxFPS: 60) { url, key, first in
+        let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
+        observer.sink(key, sink); return sink
+    }
+    let original = try InjectedCaptureSamples()
+    let changed = try InjectedCaptureSamples()
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        writer.queue.async {
+            do {
+                writer.append(try original.video(at: host), track: "screen")
+                writer.appendStaticScreen(atHostNs: host + 1_000_000_000)
+                // This is a newer real source frame, but its PTS trails the
+                // already-written host-now heartbeat by 100 ms.
+                writer.append(try changed.video(at: host + 900_000_000), track: "screen")
+                continuation.resume()
+            } catch { continuation.resume(throwing: error) }
+        }
+    }
+    writer.end(at: host + 2_000_000_000)
+    let result = await writer.finish()
+    #expect(result.error == nil)
+    #expect(observer.sinks["screen"]?.sampleTimes == [host, host + 1_000_000_000, host + 1_000_000_001])
+    let pixels = try #require(observer.sinks["screen"]?.pixelIDs)
+    #expect(pixels.count == 3)
+    #expect(pixels[0] == pixels[1])
+    #expect(pixels[2] != pixels[1])
+}
+
 @Test(arguments: [30, 60, 120, 144]) func nominalDisplayCadenceToleratesFasterClockAndJitter(fps: Int) async throws {
     let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
     let observer = TestWriterObserver()

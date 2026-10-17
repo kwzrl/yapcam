@@ -660,7 +660,10 @@ cover app refusal/readback and negative display coordinates.
 The writer requests HEVC quality0.85 for screen and0.6 for camera, frame interval
 2×fps plus2s duration, fragmented output about2s. Live writers retain one last
 screen image and retime it at1Hz when there are no new complete screen frames, so
-a static source can also close fragments. Background disk checkpoints are coalesced
+a static source can also close fragments. Heartbeats do not advance real-frame
+ordering or cadence: if a newer real frame arrives with a PTS just behind an
+already-written heartbeat, its pixels are retained and its output PTS is moved
+1ns past that heartbeat. Background disk checkpoints are coalesced
 to one pending flush; markers flush before acknowledgment and stop waits for a
 final flush. Sudden loss can discard the in-flight fragment. This does not certify
 power-failure behaviour on every filesystem/storage device.
