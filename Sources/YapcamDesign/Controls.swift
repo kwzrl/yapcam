@@ -170,10 +170,12 @@ public struct OptionRow<ID: Hashable, Cell: View>: View {
 /// The plainest separator: one physical pixel of light, no groove, no fade.
 public struct Hairline: View {
     var axis: Axis
+    var opacity: Double
     @Environment(\.displayScale) private var scale
-    public init(axis: Axis = .vertical) { self.axis = axis }
+    /// 16 % white on glass; docked columns of opaque windows use `Yap.dockHairline`.
+    public init(axis: Axis = .vertical, opacity: Double = 0.16) { self.axis = axis; self.opacity = opacity }
     public var body: some View {
-        Color.white.opacity(0.16)
+        Color.white.opacity(opacity)
             .frame(width: axis == .vertical ? 1 / scale : nil, height: axis == .vertical ? nil : 1 / scale)
     }
 }

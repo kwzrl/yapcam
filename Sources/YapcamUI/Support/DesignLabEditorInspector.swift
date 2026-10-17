@@ -86,7 +86,7 @@ struct InspectorColumn: View {
     var body: some View {
         HStack(spacing: 0) {
             rail
-            Hairline()
+            DockHairline()
             ScrollView {
                 content.padding(.horizontal, 12).padding(.bottom, 16)
             }
@@ -94,7 +94,7 @@ struct InspectorColumn: View {
             .id(mock.selection == .none ? AnyHashable(mock.tab) : AnyHashable(mock.selection))
         }
         .frame(maxHeight: .infinity)
-        .background(Yap.dock)
+        .background(ToneTuning.shared.dockColor)
     }
 
     private var rail: some View {
@@ -179,7 +179,7 @@ private struct SettingsGroup<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if !first { Hairline(axis: .horizontal).padding(.bottom, 2) }
+            if !first { DockHairline(axis: .horizontal).padding(.bottom, 2) }
             if !title.isEmpty { Text(title).font(Yap.Font.caption).foregroundStyle(Yap.caption) }
             content
         }

@@ -20,7 +20,7 @@ struct TimelineArea: View {
             }
             .frame(height: TimelineMetrics.tracksHeight(lanes: mock.lanes.count))
         }
-        .background(Yap.dock)
+        .background(ToneTuning.shared.dockColor)
     }
 
     private var head: some View {

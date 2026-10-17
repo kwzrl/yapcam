@@ -306,15 +306,19 @@ struct DesignLabEditorPage: View {
     @State private var page = "editor"
     @State private var size = 0
     @State private var actual = CGSize.zero
+    @State private var tones = false
 
     var body: some View {
         VStack(spacing: 0) {
             EditorMockView(mock: mock)
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { actual = $0 }
-            Hairline(axis: .horizontal)
+            DockHairline(axis: .horizontal)
             strip
         }
-        .background(Yap.ground)
+        .overlay(alignment: .bottomTrailing) {
+            if tones { TonePanel().padding(.trailing, 12).padding(.bottom, DesignLabEditor.strip + 8) }
+        }
+        .background(ToneTuning.shared.stageColor)
         .onAppear { EditorLabWindow.resize(to: DesignLabEditor.sizes[size]) }
         .onChange(of: size) { _, new in EditorLabWindow.resize(to: DesignLabEditor.sizes[new]) }
         .onChange(of: page) { _, new in if new != "editor" { switchPage(new); page = "editor" } }
@@ -345,12 +349,55 @@ struct DesignLabEditorPage: View {
             .padding(.horizontal, 8).frame(height: 44)
             .glassPanel(radius: Yap.Grid.barRadius, floating: false, behindWindow: false)
             Spacer(minLength: 0)
+            Button { tones.toggle() } label: { Label("Tones", systemImage: "slider.horizontal.3") }
+                .buttonStyle(CapsuleButtonStyle(tones ? .primary : .secondary, height: 30))
+                .help("Tune stage, columns and hairlines live")
         }
         .padding(.horizontal, 12)
         .frame(height: DesignLabEditor.strip)
     }
 
-    private var separator: some View { Hairline().frame(height: 24).padding(.horizontal, 4) }
+    private var separator: some View { DockHairline().frame(height: 24).padding(.horizontal, 4) }
+}
+
+/// A hairline between docked surfaces, at the tuned opacity.
+struct DockHairline: View {
+    var axis: Axis = .vertical
+    var body: some View { Hairline(axis: axis, opacity: ToneTuning.shared.hairline) }
+}
+
+/// Live tones of the opaque editor (stage, columns, hairline, coolness), like the glass knobs; its values become
+/// the defaults of `Yap.ground`, `Yap.dock` and `Yap.dockHairline`.
+private struct TonePanel: View {
+    @State private var t = ToneTuning.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Tones").font(Yap.Font.title(17)).foregroundStyle(Yap.title)
+            ValueSlider("Stage", value: t.hex(t.stage), amount: level(\.stage))
+            ValueSlider("Columns", value: t.hex(t.dock), amount: level(\.dock))
+            ValueSlider("Hairline", value: String(format: "%.0f %%", t.hairline * 100),
+                        amount: Binding(get: { t.hairline / 0.3 }, set: { t.hairline = $0 * 0.3 }))
+            ValueSlider("Cool", value: String(format: "+%.0f", t.cool * 255),
+                        amount: Binding(get: { t.cool / (8 / 255) }, set: { t.cool = ($0 * 8).rounded() / 255 }))
+            HStack {
+                Button("Reset") { t.reset() }.buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
+                Spacer()
+                Button("Copy values") {
+                    let s = "stage \(t.hex(t.stage)), columns \(t.hex(t.dock)), hairline \(String(format: "%.2f", t.hairline))"
+                    NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string)
+                }.buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
+            }
+        }
+        .padding(18)
+        .frame(width: 320)
+        .glassPanel(radius: Yap.Radius.panel, behindWindow: false, lift: 0.04)
+    }
+
+    /// Grey levels from black to 30 %, in whole steps of 1/255.
+    private func level(_ key: ReferenceWritableKeyPath<ToneTuning, Double>) -> Binding<Double> {
+        Binding(get: { t[keyPath: key] / 0.3 }, set: { t[keyPath: key] = ($0 * 0.3 * 255).rounded() / 255 })
+    }
 }
 
 // MARK: - Editor
@@ -365,26 +412,26 @@ struct EditorMockView: View {
             let narrow = mock.variant == .auto && geo.size.width < EditorMock.autoCollapseWidth
             VStack(spacing: 0) {
                 EditorTopBar(mock: mock, narrow: narrow)
-                Hairline(axis: .horizontal)
+                DockHairline(axis: .horizontal)
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
                         HStack(spacing: 0) {
                             if mock.agentOn && !narrow && mock.chatOpen {
                                 ChatColumn(mock: mock).frame(width: Self.chatWidth)
-                                Hairline()
+                                DockHairline()
                             }
                             PreviewArea(mock: mock)
                                 .overlay(alignment: .topLeading) { overlayChat(narrow: narrow) }
                         }
-                        Hairline(axis: .horizontal)
+                        DockHairline(axis: .horizontal)
                         TimelineArea(mock: mock)
                     }
-                    Hairline()
+                    DockHairline()
                     InspectorColumn(mock: mock).frame(width: Self.inspectorWidth)
                 }
             }
         }
-        .background(Yap.ground)
+        .background(ToneTuning.shared.stageColor)
         .task(id: mock.playing) { await play() }
         .onChange(of: mock.chatOpen) { _, open in if open { mock.unread = false } }
         .onChange(of: mock.chatOverlay) { _, open in if open { mock.unread = false } }
@@ -432,7 +479,7 @@ private struct EditorTopBar: View {
         }
         .padding(.horizontal, 12)
         .frame(height: Self.height)
-        .background(Yap.dock)
+        .background(ToneTuning.shared.dockColor)
     }
 
     /// The unified title bar's height, so the window buttons sit centred in this row.
@@ -464,7 +511,7 @@ private struct ChatColumn: View {
             if mock.agent == .on { connected } else { ChatEmptyState(mock: mock) }
         }
         .frame(maxHeight: .infinity)
-        .background { if floating { GlassSurface(radius: Yap.Grid.barRadius, behindWindow: false, lift: 0.04) } else { Yap.dock } }
+        .background { if floating { GlassSurface(radius: Yap.Grid.barRadius, behindWindow: false, lift: 0.04) } else { ToneTuning.shared.dockColor } }
     }
 
     private var connected: some View {
@@ -647,7 +694,7 @@ enum MockLook {
             LinearGradient(colors: w.2, startPoint: .topLeading, endPoint: .bottomTrailing)
         case "Color": s.color("bg.color", MockGradients.color(0x2E3440))
         case "Image":
-            LinearGradient(colors: [Color(red: 0.42, green: 0.36, blue: 0.3), Color(red: 0.16, green: 0.14, blue: 0.13)],
+            LinearGradient(colors: [Color(red: 0.36, green: 0.42, blue: 0.44), Color(red: 0.12, green: 0.14, blue: 0.16)],
                            startPoint: .top, endPoint: .bottom)
         case "Blur": ScreenMock().blur(radius: 24 + s.number("bg.blur", 40) / 4).scaleEffect(1.2)
         default: gradient(s)
