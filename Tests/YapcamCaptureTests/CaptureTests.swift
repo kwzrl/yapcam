@@ -140,7 +140,7 @@ private func manifest() -> SessionManifest {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let writer = SegmentWriter(directory: directory, hostStartNs: CaptureClock.now, maxFPS: 30)
-    let devices = AuxiliaryCapture(writer: writer, fps: 30)
+    let devices = AuxiliaryCapture(writer: writer, fps: 30, findDevice: { id, _ in throw CaptureError.deviceLost(id) })
     let metadata = await devices.start(microphoneID: "nonexistent-test-microphone", cameraID: "nonexistent-test-camera")
     #expect(metadata.mic == nil)
     #expect(metadata.camera == nil)
@@ -249,14 +249,14 @@ func actualHEVCWriterAndInterruptedRecovery() async throws {
     #expect(throws: CaptureError.self) { try SegmentTimeline.nextSourceStart(after: [invalid]) }
 }
 
-@Test func recordingOptionsPersistKeystrokeOptInAndTargets() throws {
+@Test func recordingOptionsPersistParityDefaultsAndTargets() throws {
     for target in [CaptureTarget.display(2), .window(17), .area(display: 2, rect: CGRect(x: 10, y: 20, width: 800, height: 600))] {
         let options = RecordingOptions(target: target, outputDirectory: URL(fileURLWithPath: "/tmp"))
-        #expect(!options.recordKeystrokes)
+        #expect(options.recordKeystrokes)
         #expect(options.excludeYapcamWindows)
         let decoded = try JSONDecoder().decode(RecordingOptions.self, from: JSONEncoder().encode(options))
         #expect(decoded.target == target)
-        #expect(decoded.maxFPS == 60)
+        #expect(decoded.maxFPS == 0)
     }
 }
 

@@ -41,7 +41,7 @@ struct CaptureGeometry: Sendable {
               displayBounds.width > 0, displayBounds.height > 0,
               localRect.origin.x.isFinite, localRect.origin.y.isFinite,
               localRect.width.isFinite, localRect.height.isFinite,
-              localRect.width > 0, localRect.height > 0,
+              localRect.width >= 150, localRect.height >= 150,
               CGRect(origin: .zero, size: displayBounds.size).contains(localRect) else {
             throw CaptureError.sourceUnavailable
         }
@@ -74,9 +74,15 @@ struct CaptureCoordinateMapping: Sendable {
     let configuration: SCStreamConfiguration
     let geometry: CaptureGeometry
     let source: SourceMetadata
+    let maxFPS: Int
 
     static func resolve(_ options: RecordingOptions) async throws -> ResolvedCapture {
-        guard options.maxFPS == 30 || options.maxFPS == 60 else { throw CaptureError.writerFailed("Frame rate must be 30 or 60") }
+        _ = try CaptureFrameRatePolicy.resolve(maxFPS: options.maxFPS, refreshRate: 60)
+        // Ordinary window capture does not require Accessibility. Raise only when
+        // already authorized, then rediscover bounds after the target responds.
+        if case .window(let id) = options.target, CapturePermissions.state(.accessibility) == .granted {
+            try? CaptureWindowControl.raise(windowID: id)
+        }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let displayNames = Dictionary(uniqueKeysWithValues: NSScreen.screens.compactMap { screen -> (UInt32, String)? in
             guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 else { return nil }
@@ -119,9 +125,11 @@ struct CaptureCoordinateMapping: Sendable {
             source = geometry.sourceMetadata(kind: "window", displayID: display?.displayID, displayNames: displayNames,
                 windowTitle: window.title, appBundleID: window.owningApplication?.bundleIdentifier)
         }
+        let fps = try CaptureFrameRatePolicy.resolve(maxFPS: options.maxFPS,
+            refreshRate: source.displayID.map { CaptureFrameRatePolicy.refreshRate(for: $0) } ?? 60)
         let config = SCStreamConfiguration()
         config.width = geometry.pixelWidth; config.height = geometry.pixelHeight
-        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.maxFPS))
+        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(fps))
         config.showsCursor = false
         config.capturesAudio = false // The independent audio stream owns the app selection.
         config.excludesCurrentProcessAudio = true
@@ -140,7 +148,7 @@ struct CaptureCoordinateMapping: Sendable {
             }
             audioFilter = try SystemAudioPolicy.filter(selection: options.systemAudioSelection, display: display, content: content)
         } else { audioFilter = nil }
-        return ResolvedCapture(filter: filter, audioFilter: audioFilter, configuration: config, geometry: geometry, source: source)
+        return ResolvedCapture(filter: filter, audioFilter: audioFilter, configuration: config, geometry: geometry, source: source, maxFPS: fps)
     }
 }
 

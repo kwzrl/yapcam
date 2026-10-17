@@ -58,7 +58,7 @@ import ScreenCaptureKit
             packageURL = package
             packageLease = try RecordingPackageLease(package: package)
             manifest = SessionManifest(source: resolved.source, tracks: TrackMetadata(
-                screen: ScreenMetadata(pixelSize: [resolved.geometry.pixelWidth, resolved.geometry.pixelHeight], maxFPS: options.maxFPS),
+                screen: ScreenMetadata(pixelSize: [resolved.geometry.pixelWidth, resolved.geometry.pixelHeight], maxFPS: resolved.maxFPS),
                 systemAudio: options.systemAudio ? AudioMetadata(sampleRate: 48_000, channels: 2) : nil))
             try persist()
             try await beginSegment(resolved)
@@ -108,8 +108,12 @@ import ScreenCaptureKit
             try requireSourcePermissions()
             guard let packageURL else { throw invalidState("resume") }
             try PackageIO.requireSpace(services.availableBytes(packageURL))
-            let resolved = try await services.prepare(options)
             guard let initial = manifest?.tracks.screen else { throw invalidState("resume") }
+            // A window can move onto a different-refresh display while paused.
+            // Keep the first display's rate and manifest clock for the whole take.
+            var resumeOptions = options
+            resumeOptions.maxFPS = initial.maxFPS
+            let resolved = try await services.prepare(resumeOptions)
             switch options.target {
             case .window: break // Resized windows retain the initial encoded surface.
             default:
@@ -174,7 +178,7 @@ import ScreenCaptureKit
         manifest.segments.append(metadata)
         self.manifest = manifest
         try persist()
-        let writer = services.makeWriter(directory, start, options.maxFPS)
+        let writer = services.makeWriter(directory, start, manifest.tracks.screen.maxFPS)
         pendingFailure = nil
         writer.onWarning = { [weak self] message in
             Task { @MainActor in
@@ -222,7 +226,8 @@ import ScreenCaptureKit
         self.manifest?.segments[index].hostStartNs = origin
         try persist()
         let events = InputEventRecorder(directory: directory, rect: resolved.geometry.rect, hostStartNs: origin,
-                                        keys: options.recordKeystrokes, outputSize: outputSize)
+                                        keys: options.recordKeystrokes && services.permissionState(.inputMonitoring) == .granted,
+                                        outputSize: outputSize)
         events.warning = { [weak self] in self?.warn($0) }
         events.failure = { [weak self] error in
             Task { @MainActor in
@@ -246,7 +251,8 @@ import ScreenCaptureKit
         // The Mac's cursor/keys do not describe touches on the USB device screen.
         if isDeviceScreen { try events.openEventLog() }
         else { try services.startEvents(events) }
-        let devices = AuxiliaryCapture(writer: writer, fps: options.maxFPS)
+        // Camera devices commonly offer 30/60, independently of the screen's refresh.
+        let devices = AuxiliaryCapture(writer: writer, fps: manifest.tracks.screen.maxFPS >= 60 ? 60 : 30)
         devices.onWarning = writer.onWarning
         self.devices = devices
         let deviceMetadata = await devices.start(microphoneID: options.microphoneID, cameraID: options.cameraID, cameraMaxResolution: options.cameraMaxResolution)

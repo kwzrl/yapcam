@@ -41,7 +41,7 @@ struct InputEventSnapshot: Sendable {
 }
 
 /// The tap is attached only to the main run loop. File writes are small, buffered by
-/// the OS and synchronized at segment close; keystrokes are opt-in at the tap mask.
+/// the OS and synchronized about every two seconds and at segment close.
 @MainActor final class InputEventRecorder {
     private let directory: URL
     private var mapping: CaptureCoordinateMapping
@@ -54,6 +54,7 @@ struct InputEventSnapshot: Sendable {
     private var monitor: Any?
     private var timer: Timer?
     private var lastTime: Int64 = 0
+    private let diskCheckpoint: CaptureDiskCheckpoint
     private var cursorIDs: [String: Int] = [:]
     private var cursors: [String: CursorMetadata] = [:]
     private var currentCursor: Int?
@@ -64,6 +65,7 @@ struct InputEventSnapshot: Sendable {
 
     init(directory: URL, rect: CGRect, hostStartNs: Int64, keys: Bool, outputSize: CGSize? = nil) {
         self.directory = directory; self.hostStartNs = hostStartNs; self.keys = keys
+        self.diskCheckpoint = CaptureDiskCheckpoint(url: directory.appendingPathComponent("events.jsonl"), originNs: hostStartNs)
         self.outputSize = outputSize ?? rect.size
         self.mapping = .fitted(source: rect, outputSize: outputSize ?? rect.size)
     }
@@ -123,6 +125,7 @@ struct InputEventSnapshot: Sendable {
     }
 
     private func poll() {
+        do { try checkpoint(atHostNs: CaptureClock.now) } catch { report(error); return }
         if let point = CGEvent(source: nil)?.location { recordPosition(point, hostNs: CaptureClock.now) }
         let cursor = NSCursor.currentSystem ?? .arrow
         guard let image = cursor.image.cgImage(forProposedRect: nil, context: nil, hints: nil),
@@ -159,9 +162,15 @@ struct InputEventSnapshot: Sendable {
             bytes.append(0x0a)
             try file.write(contentsOf: bytes)
             try file.synchronize()
+            diskCheckpoint.didSynchronize(atHostNs: hostStartNs + time)
             lastTime = time
             return time
         } catch { report(error); throw error }
+    }
+
+    func checkpoint(atHostNs host: Int64) throws {
+        guard file != nil, !failed else { return }
+        try diskCheckpoint.request(atHostNs: host)
     }
 
     /// A stationary global pointer still moves in content coordinates when its
@@ -223,6 +232,7 @@ struct InputEventSnapshot: Sendable {
             bytes.append(0x0a)
             try file?.write(contentsOf: bytes)
             lastTime = event.t
+            try checkpoint(atHostNs: hostStartNs + event.t)
         } catch { report(error) }
     }
     private func report(_ error: Error) {
@@ -247,7 +257,8 @@ struct InputEventSnapshot: Sendable {
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         if let monitor { NSEvent.removeMonitor(monitor) }
         tap = nil; source = nil; monitor = nil
-        try file?.synchronize(); try file?.close(); file = nil
+        if file != nil { try diskCheckpoint.finish() }
+        try file?.close(); file = nil
         try PackageIO.write(cursors, to: directory.appendingPathComponent("cursors.json"))
     }
 }

@@ -10,6 +10,12 @@ public struct DisplaySource: Identifiable, Sendable {
     public let frame: CGRect
     public let scale: CGFloat
     public let pixelSize: CGSize
+    public let refreshRate: Double
+
+    public init(id: CGDirectDisplayID, name: String, frame: CGRect, scale: CGFloat, pixelSize: CGSize, refreshRate: Double = 60) {
+        self.id = id; self.name = name; self.frame = frame; self.scale = scale
+        self.pixelSize = pixelSize; self.refreshRate = refreshRate
+    }
 }
 
 public struct WindowSource: Identifiable, Sendable {
@@ -61,14 +67,21 @@ public struct CaptureSources: Sendable {
                 return (id, screen.localizedName)
             })
         }
+        let displayIDs = content.displays.map(\.displayID)
+        let refreshRates = await MainActor.run {
+            Dictionary(uniqueKeysWithValues: displayIDs.map { ($0, CaptureFrameRatePolicy.refreshRate(for: $0)) })
+        }
         let displays = content.displays.map { display in
             let bounds = CGDisplayBounds(display.displayID)
             let scale = CGFloat(SCContentFilter(display: display, excludingWindows: []).pointPixelScale)
             let pixels = CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
             return DisplaySource(id: display.displayID, name: names[display.displayID] ?? "Display", frame: bounds,
-                                 scale: scale, pixelSize: pixels)
+                                 scale: scale, pixelSize: pixels, refreshRate: refreshRates[display.displayID] ?? 60)
         }
-        let candidates = content.windows.filter { $0.frame.width > 1 && $0.frame.height > 1 }
+        let candidates = content.windows.filter {
+            CaptureWindowPolicy.isPickable(pid: $0.owningApplication?.processID,
+                bundleID: $0.owningApplication?.bundleIdentifier, layer: $0.windowLayer, frame: $0.frame)
+        }
         let windows = try await CaptureThumbnails.sources(candidates, includeImages: includeWindowThumbnails)
         var result = CaptureSources(displays: displays, windows: windows,
                                     cameras: devices(.video), microphones: devices(.audio))
@@ -113,6 +126,7 @@ public struct RecordingOptions: Sendable, Codable {
     public var cameraID: String?
     public var cameraMaxResolution: CameraMaxResolution
     public var recordKeystrokes: Bool
+    /// 0 follows the initial display refresh rate (default). Positive values are explicit caps.
     public var maxFPS: Int
     public var excludeYapcamWindows: Bool
     public var hideDesktopIcons: Bool
@@ -120,7 +134,7 @@ public struct RecordingOptions: Sendable, Codable {
     public var outputDirectory: URL
 
     public init(target: CaptureTarget, systemAudio: Bool = false, microphoneID: String? = nil,
-                cameraID: String? = nil, recordKeystrokes: Bool = false, maxFPS: Int = 60,
+                cameraID: String? = nil, recordKeystrokes: Bool = true, maxFPS: Int = 0,
                 excludeYapcamWindows: Bool = true, hideDesktopIcons: Bool = false,
                 captureNotifications: Bool = true, systemAudioSelection: SystemAudioSelection? = nil,
                 cameraMaxResolution: CameraMaxResolution = .hd1080, outputDirectory: URL) {
@@ -141,8 +155,8 @@ public struct RecordingOptions: Sendable, Codable {
             systemAudio: try values.decodeIfPresent(Bool.self, forKey: .systemAudio) ?? false,
             microphoneID: try values.decodeIfPresent(String.self, forKey: .microphoneID),
             cameraID: try values.decodeIfPresent(String.self, forKey: .cameraID),
-            recordKeystrokes: try values.decodeIfPresent(Bool.self, forKey: .recordKeystrokes) ?? false,
-            maxFPS: try values.decodeIfPresent(Int.self, forKey: .maxFPS) ?? 60,
+            recordKeystrokes: try values.decodeIfPresent(Bool.self, forKey: .recordKeystrokes) ?? true,
+            maxFPS: try values.decodeIfPresent(Int.self, forKey: .maxFPS) ?? 0,
             excludeYapcamWindows: try values.decodeIfPresent(Bool.self, forKey: .excludeYapcamWindows) ?? true,
             hideDesktopIcons: try values.decodeIfPresent(Bool.self, forKey: .hideDesktopIcons) ?? false,
             captureNotifications: try values.decodeIfPresent(Bool.self, forKey: .captureNotifications) ?? true,

@@ -125,6 +125,8 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("capture-session-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
+    var displayRefreshRate: Double = 60
+    var preparedFrameRates: [Int] = []
     func cleanup() { try? FileManager.default.removeItem(at: directory) }
     func session(target: CaptureTarget = .display(2), systemAudio: Bool = false) -> RecordingSession {
         let finishes = finishes
@@ -133,6 +135,8 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
             availableBytes: { [unowned self] _ in self.freeBytes },
             prepare: { [unowned self] options in
                 if let error = self.prepareError { throw error }
+                let fps = try CaptureFrameRatePolicy.resolve(maxFPS: options.maxFPS, refreshRate: self.displayRefreshRate)
+                self.preparedFrameRates.append(fps)
                 let geometry = try CaptureGeometry(rect: self.rect, scale: self.scale)
                 var source = SourceMetadata(kind: "display", displayID: 2,
                     contentRectPoints: [self.rect.minX, self.rect.minY, self.rect.width, self.rect.height], scale: self.scale)
@@ -140,7 +144,7 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
                     source.kind = "device"; source.displayID = 0; source.displayName = "Test iPhone"
                     source.deviceID = id; source.deviceName = "Test iPhone"
                 }
-                return CaptureSessionPlan(source: source, geometry: geometry) { [unowned self] writer, pixels in
+                return CaptureSessionPlan(source: source, geometry: geometry, maxFPS: fps) { [unowned self] writer, pixels in
                     let stream = LifecycleStream(writer: writer, pixels: pixels, barrier: self.barrier,
                         delayFirstFrame: self.delayFirstFrame, includeAuxiliary: self.includeAuxiliary)
                     self.streams.append(stream)
@@ -158,6 +162,35 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
             }, automaticHealthChecks: false)
         return RecordingSession(options: RecordingOptions(target: target, systemAudio: systemAudio, outputDirectory: directory), services: services)
     }
+}
+
+@Test(arguments: [true, false]) @MainActor func defaultKeyCaptureRequiresGrantedInputPermission(_ granted: Bool) async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.permissionByKind[.inputMonitoring] = granted ? .granted : .denied
+    harness.eventHook = { events in
+        events.record(InputEventSnapshot(type: .keyDown, hostNs: CaptureClock.now, text: "a"))
+    }
+    let session = harness.session()
+    try await session.start()
+    let package = try await session.stop()
+    let data = try Data(contentsOf: package.appendingPathComponent("recording/seg-000/events.jsonl"))
+    let keys = try data.split(separator: 10).map { try JSONDecoder().decode(CaptureEvent.self, from: Data($0)) }.filter { $0.type == "key" }
+    #expect(keys.count == (granted ? 1 : 0))
+}
+
+@Test @MainActor func displayRefreshIsPersistedAndInitialRateSurvivesWindowPause() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.displayRefreshRate = 120
+    let session = harness.session(target: .window(9))
+    try await session.start()
+    try await session.pause()
+    harness.displayRefreshRate = 60
+    try await session.resume()
+    let package = try await session.stop()
+    let manifest = try Recovery.readManifest(package)
+    #expect(manifest.tracks.screen.maxFPS == 120)
+    #expect(harness.preparedFrameRates == [120, 120])
+    #expect(manifest.segments.count == 2)
 }
 
 @Test @MainActor func missingUSBDeviceCreatesNoPackageAndDoesNotNeedMacScreenPermission() async throws {
