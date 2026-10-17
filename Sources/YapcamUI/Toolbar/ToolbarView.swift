@@ -94,7 +94,7 @@ struct ToolbarView: View {
     /// Right-click on Display: pick one display directly.
     @ViewBuilder private var displayMenu: some View {
         ForEach(NSScreen.screens.compactMap { s in s.displayID.flatMap { id in Displays.info(for: id) } }, id: \.id) { d in
-            Button("\(d.name) – \(Int(d.pixelSize.width))×\(Int(d.pixelSize.height))") { SourcePicker.open(.display, display: d.id) }
+            Button("\(d.name) – \(d.detail)") { SourcePicker.open(.display, display: d.id) }
         }
     }
 

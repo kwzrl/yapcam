@@ -218,6 +218,11 @@ import Testing
         renderView(AdvancedSettings(), name: "set-advanced")
     }
 
+    @Test func cardsRender() {
+        renderView(ZStack { Color.gray; SourceCard(symbol: "display", title: "Built-in Retina Display", subtitle: "3024×1964 • 120 FPS", start: {}) }, name: "card-display", width: 420, height: 220)
+        renderView(ZStack { Color.gray; SourceCard(symbol: "macwindow", title: "Logic Pro", subtitle: "1277 × 861", start: {}, icon: NSImage(systemSymbolName: "music.note", accessibilityDescription: nil), sizeExtras: { AnyView(Button("Resize") {}.controlSize(.small)) }) }, name: "card-window", width: 420, height: 220)
+    }
+
     @Test func idleBarIsAHorizontalStrip() throws {
         let size = try render(nil, name: "bar-idle")
         #expect(size.width > size.height * 4 && size.width < 900, "\(size)")
@@ -309,5 +314,15 @@ import Testing
         let out = "/Users/a/Movies/Yapcam/One.yapcam\n/Users/a/Desktop/Two.yapcam\n/Users/a/.Trash/Old.yapcam\n/Users/a/notes.txt\n"
         let urls = RecentProjectsModel.parseScan(out, excluding: ["/Users/a/Movies/Yapcam/One.yapcam"])
         #expect(urls.map(\.path) == ["/Users/a/Desktop/Two.yapcam"])
+    }
+}
+
+@Suite struct Round5DisplayTests {
+    @Test func refreshRateFallsBackTo60() {
+        #expect(DisplayInfo.rate(nil) == 60 && DisplayInfo.rate(0) == 60 && DisplayInfo.rate(119.88) == 120 && DisplayInfo.rate(59.94) == 60)
+    }
+    @Test func cardDetailReadsLikeTheReference() {
+        let d = DisplayInfo(id: 1, name: "Built-in", frame: CGRect(x: 0, y: 0, width: 1512, height: 982), scale: 2)
+        #expect(d.detail.hasPrefix("3024×1964 • ") && d.detail.hasSuffix(" FPS"))
     }
 }

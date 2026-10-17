@@ -129,6 +129,10 @@ struct SourceCard: View {
     let title: String
     let subtitle: String
     let start: () -> Void
+    /// The app's icon (window mode); the SF Symbol stands in when there is none.
+    var icon: NSImage? = nil
+    /// Right of the size text (window mode: the Resize menu).
+    var sizeExtras: (() -> AnyView)? = nil
     var extras: (() -> AnyView)? = nil
     @EnvironmentObject var settings: AppSettings
     @Environment(\.contrastOpacity) private var contrast
@@ -136,10 +140,14 @@ struct SourceCard: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 20)).foregroundStyle(.secondary).accessibilityHidden(true)
+                if let icon { Image(nsImage: icon).resizable().frame(width: 40, height: 40).accessibilityHidden(true) }
+                else { Image(systemName: symbol).font(.system(size: 20)).foregroundStyle(.secondary).accessibilityHidden(true) }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                    Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                        if let sizeExtras { sizeExtras() }
+                    }
                 }
                 if let extras { extras() }
             }
@@ -258,7 +266,7 @@ struct DisplayOverlayRoot: View {
             Color.black.opacity(0.5)
             if model.activeDisplayID == display.id {
                 SourceCard(symbol: "display", title: display.name,
-                           subtitle: "\(Int(display.pixelSize.width))×\(Int(display.pixelSize.height)) · \(settings.maxFPS) fps",
+                           subtitle: display.detail,
                            start: { start(display.id) })
             }
         }
@@ -268,24 +276,30 @@ struct DisplayOverlayRoot: View {
 }
 
 extension WindowOverlayRoot {
+    /// "Resize": exact sizes that fit the display, Custom…, and saved sizes.
+    @ViewBuilder func resizeMenu(_ w: WindowRow) -> some View {
+        Menu {
+            ForEach(WindowAX.groups(fitting: screenFrame.size)) { g in
+                Menu(g.name) {
+                    ForEach(g.sizes, id: \.self) { size in Button(WindowAX.label(size)) { model.resize(w, toSize: size) } }
+                }
+            }
+            Divider()
+            Button("Custom…") { model.promptSize(w) }
+            Button("Save current size") { model.saveSize(of: w) }
+            let saved = AppSettings.shared.savedWindowSizes
+            ForEach(saved, id: \.self) { t in
+                Button(t.replacingOccurrences(of: "x", with: " × ")) { if let size = WindowAX.parseSize(t) { model.resize(w, toSize: size) } }
+            }
+            if !saved.isEmpty { Divider(); Button("Delete saved sizes") { AppSettings.shared.savedWindowSizes = [] } }
+        } label: { Text("Resize").font(.system(size: 11, weight: .medium)) }
+        .menuStyle(.button).menuIndicator(.hidden).fixedSize().controlSize(.small)
+        .help("Resize this window to an exact size (needs Accessibility)").accessibilityLabel("Resize window")
+    }
+
     /// The reference's window context actions, in our own words.
     @ViewBuilder func windowMenu(_ w: WindowRow) -> some View {
         Menu {
-            Menu("Resize window") {
-                ForEach(WindowAX.groups(fitting: screenFrame.size)) { g in
-                    Menu(g.name) {
-                        ForEach(g.sizes, id: \.self) { size in Button(WindowAX.label(size)) { model.resize(w, toSize: size) } }
-                    }
-                }
-                Divider()
-                Button("Custom…") { model.promptSize(w) }
-                Button("Save current size") { model.saveSize(of: w) }
-                let saved = AppSettings.shared.savedWindowSizes
-                ForEach(saved, id: \.self) { t in
-                    Button(t.replacingOccurrences(of: "x", with: " × ")) { if let size = WindowAX.parseSize(t) { model.resize(w, toSize: size) } }
-                }
-                if !saved.isEmpty { Divider(); Button("Delete saved sizes") { AppSettings.shared.savedWindowSizes = [] } }
-            }
             Button("Ignore this window") { model.ignore(w) }
             if !model.ignored.isEmpty { Button("Reset ignored windows") { model.ignored = [] } }
             Menu("Select window") {
@@ -294,7 +308,7 @@ extension WindowOverlayRoot {
                 }
             }
             Button("Bring to front") { WindowAX.raise(pid: w.pid, bounds: w.bounds) }
-            Button("Adjust as area") { model.adjustAsArea(w, screenFrame: screenFrame, primaryMaxY: primaryMaxY) }
+            Button("Adjust recording area…") { model.adjustAsArea(w, screenFrame: screenFrame, primaryMaxY: primaryMaxY) }
             Button("Record entire display") { model.recordDisplay(containing: w) }
         } label: {
             Image(systemName: "ellipsis.circle").font(.system(size: 16)).foregroundStyle(.secondary)
@@ -322,11 +336,20 @@ struct WindowOverlayRoot: View {
                         .frame(width: r.width, height: r.height)
                         .offset(x: r.minX, y: r.minY)
                         .allowsHitTesting(false)
-                    SourceCard(symbol: "macwindow", title: w.title.isEmpty ? w.app : w.title,
-                               subtitle: "\(w.app) · \(Int(w.bounds.width))×\(Int(w.bounds.height))",
+                    SourceCard(symbol: "macwindow", title: w.app,
+                               subtitle: "\(Int(w.bounds.width)) × \(Int(w.bounds.height))",
                                start: { start(w.id) },
+                               icon: NSRunningApplication(processIdentifier: w.pid)?.icon,
+                               sizeExtras: { AnyView(resizeMenu(w)) },
                                extras: { AnyView(windowMenu(w)) })
                         .position(x: r.midX, y: r.midY)
+                    Button { model.adjustAsArea(w, screenFrame: screenFrame, primaryMaxY: primaryMaxY) } label: {
+                        Text("Adjust recording area").font(.system(size: 11, weight: .medium)).foregroundStyle(.white)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(Capsule().fill(Color.black.opacity(0.6)))
+                    }
+                    .buttonStyle(.plain)
+                    .position(x: r.midX, y: max(r.minY + 16, min(r.maxY - 24, screenFrame.height - 24)))
                 }
             } else {
                 Text("Move the pointer over a window").font(.system(size: 14, weight: .medium))
