@@ -62,6 +62,13 @@ struct AnimationsSection: View {
             InspectorGroup("Motion blur") {
                 NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1, defaultValue: model.factoryMotionBlur)
                 InspectorNote("One strength for zoom, screen movement and cursor.")
+                InspectorMore("Advanced motion blur settings") {
+                    NumberRow(model: model, title: "Cursor movement", path: "cursor.motion_blur", range: 0...1)
+                    InheritedBlurRow(model: model, title: "Screen zooming in", path: "canvas.motion_blur_settings.zoom")
+                    InspectorNote("Blur while zooming in or out.")
+                    InheritedBlurRow(model: model, title: "Screen moving", path: "canvas.motion_blur_settings.pan")
+                    InspectorNote("Blur panning while zoomed, not zooming.")
+                }
             }
         }
     }

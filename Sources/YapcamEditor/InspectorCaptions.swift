@@ -6,6 +6,7 @@ import YapcamDesign
 
 struct CaptionSection: View {
     @ObservedObject var model: EditorModel
+    @State private var editing = false
     var body: some View {
         let captions = model.textItems(.caption)
         VStack(alignment: .leading, spacing: 0) {
@@ -15,10 +16,12 @@ struct CaptionSection: View {
             InspectorGroup(first: true) {
                 CaptionGeneration(model: model, count: captions.count)
                 InspectorAction("Add caption at playhead", symbol: "plus") { model.addText(.caption) }
+                if !model.transcriptWords.isEmpty { InspectorAction("Edit transcript", symbol: "text.cursor") { editing = true } }
             }
             InspectorGroup("Style") { CaptionStyleControls(model: model) }
             if !captions.isEmpty { InspectorGroup("All captions") { CaptionList(model: model, captions: captions) } }
         }
+        .sheet(isPresented: $editing) { TranscriptEditSheet(model: model) }
     }
 }
 

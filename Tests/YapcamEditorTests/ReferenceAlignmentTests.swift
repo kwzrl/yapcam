@@ -775,3 +775,32 @@ import YapcamCore
         #expect(m.numbers("canvas.crop").isEmpty || CropDraft(frame: CGSize(width: 10, height: 10), stored: m.numbers("canvas.crop")).isFullFrame)
     }
 }
+
+@MainActor @Suite struct TranscriptEditTests {      // CAM-33, MKT-037/038
+    func words(_ t: [String]) -> [TextItem] {
+        t.enumerated().map { i, s in TextItem.make(.caption, id: "w\(i)", start: Int64(i) * 1_000_000_000, end: Int64(i) * 1_000_000_000 + 500_000_000, text: s) }
+    }
+    @Test func typoFixTouchesOnlyThatWord() {
+        let e = EditorModel.wordEdits(old: words(["hello", "yapcom", "world"]), newText: "hello Yapcam world")
+        #expect(e == [WordEdit(id: "w1", text: "Yapcam", hide: false)])
+    }
+    @Test func replacingTwoWordsWithOneHidesTheSurplusInsteadOfCutting() {
+        let e = EditorModel.wordEdits(old: words(["a", "b", "c", "d"]), newText: "a X d")
+        #expect(e == [WordEdit(id: "w1", text: "X", hide: false), WordEdit(id: "w2", text: "c", hide: true)])
+    }
+    @Test func insertionJoinsTheNeighbourAndNoChangeIsEmpty() {
+        #expect(EditorModel.wordEdits(old: words(["a", "b"]), newText: "a new b") == [WordEdit(id: "w0", text: "a new", hide: false)])
+        #expect(EditorModel.wordEdits(old: words(["a", "b"]), newText: "a   b").isEmpty)
+    }
+    @Test func appliedEditsAreOneUndoStepAndNeverCut() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.writeTextList(.caption, words(["one", "two", "three"]))
+        let dur = m.durationNs
+        m.applyWordEdits(EditorModel.wordEdits(old: m.transcriptWords, newText: "one 2 three"))
+        #expect(m.transcriptWords.map(\.text) == ["one", "2", "three"] && m.durationNs == dur)
+        m.hideWords(ids: ["w0"]); #expect(m.isHidden(m.transcriptWords[0]) && m.durationNs == dur)
+        m.undo(); #expect(!m.isHidden(m.transcriptWords[0]))
+        m.undo(); #expect(m.transcriptWords.map(\.text) == ["one", "two", "three"])
+        #expect(m.pause(before: 1) == 500_000_000 && EditorModel.pauseLabel(1_500_000_000) == "1.5 s")
+    }
+}
