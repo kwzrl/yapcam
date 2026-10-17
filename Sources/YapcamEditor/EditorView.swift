@@ -25,8 +25,9 @@ public struct EditorContent<Preview: View>: View {
         self.initialSection = initialSection; self.preview = preview()
     }
 
-    /// Variant B: below this width the chat column collapses and opens floating over the stage.
-    static var autoCollapseWidth: CGFloat { 1500 }
+    /// Below this width the chat would float over the stage (lab variant B). 0 = always docked on the left:
+    /// a floating chat covered the preview and play button (Kilian, 2026-10-17).
+    static var autoCollapseWidth: CGFloat { 0 }
     static var inspectorWidth: CGFloat { 354 }
 
     public var body: some View {
