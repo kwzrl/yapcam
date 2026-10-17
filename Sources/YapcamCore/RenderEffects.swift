@@ -57,7 +57,11 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
 /// Rust. Arrays have fixed lengths: rect [x,y,width,height], fill/stroke RGBA.
 /// Rendering applies these in order after the primary frame; fades are last.
 public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
-    public enum Purpose: String, Decodable, Sendable { case unspecified, textBackground = "text_background", privacyMask = "privacy_mask" }
+    public enum Purpose: String, Decodable, Sendable {
+        case unspecified, highlight, spotlight
+        case textBackground = "text_background"
+        case privacyMask = "privacy_mask"
+    }
     public var purpose: Purpose?
     public var id: String
     public var kind: String
@@ -159,7 +163,8 @@ extension Project {
 }
 
 
-/// Original-space privacy instructions. Consume on the same immutable project
+/// Original-space sensitive-data mask instructions. Ordinary highlight and
+/// spotlight layers are excluded. Consume on the same immutable project
 /// snapshot as layers/options; renderer support is required before pre-masking.
 public struct CorePrivacyMaskFrame: Decodable, Sendable, Equatable {
     public struct Screen: Decodable, Sendable, Equatable {

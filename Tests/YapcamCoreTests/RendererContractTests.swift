@@ -57,7 +57,9 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
             .set(path: "canvas.crop", value: .array([0.1,0.1,0.5,0.5].map(JSONValue.number))),
             .set(path: "canvas.highlights", value: .array([
                 .object(["id": .string("core:caption:fake:background"), "space": .string("source"), "kind": .string("blur"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000), "rect": .array([0.8,0.8,0.1,0.1].map(JSONValue.number))]),
-                .object(["id": .string("cover"), "space": .string("canvas"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000), "fill": .array([0,0,0,1].map(JSONValue.number))])
+                .object(["id": .string("cover"), "space": .string("canvas"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000), "fill": .array([0,0,0,1].map(JSONValue.number))]),
+                .object(["id": .string("spotlight"), "space": .string("canvas"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000)]),
+                .object(["id": .string("outline"), "space": .string("canvas"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000), "dim_opacity": .number(0)])
             ])),
             .addText(.caption, .init(id: "words", startNs: 0, endNs: 2_000_000_000, text: "Caption", style: try p.captionDefaults()))
         ]))
@@ -78,6 +80,8 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         #expect(try p.effects(atNs: 500_000_000).privacyMasks == packet)
         let layers = try p.renderLayers(atNs: 500_000_000)
         #expect(layers.first(where: { $0.id == "cover" })?.purpose == .privacyMask)
+        #expect(layers.first(where: { $0.id == "spotlight" })?.purpose == .spotlight)
+        #expect(layers.first(where: { $0.id == "outline" })?.purpose == .highlight)
         #expect(layers.first(where: { $0.id == "core:caption:words:background" })?.purpose == .textBackground)
         #expect(!layers.contains { $0.id == "core:caption:fake:background" }) // outside base crop, still in source packet
         let snapshot = try p.snapshot()
