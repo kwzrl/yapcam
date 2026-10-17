@@ -3,9 +3,86 @@ import YapcamCore
 import Metal
 import ImageIO
 import UniformTypeIdentifiers
+import CoreVideo
 @testable import YapcamRender
 
 final class AgentVisionRenderTests: XCTestCase {
+    func testContentCropUsesRecordingDestinationAndClipsToCanvas() throws {
+        let canvas = CGSize(width: 1920, height: 1080)
+        let recording = CGRect(x: 240, y: 90, width: 1440, height: 900)
+        XCTAssertEqual(try AgentCaptureCrop.content.area(canvas: canvas, recording: recording), recording)
+        XCTAssertEqual(try AgentCaptureCrop.frame.area(canvas: canvas, recording: recording), CGRect(origin: .zero, size: canvas))
+        XCTAssertEqual(try AgentCaptureCrop.content.area(canvas: canvas, recording: CGRect(x: -100, y: 80, width: 800, height: 600)),
+                       CGRect(x: 0, y: 80, width: 700, height: 600))
+        XCTAssertThrowsError(try AgentCaptureCrop.content.area(canvas: canvas, recording: .zero))
+        XCTAssertThrowsError(try AgentCaptureCrop.content.area(canvas: canvas, recording: recording, recordingVisible: false))
+        XCTAssertEqual(try AgentCaptureCrop.frame.area(canvas: canvas, recording: recording, recordingVisible: false), CGRect(origin: .zero, size: canvas))
+        XCTAssertThrowsError(try AgentCaptureCrop.content.area(canvas: canvas, recording: CGRect(x: 2000, y: 0, width: 20, height: 20)))
+    }
+
+    func testFrameDifferenceDetectsSceneChangeButIgnoresSmallCursorAndAlpha() {
+        let black = [UInt8](repeating: 0, count: 64 * 40 * 4)
+        let baseline = AgentFrameSignature(rgba: black)
+        XCTAssertEqual(baseline.difference(from: baseline), 0)
+        var alpha = black
+        for i in stride(from: 3, to: alpha.count, by: 4) { alpha[i] = 255 }
+        XCTAssertEqual(AgentFrameSignature(rgba: alpha).difference(from: baseline), 0)
+        var cursor = black
+        for i in 0..<16 { cursor[i] = 255 }
+        XCTAssertLessThan(AgentFrameSignature(rgba: cursor).difference(from: baseline), 0.005)
+        let changed = AgentFrameSignature(rgba: [UInt8](repeating: 128, count: black.count))
+        XCTAssertEqual(changed.difference(from: baseline), 128.0 / 255.0, accuracy: 0.00001)
+        XCTAssertGreaterThan(changed.difference(from: baseline), 0.005)
+    }
+
+    func testDownsampledSyntheticFramePairFindsSmallUIChange() throws {
+        func signature(changed: Bool) throws -> AgentFrameSignature {
+            var pixelBuffer: CVPixelBuffer?
+            XCTAssertEqual(CVPixelBufferCreate(nil, 640, 400, kCVPixelFormatType_32BGRA, nil, &pixelBuffer), kCVReturnSuccess)
+            let buffer = try XCTUnwrap(pixelBuffer)
+            CVPixelBufferLockBaseAddress(buffer, [])
+            let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+            let bytes = try XCTUnwrap(CVPixelBufferGetBaseAddress(buffer)).assumingMemoryBound(to: UInt8.self)
+            bytes.initialize(repeating: 255, count: rowBytes * 400)
+            if changed {
+                // A dark panel covering just 2.5% of an otherwise white UI.
+                for y in 100..<180 { for x in 100..<180 {
+                    for channel in 0..<3 { bytes[y * rowBytes + x * 4 + channel] = 32 }
+                } }
+            }
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            return try AgentFrameSignature(pixelBuffer: buffer)
+        }
+        let before = try signature(changed: false), after = try signature(changed: true)
+        XCTAssertEqual(before.difference(from: before), 0)
+        XCTAssertGreaterThan(after.difference(from: before), 0.005)
+        XCTAssertLessThan(after.difference(from: before), 0.04)
+    }
+
+    func testContentCapturePreservesCompositedZoomAndRemovesPadding() throws {
+        _ = try requireRenderDevice()
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-vision-crop-\(UUID()).yapcam")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.copyItem(at: fixture, to: root)
+        let project = try Project.create(package: root)
+        try project.apply(.set(path: "canvas.padding", value: .number(120)))
+        try project.apply(.addZoom(.init(startNs: 0, endNs: 2_000_000_000, target: [0.6, 0.4], scale: 2, easeInNs: 0, easeOutNs: 0)))
+        let renderer = try AgentFrameRenderer(snapshot: project.snapshot())
+        let size = CGSize(width: 4096, height: 4096)
+        let full = try renderer.capture(atNs: 1_000_000_000, fitting: size)
+        let content = try renderer.capture(atNs: 1_000_000_000, fitting: size, crop: .content)
+        let frame = try project.frame(atNs: 1_000_000_000)
+        XCTAssertLessThan(frame.screen_crop.w, 1)
+        let rect = try AgentCaptureCrop.content.area(canvas: CGSize(width: Int(frame.canvas_w), height: Int(frame.canvas_h)),
+                                                     recording: CGRect(x: frame.screen_dest.x, y: frame.screen_dest.y, width: frame.screen_dest.w, height: frame.screen_dest.h)).integral
+        let expected = try XCTUnwrap(full.cropping(to: rect))
+        XCTAssertLessThan(content.width, full.width)
+        XCTAssertEqual(content.width, expected.width)
+        XCTAssertEqual(content.height, expected.height)
+        XCTAssertEqual(try AgentContactSheet.png(content), try AgentContactSheet.png(expected))
+    }
+
     func testAllSheetLayoutsFitBudgetAndKeepCellsSeparate() throws {
         for count in 1...12 {
             let layout = try AgentSheetLayout(count: count)
