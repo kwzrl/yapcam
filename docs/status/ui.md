@@ -447,3 +447,6 @@ R7 S-EDT-76 | Keep? question when a fresh recording's editor closes within 10 s 
 R7 S-EDT-83/84 | File > Extract Raw Recording Files… / Extract Screen Recording File… (passthrough join, cancel panel) | extract* tests | live: not verified. Request to editor: add both to the ⌘K palette (call AppDelegate.extractRawFiles / extractScreenFile via NSApp.sendAction)
 R7 MKT quit guard | Quit asks while an export runs | quitIsGuardedWhileAnyExportRuns | live: not verified
 R7 MKT Quick Look preview of project files | NOT done: needs a Quick Look preview extension bundle (a separate app-extension target, not buildable with SwiftPM alone); Lead decision
+
+## R7 flaky test (PREP)
+Round6StartDecisionTests.backToBackSettingChangesWithAnObserverDoNotTrap: it slept a fixed 300 ms and expected the 50 ms debounce (RunLoop.main) to have fired. Under load (other suites running in parallel) the run loop was serviced later, so `fired` was still 0. It now waits (up to 5 s) for the first fire, then 200 ms of quiet, and then checks the count. Ran the ui suite three times in a row, green.
