@@ -275,8 +275,13 @@ import YapcamCore
     }
 
     /// The diagnostics report: version, permissions, displays and the log tail.
-    static func diagnosticsText() -> String {
+    static func diagnosticsText(system: SystemInfo = .current()) -> String {
         var out = "Yapcam diagnostics \(Date().ISO8601Format())\n"
+        out += "This report lists device names and the app log. It contains no recordings.\n"
+        out += "Model: \(system.model)\nChip: \(system.chip)\nMemory: \(system.memoryGB) GB\nArchitecture: \(system.architecture)\n"
+        out += "Cameras: \(system.cameras.isEmpty ? "none" : system.cameras.joined(separator: ", "))\n"
+        out += "Microphones: \(system.microphones.isEmpty ? "none" : system.microphones.joined(separator: ", "))"
+        out += system.defaultMicrophone.map { " (default: \($0))\n" } ?? "\n"
         let info = Bundle.main.infoDictionary
         out += "Version \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?"))\n"
         out += "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)\n\nPermissions\n"

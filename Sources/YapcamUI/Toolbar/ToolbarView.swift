@@ -221,7 +221,13 @@ struct ToolbarView: View {
 
     private var recordingControls: some View {
         let paused = rec.phase == .paused
-        return line(6) {
+        return recordingBody(paused: paused).contextMenu {
+            Button("Hide controls for this recording (\(settings.combo(for: .toggleWidget)?.display ?? "⌘⌥'"))") { rec.hideControlsForTake() }
+        }
+    }
+
+    private func recordingBody(paused: Bool) -> some View {
+        line(6) {
             Button(action: rec.toggleStartStop) {
                 line(7) {
                     Image(systemName: "stop.circle.fill").font(.system(size: 22)).foregroundStyle(Yap.record)

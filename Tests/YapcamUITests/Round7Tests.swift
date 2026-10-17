@@ -346,4 +346,38 @@ import YapcamEditor
         QuitGuard.confirmQuit = { asked += 1; return false }
         #expect(!QuitGuard.shouldBlockQuit() && asked == 0)       // nothing exporting here: no question
     }
+
+    // P2: B-11 / B-12 / B-13 / B-16
+    @Test func hidingControlsAppliesToOneTakeOnly() {
+        let rec = RecordingController.shared
+        rec.debugSetPhase(.recording)
+        rec.hideControlsForTake()
+        #expect(rec.widgetHiddenForTake)
+        #expect(AppSettings.shared.showRecordingWidget)          // the setting is untouched
+        rec.debugSetPhase(.idle)
+        #expect(!rec.widgetHiddenForTake)
+        rec.hideControlsForTake()                                 // idle: nothing to hide
+        #expect(!rec.widgetHiddenForTake)
+    }
+    @Test func menuBarIconOpensThePickerWhenIdle() {
+        typealias M = MenuBarClick
+        #expect(M.action(phase: .idle, rightClick: false, optionHeld: false) == .showPicker)
+        #expect(M.action(phase: .idle, rightClick: true, optionHeld: false) == .showMenu)
+        #expect(M.action(phase: .idle, rightClick: false, optionHeld: true) == .showMenu)
+        #expect(M.action(phase: .recording, rightClick: false, optionHeld: false) == .toggleRecording)
+        #expect(M.action(phase: .paused, rightClick: true, optionHeld: false) == .toggleRecording)
+    }
+    @Test func displayCardShowsPoints() {
+        let d = DisplayInfo(id: 1, name: "X", frame: CGRect(x: 0, y: 0, width: 1512, height: 982), scale: 2)
+        #expect(d.detail.hasPrefix("1512×982") && d.pixelDetail.hasPrefix("3024×1964"))
+    }
+    @Test func diagnosticsListsMachineAndDevices() {
+        let info = SystemInfo(model: "Mac14,5", chip: "Apple M2 Max", memoryGB: 32, architecture: "arm64",
+                              cameras: ["FaceTime HD"], microphones: ["MacBook Mic", "USB Mic"], defaultMicrophone: "MacBook Mic")
+        let t = ProjectActions.diagnosticsText(system: info)
+        for part in ["Model: Mac14,5", "Chip: Apple M2 Max", "Memory: 32 GB", "Cameras: FaceTime HD", "Microphones: MacBook Mic, USB Mic (default: MacBook Mic)", "no recordings"] {
+            #expect(t.contains(part), "missing \(part)")
+        }
+        #expect(SystemInfo.current().memoryGB > 0)
+    }
 }

@@ -90,7 +90,16 @@ enum RecordingPhase: Equatable {
         if phase == .recording, old != .paused, !settings.showRecordingWidget, ToolbarPanelController.shared.isVisible {
             ToolbarPanelController.shared.hide(); hidToolbarForRecording = true
         }
+        if phase == .idle { widgetHiddenForTake = false }
         if phase == .idle, hidToolbarForRecording { hidToolbarForRecording = false; ToolbarPanelController.shared.show() }
+    }
+
+    /// The widget's context menu: hide the controls for this take only (the setting stays); ⌘⌥', the menu-bar icon or the next take bring them back.
+    private(set) var widgetHiddenForTake = false
+    func hideControlsForTake() {
+        guard isRecording else { return }
+        widgetHiddenForTake = true
+        if ToolbarPanelController.shared.isVisible { ToolbarPanelController.shared.hide(); hidToolbarForRecording = true }
     }
 
     /// UI snapshot tooling only: forces a phase without a session.

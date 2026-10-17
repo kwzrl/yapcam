@@ -205,7 +205,8 @@ import YapcamEditor
             if statusItem == nil {
                 let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
                 item.button?.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Yapcam")
-                item.menu = MainMenu.statusMenu(target: self)
+                item.button?.target = self; item.button?.action = #selector(AppDelegate.statusItemClicked)
+                item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
                 statusItem = item
                 observeRecordingForTray()
             }
@@ -230,14 +231,28 @@ import YapcamEditor
             } else {
                 button.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Yapcam")
                 button.contentTintColor = nil
-                button.action = nil
-                item.menu = MainMenu.statusMenu(target: self!)
+                // Idle: a click opens the picker; right-click or ⌥-click opens the menu.
+                item.menu = nil
+                button.target = self; button.action = #selector(AppDelegate.statusItemClicked)
+                button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             }
         }
     }
 
     // MARK: Actions
 
+    @objc func statusItemClicked() {
+        let e = NSApp.currentEvent
+        switch MenuBarClick.action(phase: RecordingController.shared.phase, rightClick: e?.type == .rightMouseUp, optionHeld: e?.modifierFlags.contains(.option) == true) {
+        case .showPicker: ToolbarPanelController.shared.show()
+        case .toggleRecording: RecordingController.shared.toggleStartStop()
+        case .showMenu:
+            guard let item = statusItem else { return }
+            item.menu = MainMenu.statusMenu(target: self)
+            item.button?.performClick(nil)
+            DispatchQueue.main.async { item.menu = nil }
+        }
+    }
     @objc func toggleRecording() { RecordingController.shared.toggleStartStop() }
     @objc func togglePause() { RecordingController.shared.togglePause() }
     @objc func toggleToolbar() { ToolbarEditorCoordinator.shared.userToggled(); ToolbarPanelController.shared.toggle() }

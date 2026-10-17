@@ -218,7 +218,7 @@ import Testing
     }
 
     @Test func cardsRender() {
-        renderView(ZStack { Color.gray; SourceCard(symbol: "display", title: "Built-in Retina Display", subtitle: "3024×1964 • 120 FPS", start: {}) }, name: "card-display", width: 420, height: 220)
+        renderView(ZStack { Color.gray; SourceCard(symbol: "display", title: "Built-in Retina Display", subtitle: "1512×982 • 120 FPS", start: {}) }, name: "card-display", width: 420, height: 220)
         renderView(ZStack { Color.gray; SourceCard(symbol: "macwindow", title: "Logic Pro", subtitle: "1277 × 861", start: {}, icon: NSImage(systemSymbolName: "music.note", accessibilityDescription: nil), sizeExtras: { AnyView(Button("Resize") {}.controlSize(.small)) }) }, name: "card-window", width: 420, height: 220)
     }
 
@@ -334,7 +334,7 @@ import Testing
     }
     @Test func cardDetailReadsLikeTheReference() {
         let d = DisplayInfo(id: 1, name: "Built-in", frame: CGRect(x: 0, y: 0, width: 1512, height: 982), scale: 2)
-        #expect(d.detail.hasPrefix("3024×1964 • ") && d.detail.hasSuffix(" FPS"))
+        #expect(d.detail.hasPrefix("1512×982 • ") && d.detail.hasSuffix(" FPS") && d.pixelDetail == "3024×1964 pixels")
     }
 }
 
