@@ -90,6 +90,12 @@ struct MicrophonePopover: View {
                     }
                 }
                 Divider()
+                if settings.microphoneID != nil {
+                    SelectableRow(selected: settings.cleanVoiceOnRecord) { settings.cleanVoiceOnRecord.toggle() } content: {
+                        Text("Clean up voice (noise + level)")
+                    }
+                    .help("New recordings start with the editor's Clean up voice turned on")
+                }
                 SelectableRow(selected: settings.microphoneID == nil) { settings.microphoneID = nil } content: {
                     Text("Don't record microphone")
                 }

@@ -225,6 +225,7 @@ import YapcamEditor
 
     // S-11
     @Test func presetFileTypeIsDeclaredAndAcceptedByThePanels() throws {
+        _ = NSApplication.shared
         let ext = try #require(UTType(filenameExtension: "yapcampreset"))
         #expect(PresetFileType.openTypes.contains { ext.conforms(to: $0) })
         #expect(PresetFileType.isPreset(URL(fileURLWithPath: "/tmp/fixture/A.yapcampreset")) && !PresetFileType.isPreset(URL(fileURLWithPath: "/tmp/fixture/A.mov")))
@@ -238,5 +239,27 @@ import YapcamEditor
         let menu = MainMenu.build(target: AppDelegate())
         let file = menu.items.first { $0.submenu?.title == "File" }?.submenu
         #expect(file?.items.contains { $0.title == "Import Preset…" } == true)
+    }
+
+    // B-06
+    @Test func cleanVoiceOnRecordTurnsOnTheProjectsVoiceCleanup() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "r7-voice-\(UUID())", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "Fixtures/synthetic/basic.yapcam")
+        func enhanced(_ name: String, _ on: Bool) throws -> Bool {
+            let u = dir.appending(path: name, directoryHint: .isDirectory)
+            try FileManager.default.copyItem(at: fixture, to: u)
+            let p = try Project.create(package: u)
+            ProjectActions.applyRecordTimeAudio(to: p, cleanVoice: on)
+            let j = try JSONSerialization.jsonObject(with: p.snapshot().toJSON()) as? [String: Any]
+            return ((j?["audio"] as? [String: Any])?["speech_enhancement"] as? Bool) ?? false
+        }
+        #expect(try enhanced("On.yapcam", true))
+        #expect(try !enhanced("Off.yapcam", false))
+        let s = AppSettings(store: UserDefaults(suiteName: "r7voice-\(UUID())")!)
+        #expect(!s.cleanVoiceOnRecord)
+        s.cleanVoiceOnRecord = true; s.resetToDefaults()
+        #expect(!s.cleanVoiceOnRecord)
     }
 }

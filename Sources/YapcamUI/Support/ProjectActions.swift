@@ -157,7 +157,14 @@ import YapcamCore
         if FileManager.default.fileExists(atPath: package.appending(path: "project.json").path) { return try Project.open(package: package) }
         let project = try Project.create(package: package)
         applyInitialLook(to: project, package: package)
+        applyRecordTimeAudio(to: project, cleanVoice: AppSettings.shared.cleanVoiceOnRecord && AppSettings.shared.microphoneID != nil)
         return project
+    }
+
+    /// The microphone menu's "Clean up voice" choice becomes the new project's voice clean-up (after the look, so presets don't override it).
+    static func applyRecordTimeAudio(to project: Project, cleanVoice: Bool) {
+        guard cleanVoice else { return }
+        try? project.apply(.set(path: "audio.speech_enhancement", value: .bool(true)))
     }
 
     /// A new project's starting look, in this order: a preset marked as default; else the last project's look when the
