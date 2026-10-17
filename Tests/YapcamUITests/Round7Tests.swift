@@ -390,4 +390,16 @@ import YapcamEditor
         #expect(!G.shouldAsk(enabled: true, wasFresh: true, openFor: 11))
         #expect(!AppSettings(store: UserDefaults(suiteName: "r7first-\(UUID())")!).askKeepOnFirstClose)
     }
+
+    // S-EDT-48
+    @Test func recordingPaletteListsTheTakeCommands() {
+        func ids(_ p: RecordingPhase, _ f: String = "") -> [String] { RecordingPalette.commands(phase: p, filter: f).map(\.id) }
+        #expect(ids(.recording) == ["pause", "finish", "restart", "cancel", "marker", "notes"])
+        #expect(RecordingPalette.commands(phase: .paused).first?.title == "Resume recording" && !ids(.paused).contains("marker"))
+        #expect(ids(.recording, "mark") == ["marker"] && ids(.recording, "zzz").isEmpty)
+        #expect(ids(.idle).isEmpty && ids(.finishing).isEmpty)
+        let d = AppDelegate()
+        let item = NSMenuItem(title: "x", action: #selector(AppDelegate.editPalette), keyEquivalent: "")
+        #expect(d.validateMenuItem(item) == (EditorBridge.keyEditor() != nil))        // idle, no editor: off
+    }
 }

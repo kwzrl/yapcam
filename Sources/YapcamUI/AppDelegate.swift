@@ -345,7 +345,9 @@ import YapcamEditor
     }
     @objc func editSplit() { EditorBridge.keyEditor()?.splitAtPlayhead() }
     @objc func editAddZoom() { EditorBridge.keyEditor()?.addZoomAtPlayhead() }
-    @objc func editPalette() { EditorBridge.keyEditor()?.paletteVisible = true }
+    @objc func editPalette() {
+        if let m = EditorBridge.keyEditor() { m.paletteVisible = true } else { RecordingPaletteWindow.shared.show() }   // while recording: the HUD palette
+    }
     @objc func showAbout() { AboutWindow.show() }
     @objc func showThirdPartyNotices() { ThirdPartyNotices.open() }
     @objc func showStorageFolder() { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) }
@@ -369,7 +371,8 @@ extension AppDelegate: NSMenuItemValidation {
             return r.isRecording
         case #selector(editUndo): return EditorBridge.isEditingText || (EditorBridge.keyEditor()?.canUndo ?? false)
         case #selector(editRedo): return EditorBridge.isEditingText || (EditorBridge.keyEditor()?.canRedo ?? false)
-        case #selector(editSplit), #selector(editAddZoom), #selector(editPalette): return EditorBridge.keyEditor() != nil
+        case #selector(editPalette): return EditorBridge.keyEditor() != nil || !RecordingPalette.commands(phase: r.phase).isEmpty
+        case #selector(editSplit), #selector(editAddZoom): return EditorBridge.keyEditor() != nil
         case #selector(toggleToolbar):
             item.title = ToolbarPanelController.shared.isVisible ? "Hide Toolbar" : "Show Toolbar"
             return true
