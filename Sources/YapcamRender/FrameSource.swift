@@ -31,6 +31,7 @@ final class FrameSource {
     private var exhausted = false
     private let capacity = 4
     private let reuseSeekReader: Bool
+    private let onDecode: ((TextureFrame) throws -> Void)?
     private var seekReader: AVAssetReader?
     private var seekOutput: AVAssetReaderTrackOutput?
     private var randomWindow=false
@@ -38,8 +39,10 @@ final class FrameSource {
     private(set) var readerStartCount = 0
     private(set) var decodedFrameCount = 0
     private(set) var readerResetCount = 0
-    init(url: URL, cache: CVMetalTextureCache,reuseSeekReader: Bool = true) throws {
+    init(url: URL, cache: CVMetalTextureCache,reuseSeekReader: Bool = true,
+         onDecode: ((TextureFrame) throws -> Void)? = nil) throws {
         self.reuseSeekReader=reuseSeekReader
+        self.onDecode=onDecode
         asset = AVURLAsset(url: url,options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         guard let track = asset.tracks(withMediaType: .video).first else { throw RenderError.decode("No video track in \(url.lastPathComponent)") }
         self.track = track; self.cache = cache; preferredTransform=track.preferredTransform
@@ -88,7 +91,9 @@ final class FrameSource {
         while let sample=seekOutput?.copyNextSampleBuffer() {
             guard let buffer=CMSampleBufferGetImageBuffer(sample) else { continue }
             decodedFrameCount+=1
-            frames.append(try TextureFrame(buffer: buffer,cache: cache,time: CMSampleBufferGetPresentationTimeStamp(sample),transform: preferredTransform))
+            let frame = try TextureFrame(buffer: buffer,cache: cache,time: CMSampleBufferGetPresentationTimeStamp(sample),transform: preferredTransform)
+            try onDecode?(frame)
+            frames.append(frame)
             if frames.count>capacity { frames.removeFirst() }
         }
         guard seekReader?.status != .failed else { throw RenderError.decode(seekReader?.error?.localizedDescription ?? "Random-access video decode failed") }
@@ -127,7 +132,9 @@ final class FrameSource {
             }
             guard let buffer = CMSampleBufferGetImageBuffer(sample) else { throw RenderError.decode("Video sample has no pixel buffer") }
             decodedFrameCount += 1
-            frames.append(try TextureFrame(buffer: buffer, cache: cache, time: CMSampleBufferGetPresentationTimeStamp(sample),transform: preferredTransform))
+            let frame = try TextureFrame(buffer: buffer, cache: cache, time: CMSampleBufferGetPresentationTimeStamp(sample),transform: preferredTransform)
+            try onDecode?(frame)
+            frames.append(frame)
             if frames.count > capacity { frames.removeFirst() }
         }
         guard let best = frames.min(by: { abs($0.time.seconds - time.seconds) < abs($1.time.seconds - time.seconds) }) else { throw RenderError.decode("No video samples at requested time") }

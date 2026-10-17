@@ -69,6 +69,52 @@ import YapcamCore
             _ = try await AgentVision.handle(name: "view_changes", arguments: ["click_indices": [999]], project: project)
         }
     }
+    @Test func pixelHintSelectionValidatesAndMatchesCoreNearestClickRule() throws {
+        let times: [Int64] = [1_000_000_000, 2_000_000_000, 3_000_000_000]
+        #expect(try AgentPixelSelection(name: "moments", arguments: [:]).indices(in: times) == [0, 1, 2])
+        #expect(try AgentPixelSelection(name: "zoom_on_click", arguments: ["click_index": 1]).indices(in: times) == [1])
+        #expect(try AgentPixelSelection(name: "zoom_on_click", arguments: ["at_s": 2.24]).indices(in: times) == [1])
+        #expect(throws: (any Error).self) { try AgentPixelSelection(name: "zoom_on_click", arguments: ["at_s": 2.26]).indices(in: times) }
+        #expect(throws: (any Error).self) { try AgentPixelSelection(name: "zoom_on_click", arguments: ["click_index": 3]).indices(in: times) }
+        for args: [String: Any] in [[:], ["click_index": true], ["click_index": -1], ["click_index": 1.5],
+                                    ["click_index": 0, "at_s": 1], ["at_s": Double.infinity], ["at_s": 1e30]] {
+            #expect(throws: (any Error).self) { try AgentPixelSelection(name: "zoom_on_click", arguments: args) }
+        }
+        #expect(AgentVision.hintKeys(name: "moments", catalog: []) == [])
+        let catalog: [[String: Any]] = [["name": "moments", "inputSchema": ["properties": ["static_cuts_s": [:], "other": [:]]]]]
+        #expect(AgentVision.hintKeys(name: "moments", catalog: catalog) == ["static_cuts_s"])
+    }
+
+    @MainActor @Test func pixelHintsAreLazyCachedPerDocumentRevisionAndReadOnly() async throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-pixel-hints-\(UUID()).yapcam")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.copyItem(at: fixture, to: root)
+        let project = try Project.create(package: root)
+        let before = try project.toJSON(), revision = project.revision
+        let first = try await AgentVision.pixelHints(name: "zoom_on_click", arguments: ["click_index": 0], project: project)
+        #expect(first["analyzed_click_count"] as? Int == 1)
+        #expect(first["cache_hit"] as? Bool == false)
+        let warm = try await AgentVision.pixelHints(name: "zoom_on_click", arguments: ["click_index": 0], project: project)
+        #expect(warm["cache_hit"] as? Bool == true)
+        #expect(warm["analyzed_click_count"] as? Int == 0)
+        #expect(try project.toJSON() == before)
+        #expect(project.revision == revision)
+        let all = try await AgentVision.pixelHints(name: "moments", arguments: [:], project: project)
+        #expect(all["visual_view_changes_s"] is [Double])
+        #expect(all["static_cuts_s"] is [Double])
+        let allWarm = try await AgentVision.pixelHints(name: "moments", arguments: [:], project: project)
+        #expect(allWarm["cache_hit"] as? Bool == true)
+        let explicit = try await AgentVision.enrich(name: "moments", arguments: ["static_cuts_s": "invalid"], project: project)
+        #expect(explicit["static_cuts_s"] as? String == "invalid") // core must reject, never silently replace
+        try project.apply(.deleteRange(startNs: 0, endNs: 100_000_000))
+        let edited = try await AgentVision.pixelHints(name: "moments", arguments: [:], project: project)
+        #expect(edited["cache_hit"] as? Bool == false)
+        let reopened = try Project.open(package: root)
+        let separate = try await AgentVision.pixelHints(name: "moments", arguments: [:], project: reopened)
+        #expect(separate["cache_hit"] as? Bool == false)
+    }
+
     @Test func clipsMergesAndComplementsAnalysisWithoutCallingUnknownTimeSpeech() {
         let ranges = [SilenceRange(startNs: 20, endNs: 40), SilenceRange(startNs: 0, endNs: 25), SilenceRange(startNs: 60, endNs: 120)]
         #expect(AgentVisionRanges.merge(ranges, within: 10..<100) == [SilenceRange(startNs: 10, endNs: 40), SilenceRange(startNs: 60, endNs: 100)])

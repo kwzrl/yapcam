@@ -35,6 +35,33 @@ final class AgentVisionRenderTests: XCTestCase {
         XCTAssertGreaterThan(changed.difference(from: baseline), 0.005)
     }
 
+    func testChangedRegionUnionsPanelsIgnoresSpecksAndUsesTopLeftSourceCoordinates() throws {
+        let black = [UInt8](repeating: 0, count: 64 * 40 * 4)
+        var pixels = black
+        func paint(_ x: Range<Int>, _ y: Range<Int>) {
+            for row in y { for col in x { for c in 0..<3 { pixels[(row * 64 + col) * 4 + c] = 255 } } }
+        }
+        paint(40..<60, 30..<38) // bottom-right toast
+        paint(2..<3, 2..<3) // isolated cursor/codec speck
+        let base = AgentFrameSignature(rgba: black)
+        let toast = try XCTUnwrap(AgentFrameSignature(rgba: pixels).changedRegion(from: base))
+        XCTAssertEqual(toast.minX, 40.0 / 64, accuracy: 1e-12)
+        XCTAssertEqual(toast.minY, 30.0 / 40, accuracy: 1e-12)
+        XCTAssertEqual(toast.width, 20.0 / 64, accuracy: 1e-12)
+        XCTAssertEqual(toast.height, 8.0 / 40, accuracy: 1e-12)
+        paint(10..<20, 10..<15) // keep both regions, not only the biggest
+        let union = try XCTUnwrap(AgentFrameSignature(rgba: pixels).changedRegion(from: base))
+        XCTAssertEqual(union, CGRect(x: 10.0 / 64, y: 10.0 / 40, width: 50.0 / 64, height: 28.0 / 40))
+        XCTAssertNil(base.changedRegion(from: base))
+        let faint = AgentFrameSignature(rgba: [UInt8](repeating: 5, count: black.count))
+        XCTAssertNil(faint.changedRegion(from: base))
+        let geometry = SourceGeometry(size: CGSize(width: 64, height: 40), transform: CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 64, ty: 0))
+        let mirrored = try XCTUnwrap(AgentFrameSignature(rgba: pixels, geometry: geometry).changedRegion(from: base))
+        XCTAssertEqual(mirrored.minX, 4.0 / 64)
+        XCTAssertEqual(mirrored.minY, union.minY)
+        XCTAssertEqual(mirrored.size, union.size)
+    }
+
     func testDownsampledSyntheticFramePairFindsSmallUIChange() throws {
         func signature(changed: Bool) throws -> AgentFrameSignature {
             var pixelBuffer: CVPixelBuffer?
@@ -57,6 +84,20 @@ final class AgentVisionRenderTests: XCTestCase {
         XCTAssertEqual(before.difference(from: before), 0)
         XCTAssertGreaterThan(after.difference(from: before), 0.005)
         XCTAssertLessThan(after.difference(from: before), 0.04)
+    }
+
+    func testSignatureRefinementCacheMatchesFreshDecodingAcrossSeeksAndSegments() throws {
+        _ = try requireRenderDevice()
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-signature-cache-\(UUID()).yapcam")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.copyItem(at: fixture, to: root)
+        let snapshot = try Project.create(package: root).snapshot()
+        let cached = try AgentFrameRenderer(snapshot: snapshot)
+        for time: Int64 in [0, 200_000_000, 100_000_000, 150_000_000, 25_000_000, 1_000_000_000, 4_000_000_000, 500_000_000] {
+            let fresh = try AgentFrameRenderer(snapshot: snapshot)
+            XCTAssertEqual(try cached.signature(atNs: time).difference(from: fresh.signature(atNs: time)), 0, accuracy: 0.00001)
+        }
     }
 
     func testContentCapturePreservesCompositedZoomAndRemovesPadding() throws {
