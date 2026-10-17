@@ -90,7 +90,7 @@ impl Server<'_> {
                 let session = serde_json::to_value(&p.session)?;
                 Ok(json!({"duration_ns":crate::time::duration(&p.data.timeline.clips),"clips":p.query(&json!({"q":"clips"}))?,"segments":session["segments"],"zooms":p.data.zooms,"captions":p.data.canvas.captions.len(),"signals":{"transcript":self.transcript("auto")?["available"],"clicks":clicks,"keys":keys,"camera":!session["tracks"]["camera"].is_null(),"mic":!session["tracks"]["mic"].is_null()},"undo_steps":p.undo.len(),"redo_steps":p.redo.len()}))
             }
-            "apply" => Ok(serde_json::to_value(self.project.apply(a.get("command").ok_or_else(|| bad("Missing command"))?)?)?),
+            "apply" => Ok(serde_json::to_value(self.project.apply(&json!({"op":"batch","commands":[a.get("command").ok_or_else(|| bad("Missing command"))?]}))?)?),
             "batch" => Ok(serde_json::to_value(self.project.apply(&json!({"op":"batch","commands":a.get("commands").ok_or_else(|| bad("Missing commands"))?}))?)?),
             "undo" => Ok(json!({"changed":self.project.undo()?})),
             "redo" => Ok(json!({"changed":self.project.redo()?})),
@@ -267,6 +267,18 @@ mod tests {
             true
         );
         assert_eq!(serde_json::to_value(&server.project.data).unwrap(), before);
+        for value in ["first", "second"] {
+            let grouped = json!({"command":{"op":"coalesced_edit","key":"agent","command":{"op":"set","path":"notes","value":value}}});
+            assert_eq!(
+                server.rpc(call("apply", grouped)).unwrap()["result"]["isError"],
+                false
+            );
+        }
+        assert_eq!(
+            server.project.undo.len(),
+            2,
+            "Separate MCP calls never coalesce"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

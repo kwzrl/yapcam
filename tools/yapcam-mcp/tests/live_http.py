@@ -58,6 +58,12 @@ call('select', {'kind':'zoom', 'id':after['zooms'][-1]['id']})
 assert call('undo')['changed']
 assert call('read_project') == before
 assert call('project_summary')['undo_steps'] == summary['undo_steps']
+assert call('redo')['changed']
+assert call('read_project') == after
+assert call('undo')['changed']
+assert call('read_project') == before
+assert call('save')['saved']
+assert call('project_summary', {'project': next(d['name'] for d in documents if d['frontmost'])})['duration_ns'] == summary['duration_ns']
 # Errors must not mutate the document or create history.
 failed = rpc('tools/call', {'name':'batch','arguments':{'commands':[{'op':'delete_range','tl_start_ns':0,'tl_end_ns':100000000}, {'op':'invalid'}]}})
 assert failed['isError']
