@@ -260,6 +260,8 @@ Environment: Mac mini M4, debug build of 11ce970 (scripts/build-app.sh debug), a
 Per area match/total: Recording flow 40/44 (1 partial), Settings 7/9, Editor 49/50, Project/timeline 6/6, Export 9/10, Project handling 6/6, Website 9/10.
 Not done: user-input flows, hardware, Screen Studio comparison, clipboard contents after the copy runs (the runs overwrite the clipboard).
 
+**Round 6 follow-up (main 1a9c309, merged as 0f01e40):** rebuilt debug app; Swift Testing 783 passed, XCTest 278 executed, 0 failures. Drive-input soak after the chime fix: 40/40 pass, no new crash report (before: 19/20 with one SIGSEGV; 1 in 260 race, so this is consistent with the fix, not proof). Programmatic, not user interaction.
+
 ## Update log (keep current with each Lead integration)
 | Date | Main | What changed in this report |
 |---|---|---|
