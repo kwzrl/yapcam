@@ -43,6 +43,7 @@ Mac mini M4, one non-Retina 1680×1050 display, no camera, no microphone, no sec
 - Cloud features (links, comments, accounts, payments, telemetry, auto-update) are out of scope by the
   user's decision; Loom-style sharing is prepared architecturally only.
 - GIF has no audio (format limit).
+- Round 5 parity gaps (FEATURES.md section R): the Hide Desktop Icons and Disable hardware acceleration settings are stored but have no effect yet; Editing shortcuts cannot be rebound; new-project defaults for captions, mask dim and animation spring differ from the reference; quick export does not keep its own remembered settings; no fullscreen-camera layout type.
 
 ## Process notes
 - Codex-team worktrees cannot write `.git`; Lead commits their work, so history contains
