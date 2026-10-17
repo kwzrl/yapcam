@@ -1,3 +1,5 @@
+READY R5b 9acadbe +8 owned paths | 173 capture tests /127 Rust /signed main app green; 8 incoming requests delivered/resolvable, 3 explicitly blocked
+R5b 02:10UTC 9acadbe + owned changes | done: requests pass validated on main a96173e snapshot | next: Lead checkpoint/rebase; named identity/native/hardware handoffs
 READY R5 50efc6d + status reconciliation | H/M then L audited: 14 scoped matches, 1 user exclusion, 33 concrete blockers; UI/native gates remain
 R5 01:08UTC 50efc6d | done: all 48 rows reconciled, named ownership/native/hardware blockers | next: Lead status checkpoint and listed handoffs
 READY dd39be4 F13 verified by Lead on a7d1526 (signed debug, M4): full-file EN/DE speech; weak filler recall measured; F14 owned by render
@@ -17,6 +19,117 @@ READY 63f4abb package 2 injected-fault verification; unit tests pass
 READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 # capture status
+
+## R5 incoming requests
+
+Read **all five other teams' status files from main a96173e** (ui370, core1048,
+render1000, editor340, qa286 lines), including historical requests. Worktree source
+is9acadbe; capture source/tests matched main before the additions below. `git rebase main` is denied
+creating rebase-merge, so Lead must rebase. Validate additions in a disposable
+main snapshot rather than editing other teams' files in this worktree.
+
+| ID | Priority | From | Request / state |
+|---|---|---|---|
+| R5-CA01 (also CUR-06 sidecar) | H | render:64,105,464 | SOURCE IMPLEMENTED; BLOCKED global coverage — Render/Lead R5-CA01-IDENTITY: AppKit currentSystem guarantees image/hotspot, not semantic type or standard-instance identity across apps. Optional shape IDs now emitted only for registered standard-object identity; unknown/custom/fallback omit, even with identical PNG bytes. Do not certify universal system-cursor replacement from this sparse signal. Request Render/Lead accept this conservative contract or provide a positively identified semantic source; no private/numeric/bitmap guessing. |
+| UI-R5-DESKTOP | M | ui:44,94,103 | RESOLVABLE now: RecordingOptions.hideDesktopIcons plus CaptureFilterPolicy already exclude desktop Finder surfaces and retain folder windows (SourceOptionsTests). UI must forward its toggle through UIRecordingOptions/LiveEngine and remove recording-time DesktopIcons.hide/restore/Finder restarts; retain migration cleanup for any pre-existing legacy restore marker. Default stays false. No capture API change needed. |
+| UI-U2-CAMERA-SIZE | M | ui:132 | RESOLVABLE: public @MainActor CameraFormatPolicy.effectiveSize(deviceID:maximum:fps:) returns optional (width,height); fps defaults60 and uses production30/29.97 fallback. UI can drop its independent largest-image chooser; pass30 when source cap<60. Nil for missing permission/device/compatible format, no prompt/configuration. Injected cap/rate/missing tests added; live camera remains untested (no hardware). |
+| CORE-ED10-LOCALES / E2 | M | core:640; editor:241 | RESOLVABLE: TranscriptionService.supportedLocales() -> [Locale] returns actual native identifiers sorted, without prompting/downloading or claiming installed on-device models. Main UI AppDelegate.swift:160–163 already forwards keyterms/options and native locales; UI may use the shared API. Native enumeration/authorization-unchanged regression added. |
+| E2-KEYTERMS-ERRORS | M | editor:25,241 | RESOLVED existing: contextualStrings/locale forwarded and unsupportedLocale/onDeviceModelNotInstalled typed errors are implemented; main UI wiring now present. F13 real EN/DE recognition verified by Lead; no new recognition run requested. |
+| CUR-06-PRESSED | M | render:300,947 (historical shared handoff) | RESOLVABLE existing: capture logs down/up independently of optional click-ring settings; Core/Render own pressed evaluation from that data. No new captured pressed field needed. Existing input translation/lifecycle tests cover delivery. |
+| QA-SOURCE-INPUT-HOOKS | M | qa:283 | RESOLVED existing: CaptureSelfTest supports display/window-title/area, pause, no-audio/out/drive-input hooks; signed UI wrapper supplies TCC attribution. Prior native QA verifies pause/input; real camera/mic/Retina/multi-display remain no-hardware. |
+| QA-F8/F9 | M | qa:257,260 | RESOLVED and native QA verified: actual even encoded pixel_size and always display_name for source kinds; regression tests unchanged. |
+| R3-SYNC-FIXTURE | L | render:951 | BLOCKED — Lead/QA native real ten-minute flash/beep fixture with identified marker times not supplied; capture must not launch beside user's app/QA lock. Existing QA ten-minute A/V pass is separate from Render's requested oracle artifact. |
+| CORE-AUD06-NATIVE | L | core:908; render:385 | BLOCKED — Apple isolation unit unavailable on this host (-10876); explicit unavailable/fallback behavior retained. F14 own Render DSP native objective results already recorded, no microphone hardware. |
+| R5-CAP-DEC1 | L | Lead requests-pass decision | RESOLVED: legacy engine excluded; macOS15+ ScreenCaptureKit only. UI read-only engine label matches decision. Native quality/keyframe certification belongs to Lead, not a capture code blocker. |
+
+Progress: H metadata support implemented with the explicit semantic-identity blocker;
+M APIs/handoffs implemented and final main capture gate green. RESOLVABLE means
+the capture provider is delivered; requester can adopt/remove its blocker. No
+independent capture code request remains without the explicit reason in its row. Historical stubs/TCC-denied notes
+are superseded by integrated capture APIs and Lead's granted signed-app permissions;
+no permission reset, app launch, or other-team source edit is required.
+
+### R5b validation (final candidate, green)
+
+- **173 standalone capture tests /6 suites pass in34.955s**; seven native opt-ins
+  were disabled in that run. Native locale inventory is now an eighth opt-in.
+  Includes legacy cursor JSON, identity-only classification,
+  identical-PNG known/unknown sidecars with distinct IDs, cap/rate/no-device camera
+  query and actual native Speech locale enumeration without authorization changes.
+  Simulated hour/100 seeded crash trials still pass. No new native recognition,
+  encoder, camera/mic or global cursor-type acceptance claimed.
+- Fresh **a96173e snapshot plus only owned capture sources/tests** builds through
+  canonical scripts/build-app.sh in debug; strict codesign succeeds with
+  **Yapcam Dev Signing / mov.yapcam.Yapcam**. No app launched. Rust **127 pass /1
+  intentional ignore (19.18s)**. Final **main-snapshot capture suite173 /6 suites
+  passes in18.568s**; all Swift test targets compile. Eight native opt-ins disabled;
+  no full/native Swift-suite pass claimed for this candidate. No product-source
+  change after the signed build; only the native inventory test was made opt-in.
+- Native locale inventory passed in an earlier standalone run, but the first
+  final SwiftPM run stalled after testing began and was interrupted through its
+  own PTY; no cause proven (sampling the owned runner was denied; no sudo used).
+  Explicit native inventory recheck:
+  `YAPCAM_CAPTURE_LOCALE_TESTS=1 zsh Tests/YapcamCaptureTests/Tools/run_capture_tests.zsh`.
+  This does not prompt/download models or certify native recognition. The current
+  default main suite passes with inventory disabled; no claim it caused the stall.
+- Logs `/tmp/yapcam-capture-r5b-{portable-final,final-app,final-rust,gate-tests}.log`.
+  Own final test rootdXACZup1, main buildCYomCNCX and main gateJjy3TFPS were listed
+  then removed by traps/defer, including the interrupted run. Earlier completed
+  R5b roots were also removed; no broad cleanup/other team's directory touched.
+- **Checkpoint required:** `git add` still denied creating worktrees/capture/index.lock.
+  Lead commit/rebase all8 owned paths; no stale-source push or Git metadata
+  workaround attempted. Suggested commit: capture: publish cursor provenance and
+  camera/speech capability queries. New files are CapturedCursorShape.swift,
+  CursorMetadataTests.swift, IncomingRequestTests.swift. No source changes outside
+  capture ownership, recordings/credentials committed, icon modification, app
+  launch, permission change or unrelated PID signal.
+
+### R5b implementation / handoff details
+
+- Cursor wire addition: `InputEvents.swift:26 (shape), CursorSnapshot and recordCursor` optional `shape`, unchanged
+  PNG/hotspot/size_points, legacy decode remains compatible. Dedup includes shape
+  provenance. Known and custom image-equivalent samples cannot share an ID and
+  accidentally authorize replacement. `CapturedCursorShape.swift` contains only
+  public AppKit standard-object references and agreed Core/Render wire names.
+  **No universal cross-process shape detection is claimed.** On this sandbox,
+  repeated AppKit standard lookups may produce distinct empty objects; system
+  rasterization is unavailable. Tests inject retained object identities and CPU cursor snapshots to verify the
+  classifier and real sidecar/journal path independently of AppKit initialization.
+  This is evidence of safe metadata handling, not successful WindowServer
+  classification. Acquisition still reads actual system artwork before recording
+  a snapshot; no synthetic artwork is used by the production recorder.
+- API limit/source: Apple's [currentSystem documentation](https://developer.apple.com/documentation/appkit/nscursor/currentsystem)
+  promises matching image/hotspot only; [current](https://developer.apple.com/documentation/appkit/nscursor/current)
+  is this application's stack, not necessarily another app's visible cursor.
+  Substituting current or comparing bitmaps/numeric IDs would violate R5-CA01's
+  positive-provenance requirement. Named Render/Lead blocker is in the row above.
+- Camera query `CameraResolution.swift:33` shares production candidate extraction
+  and choose policy; it rejects a tempting4K24-only mode that recording cannot use,
+  retains native59.94/29.97 rates, honors portrait caps, and never upscales. Public
+  default60 is the camera nominal request, not automatic display FPS; UI should
+  pass30 for sources below60. No AVCaptureSession created or device locked by query.
+- Locale query `TranscriptionService.swift:108` returns Speech's current locale set,
+  not a hand-authored language catalog. Recognition still uses on-device-only
+  requests and typed locale/model errors; enumeration is not model-install proof.
+- **UI desktop-icon request is resolvable without more capture code:** forward
+  hideDesktopIcons into RecordingOptions in LiveEngine; remove recording-time
+  DesktopIcons.hide/restore and Finder restarts (keep one-time cleanup of a legacy
+  restore marker if present). Both display/area use the filter;
+  normal Finder folders remain visible. A desktop-independent window contains no
+  desktop icons. Existing filter/default/old-options regression tests cover policy.
+- **Main UI adoption checked at a96173e:** system-audio-off, keys-on, sounds-on,
+  quick-widget-on, area modifier map and display refresh card have landed; their
+  old50efc6d table observations below are superseded by this note. Still pending
+  UI: automatic cap0 (AppSettings:189 still60), shared AX readback API (SourceOverlay
+  still bool-only WindowAX), capture-filtered CG window candidates, conditional
+  sound wait, desktop toggle forwarding, camera query adoption. No UI source edits.
+- Lead R5b decision resolves legacy engine scope: ScreenCaptureKit only/macOS15+,
+  read-only engine label. Native HEVC quality/keyframe certification is **Lead's
+  acceptance task, not a code blocker**; command remains in R5-CAP-HOST1 below.
+- Lead document additive camera/locale methods in SWIFT_API and optional cursor
+  shape in FORMATS, review shape provenance/fallback/dedup before integration, and
+  checkpoint all owned new files/tests/status together. No recordings/assets or
+  credentials included. No app launch, permission change or unrelated PID action.
 
 ## R5 parity
 
@@ -65,7 +178,7 @@ this status file, as required by TEAMS ownership.
 | L | A4 Notes controls | Off; speed0…25, opacity0.4…1, font12…32; Cmd+Alt+/ | UI Toolbar/NotesWindow.swift owns controls and bounds | BLOCKED — UI R5-CAP-UI6: verify notes defaults/ranges/shortcut and section order. Capture exclusion implemented in previous row. |
 | L | A4 After recording | Quick widget on by default; settings command Cmd+, | UI AppSettings.swift:187 defaults showQuickExportWidget false | BLOCKED — UI R5-CAP-UI6: set new-preference quick-widget default on and verify after-recording section/Settings action; cloud account gating remains out-of-scope. |
 | L | A4 Countdown values | None/3/5/10, default None | UI AppSettings.swift:170; SourceOverlay.swift:136 | match stored allowed values/default in current source. Countdown interaction/visual acceptance is separately assigned below. |
-| L | A4 Engine | Auto modern / force modern / force legacy | CaptureSessionServices.swift:42 supports ScreenCaptureKit; macOS15 baseline | BLOCKED — named Lead + UI request R5-CAP-DEC1: decide explicit legacy-engine exclusion for supported macOS15+ or commission real legacy implementation; do not present unsupported selectable engine modes. No silent claim of reference parity. |
+| L | A4 Engine | Auto modern / force modern / force legacy | CaptureSessionServices.swift:42 supports ScreenCaptureKit; macOS15 baseline | out-of-scope — Lead R5b R5-CAP-DEC1 explicitly excludes legacy; ScreenCaptureKit-only/macOS15+ with a read-only engine label. No fake selectable legacy mode. |
 | L | A4 FPS / CAP4 | No FPS picker; initial display refresh for display/window/area; device60 | CaptureFrameRate.swift:11; CaptureGeometry.swift:128; RecordingSession.swift:115 persists initial cap; UI AppSettings.swift:173 still60 | BLOCKED — UI R5-CAP-UI1: new-preference cap0, forward automatic unchanged, remove FPS picker from reference controls (SourceOverlay.swift:135 / SettingsWindow.swift:63); explicit saved30/60 may remain Advanced extras. Capture24…240Hz and resume policy tests pass; >60Hz live untested (no hardware). |
 | L | A4 Input | Mouse/keyboard on; cursor re-rendered by editor | YapcamCapture.swift:137 default keys true; RecordingSession.swift:229 permission gate; CaptureGeometry.swift:133 cursor false; UI AppSettings.swift:172 keys default false | BLOCKED — UI R5-CAP-UI1: keys on only when preference absent, keep explicit false and granted Input Monitoring gate. Capture default/denied-permission tests pass; cursor exclusion/rerender policy retained. |
 | L | A4 Screen encoding / CAP4 | HEVC quality0.85; keyframe interval2× refresh (2s) | SegmentWriter.swift:284 requests quality/expectedFPS/keyframes; :315 native fragments; canApply validates requested settings | BLOCKED — Lead R5-CAP-HOST1: native writer/decoder gate, command below. Sandbox encoder returns -12903; requested dictionary tests pass but effective HEVC quality acceptance is not verified. |
@@ -95,7 +208,7 @@ and signed debug app results below were already collected; no new live/full-suit
 pass claimed and no app launched.
 
 - **M: 17 rows — 5 match, 0 out-of-scope, 12 concrete blockers; zero unassigned mismatch/missing rows.**
-- **L: 31 rows — 9 match, 1 out-of-scope, 21 concrete blockers; zero unassigned mismatch/missing rows.**
+- **L: 31 rows — 9 match, 2 out-of-scope, 20 concrete blockers; zero unassigned mismatch/missing rows.**
 
 H/M reconciliation completed before the L pass; L pass also completed. No remaining
 capture-owned code change can resolve the listed UI ownership/native-service or
@@ -134,8 +247,8 @@ values remain compatible extras after reference controls.
   (supplied reference spec explicitly says partly inferred). Known16:9 values and
   other groups' endpoints/fitting behavior implemented; exact intermediate parity
   remains blocked on this request.
-- **Lead + UI R5-CAP-DEC1:** explicit decision on legacy-engine exclusion or real
-  implementation; SCK-only macOS15+ is the actual supported engine. Also decide
+- **Lead + UI R5-CAP-DEC1 RESOLVED (R5b):** legacy engine excluded; retain
+  SCK-only macOS15+ read-only engine label. Separate request: decide
   proprietary reference-format drop/import scope; own format drop remains UI.
 - **Lead R5-CAP-HOST1 — native encoder/crash gate, no app launch needed:** from
   capture checkout run `zsh Tests/YapcamCaptureTests/Tools/run_crash_recovery.zsh`.
@@ -1424,16 +1537,19 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next
-R5 H/M then L audit completed against50efc6d. Every row is match, explicitly
-user-excluded, or names its missing hardware/owning-team request. Await row-level
-UI adoption, native HEVC/AX/audio gates, exact-list QA evidence and Lead engine
-decision; next capture code work is any resulting concrete defect. Lead checkpoint
-this documentation update. Earlier RC/Next entries are historical.
+R5b incoming requests supersede the old Next list:8 delivered/resolvable provider
+contracts and3 explicitly blocked rows (global positive cursor identity, real sync
+oracle fixture, native Apple isolation). Main capture gate is green;
+Lead checkpoint/rebase all8 owned paths. Subsequent capture work is a concrete
+consumer defect or new evidence resolving those blockers; no new feature scope.
+Earlier R5 audit/RC Next entries are historical.
 
 ## External handoffs / Lead requests
-1. Lead: R5 source/tests checkpoint50efc6d received (main10aaca6 is its parent).
-   Checkpoint the current parity/status reconciliation; metadata writes remain
-   denied. See current row-level R5 Requests/gates above.
+1. Lead: checkpoint ALL8 R5b owned paths (including NEW CapturedCursorShape.swift,
+   CursorMetadataTests.swift, IncomingRequestTests.swift), then rebase9acadbe onto
+   maina96173e. Canonical validation uses a fresh main snapshot + owned overlay;
+   metadata writes remain denied. See R5 incoming requests/validation above.
+   Suggested commit: capture: publish cursor provenance and camera/speech queries.
    Prior F14/RC handoffs are checkpointed. Historical consumer requests follow.
    UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact

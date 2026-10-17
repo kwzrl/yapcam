@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import Speech
 
 public enum TranscriptionTrack: String, Codable, Sendable { case microphone = "mic", systemAudio = "system_audio" }
 
@@ -101,6 +102,13 @@ struct RecognizedSpeechWord: Sendable {
 /// Transcribes a finalized recording using Apple's on-device Speech recognizer.
 /// Atomic JSON publication; no recording edits, network fallback or permission prompt.
 public actor TranscriptionService {
+    /// Native recognizer locales for language pickers, in stable identifier order.
+    /// Listing support does not prompt, download models, or assert that a locale's
+    /// on-device model is installed/available. transcribe still reports typed errors.
+    public static func supportedLocales() -> [Locale] {
+        SFSpeechRecognizer.supportedLocales().sorted { $0.identifier < $1.identifier }
+    }
+
     typealias Recognize = @Sendable (URL, String) async throws -> [RecognizedSpeechWord]
     typealias RecognizeWithWarnings = @Sendable (URL, String) async throws -> RecognizedSpeech
     typealias RecognizeRequest = @Sendable (URL, String, [String]) async throws -> RecognizedSpeech

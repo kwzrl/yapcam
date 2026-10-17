@@ -25,7 +25,36 @@ struct CameraFormatCandidate {
     var rates: [ClosedRange<Double>]
 }
 
-enum CameraFormatPolicy {
+public enum CameraFormatPolicy {
+    /// Read-only preview of the format recording would select. The default camera
+    /// request is 60 fps with the same 30/29.97 fallback as recording. Pass 30 when
+    /// recording an explicit lower-rate source. Does not prompt or configure a device.
+    /// nil means permission/device/compatible format is unavailable.
+    @MainActor public static func effectiveSize(deviceID: String, maximum: CameraMaxResolution,
+                                                fps: Int = 60) -> (width: Int, height: Int)? {
+        effectiveSize(deviceID: deviceID, maximum: maximum, fps: fps, formatsForDevice: { id in
+            guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized,
+                  let device = AVCaptureDevice(uniqueID: id), device.isConnected,
+                  device.hasMediaType(.video), !DeviceScreenDiscovery.isScreenDevice(device) else { return nil }
+            return candidates(device.formats)
+        })
+    }
+
+    static func effectiveSize(deviceID: String, maximum: CameraMaxResolution, fps: Int,
+                              formatsForDevice: (String) -> [CameraFormatCandidate]?) -> (width: Int, height: Int)? {
+        guard let formats = formatsForDevice(deviceID),
+              let choice = try? choose(formats, maximum: maximum, fps: fps) else { return nil }
+        return (choice.width, choice.height)
+    }
+
+    private static func candidates(_ formats: [AVCaptureDevice.Format]) -> [CameraFormatCandidate] {
+        formats.map {
+            let size = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+            return CameraFormatCandidate(width: Int(size.width), height: Int(size.height),
+                rates: $0.videoSupportedFrameRateRanges.map { $0.minFrameRate...$0.maxFrameRate })
+        }
+    }
+
     /// Prefer the largest native frame below the cap, then the requested rate.
     /// Do not upscale smaller cameras or silently exceed the selected maximum.
     static func choose(_ formats: [CameraFormatCandidate], maximum: CameraMaxResolution, fps: Int) throws -> CameraFormatChoice {
@@ -56,11 +85,7 @@ enum CameraFormatPolicy {
 
     static func configure(_ device: AVCaptureDevice, maximum: CameraMaxResolution, fps: Int) throws -> CameraFormatChoice {
         let formats = device.formats
-        let choice = try choose(formats.map {
-            let size = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
-            return CameraFormatCandidate(width: Int(size.width), height: Int(size.height),
-                rates: $0.videoSupportedFrameRateRanges.map { $0.minFrameRate...$0.maxFrameRate })
-        }, maximum: maximum, fps: fps)
+        let choice = try choose(candidates(formats), maximum: maximum, fps: fps)
         try device.lockForConfiguration()
         defer { device.unlockForConfiguration() }
         device.activeFormat = formats[choice.index]
