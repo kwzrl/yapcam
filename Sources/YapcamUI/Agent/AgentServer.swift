@@ -186,26 +186,94 @@ import YapcamCore
             ["name": name, "description": description, "inputSchema": ["type": "object", "properties": properties, "additionalProperties": false]]
         }
     }
-    private func log(_ doc: EditorDocument, name: String, args: [String: Any], client: String) {
-        func flatten(_ command: [String: Any]) -> [[String: Any]] {
-            if command["op"] as? String == "batch", let commands = command["commands"] as? [[String: Any]] { return commands.flatMap(flatten) }
-            return [command]
-        }
-        var fallback = args; fallback["op"] = name
-        let commands = (args["commands"] as? [[String: Any]] ?? (args["command"].map { [$0 as? [String: Any] ?? [:]] } ?? [fallback])).flatMap(flatten)
-        func time(_ ns: Int64) -> String { String(format: "%d:%02d", ns / 1_000_000_000 / 60, ns / 1_000_000_000 % 60) }
-        let changes = commands.map { command -> AgentChange in
-            let op = command["op"] as? String ?? name
-            let ns = (command["start_ns"] as? NSNumber)?.int64Value ?? (command["tl_start_ns"] as? NSNumber)?.int64Value ?? (command["time_ns"] as? NSNumber)?.int64Value ?? (command["at_tl_ns"] as? NSNumber)?.int64Value
-            let end = (command["end_ns"] as? NSNumber)?.int64Value ?? (command["tl_end_ns"] as? NSNumber)?.int64Value
-            var label = op.replacingOccurrences(of: "_", with: " ").capitalized
-            var symbol = "sparkles"
-            if op == "delete_range", let ns, let end { label = "Cut \(time(ns))–\(time(end))"; symbol = "scissors" }
-            if op == "add_zoom" { label = "Zoom \(command["scale"] ?? 2)×" + (ns.map { " at " + time($0) } ?? ""); symbol = "plus.magnifyingglass" }
-            return AgentChange(label: label, timeNs: ns, symbol: symbol)
-        }
+    private func log(_ doc: EditorDocument, name: String, args: [String: Any], client: String, result: [String: Any]? = nil) {
+        let changes = Self.changeLabels(name: name, args: args, result: result)
+        guard !changes.isEmpty else { return }
         struct History: Decodable { var undoSteps: Int }
         let depth = try? doc.project.query("{\"q\":\"history\"}", as: History.self).undoSteps
         doc.model.agentLog.append(AgentEntry(role: .agent, source: client + " via MCP", text: changes.map(\.label).joined(separator: ", "), changes: changes, undoMarker: depth))
+    }
+
+    /// Pure label mapping, kept beside logging so reads/navigation cannot become edits.
+    static func changeLabels(name: String, args: [String: Any], result: [String: Any]? = nil) -> [AgentChange] {
+        let reads: Set<String> = ["initialize", "project_summary", "list_documents", "seek", "select", "capture", "grab", "filmstrip", "waveform", "moments", "check", "transcription_status", "save"]
+        guard !name.hasPrefix("read_"), !reads.contains(name), result?["changed"] as? Bool != false else { return [] }
+        if let changed = result?["changed"] as? [String], changed.isEmpty { return [] }
+        func flatten(_ command: [String: Any]) -> [[String: Any]] {
+            if command["op"] as? String == "batch", let commands = command["commands"] as? [[String: Any]] { return commands.flatMap(flatten) }
+            if command["op"] as? String == "coalesced_edit", let nested = command["command"] as? [String: Any] { return flatten(nested) }
+            return [command]
+        }
+        func time(_ ns: Int64) -> String { String(format: "%lld:%02lld", ns / 1_000_000_000 / 60, ns / 1_000_000_000 % 60) }
+        func scalar(_ value: Any?, fallback: Double = 0) -> String { String(format: "%g", (value as? NSNumber)?.doubleValue ?? fallback) }
+        func seconds(_ value: Any?) -> Int64? {
+            guard let value = (value as? NSNumber)?.doubleValue, value.isFinite, value >= 0, value < Double(Int64.max) / 1e9 else { return nil }
+            return Int64((value * 1e9).rounded())
+        }
+        func quote(_ text: String) -> String {
+            let compact = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            return "‘" + String(compact.prefix(70)) + (compact.count > 70 ? "…" : "") + "’"
+        }
+        var fallback = args; fallback["op"] = name
+        let commands = (args["commands"] as? [[String: Any]] ?? (args["command"].map { [$0 as? [String: Any] ?? [:]] } ?? [fallback])).flatMap(flatten)
+        return commands.compactMap { command in
+            let op = command["op"] as? String ?? name
+            guard !op.hasPrefix("read_"), !reads.contains(op) else { return nil }
+            let record = command["record"] as? [String: Any] ?? command
+            let ns = (command["tl_start_ns"] as? NSNumber)?.int64Value ?? (command["at_tl_ns"] as? NSNumber)?.int64Value ?? (record["tl_start_ns"] as? NSNumber)?.int64Value ?? seconds(result?["at_s"] ?? command["at_s"] ?? command["from_s"])
+            let end = (command["tl_end_ns"] as? NSNumber)?.int64Value
+            let at = ns.map { " " + time($0) } ?? ""
+            let count = (result?["removed_count"] as? NSNumber)?.intValue
+            var label: String
+            var symbol = "sparkles"
+            switch op {
+            case "delete_range":
+                label = "Cut" + (ns.flatMap { start in end.map { " \(time(start))–\(time($0))" } } ?? " selection")
+                if let text = command["text"] as? String { label += " " + quote(text) }
+                symbol = "scissors"
+            case "cut_words":
+                label = "Cut words"
+                if let text = result?["text"] as? String, !text.isEmpty { label += " " + quote(text) }
+                symbol = "scissors"
+            case "tighten_pauses": label = count.map { "Tightened \($0) pauses" } ?? "Tightened pauses"; symbol = "scissors"
+            case "remove_fillers": label = count.map { "Removed \($0) filler ranges" } ?? "Removed fillers"; symbol = "scissors"
+            case "trim_start_to_first_word": label = "Trimmed opening to first word"; symbol = "scissors"
+            case "zoom_on_click": label = "Zoom \(scalar(command["scale"], fallback: 1.8))× on click" + at; symbol = "plus.magnifyingglass"
+            case "add_zoom": label = "Zoom \(scalar(command["scale"], fallback: 2))×" + at; symbol = "plus.magnifyingglass"
+            case "update_zoom": label = "Adjusted zoom"; symbol = "plus.magnifyingglass"
+            case "remove_zoom": label = "Removed zoom"; symbol = "minus.magnifyingglass"
+            case "auto_zooms": label = "Added automatic zooms"; symbol = "plus.magnifyingglass"
+            case "add_caption", "add_annotation", "add_reaction":
+                let title = op == "add_caption" ? "Caption" : op == "add_annotation" ? "Text" : "Reaction"
+                label = title + ((record["text"] as? String).map { " " + quote($0) } ?? "") + at
+                symbol = "text.bubble"
+            case "update_caption": label = "Edited caption"; symbol = "text.bubble"
+            case "remove_caption": label = "Removed caption"; symbol = "text.bubble"
+            case "import_transcript", "transcribe": label = "Generated captions"; symbol = "text.bubble"
+            case "set":
+                let path = command["path"] as? String ?? "setting"
+                let value = command["value"]
+                if path == "canvas.padding_ratio" { label = "Padding \(scalar((value as? NSNumber).map { $0.doubleValue * 100 })) %" }
+                else if path == "canvas.padding" { label = "Padding \(scalar(value)) px" }
+                else if path == "canvas.background" {
+                    let background = value as? [String: Any] ?? [:]
+                    if let wallpaper = background["wallpaper_id"] as? String { label = "Background: wallpaper " + wallpaper.replacingOccurrences(of: "-", with: " ").capitalized }
+                    else { label = "Background: " + (background["kind"] as? String ?? "updated").replacingOccurrences(of: "_", with: " ") }
+                } else if path == "canvas.background.wallpaper_id", let wallpaper = value as? String { label = "Background: wallpaper " + wallpaper.replacingOccurrences(of: "-", with: " ").capitalized }
+                else if path == "canvas.background.kind", let kind = value as? String { label = "Background: " + kind.replacingOccurrences(of: "_", with: " ") }
+                else if path == "notes" { label = "Updated speaker notes" }
+                else if let visible = value as? Bool { label = path.replacingOccurrences(of: ".", with: " ").replacingOccurrences(of: "_", with: " ").capitalized + (visible ? ": on" : ": off") }
+                else { label = "Adjusted " + path.replacingOccurrences(of: ".", with: " ").replacingOccurrences(of: "_", with: " ") }
+            case "split": label = "Split clip" + at; symbol = "scissors"
+            case "set_speed": label = "Clip speed \(scalar(command["speed"], fallback: 1))×"
+            case "process_silence": label = "Tightened silence"; symbol = "scissors"
+            case "apply_preset": label = "Applied visual preset"
+            case "auto_speed_typing", "apply_typing_suggestion": label = "Sped up typing"
+            case "undo": label = "Undid last edit"; symbol = "arrow.uturn.backward"
+            case "redo": label = "Redid last edit"; symbol = "arrow.uturn.forward"
+            default: label = op.replacingOccurrences(of: "_", with: " ").capitalized
+            }
+            return AgentChange(label: label, timeNs: ns, symbol: symbol)
+        }
     }
 }
