@@ -1,5 +1,6 @@
 import SwiftUI
 import YapcamCore
+import YapcamDesign
 
 /// Spring presets (stiffness / damping / mass) in the reference's value space. Core accepts mass up to 10.
 struct SpringPreset: Identifiable, Equatable {
@@ -43,35 +44,61 @@ extension EditorModel {
     }
 }
 
-/// "Animations" inspector section: screen and cursor spring presets with Customize, then one motion-blur slider.
+/// "Animations" inspector section: screen and cursor spring presets with Customize, the zoom settings, one motion-blur slider.
+struct AnimationsSection: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            AnimationPresets(model: model)
+            InspectorGroup("Zooms") { zooms }
+            InspectorGroup("Motion blur") {
+                NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1, defaultValue: model.factoryMotionBlur)
+                InspectorNote("One strength for zoom, screen movement and cursor.")
+            }
+        }
+    }
+
+    @ViewBuilder private var zooms: some View {
+        if model.hasMouseData {        // automatic zooms and cursor following both need recorded mouse data
+            ToggleRow(model: model, title: "Automatic zooms", path: "zoom_settings.automatic", defaultValue: true)
+            ToggleRow(model: model, title: "Follow cursor while zoomed", path: "zoom_settings.follow_cursor", defaultValue: true)
+        }
+        PickerRow(model: model, title: "Transition speed", path: "zoom_settings.speed_preset", options: inspectorSpeedPresets)
+        PickerRow(model: model, title: "Screen animation", path: "zoom_settings.animation_style",
+                  options: [("Custom", "custom"), ("Focused (settles fast)", "focused"), ("Smooth (fluid)", "smooth")])
+        ToggleRow(model: model, title: "Start animation early", path: "zoom_settings.start_early")
+        NumberRow(model: model, title: "Default zoom level", path: "zoom_settings.default_scale", range: 1...4, unit: "×", format: "%.1f", defaultValue: 2)
+        if model.hasMouseData { InspectorAction("Regenerate automatic zooms", symbol: "arrow.clockwise") { model.regenerateAutoZooms() } }
+    }
+}
+
+/// Screen and cursor spring presets as segment switches, the active one's hint below, "Customize" behind a click.
 struct AnimationPresets: View {
     @ObservedObject var model: EditorModel
     var body: some View {
-        group(title: "Screen animation", screen: true, presets: SpringPreset.screen, offersNone: false)
-        group(title: "Cursor animation", screen: false, presets: SpringPreset.cursor, offersNone: true)
+        InspectorGroup("Screen animation", first: true) { group(screen: true, presets: SpringPreset.screen, offersNone: false) }
+        InspectorGroup("Cursor animation") { group(screen: false, presets: SpringPreset.cursor, offersNone: true) }
     }
 
-    @ViewBuilder private func group(title: String, screen: Bool, presets: [SpringPreset], offersNone: Bool) -> some View {
-        let active = model.activePreset(screen: screen)
-        Section(title) {
-            ForEach(presets) { p in
-                Button { model.setSpring(screen: screen, stiffness: p.stiffness, damping: p.damping, mass: p.mass) } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 1) { Text(p.title); Text(p.hint).font(.caption).foregroundStyle(.secondary) }
-                        Spacer()
-                        if active == p.id { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
-                    }.contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).accessibilityAddTraits(active == p.id ? [.isButton, .isSelected] : .isButton)
-            }
-            if offersNone {
-                Button { model.setCursorAnimationNone() } label: {
-                    HStack { Text("None"); Text("Raw cursor movement").font(.caption).foregroundStyle(.secondary); Spacer()
-                        if active == "none" { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) } }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
-            }
-            if active != "none" { SpringSliders(model: model, screen: screen, defaultPreset: presets[0]) }
-        }
+    @ViewBuilder private func group(screen: Bool, presets: [SpringPreset], offersNone: Bool) -> some View {
+        let active = model.activePreset(screen: screen) ?? ""
+        let items = presets.map { (id: $0.id, title: $0.title) } + (offersNone ? [(id: "none", title: "None")] : [])
+        SegmentSwitch(items, selection: Binding(get: { active }, set: { id in choose(id, screen: screen, presets: presets) }), height: 26)
+            .padding(.horizontal, -4)
+            .accessibilityLabel(screen ? "Screen animation" : "Cursor animation")
+        InspectorNote(hint(active, presets: presets))
+        if active != "none" { SpringSliders(model: model, screen: screen, defaultPreset: presets[0]) }
+    }
+
+    private func hint(_ active: String, presets: [SpringPreset]) -> String {
+        if active == "none" { return "Raw cursor movement" }
+        return presets.first { $0.id == active }?.hint ?? "Custom: your own values"
+    }
+
+    private func choose(_ id: String, screen: Bool, presets: [SpringPreset]) {
+        if id == "none" { model.setCursorAnimationNone(); return }
+        guard let p = presets.first(where: { $0.id == id }) else { return }
+        model.setSpring(screen: screen, stiffness: p.stiffness, damping: p.damping, mass: p.mass)
     }
 }
 
@@ -80,32 +107,26 @@ struct SpringSliders: View {
     @ObservedObject var model: EditorModel
     let screen: Bool
     let defaultPreset: SpringPreset
-    @State private var open = false
-    @State private var v = (stiffness: 250.0, damping: 40.0, mass: 2.25)
-    @State private var editing = false
     var body: some View {
-        DisclosureGroup("Customize", isExpanded: $open) {
-            slider("Rigidity", $v.stiffness, 5...600, step: 1)
-            slider("Smoothness", $v.damping, 5...200, step: 1)
-            slider("Momentum", $v.mass, 0.1...10, step: 0.1)
-            Button("Reset") { model.setSpring(screen: screen, stiffness: defaultPreset.stiffness, damping: defaultPreset.damping, mass: defaultPreset.mass) }
+        InspectorMore("Customize") {
+            slider("Rigidity", 5...600, step: 1, \.stiffness)
+            slider("Smoothness", 5...200, step: 1, \.damping)
+            slider("Momentum", 0.1...10, step: 0.1, \.mass)
+            InspectorAction("Reset") { model.setSpring(screen: screen, stiffness: defaultPreset.stiffness, damping: defaultPreset.damping, mass: defaultPreset.mass) }
                 .disabled(model.activePreset(screen: screen) == defaultPreset.id)
         }
-        .onAppear(perform: load)
-        .onChange(of: model.revision) { _, _ in if !editing { load() } }
     }
-    private func load() { v = model.springValues(screen: screen) }
-    private func slider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>, step: Double) -> some View {
-        SliderRow(title) {
-            HStack {
-                Slider(value: Binding(get: { value.wrappedValue }, set: { value.wrappedValue = ($0 / step).rounded() * step }), in: range) { e in
-                    editing = e
-                    if !e { model.setSpring(screen: screen, stiffness: v.stiffness, damping: v.damping, mass: v.mass) }
-                }
-                .accessibilityLabel(title).accessibilityValue(String(format: "%.1f", value.wrappedValue))
-                Text(String(format: step < 1 ? "%.1f" : "%.0f", value.wrappedValue)).sliderValueLabel()
-                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
-            }
-        }
+    private func slider(_ title: String, _ range: ClosedRange<Double>, step: Double,
+                        _ key: WritableKeyPath<SpringValues, Double>) -> some View {
+        CommitSlider(title: title, range: range, get: { SpringValues(model.springValues(screen: screen))[keyPath: key] },
+                     commit: { v in var s = SpringValues(model.springValues(screen: screen)); s[keyPath: key] = v
+                               model.setSpring(screen: screen, stiffness: s.stiffness, damping: s.damping, mass: s.mass) },
+                     text: { String(format: step < 1 ? "%.1f" : "%.0f", $0) }, step: step)
     }
+}
+
+/// Mutable copy of a spring (stiffness, damping, mass).
+struct SpringValues {
+    var stiffness: Double, damping: Double, mass: Double
+    init(_ v: (stiffness: Double, damping: Double, mass: Double)) { stiffness = v.stiffness; damping = v.damping; mass = v.mass }
 }

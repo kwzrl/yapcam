@@ -1,4 +1,5 @@
 import SwiftUI
+import YapcamDesign
 
 /// Caption look as in the reference: size as a fraction of the output height (0.05–0.125), Dark or Light text,
 /// bottom or centered position. Applies to every caption and is remembered for new ones.
@@ -65,25 +66,24 @@ extension EditorModel {
 
 struct CaptionStyleControls: View {
     @ObservedObject var model: EditorModel
-    @State private var size = 0.05
     var body: some View {
         let look = model.captionLook
-        SliderRow("Size") {
-            HStack {
-                Slider(value: $size, in: CaptionLook.sizeRange) { e in if !e { var l = look; l.size = size; model.setCaptionLook(l) } }
-                    .accessibilityLabel("Caption size").accessibilityValue(String(format: "%.1f percent of the height", size * 100))
-                Text(String(format: "%.1f %%", size * 100)).sliderValueLabel()
-                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
-            }
+        CommitSlider(title: "Size", range: CaptionLook.sizeRange, get: { look.size }, commit: { var l = look; l.size = $0; model.setCaptionLook(l) },
+                     text: { String(format: "%.1f %%", $0 * 100) })
+        ChoiceRow("Color", selection: Binding(get: { look.light }, set: { v in var l = look; l.light = v; model.setCaptionLook(l) }), options: [("Dark", false), ("Light", true)])
+        ChoiceRow("Position", selection: Binding(get: { look.center }, set: { v in var l = look; l.center = v; model.setCaptionLook(l) }), options: [("Bottom", false), ("Center", true)])
+        typography("Font", "font_family", "sans", [("Sans", "sans"), ("Serif", "serif"), ("Mono", "mono")])
+        InspectorMore("Typography") {
+            typography("Reveal", "reveal", "line", [("Whole line", "line"), ("Word by word", "word")])
+            typography("Growth", "growth", "full", [("Full box", "full"), ("Expanding", "expanding"), ("Centered", "centered")])
+            typography("Entrance", "entrance", "appear", [("Appear", "appear"), ("Fade", "fade"), ("Slide", "slide")])
+            CaptionLanguageField(model: model)
         }
-        LabeledPills("Color", selection: Binding(get: { look.light }, set: { v in var l = look; l.light = v; model.setCaptionLook(l) }), options: [("Dark", false), ("Light", true)])
-        LabeledPills("Position", selection: Binding(get: { look.center }, set: { v in var l = look; l.center = v; model.setCaptionLook(l) }), options: [("Bottom", false), ("Center", true)])
-        LabeledPills("Font", selection: Binding(get: { model.captionTypographyValue("font_family", default: "sans") }, set: { model.setCaptionTypography("font_family", $0) }), options: [("Sans", "sans"), ("Serif", "serif"), ("Mono", "mono")])
-        LabeledPills("Reveal", selection: Binding(get: { model.captionTypographyValue("reveal", default: "line") }, set: { model.setCaptionTypography("reveal", $0) }), options: [("Whole line", "line"), ("Word by word", "word")])
-        LabeledPills("Growth", selection: Binding(get: { model.captionTypographyValue("growth", default: "full") }, set: { model.setCaptionTypography("growth", $0) }), options: [("Full box", "full"), ("Expanding", "expanding"), ("Centered", "centered")])
-        LabeledPills("Entrance", selection: Binding(get: { model.captionTypographyValue("entrance", default: "appear") }, set: { model.setCaptionTypography("entrance", $0) }), options: [("Appear", "appear"), ("Fade", "fade"), ("Slide", "slide")])
-        CaptionLanguageField(model: model)
-        .onAppear { size = look.size }
+    }
+
+    private func typography(_ title: String, _ key: String, _ d: String, _ options: [(String, String)]) -> some View {
+        ChoiceRow(title, selection: Binding(get: { model.captionTypographyValue(key, default: d) }, set: { model.setCaptionTypography(key, $0) }),
+                  options: options)
     }
 }
 
@@ -92,10 +92,15 @@ struct CaptionLanguageField: View {
     @ObservedObject var model: EditorModel
     @State private var text = "auto"
     var body: some View {
-        TextField("Language", text: $text, prompt: Text("auto, en-US, de…"))
-            .onSubmit { commit() }
-            .onAppear { text = model.captionTypographyValue("language", default: "auto") }
-            .accessibilityLabel("Caption language")
+        HStack(spacing: 8) {
+            Text("Language").font(Yap.Font.body).foregroundStyle(Yap.label)
+            Spacer(minLength: 8)
+            RecessedField("auto, en-US, de…", text: $text, height: 28)
+                .frame(width: 130)
+                .onSubmit { commit() }
+                .accessibilityLabel("Caption language")
+        }
+        .onAppear { text = model.captionTypographyValue("language", default: "auto") }
     }
     private func commit() {
         let t = text.trimmingCharacters(in: .whitespaces)

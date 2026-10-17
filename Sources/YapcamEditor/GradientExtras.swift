@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import YapcamDesign
 
 /// Own gradient presets (start → end), 8 per row like the reference's grid, plus a hue slider and a randomize button.
 enum GradientPresets {
@@ -48,27 +49,27 @@ extension EditorModel {
 
 struct GradientExtras: View {
     @ObservedObject var model: EditorModel
-    @State private var hue: Double?                 // degrees while the slider is held
+    private var hue: Double { GradientPresets.hue(model.color("canvas.background.color")) }
     var body: some View {
-        SliderRow("Hue") {
-            HStack {
-                Slider(value: Binding(get: { hue ?? GradientPresets.hue(model.color("canvas.background.color")) }, set: { hue = $0 }), in: 0...360) { editing in
-                    if !editing, let h = hue { hue = nil; model.rotateGradientHue(by: h.rounded() - GradientPresets.hue(model.color("canvas.background.color")).rounded()) }   // whole degrees
-                }.accessibilityLabel("Gradient hue")
-                Text("\(Int(hue ?? GradientPresets.hue(model.color("canvas.background.color")))) °").sliderValueLabel()
-                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
-            }
+        CommitSlider(title: "Hue", range: 0...360, get: { hue },
+                     commit: { h in model.rotateGradientHue(by: h.rounded() - hue.rounded()) },      // whole degrees
+                     text: { "\(Int($0))°" })
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
+            ForEach(Array(GradientPresets.all.enumerated()), id: \.offset) { i, p in preset(i, p) }
         }
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: EditorMetrics.xs + 2), count: 8), spacing: EditorMetrics.xs + 2) {
-            ForEach(Array(GradientPresets.all.enumerated()), id: \.offset) { i, p in
-                Button { model.applyGradientPreset(i) } label: {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(LinearGradient(colors: [Color(.sRGB, red: p.1[0], green: p.1[1], blue: p.1[2]), Color(.sRGB, red: p.2[0], green: p.2[1], blue: p.2[2])], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(EditorTheme.hairline))
-                }.buttonStyle(.plain).help(p.0).accessibilityLabel("Gradient \(p.0)")
-            }
+        InspectorAction("Random gradient", symbol: "dice") { model.randomizeGradient() }
+    }
+
+    private func preset(_ i: Int, _ p: (String, [Double], [Double])) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        let on = model.color("canvas.background.color") == p.1 && model.color("canvas.background.color2") == p.2
+        return Button { model.applyGradientPreset(i) } label: {
+            LinearGradient(colors: [Color(.sRGB, red: p.1[0], green: p.1[1], blue: p.1[2]), Color(.sRGB, red: p.2[0], green: p.2[1], blue: p.2[2])],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .clipShape(shape).aspectRatio(1, contentMode: .fit)
+                .overlay(shape.strokeBorder(Color.white.opacity(on ? 1 : 0.18), lineWidth: on ? 2 : 0.5))
         }
-        Button { model.randomizeGradient() } label: { Label("Random gradient", systemImage: "dice") }.buttonStyle(.borderless)
+        .buttonStyle(PressStyle()).help(p.0).accessibilityLabel("Gradient \(p.0)")
+        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
 }
