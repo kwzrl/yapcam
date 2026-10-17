@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -275,5 +276,42 @@ import YapcamEditor
         #expect(g.last?.rows.map(\.id) == [1, 2])
         #expect(WindowMenu.title(rows[1]) == "Safari" && WindowMenu.title(rows[0]) == "Docs")
         #expect(WindowMenu.groups(rows: rows, allowed: [3], excludingPID: 99).map(\.app) == ["Notes"])
+    }
+
+    // S-EDT-83 / 84
+    private var fixturePackage: URL { URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "Fixtures/synthetic/basic.yapcam") }
+
+    @Test func extractPlanListsOneTrackPerFileInSegmentOrder() {
+        let all = RawExtract.plan(package: fixturePackage)
+        #expect(all.map(\.outputName) == ["Screen.mov", "System audio.m4a"])
+        #expect(all.allSatisfy { $0.sources.count == 2 && $0.sources[0].path.contains("seg-000") && $0.sources[1].path.contains("seg-001") })
+        #expect(RawExtract.plan(package: fixturePackage, screenOnly: true).map(\.outputName) == ["Screen.mov"])
+        #expect(RawExtract.plan(package: URL(fileURLWithPath: "/tmp/fixture/none.yapcam")).isEmpty)
+    }
+    @Test func extractJoinsSegmentsWithoutReencoding() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "r7-extract-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let tracks = RawExtract.plan(package: fixturePackage, screenOnly: true)
+        try await RawExtract.run(tracks, into: dir)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["Screen.mov"])      // 1 file
+        var total = 0.0
+        for src in tracks[0].sources { total += try await AVURLAsset(url: src).load(.duration).seconds }
+        let out = AVURLAsset(url: dir.appending(path: "Screen.mov"))
+        let joined = try await out.load(.duration).seconds
+        #expect(abs(joined - total) < 0.1)
+        func codec(_ a: AVURLAsset) async throws -> FourCharCode? {
+            let t = try await a.loadTracks(withMediaType: .video).first
+            let fd = try await t?.load(.formatDescriptions).first
+            return fd.map { CMFormatDescriptionGetMediaSubType($0) }
+        }
+        let original = try await codec(AVURLAsset(url: tracks[0].sources[0]))
+        #expect(original != nil)
+        #expect(try await codec(out) == original)
+    }
+    @Test func extractCancelAndEmptyPlanThrow() async {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "r7-extract-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        await #expect(throws: RawExtract.ExtractError.self) { try await RawExtract.run([], into: dir) }
+        await #expect(throws: RawExtract.ExtractError.self) { try await RawExtract.run(RawExtract.plan(package: fixturePackage), into: dir, isCancelled: { true }) }
     }
 }

@@ -143,6 +143,8 @@ import YapcamCore
         return dest
     }
 
+    static func uniqueFolderForExtract(in dir: URL, name: String) -> URL { uniqueFolder(in: dir, name: name) }
+
     private static func uniqueFolder(in dir: URL, name: String) -> URL {
         var url = dir.appending(path: name, directoryHint: .isDirectory)
         var i = 2

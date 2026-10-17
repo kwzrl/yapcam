@@ -63,6 +63,8 @@ import AppKit
             item("Save As…", #selector(AppDelegate.saveProjectAs), "s", mods: [.command, .shift]),
             item("Rename Project…", #selector(AppDelegate.renameProject)),
             item("Show Project in Finder", #selector(AppDelegate.showProjectInFinder)),
+            item("Extract Raw Recording Files…", #selector(AppDelegate.extractRawFiles)),
+            item("Extract Screen Recording File…", #selector(AppDelegate.extractScreenFile)),
             item("Copy and Zip Project", #selector(AppDelegate.copyAndZipProject)),
             item("Move to Trash…", #selector(AppDelegate.moveProjectToTrash)),
             .separator(),

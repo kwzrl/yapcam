@@ -295,6 +295,8 @@ import YapcamEditor
     @objc func exportToFile() { EditorBridge.keyEditor()?.performExport(.saveToFile) }
     @objc func exportCopy() { EditorBridge.keyEditor()?.performExport(.copyToClipboard) }
     @objc func exportHistory() { EditorBridge.keyEditor()?.performExport(.history) }
+    @objc func extractRawFiles() { if let u = EditorBridge.keyDocument()?.project.packageURL { RawExtractRunner.shared.start(package: u, screenOnly: false) } }
+    @objc func extractScreenFile() { if let u = EditorBridge.keyDocument()?.project.packageURL { RawExtractRunner.shared.start(package: u, screenOnly: true) } }
     @objc func saveProject() { EditorBridge.keyEditor()?.saveNow() }
     @objc func saveProjectAs() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.saveAs(u) } }
     @objc func copyAndZipProject() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.copyAndZip(u) } }
@@ -340,7 +342,7 @@ extension AppDelegate: NSMenuItemValidation {
             item.title = r.isRecording || r.phase == .countdown(0) ? "Stop Recording" : "Start Recording"
             if case .countdown = r.phase { item.title = "Cancel Countdown" }
             return r.phase != .starting && r.phase != .finishing
-        case #selector(saveProject), #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
+        case #selector(saveProject), #selector(extractRawFiles), #selector(extractScreenFile), #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
         case #selector(exportPicker), #selector(exportToFile), #selector(exportCopy), #selector(exportHistory):
             return ExportMenuState.enabled(hasEditor: EditorBridge.keyEditor() != nil, exportRunning: EditorBridge.keyDocument()?.export.isRunning ?? false)
         case #selector(addMarker): return r.phase == .recording
