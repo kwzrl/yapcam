@@ -316,6 +316,12 @@ struct TimelineView: View {
         return nil
     }
 
+    /// Scissors on a selected zoom, layout or highlight: split it at the click, unsnapped so it never lands on its own edge.
+    private func cutSelected(at ns: Int64) {
+        model.seek(toNs: ns, precise: true)
+        model.splitContextAware()
+    }
+
     private func hitRange(at p: CGPoint, _ g: TimelineGeometry) -> DragKind? {
         var items: [(key: String, span: TimeSpan, top: CGFloat, sel: EditorSelection)] = []
         if model.hasCamera { items += model.layouts.map { ($0.id, TimeSpan(startNs: $0.startNs, endNs: $0.endNs), layout.cameraTop, .layout($0.id)) } }
@@ -394,12 +400,24 @@ struct TimelineView: View {
            let sp = model.typingSuggestions.first(where: { p.x >= g.x(forNs: $0.startNs) - 2 && p.x <= g.x(forNs: $0.endNs) + 2 }) {
             model.typingPopover = sp.startNs; return .inert
         }
-        if p.y >= layout.lanesTop, let kind = hitRange(at: p, g) { return kind }
+        if p.y >= layout.lanesTop, let kind = hitRange(at: p, g) {
+            switch model.selection {
+            case .layout, .highlight: if model.cutToolActive { cutSelected(at: g.ns(forX: p.x)); return .inert }
+            default: break
+            }
+            return kind
+        }
         if p.y >= layout.zoomTop, p.y < layout.lanesTop, hitZoom(at: p.x, g) == nil, p.x >= 0, g.ns(forX: p.x) < model.durationNs {
             model.selection = .none
             return .zoomCreate(startNs: model.snapped(g.ns(forX: p.x), includePlayhead: false))
         }
         if p.y >= layout.zoomTop, p.y < layout.lanesTop, let (z, kind) = hitZoom(at: p.x, g) {
+            if model.cutToolActive {
+                // Scissors on a zoom: split that zoom at the click (C does the same at the playhead).
+                model.extraZoomSelection = []
+                model.selection = .zoom(z.id)
+                cutSelected(at: g.ns(forX: p.x)); return .inert
+            }
             if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
                 // Multi-select: toggle membership; no drag.
                 if case .zoom(let primary) = model.selection {
