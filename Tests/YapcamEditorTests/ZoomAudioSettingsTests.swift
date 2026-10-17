@@ -108,7 +108,10 @@ import YapcamCore
         let src = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
         let d = FileManager.default.temporaryDirectory.appendingPathComponent("ep-\(UUID().uuidString).yapcam")
         try FileManager.default.copyItem(at: src, to: d); defer { try? FileManager.default.removeItem(at: d) }
-        let doc = try EditorDocument(package: d); defer { doc.model.close() }
+        // Isolated defaults: the sheet loads (and, on `format = .gif`, saves) its remembered settings in the store's defaults, which
+        // were the shared standard ones, so any test that changed them first made this one order-dependent.
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store); defer { doc.model.close() }
         let e = try #require(doc.export.estimate)
         #expect(e.height == 720 && e.width % 2 == 0 && e.bytes > 0 && e.renderSeconds > 0)
         doc.export.format = .gif
