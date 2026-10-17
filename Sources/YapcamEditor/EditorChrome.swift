@@ -93,8 +93,12 @@ extension EditorModel {
         do { try FileManager.default.trashItem(at: presetStore.url(name), resultingItemURL: nil); if presetStore.defaultName == name { presetStore.defaultName = nil } }
         catch { lastError = "Couldn't remove the preset: \(error.localizedDescription)" }
     }
+    /// Names of the presets applied most recently (newest first, at most 5; remembered).
+    public func recentPresets() -> [String] { defaults.stringArray(forKey: "editor.recentPresets") ?? [] }
     public func applyPreset(at url: URL) {
         guard !isClosed else { return }
+        let name = url.deletingPathExtension().lastPathComponent
+        defaults.set(Array(([name] + recentPresets().filter { $0 != name }).prefix(5)), forKey: "editor.recentPresets")
         do { try project.importPreset(from: url); selectedWallpaperID = nil; noteExternalEdit() }
         catch { lastError = "Couldn't apply the preset: \(error.localizedDescription)" }
     }
@@ -105,6 +109,8 @@ struct EditorTopBar: View {
     let title: String
     let packageURL: URL?
     @Binding var showExport: Bool
+    /// True while an export runs: Export is disabled with an explanation (the sheet shows its progress).
+    var exportRunning = false
     @State private var presetNames: [String] = []
 
     var body: some View {
@@ -126,6 +132,11 @@ struct EditorTopBar: View {
             Menu {
                 Button("Create preset from this look…") { if let n = EditorPresets.promptName() { model.savePreset(named: n); presetNames = model.presetStore.names() } }
                 Divider()
+                let recent = model.recentPresets().filter { presetNames.contains($0) }
+                if !recent.isEmpty {
+                    Section("Recently used") { ForEach(recent, id: \.self) { n in Button(n) { model.applyPreset(at: model.presetStore.url(n)) } } }
+                    Divider()
+                }
                 if presetNames.isEmpty { Text("No presets yet") }
                 ForEach(presetNames, id: \.self) { n in
                     let badges = [model.presetMatchesProject(named: n) ? "Matches project" : nil, model.presetStore.defaultName == n ? "Default" : nil].compactMap { $0 }
@@ -146,9 +157,9 @@ struct EditorTopBar: View {
                 .help("Apply or save a look")
             // Filled with the accent colour in every window state (the system prominent style turns grey in inactive windows).
             Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
-            .buttonStyle(PrimaryButtonStyle())
+            .buttonStyle(PrimaryButtonStyle()).disabled(exportRunning)
             .keyboardShortcut("e", modifiers: [.command])
-            .help("Export the video (⌘E)").accessibilityLabel("Export")
+            .help(exportRunning ? "An export is running — wait for it to finish" : "Export the video (⌘E)").accessibilityLabel("Export")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.s)

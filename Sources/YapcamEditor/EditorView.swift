@@ -20,7 +20,7 @@ public struct EditorContent<Preview: View>: View {
     public var body: some View {
         GeometryReader { geo in
             VStack(spacing: 0) {
-                EditorTopBar(model: model, title: title, packageURL: packageURL, showExport: $showExport)
+                EditorTopBar(model: model, title: title, packageURL: packageURL, showExport: $showExport, exportRunning: export.isRunning)
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
                         PreviewControlsBar(model: model)

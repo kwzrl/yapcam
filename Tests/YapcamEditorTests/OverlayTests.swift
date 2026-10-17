@@ -604,3 +604,22 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(m.lastError == nil)
     }
 }
+
+@MainActor @Suite struct R5ChromeTests {
+    @Test func recentPresetsKeepFiveNewestFirstWithoutDuplicates() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        try FileManager.default.createDirectory(at: iso.store.directory, withIntermediateDirectories: true)
+        for n in ["a", "b", "c", "d", "e", "f"] { m.savePreset(named: n) }
+        #expect(m.lastError == nil)
+        for n in ["a", "b", "c", "d", "e", "f", "c"] { m.applyPreset(at: iso.store.url(n)) }
+        #expect(m.recentPresets() == ["c", "f", "e", "d", "b"])
+    }
+
+    @Test func appearanceDefaultsToDarkAndOffersLightAndSystem() {
+        #expect(EditorWindows.appearance == .dark)
+        #expect(EditorAppearance.allCases == [.dark, .light, .system])
+        #expect(EditorAppearance.dark.nsAppearance?.name == .darkAqua && EditorAppearance.light.nsAppearance?.name == .aqua && EditorAppearance.system.nsAppearance == nil)
+    }
+}

@@ -431,18 +431,22 @@ struct InspectorView: View {
                 DurationRow(model: model, title: "Idle after", path: "cursor.idle_timeout_ns", default: 2_000_000_000, range: 0.5...5)
             }
             ToggleRow(model: model, title: "Always use the default arrow", path: "cursor.always_default")
-            PickerRow(model: model, title: "Rotation", path: "cursor.rotation_mode", options: [("Fixed angle", "static"), ("Follow movement", "tilt")])
-            if model.string("cursor.rotation_mode", default: "static") == "tilt" {
-                NumberRow(model: model, title: "Tilt amount", path: "cursor.tilt_amount", range: 0...2, defaultValue: 1)
-            } else {
-                NumberRow(model: model, title: "Angle", path: "cursor.rotation_degrees", range: -180...180, unit: "°", format: "%.0f", defaultValue: 0)
+            DisclosureGroup("Rotation") {
+                NumberRow(model: model, title: "Rotate cursor", path: "cursor.rotation_degrees", range: -180...180, unit: "°", format: "%.0f", defaultValue: 0)
+                LabeledPills("Rotate while moving", selection: Binding(get: { model.string("cursor.rotation_mode", default: "static") }, set: { model.set("cursor.rotation_mode", string: $0) }),
+                             options: [("Off", "static"), ("Tilt", "tilt")])
+                if model.string("cursor.rotation_mode", default: "static") == "tilt" {
+                    NumberRow(model: model, title: "Tilt amount", path: "cursor.tilt_amount", range: 0...2, defaultValue: 1)
+                }
             }
-            ToggleRow(model: model, title: "Remove tiny shakes", path: "cursor.remove_shakes")
-            if model.bool("cursor.remove_shakes") {
-                NumberRow(model: model, title: "Shake threshold", path: "cursor.shake_threshold", range: 100...2000, unit: "pt", format: "%.2f", scale: 0.001, defaultValue: 500)
+            DisclosureGroup("Advanced") {
+                HoldCursorRow(model: model)
+                ToggleRow(model: model, title: "Remove tiny shakes", path: "cursor.remove_shakes")
+                if model.bool("cursor.remove_shakes") {
+                    NumberRow(model: model, title: "Shake threshold", path: "cursor.shake_threshold", range: 100...2000, unit: "pt", format: "%.2f", scale: 0.001, defaultValue: 500)
+                }
+                ToggleRow(model: model, title: "Reduce cursor-type flicker", path: "cursor.optimize_types")
             }
-            ToggleRow(model: model, title: "Reduce cursor-type flicker", path: "cursor.optimize_types")
-            HoldCursorRow(model: model)
             PickerRow(model: model, title: "Click effect", path: "cursor.click_effect",
                       options: [("None", "none"), ("Circle", "ring"), ("Ripple", "highlight")])
             // Turning the loop on sets 1 s (the reference's value); it is one undo step with the switch.

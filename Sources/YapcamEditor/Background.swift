@@ -23,7 +23,6 @@ struct BackgroundPanel: View {
 
     var body: some View {
         Section {
-            Text("Background").font(.subheadline).foregroundStyle(.secondary)
             PillPicker(selection: Binding(get: { effectiveMode }, set: { newMode in choose(newMode) }),
                        options: Mode.allCases.map { ($0.rawValue, $0) }, accessibilityTitle: "Background type")
             switch effectiveMode {
