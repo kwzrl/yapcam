@@ -421,3 +421,14 @@ Follow-up: `appLaunchedWithSnapshotFlagRendersEverything` now skips itself while
 | re-entrancy (@Published in didSet/body) | start paths now go through `SourceChoice.apply` (one place, tested with 150 back-to-back changes + the debounced observer) |
 
 R6 tasks: 2. A4.1 Show Speaker Notes (⌘⌥/) exists in the gear menu and as a hotkey (test added); A2.6 saved area sizes exist (Saved sizes menu, persisted; existing tests). 3. `SourceChoice` (display/window/area) is the single decision for Start/window pick/area confirm; tiny areas are refused; tests in Round6Tests.swift.
+
+## R7 items
+R7 REC B-01 | Dock menu | DockMenu.items / dockMenuIsBuilt... | live: not verified
+R7 REC B-02 / CAM-46 | camera preview during takes (own session carries over; position saved; dimmed when paused) | cameraPreviewStaysDuringATakeUnlessHidden | live: not verified (no camera). Request to capture: frame tap from AuxiliaryCapture (optional; the preview keeps its own session meanwhile). Not done: "Camera disconnected" placeholder
+R7 REC B-03 | start/finish opens picker first | startStopOpensThePickerFirst | live: not verified
+R7 REC B-04 | one speaker notes panel with play/gear, speed 1-25 default 8 | prompter* tests | live: not verified
+R7 REC B-05 | global speaker notes shortcut | speakerNotesShortcutIsGlobal | live: not verified
+R7 REC B-07 | default preset > last project > standard; default ON | initialLookPrecedence | live: n/a
+R7 REC B-08 | Dock icon stays while an editor is open | activationPolicyKeepsTheDockIconWhileAnEditorIsOpen | live: not verified
+R7 S-01 | File > Save (cmd S) -> saveNow | fileMenuHasSaveAndOpenRecent | live: not verified. Editor part (handleShortcut s, "Saved" label) is the editor's
+R7 S-02 | Open Recent + recents reporting | openRecentMenu..., choosingAMovedProject... | live: not verified

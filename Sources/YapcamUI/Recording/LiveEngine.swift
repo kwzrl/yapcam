@@ -84,6 +84,7 @@ import YapcamEditor
     }
 
     func openEditor(package: URL) {
+        RecentDocuments.noteOpened(package)
         EditorWindows.open(package: package)
         EditorBridge.bringEditorsToFront()
     }

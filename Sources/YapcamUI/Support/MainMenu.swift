@@ -18,6 +18,12 @@ import AppKit
             i.target = target
             return i
         }
+        func openRecentItem() -> NSMenuItem {
+            let host = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+            let m = NSMenu(title: "Open Recent"); m.delegate = OpenRecentMenuDelegate.shared
+            host.submenu = m
+            return host
+        }
         func afterRecordingItem() -> NSMenuItem {
             let host = NSMenuItem(title: "After Recording", action: nil, keyEquivalent: "")
             let m = AfterRecordingMenu.populated(); m.delegate = AfterRecordingMenu.mainMenuDelegate
@@ -46,11 +52,13 @@ import AppKit
         ])
         add("File", [
             item("Open Recording…", #selector(AppDelegate.openProject), "o"),
+            openRecentItem(),
             item("Import Video…", #selector(AppDelegate.importVideo), "i"),
             item("Recover Recording…", #selector(AppDelegate.recoverRecording)),
             item("Recordings…", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
             .separator(),
+            item("Save", #selector(AppDelegate.saveProject), "s"),
             item("Save As…", #selector(AppDelegate.saveProjectAs), "s", mods: [.command, .shift]),
             item("Rename Project…", #selector(AppDelegate.renameProject)),
             item("Show Project in Finder", #selector(AppDelegate.showProjectInFinder)),

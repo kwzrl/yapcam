@@ -291,6 +291,7 @@ import YapcamEditor
         for url in p.urls { ProjectActions.open(url) }       // each one reports on its own when it can't be opened
     }
     @objc func recoverRecording() { RecoveryFlow.run(silentWhenNone: false) }
+    @objc func saveProject() { EditorBridge.keyEditor()?.saveNow() }
     @objc func saveProjectAs() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.saveAs(u) } }
     @objc func copyAndZipProject() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.copyAndZip(u) } }
     @objc func moveProjectToTrash() { _ = EditorWindows.requestTrashOfKeyEditor() }
@@ -329,7 +330,7 @@ extension AppDelegate: NSMenuItemValidation {
             item.title = r.isRecording || r.phase == .countdown(0) ? "Stop Recording" : "Start Recording"
             if case .countdown = r.phase { item.title = "Cancel Countdown" }
             return r.phase != .starting && r.phase != .finishing
-        case #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
+        case #selector(saveProject), #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
         case #selector(addMarker): return r.phase == .recording
         case #selector(restartRecording), #selector(cancelRecording): return r.isRecording
         case #selector(togglePause):

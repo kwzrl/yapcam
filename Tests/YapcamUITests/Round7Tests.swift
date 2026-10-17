@@ -152,4 +152,55 @@ import YapcamEditor
         ProjectActions.applyInitialLook(to: pc, package: c, reuseLast: false, in: dir, presets: store)
         #expect(padding(pc) == standard)
     }
+
+    // S-01 / S-02
+    @Test func fileMenuHasSaveAndOpenRecent() {
+        _ = NSApplication.shared
+        let menu = MainMenu.build(target: AppDelegate())
+        let file = menu.items.first { $0.submenu?.title == "File" }?.submenu
+        let save = file?.items.first { $0.title == "Save" }
+        #expect(save?.keyEquivalent == "s" && save?.keyEquivalentModifierMask == .command)
+        #expect(save?.action == #selector(AppDelegate.saveProject))
+        let recent = file?.items.first { $0.title == "Open Recent" }
+        #expect(recent?.submenu?.delegate != nil)
+        #expect(file?.items.contains { $0.title == "Save As…" } == true)
+    }
+    @Test func projectsOpenedAreReportedToTheRecentsUnlessIsolated() {
+        let saved = RecentDocuments.note; defer { RecentDocuments.note = saved }
+        var noted: [URL] = []
+        RecentDocuments.note = { noted.append($0) }
+        let u = URL(fileURLWithPath: "/tmp/fixture/A.yapcam")
+        RecentDocuments.noteOpened(u, isolated: true)
+        #expect(noted.isEmpty)
+        RecentDocuments.noteOpened(u, isolated: false)
+        #expect(noted == [u])
+    }
+    @Test func openRecentMenuListsExistingProjectsNewestFirstMax10AndClears() {
+        let saved = (RecentDocuments.list, RecentDocuments.clear); defer { (RecentDocuments.list, RecentDocuments.clear) = saved }
+        let urls = (0..<14).map { URL(fileURLWithPath: "/tmp/fixture/P\($0).yapcam") }
+        RecentDocuments.list = { urls }
+        var cleared = false
+        RecentDocuments.clear = { cleared = true }
+        let menu = NSMenu(); OpenRecentMenuDelegate.shared.menuNeedsUpdate(menu)
+        #expect(RecentDocuments.visible(urls, exists: { _ in true }).count == 10)
+        #expect(RecentDocuments.visible(urls, exists: { $0 != urls[0] }).first == urls[1])
+        // none of the fixture paths exist: the menu says so and Clear Menu is disabled
+        #expect(menu.items.first?.title == "No Recent Recordings" && menu.items.last?.isEnabled == false)
+        _ = cleared
+    }
+    @Test func choosingAMovedProjectAlertsAndDropsIt() {
+        let saved = (RecentDocuments.list, RecentDocuments.clear, RecentDocuments.note, RecentDocuments.exists)
+        defer { (RecentDocuments.list, RecentDocuments.clear, RecentDocuments.note, RecentDocuments.exists) = saved }
+        let gone = URL(fileURLWithPath: "/tmp/fixture/Gone.yapcam"), kept = URL(fileURLWithPath: "/tmp/fixture/Kept.yapcam")
+        var stored = [gone, kept]
+        RecentDocuments.list = { stored }
+        RecentDocuments.clear = { stored = [] }
+        RecentDocuments.note = { stored.insert($0, at: 0) }
+        RecentDocuments.exists = { $0 == kept }
+        var opened: [URL] = []
+        #expect(!RecentDocuments.choose(gone, open: { opened.append($0) }))
+        #expect(opened.isEmpty && stored == [kept] && RecordingController.shared.alert != nil)
+        RecordingController.shared.alert = nil
+        #expect(RecentDocuments.choose(kept, open: { opened.append($0) }) && opened == [kept])
+    }
 }
