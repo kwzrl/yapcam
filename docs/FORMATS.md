@@ -1473,3 +1473,23 @@ The query includes single-key presses so Editor can edit their preference even
 when shortcuts_only currently filters them out. Swift keyOverlayShortcuts() and
 setHiddenShortcuts(_:) use these payloads. These are cold queries; filtering does
 not add event scans to frame_at or binary-search overlay lookup.
+
+
+### Round 5 camera split direction
+
+New `camera.layout_settings.split_direction` accepts `auto` (default on new and
+legacy projects), `horizontal` (screen/camera columns), or `vertical` (stacked
+regions). The same key is accepted in a layout record's optional settings object.
+Auto selects columns on a landscape/square canvas and rows on portrait; forcing
+the direction keeps it when output aspect changes. Existing split_ratio,
+split_flip and split_padded compose with every direction. camera_layout_at/settings
+and the Swift CoreCameraLayoutSettings.splitDirection optional field expose the
+stored choice; preview/export consume the existing evaluated frame rectangles.
+No ABI fields change. Editor request: add direction choice to global and per-range
+split controls and use these values in the existing set/settings commands.
+
+Aspect adaptation also tests shortcut placement against both captions and camera
+at nine camera positions over wide/square/portrait canvases. Relocating a shortcut
+to avoid a caption must not reintroduce a camera overlap. When custom content
+leaves no free rectangle, auto layout retains a bounded preferred rectangle;
+it does not hide authored content or shrink text below its specified style.

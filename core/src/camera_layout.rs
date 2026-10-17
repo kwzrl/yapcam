@@ -87,6 +87,10 @@ pub(crate) fn query(p: &Project, tl: Option<i64>) -> Result<Value> {
 pub(crate) fn validate(p: &ProjectData) -> Result<()> {
     fn valid(s: &CameraLayoutSettings) -> bool {
         matches!(s.mode.as_str(), "overlay" | "cutout" | "split")
+            && matches!(
+                s.split_direction.as_str(),
+                "auto" | "horizontal" | "vertical"
+            )
             && s.aspect.is_none_or(|a| {
                 [16.0 / 9.0, 4.0 / 3.0, 1.0, 3.0 / 4.0, 9.0 / 16.0]
                     .iter()

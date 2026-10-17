@@ -478,3 +478,123 @@ fn new_caption_without_style_uses_factory_and_legacy_project_keeps_legacy_style(
     p.apply(&json!({"op":"add_caption","record":{"text":"legacy","tl_start_ns":1_000_000_000,"tl_end_ns":2_000_000_000_i64}})).unwrap();
     assert_eq!(p.data.canvas.captions[1].style, TextStyle::default());
 }
+
+#[test]
+fn split_direction_forces_axis_across_aspects_and_legacy_auto_is_preserved() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.autosave = false;
+    synthetic_camera(&mut p);
+    for direction in ["auto", "horizontal", "vertical"] {
+        p.apply(&json!({"op":"batch","commands":[
+            {"op":"set","path":"camera.layout_settings.mode","value":"split"},
+            {"op":"set","path":"camera.layout_settings.split_direction","value":direction}]}))
+            .unwrap();
+        for aspect in ["16:9", "9:16"] {
+            p.apply(&json!({"op":"set","path":"canvas.aspect","value":aspect}))
+                .unwrap();
+            let f = p.frame(0).unwrap();
+            let horizontal = direction == "horizontal" || direction == "auto" && aspect == "16:9";
+            if horizontal {
+                assert!(f.screen_dest.x + f.screen_dest.w <= f.camera_dest.x + 1e-8);
+            } else {
+                assert!(f.screen_dest.y + f.screen_dest.h <= f.camera_dest.y + 1e-8);
+            }
+            assert_eq!(
+                crate::allocation_test::count(|| {
+                    p.frame(0).unwrap();
+                }),
+                0
+            );
+        }
+    }
+    let before = p.data.clone();
+    assert!(p
+        .apply(
+            &json!({"op":"set","path":"camera.layout_settings.split_direction","value":"diagonal"})
+        )
+        .is_err());
+    assert_eq!(p.data, before);
+    p.apply(&json!({"op":"set","path":"camera.layouts","value":[{"id":"axis","tl_start_ns":0,"tl_end_ns":1_000_000_000,"mode":"split","settings":{"split_direction":"horizontal","split_flip":true}}]})).unwrap();
+    let f = p.frame(0).unwrap();
+    assert!(f.camera_dest.x + f.camera_dest.w <= f.screen_dest.x + 1e-8);
+    let snapshot = p.clone();
+    p.undo().unwrap();
+    assert_ne!(
+        p.frame(0).unwrap().camera_dest,
+        snapshot.frame(0).unwrap().camera_dest
+    );
+    p.redo().unwrap();
+    p.save(&fixture.0).unwrap();
+    assert_eq!(Project::open(&fixture.0).unwrap().data, p.data);
+    let mut legacy = serde_json::to_value(&p.data).unwrap();
+    legacy["camera"]["layout_settings"]
+        .as_object_mut()
+        .unwrap()
+        .remove("split_direction");
+    assert_eq!(
+        crate::project::decode_project(&serde_json::to_vec(&legacy).unwrap())
+            .unwrap()
+            .camera
+            .layout_settings
+            .split_direction,
+        "auto"
+    );
+    // Cutout supports the recorded ratio explicitly; the UI must choose null
+    // when selecting its separate defaults instead of reusing overlay's square.
+    p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"camera.layouts","value":[]},{"op":"set","path":"camera.layout_settings.mode","value":"cutout"},{"op":"set","path":"camera.layout_settings.aspect","value":null}]})).unwrap();
+    let f = p.frame(0).unwrap();
+    assert!((f.camera_dest.w / f.camera_dest.h - 1.6).abs() < 1e-9);
+}
+
+#[test]
+fn adaptive_text_keeps_shortcuts_clear_of_caption_and_camera_at_multiple_positions() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    synthetic_camera(&mut p);
+    let overlap = |a: crate::frame::Rect, b: crate::frame::Rect| {
+        a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+    };
+    for aspect in ["16:9", "1:1", "9:16", "4:5"] {
+        p.data.canvas.aspect = aspect.into();
+        for position in [
+            [0.0, 0.0],
+            [0.5, 0.0],
+            [1.0, 0.0],
+            [0.0, 0.5],
+            [0.5, 0.5],
+            [1.0, 0.5],
+            [0.0, 1.0],
+            [0.5, 1.0],
+            [1.0, 1.0],
+        ] {
+            p.data.camera.position = position;
+            let caption = TextRecord {
+                id: "test".into(),
+                text: "Caption".into(),
+                tl_end_ns: 1_000_000_000,
+                ..Default::default()
+            };
+            p.data.canvas.captions = vec![caption.clone()];
+            let f = p.frame(0).unwrap();
+            let rect = |r: [f64; 4]| crate::frame::Rect {
+                x: r[0] * f.canvas_w as f64,
+                y: r[1] * f.canvas_h as f64,
+                w: r[2] * f.canvas_w as f64,
+                h: r[3] * f.canvas_h as f64,
+            };
+            let caption = crate::adaptive::text_rect(&p.data, rect(caption.rect), &f, false);
+            let key =
+                crate::adaptive::text_rect(&p.data, rect(p.data.cursor.key_overlay.rect), &f, true);
+            assert!(
+                !overlap(key, f.camera_dest),
+                "{aspect} {position:?}: key {key:?}, camera {:?}",
+                f.camera_dest
+            );
+            assert!(
+                !overlap(key, caption),
+                "{aspect} {position:?}: key {key:?}, caption {caption:?}"
+            );
+        }
+    }
+}

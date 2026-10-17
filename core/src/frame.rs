@@ -367,7 +367,11 @@ impl Project {
                 } else {
                     canvas
                 };
-                let horizontal = canvas.w >= canvas.h;
+                let horizontal = match layout_settings.split_direction.as_str() {
+                    "horizontal" => true,
+                    "vertical" => false,
+                    _ => canvas.w >= canvas.h,
+                };
                 let auto = if horizontal {
                     source_aspect / (source_aspect + camera_aspect)
                 } else {

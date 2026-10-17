@@ -1,120 +1,134 @@
-READY R5 basec6ae74a + uncommitted | Core parity H/M/L complete; Rust125 + scale, SwiftCore87, Clippy/fmt, signed debug PASS | Lead checkpoint/merge10aaca6/review and Render expectation updates required; full-fleet/native checks remain open.
+READY R5 4ec00e9 + follow-up | 01:10 UTC | H20/M45/L6 rows now match, out-of-scope or named owner blockers; split direction + text/camera collision fixed | Rust127/SwiftCore88/Clippy/signed debug/scale PASS. Lead checkpoint/review; consumer requests in rows.
 
 
 
-## R5 handoff — 00:44 UTC
+## R5 reconciliation — 01:10 UTC
 
-All Core-owned audit mismatches are implemented and regression-tested; baseline
-rows below retain their original observations and point to the resolving package.
-No Core implementation items remain. Codex cannot commit/rebase/push Git metadata;
-Lead should checkpoint these owned changes, merge current main10aaca6, and review
-critical geometry/retiming/recovery logic before integration. No commit is implied
-by the base hash above. No C header/ABI struct was changed.
+Lead checkpoint4ec00e9 includes the first R5 package and main10aaca6. The audit
+below now records current behavior, not baseline defects followed by “resolved”.
+Every H/M row is match, out-of-scope, or blocked by the explicitly named owner
+request in that row. L rows were reviewed after H/M: Core history/style/capability/
+autosave implementations pass; Editor adoption gaps have concrete requests. UI
+reuse-last-look was checked in source and existing coverage and needs no new work.
 
-Final validation, same macOS26.3 arm64 M4/Xcode26.6/Swift6.3.3/Cargo1.95:
-- cargo test:125 PASS,0 failed,1 intentional benchmark ignore; expanded FFI fuzz
-  covers source activity/mask keys/disabled layouts/Follow and rollback/save.
-- cargo test --release scale_60_minutes -- --ignored:PASS (numbers below).
-- canonical scripts/build-app.sh debug + strict signature:PASS; Core Swift87 PASS,
-  including typed source speech activity, Follow/zoom history, hidden chord catalog,
-  real atomic-save failure/retry and saved legacy behavior. No live-device claim.
-- cargo clippy all-targets -D warnings, cargo fmt --check, git diff --check:PASS.
-Logs in /private/tmp: yapcam-core-r5-final-rust.log, yapcam-core-r5-scale-final.log,
-yapcam-core-r5-isolated-gate.log, yapcam-core-r5-last-clippy.log. Final scratch root
-was listed and removed by with-temp EXIT trap (FQr6fmTH); no finished Core temp
-harnesses retained. Broad fleet run has known Render default assertions and
-unavailable Metal failures, then stalled; exact own runner/native cleanup handoff
-below. Full fleet/native acceptance is OPEN, not included in the Core PASS claim.
+Two additional Core gaps found and fixed during this reconciliation:
+- Split layouts now accept auto/horizontal/vertical split_direction, globally and
+  in per-range settings. Default auto preserves existing files. Typed Swift adds
+  optional CoreCameraLayoutSettings.splitDirection. FORMATS was updated first.
+- Shortcut placement used to move above a caption without rechecking the camera.
+  It now chooses a bounded position clear of both;36 aspect/camera-position cases
+  reproduce and guard this behavior. No source crop expansion or saved-rect edits.
 
-Consumer contract additions are all in FORMATS Round5: factory defaults_revision2,
-smart_framing/auto_layout/avoid_empty_zoom_area, font_size_ratio/caption_defaults,
-speech_activity, layout/mask enabled and moving keyframes, rotation_mode=follow,
-remembered zoom levels and hidden_shortcuts/key_overlay_shortcuts. Editor/Render
-handoffs and old→new table follow. Existing projects retain stored values; new
-factory2 is deliberate. Lead: mirror typed Swift additions into SWIFT_API.md.
+Validation at this stopping point: Rust127 PASS +1 intentional scale ignore,
+parity12 PASS, Core Swift88 PASS, Clippy all-targets -D warnings/fmt PASS,
+canonical scripts/build-app.sh debug + strict signature PASS. The temporary
+Swift scratch root90OmsI8a was listed and removed by its EXIT cleanup trap.
+Logs /private/tmp/yapcam-core-r5-reconcile-{rust,targeted2,gate,clippy,scale}.log.
+Scale rerun also PASS: frame_at p50/p99 .074375/.168958ms; layer-query p99
+.193542ms; durable apply p50/p99 11.008125/28.890917ms; undo8.996584/11.025292ms;
+worst edit28.890917ms; save12.976167ms; project.json1,137,523bytes. Workload remains
+60min/3.6M events at1kHz/5000 clips/1000 zooms,36k keys, release M4.
+Full fleet/native acceptance stays open: named consumer rows below and prior
+own stalled runner31838 require Lead's native handling. No live app launch/quit,
+TCC change, C ABI/header change or other team's source edits. Git metadata remains
+read-only; Lead checkpoint/merge/cross-family review required for this follow-up.
+
+### Concrete consumer requests (also present in affected rows)
+
+| Request | Owner | Required action / verification |
+|---|---|---|
+| CORE-R5-E1 | Editor | Factory inset is0/black-alpha.5. Its enable action must apply4px/alpha.25/gray; preserve stored old values. |
+| CORE-R5-E2 | Editor | Add split direction Auto/Horizontal/Vertical globally and per-range using split_direction; when selecting Cutout use aspect=null instead of the overlay's square aspect. Existing frame geometry is sufficient. |
+| CORE-R5-E3 | Editor | Debounce committed level/default changes1s, constrain UI1…4, and make digit0 read zoom_settings.default_scale instead of hardcoded2(TimelineCommands.swift:7). Core atomically remembers committed scales. |
+| CORE-R5-E4 | Editor | Send coalescedEdit with a stable gesture key for continuous changes; verify100ms grouping and1000-step history via editor gestures. |
+| CORE-R5-E5 | Editor | Preserve full zoom style/mode/enabled and partition mask keyframes during selected-item splits; wire hidden_shortcuts/key_overlay_shortcuts and caption_defaults/font_size_ratio. Existing speed menu and checked structural adapter already match. |
+| CORE-R5-E6 | Editor | Its separate EditorModel.saveNow timer has no failure retry. Use ProjectAutosaver or reschedule30s after failure without new edits; test dirty/revision preservation. |
+| CORE-R5-R1 | Render | Align authored cursor catalog/default/variant coverage and high-res substitution policy. Current own14-style catalog is not a claim of exact target option parity; no Apple art permitted. |
+| CORE-R5-R2 | Render + Lead | Update old camera/quality factory assertions; verify native preview/export and fps-scaled blur/quality. Metal is unavailable here; camera/mic live checks are untested(no hardware). |
+| CORE-R5-LEAD1 | Lead | Mirror additive Swift/query fields including splitDirection in SWIFT_API.md; cross-family review geometry/retiming/retry; checkpoint this follow-up and integrate consumers. |
 
 ## R5 parity
 
-Baseline audit before implementation; behaviour is paraphrased from the local
-reference specification/gap list and supplied website material, with no bundle
-code or assets reused. Status refers to model behaviour, not live/pixel acceptance.
-Own schema1/package names remain deliberate serialization equivalents. Existing
-projects must retain stored settings; new defaults use an additive revision.
+Current audit at checkpoint4ec00e9 plus reconciliation changes. This replaces the
+pre-implementation observations preserved in checkpoint4ec00e9; no closed row is
+still labelled missing/mismatch. Values describe Core model behavior. Consumer
+workflow or native acceptance that Core cannot own has a named request directly
+in the row. “match” is unit/model verification, not a live/pixel claim. Own artwork
+and preserved old-project settings follow Lead's explicit rules.
 
-| Ref item | Reference behaviour/value | Yapcam now (file:line) | Audit |
-|---|---|---|---|
-| 5.1 schema/migration | Ordered old-document migration; reject future/invalid versions | core/src/project.rs:125 checks integer schema, migrates0→1; frozen fixtures | match (own format) |
-| 5.1 document metadata | Identity, created/updated, named document, saved state | core/src/model.rs:95 id/times/config; package name + wrapper savedRevision | match (own format) |
-| 5.1 scene/collections | One recording scene; clips, zooms, layouts, masks | core/src/model.rs:105 timeline + zooms/camera/canvas | match; disabled voiceover out-of-scope |
-| 5.1 config groups | Crop/cursor/captions/audio/camera/animation/styles/output/zoom | core/src/model.rs:107 groups; fields mapped to own names | match |
-| 5.1 / CORE-7 history | ~100ms coalescing;1000 steps; each mutation dirty | core/src/commands.rs:99 explicit coalesced_edit; capped1000; wrapper revision | match via gesture API; consumers own grouping |
-| 5.1 / CORE-9 capabilities | Gate crop/corners/inset for device/external/continuity; pointer needs mouse; camera needs track | core/src/capabilities.rs:21 applies gates in frame/commands | match; device-frame UI out-of-scope |
-| 5.2 crop | Full normalized recording crop | core/src/model.rs:397 [0,0,1,1] | match |
-| 5.2 output.aspect | Auto follows recording; explicit ratios | core/src/model.rs:630 source factory; frame.rs:124 aspect | match |
-| 5.2 padding | Ratio0.10, UI0…0.25 | core/src/model.rs:631 / project.rs:268 | match |
-| 5.2 avoid-empty zoom | Default false | core/src/frame.rs:218 always bounds crop to content; no flag | mismatch M (add explicit opt-in policy; keep safe default); resolved P2 |
-| 5.2 screen radius | 16px factory | core/src/model.rs:632 | match |
-| 5.2 camera roundness | Ratio0.15; legacy fallback0.25 | core/src/model.rs:312 corner_ratio null, camera radius24px | mismatch H; resolved P1 |
-| 5.2 inset | Size0, black with alpha0.5; UI restore4/0.25/gray | core/src/model.rs:394 white alpha1 (size0 inactive) | mismatch H model factory; UI enable preset consumer-owned; resolved P1 |
-| 5.2 shadow | Directional .3 /25 /45° /20 | core/src/model.rs:633 + Shadow defaults | match |
-| 5.2 background | Wallpaper/gradient seed; blur0 | core/src/model.rs:634 own calm dark solid, blur0 | match with required own-art substitution; wallpaper grid Render/Editor |
-| 5.2 screen spring |125/12/1.5, clamped, precision.002 | core/src/model.rs:645; spring.rs:41 | match |
-| 5.2 cursor spring | Null/off schema; versioned legacy spring | core/src/model.rs:640 none/0; versioned spring.rs:21 | match (new-recording preset explicitly unclear in reference) |
-| 5.2 global motion blur |1, scaled by fps/60 in Render | core/src/model.rs:636 global1; motion.rs:48 | match Core; native blur acceptance Render |
-| 5.2 cursor size/visibility |48 logical points, visible | core/src/model.rs:637 / Cursor defaults | match |
-| 5.2 cursor sets/variants | Original/Tahoe/touch/authored styles; per-type choices | core/src/cursor_catalog.rs:3 14 own selections + variants; original factory | match own-art policy; catalog design/count Render-owned |
-| 5.2 click effect |none; circle/ripple options | core/src/model.rs:639 none; ring/highlight legacy codes | match semantic option mapping; labels Editor-owned |
-| 5.2 cursor rotation | Tilt/Follow; base0; tilt amount.5 | core/src/model.rs:249 static/tilt only, amount1; motion.rs:102 | mismatch M: directional Follow missing; factory tilt metadata differs; resolved P1/P3 |
-| 5.2 idle hide |off; enable2s, range.5…5s | core/src/model.rs:238 off/2s; validator accepts legacy broader interval | match factory; UI limits must stay exact |
-| 5.2 / website loop |off; enable1s, range1…4s, final canvas hotspot equals first | core/src/model.rs:242 .4s; frame.rs:513 returns source point under final transform | mismatch H: default and transformed-loop endpoint; stop overrides loop; resolved P2 |
-| 5.2 cursor stop |0, range0…5s | core/src/model.rs:251 / frame.rs:425 | match; loop precedence needs fix |
-| 5.2 cursor shakes |on, threshold500, UI100…2000 | core/src/model.rs:251 off/500; compact positional index | mismatch H factory (unit policy documented millipoints); resolved P1 |
-| 5.2 optimize types |true | core/src/model.rs:251 false | mismatch H factory; resolved P1 |
-| 5.2 low-res cursors |Use high-res equivalent by default | no Core metadata; Render owns raster policy | request Render R5; add metadata only if required |
-| 5.2 camera basic |visible, mirrored, aspect1, no face tracking, silence off | core/src/model.rs:317–323 aspect null, size.22/position.82,.78 | mismatch H factory geometry; other flags match; resolved P1 |
-| 5.2 camera grade |Original LUT none/intensity1/grain0/sharpen0/crop full/bg blur0/edge.2 | core/src/model.rs:300–307 style original; inactive custom scalar recipes | match |
-| 5.2 camera overlay |Bottom-right(1,1), size.5, padding.5, zoom scale.8 | core/src/model.rs:320 .82/.78/.22/zoom1; no edge-padding ratio | mismatch H; resolved P1 |
-| 5.2 split |auto direction, flipfalse, ratioauto, paddingfalse | core/src/model.rs:310; frame.rs:363 orientation from canvas | match |
-| 5.2 cutout |x1/size.5/zoom.8/aspectauto | core/src/model.rs:311 size.5/pos1; global zoom1 | mismatch H factory zoom; rest match; resolved P1 |
-| 5.2 / CORE-6 mic presets |voice/noise-reduction/podcast; stereo false | core/src/model.rs:487, query.rs:608 tests; explicit DSP recipes and typed wrapper | match; hardware mic unavailable |
-| 5.2 caption input |Transcript enabled, sound labels off; per-chord hide map empty | caption records carry imported transcript, no synthesized sound labels; key_overlay.hidden_shortcuts | match equivalent records; P3 adds hidden chord filter/catalog |
-| 5.2 audio levels |all unity/unmuted; voice preset; music none at.05; clicks off at.25 | core/src/model.rs:460/655; per-clip controls | match; stereo flag available |
-| 5.2 captions |Sans, size.05, white/black, bottom centre, line reveal/left growth/appear | core/src/model.rs:491 font36px/full-growth/.65 black; no project caption defaults | mismatch M; introduce factory caption defaults without changing stored records; resolved P2 |
-| 5.2 shortcuts |off; hide single-letter; size.1; per-chord hidden map empty | core/src/model.rs:552 off/shortcuts_only; fixed36px and rect | mismatch M size/default position metadata; resolved P2/P3 (size/adaptation plus per-chord hiding) |
-| 5.2 device mockup |Enabled automatic device frame | device frame capability only | out-of-scope (user decision) |
-| 5.2 screen quality |.5, upscale quality | core/src/model.rs:345 nullable legacy ScreenQuality; Render optional hook | mismatch H factory null (metadata exists); resolved P1 |
-| 5.2 early zoom |false, 350ms lead when enabled | core/src/model.rs:287; zoom_lens.rs:15 | match |
-| 5.3 clips / CORE-4 |100ms minimum; per-source gain/hide/smoothing | core/src/editing.rs:10/40/140 checked timeline_edit + clip settings | match; low-level precision API deliberately retains old small edits |
-| 5.3 zoom / CORE-4 |100ms min, insert3s, scale2, auto/manual fallback | core/src/editing.rs:175; commands.rs add_zoom capability gate | match |
-| 5.3 loupe |.35 radius, .2 bevel, .5 aberration; radius.25….75 | core/src/model.rs:180; zoom_lens.rs:105 | match |
-| 5.3 layouts |Overlay/split/cutout/screen/full camera;500ms min/3s insert; disable | core/src/editing.rs:10/190; Layout has no enabled field | mismatch M disable; resolved P3 |
-| 5.3 masks |Blur32 or highlight outside-dim.5;500ms min/3s insert; disable; keyframed bounds | core/src/model.rs:406 blur32/dim.4/no enabled/no keyframes; layers.rs evaluator | mismatch M factory highlight style, disable/keyframes; resolved P3 |
-| 5.3 voiceovers |Track disabled in target release | no enabled voiceover flow | out-of-scope (disabled target feature/cloud TTS excluded) |
-| 5.3 / CORE-8 last style |New items inherit last edited zoom/mask style, never geometry/ids | core/src/editing.rs:81/91; commands.rs:596 | match; new fields must join style inheritance |
-| 5.4 track/order/keys/shuttle/snapping |Reference track order/keyboard; UI zoom2s…10min | Editor-owned; Core checked commands/clocks in editing.rs/time.rs | request Editor audit; model primitives match |
-| 5.4 split/ripple/delete/reset/merge |Target selected record, reject too-short checked parts | core/src/editing.rs:40; commands.rs:200; source_insert.rs | match Core primitives; selected-item dispatch Editor |
-| 5.4 clip speed/volume |Menu .5,.75,1,1.2,1.4,1.6,1.8,2,3,4,8,16,24; gains0…1 | core/src/project.rs:198 range.05…32 allows menu; settings exact0…1 | match (menu order Editor, precision extra allowed) |
-| 5.4 zoom actions |Auto/manual/disable/duplicate/loupe/level100…400/apply-all/restore | commands.rs and zoom_lens.rs; checked batch supports one undo | match except remembered default below |
-| 5.4 copy/paste |Portable style, no recording ids/time | core/src/preset.rs:5 strict schema filter; tests cross-project | match |
-| 5.4 / CORE-5 typing |Gap<500ms; duration≥1.5s; rate≥2/s; speed3 at1.5…8; dismiss persisted | core/src/auto.rs:126/170; model.rs:213 | match |
-| 5.5 / CORE-1 click windows |−300/+2500ms, ignore final1s, end duration−800ms, start≥1ms, merge≤2.5s | core/src/auto.rs:68–86 | match |
-| 5.5 generate toggle |Automatic creation on/off | core/src/auto.rs:29; zoom_settings.automatic | match |
-| 5.5 auto focus |Follow click groups/cursor; no pointer→manual | core/src/frame.rs:234; capabilities.rs; auto.rs | match basic; smart camera-safe target missing |
-| 5.5 manual focus |Fixed source point | core/src/frame.rs:219 | match |
-| 5.5 level/default |1…4, edits remember default after1s debounce | default_scale exists; zoom updates do not synchronize themselves | mismatch M model metadata synchronization; debounce consumer-owned; resolved P3 |
-| 5.5 instant |Per-zoom instant jump for classic | ease_in/out0; no independent boolean; lens shares same clocks | match equivalent persisted representation |
-| 5.5 lead-in |350ms before nominal start | core/src/zoom_lens.rs:14/27 | match |
-| 5.5 springs / CORE-3 |Focused250/40/2.25;Smooth170/50/3; cursor470/70/3,340/60/3,530/40/1,None | core/src/motion.rs:18; spring.rs:21 | match |
-| 5.5 spring compression |Precision.002, stiffness×r²/damping×r; snap below2 frames | core/src/spring.rs:43/61 | match |
-| 5.5 blur fps |Global×fps/60 | core/src/motion.rs:48; Render applies output fps | match Core |
-| 5.5 new style |Last edited style inherited | core/src/editing.rs:81 | match |
-| 4 / CORE-10 autosave |30s trailing timer, restart, retry failed saves, revision-safe dirty | Sources/YapcamCore/Autosave.swift:59; YapcamCore.swift:64 | mismatch L: failure sets error but no retry; resolved P3 |
-| 4 last-project default |Optional reuse last look, off | Sources/YapcamUI/Support/ProjectActions.swift:95 portable filter | match Core; user setting UI-owned |
-| website smart framing |Camera must not cover active cursor during automatic zoom | frame.rs zoom crop has no camera-overlap policy | missing H; resolved P2 |
-| website aspect re-aim |Wide/square/portrait keep focus, camera fit, captions/shortcuts readable | frame.rs auto fit/split; layers.rs scales fixed normalized rectangles | mismatch H automatic caption/key placement + camera-safe focus; resolved P2 |
-| website hide silence |Camera steps aside for long silence; returns for speech | camera_layout.rs:27 + Editor VAD mapping; no source-backed transcript/VAD model | mismatch M stable source-backed input/recompute; existing VAD path works; resolved P3 |
-| website loop hotspot |Last cursor position equals first, even cut/speed/zoom/layout changes | frame.rs:513 blends raw source positions | mismatch H final canvas mismatch and stop precedence; resolved P2 |
-
+| Ref item | Priority | Reference behavior/value | Current evidence | State / concrete blocker |
+|---|---|---|---|---|
+| 5.1 schema/migration | M | Ordered old-document migration; reject future/invalid versions | core/src/project.rs:136; core/src/hardening.rs:352 | match — version check, ordered0→1 migration and frozen corpus retain original leaves |
+| 5.1 document metadata | M | Identity, created/updated, named document, saved state | core/src/model.rs:95; Sources/YapcamCore/YapcamCore.swift:94 | match — id/timestamps/package name and revision-safe saved state |
+| 5.1 scene/collections | M | One recording scene; clips, zooms, layouts, masks | core/src/model.rs:95 | match — recording scene and clip/zoom/layout/mask collections; disabled voiceover excluded below |
+| 5.1 config groups | M | Crop/cursor/captions/audio/camera/animation/styles/output/zoom | core/src/model.rs:95 | match — own grouped serialization equivalents |
+| 5.1 / CORE-7 history | L | ~100ms coalescing;1000 steps; each mutation dirty | core/src/editing.rs:295; Sources/YapcamEditor/Inspector.swift:519 | blocked — REQUEST Editor CORE-R5-E4: adopt coalescedEdit for continuous gestures and verify100ms/1000-step behavior in editor; Core gesture/cap tests pass |
+| 5.1 / CORE-9 capabilities | L | Gate crop/corners/inset for device/external/continuity; pointer needs mouse; camera needs track | core/src/capabilities.rs:30 | match — shared query/evaluator gates; no-device paths allocation-tested |
+| 5.2 crop | M | Full normalized recording crop | core/src/model.rs:391; core/src/frame.rs:118 | match — full normalized crop, capability-gated at evaluation |
+| 5.2 output.aspect | M | Auto follows recording; explicit ratios | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/frame.rs:112 | match — source factory and explicit canvas ratios; aspect frame tests pass |
+| 5.2 padding | H | Ratio0.10, UI0…0.25 | core/src/model.rs:622; core/src/parity_tests.rs:9 | match — factory ratio.10; legacy pixel values retained; Editor owns slider0….25 |
+| 5.2 avoid-empty zoom | M | Default false | core/src/adaptive.rs:17; core/src/parity_tests.rs:246 | match — explicit opt-in, false factory/legacy; bounded crop test passes |
+| 5.2 screen radius | H | 16px factory | core/src/model.rs:622; core/src/parity_tests.rs:9 | match — factory16px |
+| 5.2 camera roundness | H | Ratio0.15; legacy fallback0.25 | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/frame.rs:422 | match — new factory.15; old own-format radius values intentionally preserved by Lead migration rule |
+| 5.2 inset | H | Size0, black with alpha0.5; UI restore4/0.25/gray | core/src/model.rs:622; core/src/parity_tests.rs:9; Sources/YapcamEditor/Background.swift:82 | blocked — REQUEST Editor CORE-R5-E1: preserve factory size0/black-alpha.5 and apply the reference enable preset4/.25/gray; Core values match |
+| 5.2 shadow | H | Directional .3 /25 /45° /20 | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/model.rs:465 | match — directional.3/25/45deg/20 |
+| 5.2 background | H | Wallpaper/gradient seed; blur0 | core/src/model.rs:622; core/src/parity_tests.rs:9 | match — approved original calm dark background instead of Apple artwork; blur0; cloud image search out-of-scope |
+| 5.2 screen spring | M | 125/12/1.5, clamped, precision.002 | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/spring.rs:54 | match —125/12/1.5, clamped precision.002; compressed/snap regressions pass |
+| 5.2 cursor spring | M | Null/off schema; versioned legacy spring | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/spring.rs:19 | match — none/off factory and versioned legacy presets; reference brand-new preset unspecified |
+| 5.2 global motion blur | M | 1, scaled by fps/60 in Render | core/src/motion.rs:48 | blocked — REQUEST Render CORE-R5-R2: native preview/export fps-scaled blur verification; Core global1 and per-kind multipliers tested; Metal unavailable in sandbox |
+| 5.2 cursor size/visibility | H | 48 logical points, visible | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/frame.rs:561 | match —48 logical points and visible factory; raster sizing remains Render-owned |
+| 5.2 cursor sets/variants | M | Original/Tahoe/touch/authored styles; per-type choices | core/src/cursor_catalog.rs:38; core/src/model.rs:622; core/src/parity_tests.rs:9 | blocked — REQUEST Render CORE-R5-R1: align authored catalog categories/default equivalent and variant option coverage; current14 own selections/original factory differ from target catalog; never copy Apple assets |
+| 5.2 click effect | M | none; circle/ripple options | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/frame.rs:590 | match — none factory; circle/ripple represented by legacy ring/highlight values; Editor labels handled by CORE-R5-E5 |
+| 5.2 cursor rotation | M | Tilt/Follow; base0; tilt amount.5 | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/motion.rs:99; core/src/motion.rs:219 | match — tilt/follow/static, base0, tilt.5; heading/idle/cut/legacy/persistence tests pass |
+| 5.2 idle hide | M | off; enable2s, range.5…5s | core/src/model.rs:222 | match — off/2s factory; legacy broader precision API retained; exact UI.5…5s requested in CORE-R5-E5 |
+| 5.2 / website loop | H | off; enable1s, range1…4s, final canvas hotspot equals first | core/src/frame.rs:444; core/src/parity_tests.rs:66 | match — off/1s factory; final canvas hotspot equals first across crop/zoom/speed/cuts; loop wins over stop |
+| 5.2 cursor stop | M | 0, range0…5s | core/src/frame.rs:461; core/src/motion.rs:604 | match —0 default; stateless hold, loop precedence fixed and tested |
+| 5.2 cursor shakes | H | on, threshold500, UI100…2000 | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/motion.rs:357 | match — enabled/500 factory;100…2000 validation and legacy shake unit migration tested |
+| 5.2 optimize types | H | true | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/motion.rs:545 | match — true factory; debounce tests retain captured events |
+| 5.2 low-res cursors | M | Use high-res equivalent by default | core/src/cursor_catalog.rs:38 | blocked — REQUEST Render CORE-R5-R1: implement/verify default high-resolution substitution for low-resolution app cursors; raster choice is Render policy, no Core flag currently required |
+| 5.2 camera basic | H | visible, mirrored, aspect1, no face tracking, silence off | core/src/model.rs:622; core/src/parity_tests.rs:9 | match — visible/mirrored, square overlay, no face tracking/silence; synthetic frame tests pass; live camera untested(no hardware) |
+| 5.2 camera grade | M | Original LUT none/intensity1/grain0/sharpen0/crop full/bg blur0/edge.2 | core/src/model.rs:302 | match — original recipe/intensity1, no LUT/grain/sharpen, full crop, blur0/edge.2; custom recipe values inactive |
+| 5.2 camera overlay | H | Bottom-right(1,1), size.5, padding.5, zoom scale.8 | core/src/model.rs:622; core/src/parity_tests.rs:9 | match — bottom-right[1,1], size.5, padding.5, zoom scale.8; bounds/roundness/legacy decode tested |
+| 5.2 split | M | auto direction, flipfalse, ratioauto, paddingfalse | core/src/model.rs:309; core/src/parity_tests.rs:483 | blocked — REQUEST Editor CORE-R5-E2: expose split_direction auto/horizontal/vertical globally and per-range; Core default/forced-axis/ratio/flip/padding tests pass |
+| 5.2 cutout | H | x1/size.5/zoom.8/aspectauto | core/src/frame.rs:310; core/src/parity_tests.rs:483; Sources/YapcamEditor/CameraLayoutSettings.swift:13 | blocked — REQUEST Editor CORE-R5-E2: selecting Cutout must supply aspect=null in its settings instead of inheriting overlay square; Core supports recorded ratio and tests it; size.5/position1/zoom.8 already match |
+| 5.2 / CORE-6 mic presets | M | voice/noise-reduction/podcast; stereo false | core/src/model.rs:488; core/src/query.rs:607 | match — voice/noise_reduction/podcast and stereo false; own DSP recipes/legacy preservation tested; live microphone untested(no hardware) |
+| 5.2 caption input | M | Transcript enabled, sound labels off; per-chord hide map empty | core/src/effects.rs:201; core/src/key_overlay.rs:220 | match — imported transcript records; no synthetic sound labels; hidden chord list defaults empty |
+| 5.2 audio levels | H | all unity/unmuted; voice preset; music none at.05; clicks off at.25 | core/src/model.rs:488; core/src/model.rs:622; core/src/parity_tests.rs:9 | match — unity/unmuted, music none/.05, clicks off/.25; device external audio out-of-scope(user excluded device sources) |
+| 5.2 captions | M | Sans, size.05, white/black, bottom centre, line reveal/left growth/appear | core/src/captions.rs:35; core/src/parity_tests.rs:468 | match — sans/white/black, height ratio.05, line/expanding/appear, bottom-centre; existing styles unchanged |
+| 5.2 shortcuts | M | off; hide single-letter; size.1; per-chord hidden map empty | core/src/model.rs:580; core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/key_overlay.rs:220 | match — off/shortcuts-only, ratio.1, empty hidden chord list; catalog/filter/history/save tests pass; Editor field adoption in CORE-R5-E5 |
+| 5.2 device mockup | M | Enabled automatic device frame | core/src/capabilities.rs:4 | out-of-scope — user excluded device frames/iPhone sources |
+| 5.2 screen quality | H | .5, upscale quality | core/src/model.rs:622; core/src/parity_tests.rs:9; core/src/screen_quality_tests.rs:8 | match — factory.5/quality; explicit legacy null unchanged; native filter acceptance in CORE-R5-R2 |
+| 5.2 early zoom | M | false, 350ms lead when enabled | core/src/model.rs:284; core/src/zoom_lens.rs:7 | match — false factory,350ms lead when opted in |
+| 5.3 clips / CORE-4 | M | 100ms minimum; per-source gain/hide/smoothing | core/src/editing.rs:9; core/src/editing.rs:335 | match — checked100ms minimum and per-source gains/cursor/smoothing; old precision API retained; Editor wrapper adoption in CORE-R5-E5 |
+| 5.3 zoom / CORE-4 | M | 100ms min, insert3s, scale2, auto/manual fallback | core/src/editing.rs:9; core/src/editing.rs:335 | match — checked100ms,3s insert,2x default, auto/manual capability fallback |
+| 5.3 loupe | M | .35 radius, .2 bevel, .5 aberration; radius.25….75 | core/src/model.rs:180; core/src/zoom_lens.rs:115 | match — radius.35/bevel.2/aberration.5 and optics; size.25….75 validation |
+| 5.3 layouts | M | Overlay/split/cutout/screen/full camera;500ms min/3s insert; disable | core/src/model.rs:330; core/src/camera_layout.rs:8; core/src/parity_tests.rs:309 | match — enabled flag selects only active overrides;500ms checked/3s insert, all five modes tested |
+| 5.3 masks | M | Blur32 or highlight outside-dim.5;500ms min/3s insert; disable; keyframed bounds | core/src/layers.rs:60; core/src/parity_tests.rs:309 | match — blur32/dim.5 factory, enabled/keyframes, checked500ms/3s insert; source-following cut/speed/restore oracle and persistence tests pass |
+| 5.3 voiceovers | M | Track disabled in target release | core/src/model.rs:95 | out-of-scope — target4.0.4 disables voiceover track; cloud TTS excluded by user |
+| 5.3 / CORE-8 last style | L | New items inherit last edited zoom/mask style, never geometry/ids | core/src/editing.rs:260 | match — remembers only style, excludes geometry/ids/enabled/keyframes; undo/save regressions pass |
+| 5.4 track/order/keys/shuttle/snapping | M | Reference track order/keyboard; UI zoom2s…10min | core/src/editing.rs:11; core/src/time.rs:395 | blocked — REQUEST Editor CORE-R5-E5: finish hidden-chord/caption-ratio controls and verify reference track/keyboard/shuttle/snapping workflows against existing clock/command APIs |
+| 5.4 split/ripple/delete/reset/merge | M | Target selected record, reject too-short checked parts | core/src/commands.rs:243; core/src/source_insert.rs:9 | blocked — REQUEST Editor CORE-R5-E5: selected-item splits exist(TimelineCommands.swift:56), but must preserve zoom style/mode/enabled and partition moving-mask keyframes; use checked batch primitives |
+| 5.4 clip speed/volume | M | Menu .5,.75,1,1.2,1.4,1.6,1.8,2,3,4,8,16,24; gains0…1 | core/src/project.rs:191; core/src/model.rs:203 | match — per-source unity/0…1, speed precision.05…32 permits reference menu; exact menu order requested from Editor CORE-R5-E5 |
+| 5.4 zoom actions | M | Auto/manual/disable/duplicate/loupe/level100…400/apply-all/restore | core/src/commands.rs:359; core/src/parity_tests.rs:443 | match — style/enable/mode/loupe/level/batch primitives and remembered default; Editor workflow/debounce in CORE-R5-E3/E5 |
+| 5.4 copy/paste | M | Portable style, no recording ids/time | core/src/preset.rs:124 | match — portable style only; cross-project test excludes recordings/ids/ranges |
+| 5.4 / CORE-5 typing | M | Gap<500ms; duration≥1.5s; rate≥2/s; speed3 at1.5…8; dismiss persisted | core/src/auto.rs:126 | match — gap<500ms,burst>=1.5s,rate>=2/s,speed3,1.5…8 controls,dismissal persisted |
+| 5.5 / CORE-1 click windows | H | −300/+2500ms, ignore final1s, end duration−800ms, start≥1ms, merge≤2.5s | core/src/auto.rs:15; core/src/auto.rs:405 | match —−300/+2500ms; final1s excluded; end<=duration−800ms; start>=1ms; merge<=2.5s |
+| 5.5 generate toggle | M | Automatic creation on/off | core/src/auto.rs:29 | match — automatic project toggle controls generated ranges |
+| 5.5 auto focus | H | Follow click groups/cursor; no pointer→manual | core/src/frame.rs:233; core/src/adaptive.rs:52 | match — follow cursor/click groups, camera-safe framing, no pointer→manual; edge/aspect tests pass |
+| 5.5 manual focus | M | Fixed source point | core/src/frame.rs:233; core/src/parity_tests.rs:124 | match — fixed authored target; smart policy does not change manual focus |
+| 5.5 level/default | M | 1…4, edits remember default after1s debounce | core/src/commands.rs:384; Sources/YapcamEditor/EditorModel.swift:466 | blocked — REQUEST Editor CORE-R5-E3: debounce committed zoom-level/default changes1s and use1…4 UI range; Core remembers committed scales in the same undo and tests inherited defaults |
+| 5.5 instant | M | Per-zoom instant jump for classic | core/src/zoom_lens.rs:24 | match — equivalent persisted ease_in/out0 gives instant classic animation |
+| 5.5 lead-in | M | 350ms before nominal start | core/src/zoom_lens.rs:7 | match — opt-in350ms project lead-in |
+| 5.5 springs / CORE-3 | M | Focused250/40/2.25;Smooth170/50/3; cursor470/70/3,340/60/3,530/40/1,None | core/src/motion.rs:18; core/src/spring.rs:19 | match — screen250/40/2.25 and170/50/3; cursor470/70/3,340/60/3,530/40/1,None |
+| 5.5 spring compression | M | Precision.002, stiffness×r²/damping×r; snap below2 frames | core/src/spring.rs:54; core/src/spring.rs:113 | match — precision.002,stiffness*r²/damping*r, snap below two frames |
+| 5.5 blur fps | M | Global×fps/60 | core/src/motion.rs:48 | blocked — REQUEST Render CORE-R5-R2: verify native output/playback fps/60 scaling; model multipliers pass, Metal unavailable |
+| 5.5 new style | L | Last edited style inherited | core/src/editing.rs:260 | match — last-edited zoom style inherited, no ids/ranges copied |
+| 4 / CORE-10 autosave | L | 30s trailing timer, restart, retry failed saves, revision-safe dirty | Sources/YapcamCore/Autosave.swift:54; Tests/YapcamCoreTests/AutosaveTests.swift:94; Sources/YapcamEditor/EditorModel.swift:544 | blocked — REQUEST Editor CORE-R5-E6: use ProjectAutosaver or add30s failure retry to its separate saveNow timer; Core30s restart/retry/revision/close/cancel tests pass |
+| 4 last-project default | L | Optional reuse last look, off | core/src/preset.rs:77; Sources/YapcamUI/Support/ProjectActions.swift:95 | match — source recheck: AppSettings.swift:163 defaults false, ProjectActions.swift:93 applies portable look; existing UI tests at1702/1734 cover default/persistence/reuse; Core portability tests pass |
+| website smart framing | H | Camera must not cover active cursor during automatic zoom | core/src/adaptive.rs:52; core/src/parity_tests.rs:124 | match — auto zoom clears visible camera via bounded crop or clear corner; no expansion beyond authored source crop |
+| website aspect re-aim | H | Wide/square/portrait keep focus, camera fit, captions/shortcuts readable | core/src/adaptive.rs:230; core/src/parity_tests.rs:551 | match — pure aspect/camera-aware targets and text rectangles; nine camera positions x four aspects regression passes; no stored geometry mutation |
+| website hide silence | M | Camera steps aside for long silence; returns for speech | core/src/speech_activity.rs:24; core/src/parity_tests.rs:382 | match — source transcript/VAD coverage remaps through edits/restores; VAD wins; unknown coverage remains visible; live mic untested(no hardware) |
+| website loop hotspot | H | Last cursor position equals first, even cut/speed/zoom/layout changes | core/src/frame.rs:444; core/src/parity_tests.rs:66 | match — last evaluated canvas hotspot equals first, including cut/speed/zoom/stop interactions |
 
 ### R5-P1 — factory defaults checkpoint READY
 

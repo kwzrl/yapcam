@@ -228,31 +228,80 @@ fn place_text(p: &ProjectData, mut r: Rect, f: &Frame, shortcut: bool) -> Rect {
     best
 }
 pub(crate) fn text_rect(p: &ProjectData, rect: Rect, f: &Frame, shortcut: bool) -> Rect {
-    let mut r = place_text(p, rect, f, shortcut);
-    if shortcut && p.canvas.auto_layout {
-        for caption in &p.canvas.captions {
-            if caption.space != "canvas"
-                || f.tl_ns < caption.tl_start_ns
-                || f.tl_ns >= caption.tl_end_ns
-            {
-                continue;
-            }
-            let cr = caption.rect;
-            let occupied = place_text(
-                p,
-                Rect {
-                    x: cr[0] * f.canvas_w as f64,
-                    y: cr[1] * f.canvas_h as f64,
-                    w: cr[2] * f.canvas_w as f64,
-                    h: cr[3] * f.canvas_h as f64,
-                },
-                f,
-                false,
-            );
-            if overlaps(r, occupied) {
-                r.y = (occupied.y - r.h - 12.0).max(0.0);
+    let r = place_text(p, rect, f, shortcut);
+    if !shortcut || !p.canvas.auto_layout {
+        return r;
+    }
+    let w = f.canvas_w as f64;
+    let h = f.canvas_h as f64;
+    let gap = 12.0_f64.min(w / 30.0);
+    let active = |caption: &&crate::model::TextRecord| {
+        caption.space == "canvas" && f.tl_ns >= caption.tl_start_ns && f.tl_ns < caption.tl_end_ns
+    };
+    let caption_rect = |caption: &crate::model::TextRecord| {
+        let a = caption.rect;
+        place_text(
+            p,
+            Rect {
+                x: a[0] * w,
+                y: a[1] * h,
+                w: a[2] * w,
+                h: a[3] * h,
+            },
+            f,
+            false,
+        )
+    };
+    // Choosing a position around a caption must also respect the camera; moving
+    // straight upward can reintroduce the overlap place_text already removed.
+    let clear = |candidate: Rect| {
+        (f.camera.present == 0 || f.camera_opacity <= 0.0 || !overlaps(candidate, f.camera_dest))
+            && p.canvas
+                .captions
+                .iter()
+                .filter(active)
+                .all(|c| !overlaps(candidate, caption_rect(c)))
+    };
+    if clear(r) {
+        return r;
+    }
+    let mut best = r;
+    let mut score = f64::INFINITY;
+    for caption in p.canvas.captions.iter().filter(active) {
+        let occupied = caption_rect(caption);
+        let camera = f.camera_dest;
+        let xs = [
+            r.x,
+            gap,
+            w - gap - r.w,
+            camera.x - gap - r.w,
+            camera.x + camera.w + gap,
+            occupied.x - gap - r.w,
+            occupied.x + occupied.w + gap,
+        ];
+        let ys = [
+            r.y,
+            gap,
+            h - gap - r.h,
+            camera.y - gap - r.h,
+            camera.y + camera.h + gap,
+            occupied.y - gap - r.h,
+            occupied.y + occupied.h + gap,
+        ];
+        for x in xs {
+            for y in ys {
+                let candidate = Rect {
+                    x: clamp(x, gap, w - gap - r.w),
+                    y: clamp(y, gap, h - gap - r.h),
+                    ..r
+                };
+                let cost = (candidate.x - r.x).powi(2) + (candidate.y - r.y).powi(2);
+                if cost < score && clear(candidate) {
+                    score = cost;
+                    best = candidate;
+                }
             }
         }
     }
-    r
+    best
 }

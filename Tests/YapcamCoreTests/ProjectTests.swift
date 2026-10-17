@@ -1837,3 +1837,38 @@ private func identityCubeData() -> Data {
         #expect(try Data(contentsOf: eventURL) == events)
     }
 }
+
+
+@Test func splitDirectionSetPathsDecodeThroughSwiftAndKeepLegacyOptionalField() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        #expect(try p.cameraLayout(atNs: 0).settings.splitDirection == "auto")
+        try p.apply(.set(path: "camera.layout_settings.split_direction", value: .string("vertical")))
+        let vertical = try p.cameraLayout(atNs: 0)
+        #expect(vertical.settings.splitDirection == "vertical")
+        let snapshot = try p.snapshot()
+        try p.apply(.set(path: "camera.layout_settings.split_direction", value: .string("horizontal")))
+        #expect(try snapshot.cameraLayout(atNs: 0) == vertical)
+        try p.undo(); #expect(try p.cameraLayout(atNs: 0) == vertical)
+        let before = try p.toJSON()
+        #expect(throws: CoreError.self) { try p.apply(.set(path: "camera.layout_settings.split_direction", value: .string("diagonal"))) }
+        #expect(try p.toJSON() == before)
+        try p.apply(.set(path: "camera.layouts", value: .array([.object([
+            "id": .string("override"), "mode": .string("split"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(1_000_000_000),
+            "settings": .object(["split_direction": .string("horizontal")])
+        ])])))
+        #expect(try p.cameraLayout(atNs: 0).settings.splitDirection == "horizontal")
+        #expect(try p.cameraLayout(atNs: 1_000_000_000).settings.splitDirection == "vertical")
+        try p.save(); #expect(try Project.open(package: package).cameraLayout(atNs: 0) == p.cameraLayout(atNs: 0))
+        var raw = try JSONSerialization.jsonObject(with: p.toJSON()) as! [String: Any]
+        var camera = raw["camera"] as! [String: Any]
+        var settings = camera["layout_settings"] as! [String: Any]
+        settings.removeValue(forKey: "split_direction")
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let old = try decoder.decode(CoreCameraLayoutSettings.self, from: JSONSerialization.data(withJSONObject: settings))
+        #expect(old.splitDirection == nil)
+        camera["layout_settings"] = settings; raw["camera"] = camera
+        try JSONSerialization.data(withJSONObject: raw).write(to: package.appendingPathComponent("project.json"))
+        #expect(try Project.open(package: package).cameraLayout(atNs: 1_000_000_000).settings.splitDirection == "auto")
+    }
+}

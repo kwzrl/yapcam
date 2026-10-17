@@ -109,6 +109,7 @@ extension Project {
 public struct CoreCameraLayoutSettings: Decodable, Sendable, Equatable {
     public var mode: String
     public var aspect: Double?
+    public var splitDirection: String?
     public var splitRatio: Double?
     public var splitFlip: Bool
     public var splitPadded: Bool

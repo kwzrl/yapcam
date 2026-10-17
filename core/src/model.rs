@@ -308,6 +308,7 @@ settings!(CameraStyle {
 });
 settings!(CameraLayoutSettings {
     mode: String = "overlay".into(), aspect: Option<f64> = None,
+    split_direction: String = "auto".into(),
     split_ratio: Option<f64> = None, split_flip: bool = false, split_padded: bool = false,
     cutout_position: [f64; 2] = [1.0,1.0], cutout_size: f64 = 0.5,
     edge_softness: f64 = 0.2, edge_inset: f64 = 0.0, corner_ratio: Option<f64> = None,
