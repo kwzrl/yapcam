@@ -153,3 +153,41 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         }
     }
 }
+
+// MARK: renaming a project from the editor's title
+
+extension EditorWindows {
+    /// The app may take over renaming (to keep its recent-projects list in step); it gets the package and the cleaned name
+    /// and returns the renamed package. Without it the editor renames the package folder itself.
+    nonisolated(unsafe) public static var renameHandler: (@MainActor (URL, String) throws -> URL)?
+
+    /// Characters a project name may not contain are dropped; the result is trimmed and at most 120 characters.
+    public static func sanitizedProjectName(_ raw: String) -> String {
+        let bad = CharacterSet(charactersIn: "/:\\").union(.controlCharacters).union(.newlines)
+        let cleaned = raw.unicodeScalars.filter { !bad.contains($0) }.map(String.init).joined()
+        var name = cleaned.trimmingCharacters(in: .whitespaces)
+        while name.hasPrefix(".") { name.removeFirst() }
+        return String(name.prefix(120))
+    }
+
+    /// Renames `package` (keeping its extension). An open editor for it is closed first (saving), and reopened on the new name.
+    /// Throws when the name is empty or already taken; nothing changes then.
+    @discardableResult
+    public static func rename(package: URL, to raw: String) throws -> URL {
+        let name = sanitizedProjectName(raw)
+        guard !name.isEmpty else { throw NSError(domain: "Yapcam", code: 1, userInfo: [NSLocalizedDescriptionKey: "The project needs a name."]) }
+        let ext = package.pathExtension.isEmpty ? "yapcam" : package.pathExtension
+        let target = package.deletingLastPathComponent().appendingPathComponent(name).appendingPathExtension(ext)
+        if target.standardizedFileURL == package.standardizedFileURL { return package }
+        if FileManager.default.fileExists(atPath: target.path) {
+            throw NSError(domain: "Yapcam", code: 2, userInfo: [NSLocalizedDescriptionKey: "A project named “\(name)” already exists in this folder."])
+        }
+        if let renameHandler { return try renameHandler(package, name) }
+        let wasOpen = isOpen(package: package)
+        if wasOpen { close(package: package) }
+        do { try FileManager.default.moveItem(at: package, to: target) }
+        catch { if wasOpen { open(package: package) }; throw error }
+        if wasOpen { open(package: target) }
+        return target
+    }
+}

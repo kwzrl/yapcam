@@ -80,6 +80,8 @@ public enum EditorCommand: Equatable, Sendable {
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
     /// New zoom with the project's remembered (last edited) style; focus is centered.
     case insertZoom(startNs: Int64, endNs: Int64)
+    /// Puts a span of the original recording back on the timeline as a clip at an existing clip boundary (restores cuts/trims).
+    case insertSource(startNs: Int64, endNs: Int64, atNs: Int64, speed: Double, micGain: Double, systemGain: Double, hideCursor: Bool, disableSmoothing: Bool)
     /// New zoom with explicit fields (scale, target, mode, style, lens, enabled, easing): used by split and duplicate so nothing is lost.
     case insertZoomWith(startNs: Int64, endNs: Int64, patch: [String: JSONValue])
     /// A continuous interactive change: edits with the same key less than 100 ms apart share one undo step (core coalesced_edit).
@@ -158,6 +160,8 @@ public protocol EditingProject: AnyObject {
     var typingRecords: [TypingRecord] { get }
     func frameGeometry(atNs: Int64) -> FrameGeometry?
     var hasCamera: Bool { get }
+    /// Length of the whole original recording (what trims and cuts can be reset to).
+    var sourceDurationNs: Int64 { get }
     /// Pixel size the camera was recorded at (from the recording manifest); nil without a camera.
     var cameraPixelSize: (width: Int, height: Int)? { get }
     /// The recording has cursor movement data (not an external device) / typed keys were recorded.
@@ -174,6 +178,12 @@ public protocol EditingProject: AnyObject {
     func importTranscript(_ data: Data) throws
     /// Copy an audio file into the package and add it as a music track at `startNs` (one undo step).
     func importMusic(_ file: URL, startNs: Int64) async throws
+    /// The app's own authored background tracks (render's `MusicLibrary`): 4 categories. Nothing is sampled or downloaded.
+    var musicLibrary: [LibraryTrack] { get }
+    /// Generates the track and adds it as a looping music item at `startNs` (one undo step).
+    func addLibraryMusic(trackID: String, startNs: Int64) async throws
+    /// Writes the track as a local WAV (for the preview button).
+    func writeLibraryTrack(trackID: String, to url: URL) async throws
     /// Original wallpaper/gradient library (render). Applying is one undo step.
     var wallpapers: [WallpaperInfo] { get }
     func applyWallpaper(id: String) async throws
@@ -192,6 +202,14 @@ public protocol EditingProject: AnyObject {
     func waveformPoints() async throws -> [WavePoint]
     /// Keys and chords captured on the edited timeline with their hidden state (core `key_overlay_shortcuts`).
     func keyChords() -> [KeyChord]
+}
+
+public struct LibraryTrack: Equatable, Identifiable, Sendable {
+    public var id: String, name: String, category: String, categoryTitle: String
+    public var beatsPerMinute: Int, durationNs: Int64
+    public init(id: String, name: String, category: String, categoryTitle: String, beatsPerMinute: Int, durationNs: Int64) {
+        self.id = id; self.name = name; self.category = category; self.categoryTitle = categoryTitle; self.beatsPerMinute = beatsPerMinute; self.durationNs = durationNs
+    }
 }
 
 public struct KeyChord: Equatable, Sendable, Identifiable {
@@ -317,7 +335,11 @@ public extension EditingProject {
     var markerTimesNs: [Int64] { [] }
     func waveformPoints() async throws -> [WavePoint] { [] }
     var cameraPixelSize: (width: Int, height: Int)? { nil }
+    var sourceDurationNs: Int64 { clips.map(\.srcEndNs).max() ?? 0 }
     func keyChords() -> [KeyChord] { [] }
+    var musicLibrary: [LibraryTrack] { [] }
+    func addLibraryMusic(trackID: String, startNs: Int64) async throws {}
+    func writeLibraryTrack(trackID: String, to url: URL) async throws {}
 }
 
 /// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.

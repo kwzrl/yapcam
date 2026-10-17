@@ -429,6 +429,9 @@ struct InspectorView: View {
             Toggle("Hide the cursor in this part", isOn: Binding(get: { c.hideCursor }, set: { model.setClipCursor(hide: $0) }))
             Toggle("Smooth cursor movement off", isOn: Binding(get: { c.disableSmoothing }, set: { model.setClipCursor(smoothingOff: $0) }))
             LabeledContent("Length") { Text(formatTimecode(c.timelineDurationNs)).monospacedDigit() }
+            Button("Reset trim") { model.resetTrim(clipID: c.id) }.disabled(!model.hasTrimsOrCuts)
+                .help("Bring back the parts of the recording that were cut away next to this clip")
+            Button("Reset all trims and cuts") { model.resetAllTrimsAndCuts() }.disabled(!model.hasTrimsOrCuts)
             Button("Delete clip", role: .destructive) { model.deleteSelection() }
         }
     }
@@ -516,6 +519,7 @@ struct InspectorView: View {
     @ViewBuilder private var cameraStyle: some View { CameraStylePanel(model: model) }
 
     @ViewBuilder private var audio: some View {
+        MusicSection(model: model)          // the reference lists background audio first
         Section("Automatic edits") {
             switch model.silenceState {
             case .idle: Button("Find silent parts…") { model.findSilences() }
@@ -543,7 +547,6 @@ struct InspectorView: View {
             PickerRow(model: model, title: "Sound", path: "audio.click_sound.variant", options: [("Soft", "soft"), ("Crisp", "crisp")])
             NumberRow(model: model, title: "Volume", path: "audio.click_sound.gain_db", range: -48...12, unit: "dB", format: "%.0f")
         }
-        MusicSection(model: model)
         Section("Volume changes over time") {
             ForEach(model.audioRanges) { r in
                 VStack(alignment: .leading, spacing: 4) {
@@ -833,22 +836,65 @@ struct CaptionSection: View {
     }
 }
 
+/// Background audio: the app's own authored tracks by category (with preview), the user's audio folder, drag-and-drop of a file,
+/// one volume (5 % by default), mute, and removal.
 struct MusicSection: View {
     @ObservedObject var model: EditorModel
+    @State private var category = ""
+    @State private var dropTargeted = false
     var body: some View {
-        Section("Background music") {
+        let categories = model.musicCategories
+        let active = category.isEmpty ? (categories.first?.id ?? "") : category
+        Section("Background audio") {
             if case .music(let id) = model.selection, let m = model.music.first(where: { $0.id == id }) { MusicControls(model: model, item: m) }
-            HStack {
-                ForEach(builtInMusic) { src in Button(src.name) { model.addBuiltInMusic(src) } }
-                Button("Add file…") { chooseFile() }
+            PillPicker(selection: Binding(get: { active }, set: { category = $0 }),
+                       options: categories.map { ($0.title, $0.id) } + [("My audio", "user")], accessibilityTitle: "Audio category")
+            if active == "user" {
+                let files = model.userMusicFiles()
+                if files.isEmpty { Text("Put audio files in your audio folder, or drop one here.").font(.caption).foregroundStyle(.secondary) }
+                ForEach(files, id: \.self) { url in
+                    HStack { Image(systemName: "music.note"); Text(url.deletingPathExtension().lastPathComponent).lineLimit(1); Spacer()
+                        Button("Add") { model.importMusicFile(url) }.buttonStyle(.borderless) }
+                }
+                HStack {
+                    Button("Open audio library folder") { model.revealUserMusicFolder() }
+                    Button("Add file…") { chooseFile() }
+                }
+            } else {
+                ForEach(model.musicTracks(in: active)) { t in
+                    HStack(spacing: EditorMetrics.s) {
+                        Button { model.toggleMusicPreview(trackID: t.id) } label: {
+                            Image(systemName: model.previewingMusicID == t.id ? "stop.fill" : "play.fill").frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(.plain).background(EditorTheme.control, in: Circle())
+                        .help(model.previewingMusicID == t.id ? "Stop the preview" : "Preview the track")
+                        .accessibilityLabel(model.previewingMusicID == t.id ? "Stop preview of \(t.name)" : "Preview \(t.name)")
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(t.name)
+                            Text("\(t.beatsPerMinute) BPM").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Add") { model.addLibraryMusic(trackID: t.id) }.buttonStyle(.borderless).accessibilityLabel("Add \(t.name)")
+                    }
+                }
             }
-            ForEach(model.music) { m in
-                Button { model.selection = .music(m.id) } label: {
-                    HStack { Text("♪ " + m.title).lineLimit(1); Spacer(); Text(formatTimecode(m.startNs, showFraction: false)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
-                }.buttonStyle(.plain)
+            if !model.music.isEmpty {
+                SliderRow("Volume") {
+                    MusicVolumeSlider(model: model)
+                }
+                Toggle("Mute background audio", isOn: Binding(get: { model.isMusicMuted }, set: { model.setMusicMuted($0) }))
+                ForEach(model.music) { m in
+                    Button { model.selection = .music(m.id) } label: {
+                        HStack { Text("♪ " + m.title).lineLimit(1); Spacer(); Text(formatTimecode(m.startNs, showFraction: false)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+                    }.buttonStyle(.plain)
+                }
+                Button("Remove background audio", role: .destructive) { model.removeAllMusic() }
             }
-            Text("Built-in tracks are original. Music starts at the playhead and runs to the end.").font(.caption).foregroundStyle(.secondary)
+            Text("The tracks are original scores made by the app; music starts at the playhead and runs to the end. Drop an audio file on this section to use your own.")
+                .font(.caption).foregroundStyle(.secondary)
         }
+        .dropDestination(for: URL.self) { urls, _ in model.dropMusic(urls: urls) } isTargeted: { dropTargeted = $0 }
+        .overlay { if dropTargeted { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4])).allowsHitTesting(false) } }
     }
     private func chooseFile() {
         let panel = NSOpenPanel()
@@ -858,23 +904,30 @@ struct MusicSection: View {
     }
 }
 
+/// Linear 0–1 volume of the background audio (default 0.05), one undo step on release; the value shows as a percentage.
+struct MusicVolumeSlider: View {
+    @ObservedObject var model: EditorModel
+    @State private var drag: Double?
+    var body: some View {
+        let v = drag ?? model.musicVolume
+        HStack {
+            Slider(value: Binding(get: { v }, set: { drag = $0 }), in: 0...1, step: 0.01) { editing in
+                if !editing, let d = drag { drag = nil; model.setMusicVolume(d) }
+            }.accessibilityLabel("Background audio volume").accessibilityValue("\(Int((v * 100).rounded())) percent")
+            Text("\(Int((v * 100).rounded())) %").sliderValueLabel()
+            Button { model.setMusicVolume(EditorModel.defaultMusicVolume) } label: { Image(systemName: "arrow.counterclockwise") }
+                .buttonStyle(.borderless).help("Reset to 5 %").accessibilityLabel("Reset background audio volume")
+                .opacity(abs(v - EditorModel.defaultMusicVolume) > 0.0005 ? 1 : 0.25).disabled(abs(v - EditorModel.defaultMusicVolume) <= 0.0005)
+                .frame(width: EditorMetrics.resetSlot)
+        }
+    }
+}
+
 struct MusicControls: View {
     @ObservedObject var model: EditorModel
     let item: MusicItem
-    @State private var gain = -18.0
-    @State private var editing = false
     var body: some View {
         let id = item.id
-        SliderRow("Volume") {
-            HStack {
-                Slider(value: $gain, in: -48...6) { e in editing = e; if !e { model.setMusicGain(id: id, gain) } }
-                    .accessibilityLabel("Music volume").accessibilityValue("\(Int(gain)) decibels")
-                Text("\(Int(gain)) dB").monospacedDigit().frame(width: 52, alignment: .trailing)
-            }
-        }
-        .onAppear { gain = item.gainDb }
-        .onChange(of: item.gainDb) { _, v in if !editing { gain = v } }
-        .onChange(of: item.id) { _, _ in gain = item.gainDb }
         Toggle("Loop", isOn: Binding(get: { item.loop }, set: { model.setMusicLoop(id: id, $0) }))
         Stepper("Fade in \(String(format: "%.1f", Double(item.fadeInNs) / 1e9)) s", value: Binding(get: { Double(item.fadeInNs) / 1e9 }, set: { model.setMusicFades(id: id, inNs: Int64($0 * 1e9), outNs: item.fadeOutNs) }), in: 0...10, step: 0.5)
         Stepper("Fade out \(String(format: "%.1f", Double(item.fadeOutNs) / 1e9)) s", value: Binding(get: { Double(item.fadeOutNs) / 1e9 }, set: { model.setMusicFades(id: id, inNs: item.fadeInNs, outNs: Int64($0 * 1e9)) }), in: 0...10, step: 0.5)

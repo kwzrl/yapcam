@@ -1,5 +1,7 @@
 import Foundation
 import YapcamCore
+import AVFoundation
+import AppKit
 
 public struct MusicSourceInfo: Equatable, Identifiable, Sendable { public var id: String; public var name: String; public var durationNs: Int64 }
 public let builtInMusic = [MusicSourceInfo(id: "calm", name: "Calm", durationNs: 8_000_000_000),
@@ -98,5 +100,121 @@ extension EditorModel {
     }
     func commitMusicSpan(id: String, start: Int64, end: Int64) {
         patchMusic(id: id, ["tl_start_ns": .number(Double(start)), "tl_end_ns": .number(Double(end))])
+    }
+}
+
+// MARK: background audio library (own authored tracks), volume, mute, user folder, preview
+
+extension EditorModel {
+    /// Reference default: background audio at 5 % (linear) = −26.02 dB.
+    public static let defaultMusicVolume = 0.05
+    public static let defaultMusicGainDb = 20 * log10(defaultMusicVolume)
+    public static func musicGainDb(forVolume v: Double) -> Double { v <= 0.0001 ? -96 : max(20 * log10(min(v, 1)), -96) }
+    public static func musicVolume(forGainDb db: Double) -> Double { db <= -95 ? 0 : min(pow(10, db / 20), 1) }
+
+    /// Library categories in the reference's order, then the tracks of the user's own folder.
+    public var musicCategories: [(id: String, title: String)] {
+        var seen: [String] = [], out: [(String, String)] = []
+        for t in project.musicLibrary where !seen.contains(t.category) { seen.append(t.category); out.append((t.category, t.categoryTitle)) }
+        return out
+    }
+    public func musicTracks(in category: String) -> [LibraryTrack] { project.musicLibrary.filter { $0.category == category } }
+
+    /// Adds a library track at the playhead, running to the end of the timeline (one undo step; looping, 5 % volume).
+    public func addLibraryMusic(trackID: String) {
+        guard !isClosed else { return }
+        let start = playheadNs
+        guard durationNs - start >= minItemNs else { lastError = "Not enough room here."; return }
+        musicTask = Task { [weak self] in
+            guard let self, !isClosed else { return }
+            do {
+                try await project.addLibraryMusic(trackID: trackID, startNs: start)
+                if !isClosed { noteExternalEdit() }
+            } catch is CancellationError {
+            } catch { if !isClosed { lastError = "Couldn't add music: \(error.localizedDescription)" } }
+        }
+    }
+
+    // Volume of all background audio (linear 0…1; each track keeps its own fades/ducking/loop).
+    public var musicVolume: Double { music.map { Self.musicVolume(forGainDb: $0.gainDb) }.max() ?? Self.defaultMusicVolume }
+    public func setMusicVolume(_ v: Double) {
+        let db = Self.musicGainDb(forVolume: v)
+        patchAllMusic(["gain_db": .number(db)])
+        mutedMusicGains = [:]
+    }
+    public var isMusicMuted: Bool { !music.isEmpty && music.allSatisfy { $0.gainDb <= -95 } }
+    /// Mute keeps each track's volume to come back to (for this session); unmuting without it restores the default 5 %.
+    public func setMusicMuted(_ on: Bool) {
+        if on {
+            mutedMusicGains = Dictionary(uniqueKeysWithValues: music.map { ($0.id, $0.gainDb) })
+            patchAllMusic(["gain_db": .number(-96)])
+        } else {
+            let saved = mutedMusicGains; mutedMusicGains = [:]
+            patchEachMusic { saved[$0.id] ?? Self.defaultMusicGainDb }
+        }
+    }
+    public func removeAllMusic() { set("audio.music", .array([])); stopMusicPreview() }
+
+    private func patchAllMusic(_ patch: [String: JSONValue]) {
+        let rows = rawMusicRowsForPatch().map { row -> JSONValue in
+            guard case .object(var o) = row else { return row }
+            for (k, v) in patch { o[k] = v }
+            return .object(o)
+        }
+        set("audio.music", .array(rows))
+    }
+    private func patchEachMusic(_ gain: (MusicItem) -> Double) {
+        let gains = Dictionary(uniqueKeysWithValues: music.map { ($0.id, gain($0)) })
+        let rows = rawMusicRowsForPatch().map { row -> JSONValue in
+            guard case .object(var o) = row, case .string(let id)? = o["id"], let g = gains[id] else { return row }
+            o["gain_db"] = .number(g); return .object(o)
+        }
+        set("audio.music", .array(rows))
+    }
+    private func rawMusicRowsForPatch() -> [JSONValue] { if case .array(let r)? = value("audio.music") { r } else { [] } }
+
+    // The user's own audio folder (the reference's "audio library folder"): files in it are listed and added from the panel.
+    public static var defaultMusicFolder: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam/Audio Library", isDirectory: true) }
+    public static let musicFileExtensions: Set<String> = ["wav", "mp3", "m4a", "aac", "aif", "aiff", "caf", "flac"]
+    public func userMusicFiles() -> [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: userMusicFolder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        return files.filter { Self.musicFileExtensions.contains($0.pathExtension.lowercased()) }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+    /// Creates the folder if needed and shows it in Finder.
+    public func revealUserMusicFolder() {
+        try? FileManager.default.createDirectory(at: userMusicFolder, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(userMusicFolder)
+    }
+    /// Files dropped on the audio section: the first audio file is added at the playhead (like "Add file…").
+    @discardableResult public func dropMusic(urls: [URL]) -> Bool {
+        guard let first = urls.first(where: { $0.isFileURL && Self.musicFileExtensions.contains($0.pathExtension.lowercased()) }) else { return false }
+        importMusicFile(first); return true
+    }
+
+    // Preview: the track is generated into a temporary WAV and played locally; one at a time.
+    public func toggleMusicPreview(trackID: String) {
+        if previewingMusicID == trackID { stopMusicPreview(); return }
+        stopMusicPreview()
+        previewingMusicID = trackID
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-music-preview-\(UUID().uuidString).wav")
+        musicPreviewTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await project.writeLibraryTrack(trackID: trackID, to: url)
+                guard previewingMusicID == trackID, !Task.isCancelled else { try? FileManager.default.removeItem(at: url); return }
+                let player = try AVAudioPlayer(contentsOf: url)
+                player.volume = 0.6; player.numberOfLoops = 0; player.play()
+                musicPlayer = player; musicPreviewFile = url
+            } catch {
+                try? FileManager.default.removeItem(at: url)
+                if previewingMusicID == trackID { previewingMusicID = nil; lastError = "Couldn't preview the track: \(error.localizedDescription)" }
+            }
+        }
+    }
+    public func stopMusicPreview() {
+        musicPreviewTask?.cancel(); musicPreviewTask = nil
+        musicPlayer?.stop(); musicPlayer = nil
+        if let f = musicPreviewFile { try? FileManager.default.removeItem(at: f); musicPreviewFile = nil }
+        previewingMusicID = nil
     }
 }
