@@ -1086,7 +1086,7 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(m.dropMusic(urls: [folder.appendingPathComponent("notes.txt"), copy]))
         await m.waitForMusicImport()
         #expect(m.lastError == nil, "\(m.lastError ?? "")")
-        #expect(m.music.count == 1 && m.music[0].startNs == 300_000_000)
+        #expect(m.music.count == 1 && m.music[0].startNs == 0)      // first background audio starts at 0 (CAM-37)
     }
 
     @Test func previewStartsAndStopsWithoutLeavingFilesBehind() async throws {

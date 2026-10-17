@@ -804,3 +804,11 @@ import YapcamCore
         #expect(m.pause(before: 1) == 500_000_000 && EditorModel.pauseLabel(1_500_000_000) == "1.5 s")
     }
 }
+
+@MainActor @Suite struct BackgroundAudioTests {      // CAM-37, CAM-42
+    @Test func videoFilesCanBeDroppedAsAudioSource() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        #expect(m.dropMusic(urls: [URL(fileURLWithPath: "/tmp/talk.mp4")]))
+        #expect(!m.dropMusic(urls: [URL(fileURLWithPath: "/tmp/notes.txt")]))
+    }
+}
