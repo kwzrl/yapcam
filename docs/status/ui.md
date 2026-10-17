@@ -1,5 +1,5 @@
 READY R6b 53cb006 | R6-QA-U1: AreaMouseDown.decide, RecorderKey.decide/decideEditing, tests on the real targets of Custom size / Save current size / Ignore / Adjust area / Export diagnostics / Show in Finder (FinderReveal); privacy-scan fixture paths | YapcamUITests 208 green; not run live
-READY R6 (earlier): see below
+READY R6 d2e148f | crash-class audit (4 fixes), SourceChoice start decisions testable, speaker notes/saved sizes confirmed | YapcamUITests 200 green; not run live
 READY W3 571c2e2 | A1.5, A7.3, X5, B.HW done | swift test --filter YapcamUITests 188 green; not run live
 READY R5 195d560 | every H/M row in ## R5 incoming requests (round 5b, read from main a96173e status files)
 | id | from | request | state |
