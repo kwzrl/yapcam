@@ -393,7 +393,7 @@ private final class OverlayWindow: NSWindow {
         for screen in NSScreen.screens {
             guard let id = screen.displayID, let info = Displays.info(for: id) else { continue }
             let w = OverlayWindow(screen: screen)
-            w.onEscape = { [weak self] in self?.hide() }
+            w.onEscape = { SourcePicker.escape() }   // first Esc clears the mode; the next one closes the bar
             w.onReturn = { [weak self] in self?.startForTesting() }
             let root: AnyView
             switch kind {

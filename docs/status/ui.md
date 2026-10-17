@@ -1,4 +1,4 @@
-READY R5b 90dc414 | all incoming requests done or blocked-with-reason (see ## R5 incoming requests): capture UI1-8, render U01/U02, editor trash/rename/appearance, partial-transcript notice | swift test --filter YapcamUITests 186 green; not run live
+READY W3 HASH | A1.5, A7.3, X5, B.HW done | swift test --filter YapcamUITests 188 green; not run live
 READY R5 195d560 | every H/M row in ## R5 incoming requests (round 5b, read from main a96173e status files)
 | id | from | request | state |
 |---|---|---|---|
@@ -397,3 +397,12 @@ QUESTION to Lead: the message I received was cut off at the start ("oolbar (keep
 I acknowledge the rule: no `pkill`/`killall` of Yapcam, only PIDs I started; check `~/Movies/Yapcam/QA/.app-lock` before any launch (if present: no launch, non-live work only); never `open` a Yapcam.app while another instance runs (launch my own binary directly and kill only that PID).
 DISCLOSURE: in my periodic status checks (roughly every 10 minutes, many rounds today) I ran `pkill -x Yapcam` before `open -n build/Yapcam.app --args --capture-selftest 3`, and the same `pkill -x Yapcam` before each `--live-e2e` / snapshot run. That kills every running Yapcam, including QA's long recordings. This is very likely the cause of the ~7.5 min kills (the rounds were ~10 min apart). I had no way to know another instance was running; I should have used the PID I started. Stopped now; those checks are gone from my routine.
 Follow-up: `appLaunchedWithSnapshotFlagRendersEverything` now skips itself while `~/Movies/Yapcam/QA/.app-lock` exists (a plain `swift test` can no longer start a second Yapcam during QA's runs). Round at main 248630a: lock present, so no app launches; build + tests only (326 pass, app-launch test skipped by design).
+
+## R5 wave 3 (rows from remaining.md)
+| Row | State |
+|---|---|
+| A1.5 Esc two-step | done: overlay Esc -> `SourcePicker.escape()` (1st Esc clears the mode, 2nd closes the bar); unit-tested logic, live confirm pending (user instance running) |
+| A7.3 widget summary | done: "Will export" = render `ExportSettings.summary(for:)` + audio; test updated |
+| X5 quick export store | done on the ui side: Quick export has its own store (`quickExport.v1`, tested separate from the editor dialog). Editor's `remember(in: .dialog)` is editor's; no ui call needed |
+| B.Advanced HW accel (R5-L01) | done: Settings > Advanced "Disable hardware-accelerated encoding" (off); quick export passes `hardwareEncodingEnabled`. Request to editor: export dialog should read UserDefaults `disableHardwareEncoding` (Bool) and set `ExportSettings.hardwareEncodingEnabled = !value`. No decode toggle (Lead decision) |
+| R5-L02 | out of scope (Lead) |

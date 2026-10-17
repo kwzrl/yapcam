@@ -124,6 +124,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var maxFPS: Int { didSet { d.set(maxFPS, forKey: "maxFPS") } }
     @Published var openEditorAfterRecording: Bool { didSet { d.set(openEditorAfterRecording, forKey: "openEditor") } }
     @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "playSounds") } }
+    /// Settings → Advanced: export with the VideoToolbox software encoder (decoding stays system-managed).
+    @Published var disableHardwareEncoding: Bool { didSet { d.set(disableHardwareEncoding, forKey: "disableHardwareEncoding") } }
     @Published var hideDesktopIcons: Bool { didSet { d.set(hideDesktopIcons, forKey: "hideDesktopIcons") } }
     /// While a recording runs the Dock icon is hidden (reference "Hide Dock Icon", default on). The menu bar item stays.
     @Published var hideDockWhileRecording: Bool { didSet { d.set(hideDockWhileRecording, forKey: "hideDockWhileRecording") } }
@@ -202,6 +204,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         maxFPS = AppSettings.cap(d.object(forKey: "maxFPS") as? Int)
         openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
         playSounds = d.object(forKey: "playSounds") as? Bool ?? true
+        disableHardwareEncoding = d.object(forKey: "disableHardwareEncoding") as? Bool ?? false
         hideDesktopIcons = d.object(forKey: "hideDesktopIcons") as? Bool ?? false
         hideDockWhileRecording = d.object(forKey: "hideDockWhileRecording") as? Bool ?? true
         showRecentsWithPicker = d.object(forKey: "showRecentsWithPicker") as? Bool ?? false
@@ -268,7 +271,7 @@ extension AppSettings {
         experimentalVariableFrameRate = f.experimentalVariableFrameRate; autosaveEnabled = f.autosaveEnabled
         microphoneID = f.microphoneID; cameraID = f.cameraID; cameraMaxResolution = f.cameraMaxResolution
         countdown = f.countdown; recordKeystrokes = f.recordKeystrokes; maxFPS = f.maxFPS
-        openEditorAfterRecording = f.openEditorAfterRecording; playSounds = f.playSounds; hideDesktopIcons = f.hideDesktopIcons
+        openEditorAfterRecording = f.openEditorAfterRecording; playSounds = f.playSounds; hideDesktopIcons = f.hideDesktopIcons; disableHardwareEncoding = f.disableHardwareEncoding
         hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview
         showInDock = f.showInDock; showMenuBarItem = f.showMenuBarItem
         shortcuts = f.shortcuts; highlightRecordedArea = f.highlightRecordedArea; savedWindowSizes = f.savedWindowSizes; savedAreaSizes = f.savedAreaSizes

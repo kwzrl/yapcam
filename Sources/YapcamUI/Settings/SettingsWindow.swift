@@ -244,6 +244,9 @@ struct AdvancedSettings: View {
         Form {
             Picker("Frame rate", selection: $s.maxFPS) { Text("Automatic (display rate)").tag(0); Text("Up to 30 fps").tag(30); Text("Up to 60 fps").tag(60) }
             Text("Automatic follows your display's refresh rate. A cap is only for slower Macs or smaller files.").font(.caption).foregroundStyle(.secondary)
+            Toggle("Disable hardware-accelerated encoding", isOn: $s.disableHardwareEncoding)
+            Text("Exports use the software video encoder. Slower, but can avoid encoder problems. Decoding is managed by macOS.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Hide desktop icons while recording", isOn: $s.hideDesktopIcons)
             Text("Restarts Finder briefly. Icons are restored when recording ends, and on the next launch if Yapcam quit unexpectedly.")
                 .font(.caption).foregroundStyle(.secondary)
