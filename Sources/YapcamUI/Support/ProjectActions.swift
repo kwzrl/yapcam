@@ -57,6 +57,64 @@ import YapcamCore
         return dest
     }
 
+    /// A project file name from what the user typed: trimmed, without path separators or the characters macOS refuses,
+    /// and without a trailing ".yapcam" (added back by the caller). nil when nothing usable is left.
+    static func cleanProjectName(_ typed: String) -> String? {
+        var t = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.lowercased().hasSuffix(".yapcam") { t = String(t.dropLast(7)) }
+        t = String(t.unicodeScalars.filter { !"/\\:*?\"<>|".unicodeScalars.contains($0) && !CharacterSet.controlCharacters.contains($0) })
+            .trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespaces))
+        return t.isEmpty ? nil : t
+    }
+
+    /// Save As…: a copy of the package under a new name in `directory` (the original stays untouched).
+    /// Never overwrites: an existing name gets " 2", " 3", …
+    static func saveCopy(of url: URL, named typed: String, in directory: URL) throws -> URL {
+        guard let name = cleanProjectName(typed) else { throw EngineError.failed("Give the project a name.") }
+        let dest = uniqueURL(in: directory, name: name)
+        try FileManager.default.copyItem(at: url, to: dest)
+        return dest
+    }
+
+    static func saveAs(_ url: URL) {
+        EditorWindows.saveAll()
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = url.deletingPathExtension().lastPathComponent + " copy"
+        panel.directoryURL = url.deletingLastPathComponent()
+        panel.message = "Save a copy of this project"
+        panel.prompt = "Save"
+        guard panel.runModal() == .OK, let chosen = panel.url else { return }
+        do {
+            let dest = try saveCopy(of: url, named: chosen.deletingPathExtension().lastPathComponent, in: chosen.deletingLastPathComponent())
+            NSWorkspace.shared.activateFileViewerSelecting([dest])
+        } catch { RecordingController.shared.alert = AppAlert(title: "Could not save a copy", error: error) }
+    }
+
+    /// A zip of the package (project plus recording) for sharing; the file is also put on the clipboard.
+    nonisolated static func zipForSharing(_ url: URL, into directory: URL = FileManager.default.temporaryDirectory) throws -> URL {
+        let zip = directory.appending(path: url.deletingPathExtension().lastPathComponent + ".yapcam.zip")
+        try? FileManager.default.removeItem(at: zip)
+        let p = Process()
+        p.executableURL = URL(filePath: "/usr/bin/ditto")
+        p.arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", url.path, zip.path]
+        try p.run(); p.waitUntilExit()
+        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: zip.path) else { throw EngineError.failed("Could not zip the project.") }
+        return zip
+    }
+
+    static func copyAndZip(_ url: URL) {
+        EditorWindows.saveAll()
+        Task.detached {
+            do {
+                let zip = try zipForSharing(url)
+                await MainActor.run {
+                    let pb = NSPasteboard.general
+                    pb.clearContents(); pb.writeObjects([zip as NSURL])
+                }
+            } catch { await MainActor.run { RecordingController.shared.alert = AppAlert(title: "Could not copy the project", error: error) } }
+        }
+    }
+
     /// Copies the untouched recorded media (screen, audio, camera, events) to a folder the user picks.
     static func extractRaw(_ url: URL) throws -> URL? {
         let rec = url.appending(path: "recording")
@@ -204,4 +262,46 @@ import YapcamCore
         do { try out.write(to: dest, atomically: true, encoding: .utf8) }
         catch { RecordingController.shared.alert = AppAlert(title: "Could not write diagnostics", error: error) }
     }
+}
+
+/// Unfinished recordings (Yapcam or the Mac stopped mid-take): the launch prompt, File → Recover Recording…,
+/// and the picker's Recover button all run this.
+@MainActor enum RecoveryFlow {
+    static func interrupted() -> [URL] {
+        RecordingController.shared.engine.interruptedPackages(in: AppSettings.shared.storageDirectory)
+    }
+
+    static func run(silentWhenNone: Bool) {
+        let engine = RecordingController.shared.engine
+        let found = interrupted()
+        guard !found.isEmpty else {
+            if !silentWhenNone {
+                let a = NSAlert(); a.messageText = "No unfinished recordings"
+                a.informativeText = "Everything in the recordings folder was saved properly."
+                a.runModal()
+            }
+            return
+        }
+        let a = NSAlert()
+        a.messageText = found.count == 1 ? "Recording needs to be recovered" : "\(found.count) recordings need to be recovered"
+        a.informativeText = "The app or your Mac stopped during recording. Recover keeps everything that was saved to disk."
+        a.addButton(withTitle: "Recover now")
+        a.addButton(withTitle: "Review…")
+        a.addButton(withTitle: "Not Now")
+        switch a.runModal() {
+        case .alertFirstButtonReturn:
+            var last: URL?
+            for u in found { do { last = try engine.recover(u) } catch { Probe.log("recover failed \(u.lastPathComponent): \(error)") } }
+            if let last { engine.openEditor(package: last) } else { RecentProjectsWindow.shared.show() }
+        case .alertSecondButtonReturn: RecentProjectsWindow.shared.show()
+        default: break
+        }
+    }
+}
+
+/// Counts unfinished recordings for the picker's Recover button.
+@MainActor final class RecoveryModel: ObservableObject {
+    static let shared = RecoveryModel()
+    @Published private(set) var count = 0
+    func refresh() { count = RecoveryFlow.interrupted().count }
 }

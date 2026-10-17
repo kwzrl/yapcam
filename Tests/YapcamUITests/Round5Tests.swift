@@ -267,3 +267,47 @@ import Testing
         #expect(ShortcutSettings.editingKeys.map(\.1) == ["C", "X", "L", "J", "K"])
     }
 }
+
+@MainActor @Suite struct Round5ProjectTests {
+    private func tempDir() throws -> URL {
+        let d = FileManager.default.temporaryDirectory.appending(path: "yapcam-r5-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    @Test func projectNamesAreCleaned() {
+        #expect(ProjectActions.cleanProjectName("  My demo.yapcam ") == "My demo")
+        #expect(ProjectActions.cleanProjectName("a/b:c*d?") == "abcd")
+        #expect(ProjectActions.cleanProjectName("...") == nil)
+        #expect(ProjectActions.cleanProjectName("   ") == nil)
+        #expect(ProjectActions.cleanProjectName(".yapcam") == nil)
+    }
+
+    @Test func saveAsCopiesWithoutOverwriting() throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let pkg = dir.appending(path: "Take.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pkg, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: pkg.appending(path: "project.json"))
+        let a = try ProjectActions.saveCopy(of: pkg, named: "Demo", in: dir)
+        let b = try ProjectActions.saveCopy(of: pkg, named: "Demo.yapcam", in: dir)
+        #expect(a.lastPathComponent == "Demo.yapcam" && b.lastPathComponent == "Demo 2.yapcam")
+        #expect(FileManager.default.fileExists(atPath: a.appending(path: "project.json").path))
+        #expect(throws: (any Error).self) { try ProjectActions.saveCopy(of: pkg, named: "///", in: dir) }
+    }
+
+    @Test func zipForSharingMakesAZipOfThePackage() throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let pkg = dir.appending(path: "Take.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pkg, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: pkg.appending(path: "project.json"))
+        let zip = try ProjectActions.zipForSharing(pkg, into: dir)
+        #expect(zip.lastPathComponent == "Take.yapcam.zip")
+        #expect(((try? zip.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0)
+    }
+
+    @Test func macScanKeepsOnlyNewPackagesOutsideTheTrash() {
+        let out = "/Users/a/Movies/Yapcam/One.yapcam\n/Users/a/Desktop/Two.yapcam\n/Users/a/.Trash/Old.yapcam\n/Users/a/notes.txt\n"
+        let urls = RecentProjectsModel.parseScan(out, excluding: ["/Users/a/Movies/Yapcam/One.yapcam"])
+        #expect(urls.map(\.path) == ["/Users/a/Desktop/Two.yapcam"])
+    }
+}

@@ -164,25 +164,7 @@ import YapcamEditor
     }
 
     /// Interrupted recordings from a previous run: offer recovery instead of silently ignoring them.
-    private func offerRecovery() {
-        let engine = RecordingController.shared.engine
-        let found = engine.interruptedPackages(in: AppSettings.shared.storageDirectory)
-        guard !found.isEmpty else { return }
-        let a = NSAlert()
-        a.messageText = found.count == 1 ? "Yapcam found an unfinished recording" : "Yapcam found \(found.count) unfinished recordings"
-        a.informativeText = "The app or your Mac stopped during recording. Recover keeps everything that was saved to disk."
-        a.addButton(withTitle: "Recover")
-        a.addButton(withTitle: "Review…")
-        a.addButton(withTitle: "Not Now")
-        switch a.runModal() {
-        case .alertFirstButtonReturn:
-            var last: URL?
-            for u in found { do { last = try engine.recover(u) } catch { Probe.log("recover failed \(u.lastPathComponent): \(error)") } }
-            if let last { engine.openEditor(package: last) } else { RecentProjectsWindow.shared.show() }
-        case .alertSecondButtonReturn: RecentProjectsWindow.shared.show()
-        default: break
-        }
-    }
+    private func offerRecovery() { RecoveryFlow.run(silentWhenNone: true) }
 
     // MARK: Shortcuts / settings side effects
 
@@ -259,11 +241,15 @@ import YapcamEditor
         let p = NSOpenPanel()
         p.canChooseFiles = true; p.canChooseDirectories = true; p.treatsFilePackagesAsDirectories = false
         p.directoryURL = AppSettings.shared.storageDirectory
-        p.message = "Choose a .yapcam recording"
-        if p.runModal() == .OK, let url = p.url, url.pathExtension == "yapcam" {
-            RecordingController.shared.engine.openEditor(package: url)
-        }
+        p.allowsMultipleSelection = true
+        p.message = "Choose one or more .yapcam recordings"
+        guard p.runModal() == .OK else { return }
+        for url in p.urls { ProjectActions.open(url) }       // each one reports on its own when it can't be opened
     }
+    @objc func recoverRecording() { RecoveryFlow.run(silentWhenNone: false) }
+    @objc func saveProjectAs() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.saveAs(u) } }
+    @objc func copyAndZipProject() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.copyAndZip(u) } }
+    @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { NSWorkspace.shared.activateFileViewerSelecting([u]) } }
     @objc func showRecordings() { RecentProjectsWindow.shared.show() }
     @objc func importVideo() { ProjectActions.importVideo() }
     @objc func exportDiagnostics() { ProjectActions.exportDiagnostics() }
@@ -289,6 +275,7 @@ extension AppDelegate: NSMenuItemValidation {
             item.title = r.isRecording || r.phase == .countdown(0) ? "Stop Recording" : "Start Recording"
             if case .countdown = r.phase { item.title = "Cancel Countdown" }
             return r.phase != .starting && r.phase != .finishing
+        case #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder): return EditorBridge.keyDocument() != nil
         case #selector(addMarker): return r.phase == .recording
         case #selector(restartRecording), #selector(cancelRecording): return r.isRecording
         case #selector(togglePause):

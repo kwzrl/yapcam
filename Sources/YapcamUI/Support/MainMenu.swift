@@ -47,8 +47,13 @@ import AppKit
         add("File", [
             item("Open Recording…", #selector(AppDelegate.openProject), "o"),
             item("Import Video…", #selector(AppDelegate.importVideo), "i"),
+            item("Recover Recording…", #selector(AppDelegate.recoverRecording)),
             item("Recordings…", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
+            .separator(),
+            item("Save As…", #selector(AppDelegate.saveProjectAs), "s", mods: [.command, .shift]),
+            item("Show Project in Finder", #selector(AppDelegate.showProjectInFinder)),
+            item("Copy and Zip Project", #selector(AppDelegate.copyAndZipProject)),
             .separator(),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: nil),
         ])

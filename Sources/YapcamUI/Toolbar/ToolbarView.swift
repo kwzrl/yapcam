@@ -11,6 +11,7 @@ struct ToolbarView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var perms: PermissionsModel
     @ObservedObject private var picker = PickerState.shared
+    @ObservedObject private var recovery = RecoveryModel.shared
     @State private var open: ToolbarPopover?
 
     var body: some View {
@@ -66,12 +67,17 @@ struct ToolbarView: View {
 
             Divider().frame(height: 34).padding(.horizontal, 3)
 
+            if recovery.count > 0 {
+                ToolbarButton(symbol: "exclamationmark.arrow.circlepath", label: "Recover", help: "Recover an unfinished recording", active: false) {
+                    RecoveryFlow.run(silentWhenNone: false); recovery.refresh()
+                }
+            }
             ToolbarButton(symbol: "folder", label: "Recent", help: "Recent projects", active: open == .recents || settings.showRecentsWithPicker) { toggle(.recents) }
                 .popover(isPresented: binding(.recents), arrowEdge: edge) { RecentsPopover(dismiss: { open = nil }) }
             settingsMenu
         }
         .onChange(of: open) { _, new in if new == .recents { settings.showRecentsWithPicker = true } else if settings.showRecentsWithPicker, new == nil { settings.showRecentsWithPicker = false } }
-        .onAppear { if settings.showRecentsWithPicker { open = .recents } }
+        .onAppear { recovery.refresh(); if settings.showRecentsWithPicker { open = .recents } }
     }
 
     /// Display / Window / Area: one click selects the mode and shows its overlay with **Start recording**.
