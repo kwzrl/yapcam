@@ -181,11 +181,20 @@ import YapcamCore
         #expect(SpringPreset.screen.map { [$0.stiffness, $0.damping, $0.mass] } == [[250, 40, 2.25], [170, 50, 3]])
         #expect(SpringPreset.cursor.map { [$0.stiffness, $0.damping, $0.mass] } == [[470, 70, 3], [340, 60, 3], [530, 40, 1]])
     }
+    @Test func cursorSectionAndAnimationsShareOnePreset() {      // BS-2
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.chooseCursorAnimation("rapid"); #expect(m.activePreset(screen: false) == "rapid")
+        m.chooseCursorAnimation("none"); #expect(m.activePreset(screen: false) == "none")
+        m.chooseCursorAnimation("bogus"); #expect(m.activePreset(screen: false) == "none")
+    }
     @Test func choosingAPresetWritesTheSpringAndMarksItActive() {
         let m = EditorModel(project: FakeProject(), player: FakePlayer())
         let smooth = SpringPreset.screen[1]
-        m.setSpring(screen: true, stiffness: smooth.stiffness, damping: smooth.damping, mass: smooth.mass)
-        #expect(m.activePreset(screen: true) == "smooth" && m.string("zoom_settings.animation_style") == "custom")
+        m.setSpring(screen: true, stiffness: smooth.stiffness, damping: smooth.damping, mass: smooth.mass, preset: smooth.id)
+        #expect(m.activePreset(screen: true) == "smooth" && m.string("zoom_settings.animation_style") == "smooth")   // BS-4: not forced to custom
+        m.setSpring(screen: true, stiffness: 200, damping: 50, mass: 3)
+        #expect(m.string("zoom_settings.animation_style") == "custom")                                              // hand-tuned values
+        m.undo()
         m.setSpring(screen: false, stiffness: 340, damping: 60, mass: 3)
         #expect(m.activePreset(screen: false) == "medium" && m.number("cursor.smoothing") == 0.15)       // smoothing switched on
         m.setCursorAnimationNone(); #expect(m.activePreset(screen: false) == "none")
@@ -598,5 +607,30 @@ import YapcamCore
         let m = EditorModel(project: p, player: FakePlayer())
         m.refreshCameraSilence(); m.close(); await m.waitForCameraSilence()
         #expect(m.cameraSilenceCount == 0)
+    }
+}
+
+@MainActor @Suite struct ClickSoundTests {      // BS-10
+    @Test func percentMapsToDecibelsAndBack() {
+        #expect(abs(ClickSoundSettings.gainDb(percent: 100)) < 1e-9)
+        #expect(abs(ClickSoundSettings.gainDb(percent: 50) + 6.0206) < 1e-3)
+        #expect(ClickSoundSettings.gainDb(percent: 0) == -48)
+        #expect(abs(ClickSoundSettings.percent(gainDb: ClickSoundSettings.gainDb(percent: 25)) - 25) < 1e-6)
+        #expect(ClickSoundSettings.percent(gainDb: -48) == 0)
+    }
+    @Test func previewHasSoundForBothVariantsAndPeakScalesWithVolume() {
+        for v in ["soft", "crisp"] {
+            let loud = ClickSoundSettings.previewSamples(variant: v, percent: 100).map { abs(Int($0)) }.max() ?? 0
+            let quiet = ClickSoundSettings.previewSamples(variant: v, percent: 25).map { abs(Int($0)) }.max() ?? 0
+            #expect(loud > 1000 && quiet > 0 && abs(Double(quiet) / Double(loud) - 0.25) < 0.02)
+        }
+        #expect(ClickSoundSettings.previewSamples(variant: "soft", percent: 0).allSatisfy { $0 == 0 })
+    }
+    @Test func choosingVariantTurnsSoundOnAndNoneOff() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.setClickSound("crisp"); #expect(m.clickSoundChoice == "crisp")
+        m.setClickSoundPercent(50); #expect(abs(m.clickSoundPercent - 50) < 1e-6)
+        m.setClickSound("none"); #expect(m.clickSoundChoice == "none")
+        m.undo(); #expect(m.clickSoundChoice == "crisp")
     }
 }

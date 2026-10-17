@@ -17,19 +17,27 @@ struct SpringPreset: Identifiable, Equatable {
 
 extension EditorModel {
     /// Sets the zoom/pan spring (`zoom_settings`) or the cursor spring (`cursor`) as one undo step. Values are
-    /// clamped to what core accepts; the named presets of core are left to "custom" so these numbers apply.
-    public func setSpring(screen: Bool, stiffness: Double, damping: Double, mass: Double) {
+    /// clamped to what core accepts. `preset` is the named screen style to store (`animation_style`); nil means hand-tuned values
+    /// ("custom"). A named preset is never overwritten by "custom" (BS-4).
+    public func setSpring(screen: Bool, stiffness: Double, damping: Double, mass: Double, preset: String? = nil) {
         let prefix = screen ? "zoom_settings" : "cursor"
         let spring: JSONValue = .object(["tension": .number(min(max(stiffness, 5), 600)), "friction": .number(min(max(damping, 5), 200)),
                                          "mass": .number(min(max(mass, 0.1), 10)), "allow_overshoot": .bool(false)])
         var cmds: [EditorCommand] = [.set(path: "\(prefix).spring", value: spring), .set(path: "\(prefix).speed_preset", value: .string("custom"))]
-        if screen { cmds.append(.set(path: "zoom_settings.animation_style", value: .string("custom"))) }
+        if screen { cmds.append(.set(path: "zoom_settings.animation_style", value: .string(preset ?? "custom"))) }
         else if number("cursor.smoothing") == 0 { cmds.append(.set(path: "cursor.smoothing", value: .number(0.15))) }
         perform(.batch(cmds))
     }
 
     /// Cursor animation "None": raw cursor movement.
     public func setCursorAnimationNone() { set("cursor.smoothing", number: 0) }
+
+    /// Applies a cursor animation preset by id ("smooth", "medium", "rapid", "none"). Shared by Animations and the Cursor section (BS-2).
+    public func chooseCursorAnimation(_ id: String) {
+        if id == "none" { setCursorAnimationNone(); return }
+        guard let p = SpringPreset.cursor.first(where: { $0.id == id }) else { return }
+        setSpring(screen: false, stiffness: p.stiffness, damping: p.damping, mass: p.mass, preset: p.id)
+    }
 
     public func springValues(screen: Bool) -> (stiffness: Double, damping: Double, mass: Double) {
         let p = screen ? "zoom_settings.spring." : "cursor.spring."
@@ -64,8 +72,6 @@ struct AnimationsSection: View {
             ToggleRow(model: model, title: "Follow cursor while zoomed", path: "zoom_settings.follow_cursor", defaultValue: true)
         }
         PickerRow(model: model, title: "Transition speed", path: "zoom_settings.speed_preset", options: inspectorSpeedPresets)
-        PickerRow(model: model, title: "Screen animation", path: "zoom_settings.animation_style",
-                  options: [("Custom", "custom"), ("Focused (settles fast)", "focused"), ("Smooth (fluid)", "smooth")])
         ToggleRow(model: model, title: "Start animation early", path: "zoom_settings.start_early")
         NumberRow(model: model, title: "Default zoom level", path: "zoom_settings.default_scale", range: 1...4, unit: "×", format: "%.1f", defaultValue: 2)
         if model.hasMouseData { InspectorAction("Regenerate automatic zooms", symbol: "arrow.clockwise") { model.regenerateAutoZooms() } }
@@ -96,9 +102,9 @@ struct AnimationPresets: View {
     }
 
     private func choose(_ id: String, screen: Bool, presets: [SpringPreset]) {
-        if id == "none" { model.setCursorAnimationNone(); return }
+        if !screen { model.chooseCursorAnimation(id); return }
         guard let p = presets.first(where: { $0.id == id }) else { return }
-        model.setSpring(screen: screen, stiffness: p.stiffness, damping: p.damping, mass: p.mass)
+        model.setSpring(screen: true, stiffness: p.stiffness, damping: p.damping, mass: p.mass, preset: p.id)
     }
 }
 
@@ -112,7 +118,7 @@ struct SpringSliders: View {
             slider("Rigidity", 5...600, step: 1, \.stiffness)
             slider("Smoothness", 5...200, step: 1, \.damping)
             slider("Momentum", 0.1...10, step: 0.1, \.mass)
-            InspectorAction("Reset") { model.setSpring(screen: screen, stiffness: defaultPreset.stiffness, damping: defaultPreset.damping, mass: defaultPreset.mass) }
+            InspectorAction("Reset") { model.setSpring(screen: screen, stiffness: defaultPreset.stiffness, damping: defaultPreset.damping, mass: defaultPreset.mass, preset: defaultPreset.id) }
                 .disabled(model.activePreset(screen: screen) == defaultPreset.id)
         }
     }
@@ -129,4 +135,21 @@ struct SpringSliders: View {
 struct SpringValues {
     var stiffness: Double, damping: Double, mass: Double
     init(_ v: (stiffness: Double, damping: Double, mass: Double)) { stiffness = v.stiffness; damping = v.damping; mass = v.mass }
+}
+
+/// The one cursor-animation control in the Cursor section: mirrors Animations › Cursor animation (same model state).
+/// Hand-tuned or legacy values show no segment as active; "Customize" lives only in Animations.
+struct CursorAnimationRow: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        let items = SpringPreset.cursor.map { (id: $0.id, title: $0.title) } + [(id: "none", title: "None")]
+        let active = model.activePreset(screen: false) ?? ""
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Animation").font(.system(size: 11)).foregroundStyle(.secondary)
+            SegmentSwitch(items, selection: Binding(get: { active }, set: { model.chooseCursorAnimation($0) }), height: 26)
+                .padding(.horizontal, -4)
+                .accessibilityLabel("Cursor animation")
+            if active.isEmpty { InspectorNote("Custom values. Adjust them in Animations.") }
+        }
+    }
 }

@@ -21,6 +21,7 @@ struct CursorSection: View {
             }
             InspectorGroup("Appearance", first: true) { appearance }
             if visible { InspectorGroup("Cursor set") { CursorArtwork(model: model) } }
+            if visible && model.hasMouseData { ClickSoundGroup(model: model) }
             InspectorGroup("Hidden sections") {
                 InspectorAction("Hide cursor from playhead", symbol: "eye.slash") { model.addCursorHideAtPlayhead() }
                 InspectorNote("Drag a gray section on the timeline to move or resize it.")
@@ -36,8 +37,7 @@ struct CursorSection: View {
             } else {
                 NumberRow(model: model, title: "Size", path: "cursor.size", range: 0.5...4, unit: "×")
             }
-            NumberRow(model: model, title: "Smoothing", path: "cursor.smoothing", range: 0...1)
-            PickerRow(model: model, title: "Movement speed", path: "cursor.speed_preset", options: inspectorSpeedPresets)
+            CursorAnimationRow(model: model)
             ToggleRow(model: model, title: "Hide when idle", path: "cursor.hide_when_idle")
             if model.bool("cursor.hide_when_idle") {
                 DurationRow(model: model, title: "Idle after", path: "cursor.idle_timeout_ns", default: 2_000_000_000, range: 0.5...5)
@@ -236,13 +236,7 @@ struct AudioSection: View {
                 ToggleRow(model: model, title: "Mute", path: "audio.system_muted")
                 NumberRow(model: model, title: "Volume", path: "audio.system_gain_db", range: -48...12, unit: "dB", format: "%.0f")
             }
-            if model.hasMouseData {            // click sounds follow recorded clicks
-                InspectorGroup("Click sounds") {
-                    ToggleRow(model: model, title: "Play a sound on clicks", path: "audio.click_sound.enabled")
-                    PickerRow(model: model, title: "Sound", path: "audio.click_sound.variant", options: [("Soft", "soft"), ("Crisp", "crisp")])
-                    NumberRow(model: model, title: "Volume", path: "audio.click_sound.gain_db", range: -48...12, unit: "dB", format: "%.0f")
-                }
-            }
+            if model.hasMouseData { InspectorNote("Click sounds are in Cursor.") }
             InspectorGroup("Volume changes over time") { AudioRangeRows(model: model) }
             InspectorGroup("Automatic edits") { SilenceRows(model: model) }
         }
