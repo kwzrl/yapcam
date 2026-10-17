@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AppKit
 import YapcamCore
 @testable import YapcamEditor
 
@@ -655,5 +656,50 @@ import YapcamCore
         m.setCameraRoundness(0.5); #expect(m.number("camera.radius") == 32 && abs(m.cameraRoundness - 0.5) < 1e-9)
         m.setCameraRoundness(1); #expect(m.string("camera.shape") == "circle" && m.cameraRoundness == 1)
         m.setCameraRoundness(0.25); #expect(m.string("camera.shape") == "rounded_rect" && m.number("camera.radius") == 16)
+    }
+}
+
+@MainActor @Suite struct FrameExportTests {      // editing.md P1 #5
+    @Test func destinationExtensionPicksTheFormat() {
+        #expect(FrameImageFormat.type(for: URL(fileURLWithPath: "/tmp/a.JPG")) == .jpeg)
+        #expect(FrameImageFormat.type(for: URL(fileURLWithPath: "/tmp/a.png")) == .png)
+        #expect(FrameImageFormat.type(for: URL(fileURLWithPath: "/tmp/a")) == .png)
+    }
+    @Test func jpegIsRealJPEGAndPNGPassesThrough() throws {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                   isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let png = rep.representation(using: .png, properties: [:])!
+        #expect(try FrameImageFormat.encode(png: png, for: URL(fileURLWithPath: "/x.png")) == png)
+        let jpg = try FrameImageFormat.encode(png: png, for: URL(fileURLWithPath: "/x.jpeg"))
+        #expect(Array(jpg.prefix(2)) == [0xFF, 0xD8])
+    }
+    @Test func defaultNameUsesTitleAndPlayheadTime() {
+        #expect(FrameImageFormat.defaultName(title: "Demo", ns: 72_400_000_000) == "Demo – 1.12.png")
+        #expect(FrameImageFormat.defaultName(title: " ", ns: 0) == "Frame – 0.00.png")
+    }
+    @Test func fakeProjectsCannotExportFrames() {
+        #expect(!EditorModel(project: FakeProject(), player: FakePlayer()).canExportFrame)
+    }
+}
+
+@MainActor @Suite struct ZoomPanelTests {      // BS-11, BS-12
+    @Test func thumbnailTargetIsClampedLikeEveryFocusEdit() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.addZoom(fromNs: 0, toNs: 1_000_000_000)
+        guard let z = m.zooms.first else { Issue.record("no zoom"); return }
+        m.setZoomScale(id: z.id, 2)
+        m.setZoomTarget(id: z.id, unit: CGPoint(x: 0.1, y: 0.25))
+        let f = m.zooms.first { $0.id == z.id }!
+        #expect(abs(f.focusX - 0.25) < 1e-9 && abs(f.focusY - 0.25) < 1e-9)      // 2× → half-window 0.25
+        #expect(ZoomTargetThumbnail.unit(CGPoint(x: 300, y: -5), in: CGSize(width: 200, height: 100)) == CGPoint(x: 1, y: 0))
+    }
+    @Test func useForNewZoomsSetsTheDefaultLevel() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.addZoom(fromNs: 0, toNs: 1_000_000_000)
+        let id = m.zooms[0].id
+        m.setZoomScale(id: id, 3)
+        m.useZoomForNewZooms(id: id)
+        #expect(m.defaultZoomScale == 3)
+        m.undo(); #expect(m.defaultZoomScale == 2)
     }
 }
