@@ -92,7 +92,7 @@ private struct TimelineTools: View {
             IconSlot("plus.magnifyingglass", label: "Add zoom", help: "Add zoom at playhead (Z)") { model.addZoomAtPlayhead() }
             IconSlot("trash", label: "Delete selection", help: "Delete selection (⌫)") { model.deleteSelection() }
                 .disabled(model.selection == .none)
-            IconSlot("magnet", label: "Snapping", help: "Snapping", active: model.snappingEnabled) { model.snappingEnabled.toggle() }
+            IconSlot("arrow.right.and.line.vertical.and.arrow.left", label: "Snapping", help: "Snapping", active: model.snappingEnabled) { model.snappingEnabled.toggle() }
         }
     }
 }
