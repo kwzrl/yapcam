@@ -1,3 +1,4 @@
+READY RV fa01ec3+worktree | review finding 4 fixed: heartbeat cannot suppress newer real pixels; injected timestamp regression + 174 capture tests pass
 READY W3 9c67775+worktree | A4.1/W4 desktop-icon filter wired end to end; no recording-time Finder mutation/restart; 173 capture + focused UI tests pass, live permission check untested
 READY R5b 9acadbe +8 owned paths | 173 capture tests /127 Rust /signed main app green; 8 incoming requests delivered/resolvable, 3 explicitly blocked
 R5b 02:10UTC 9acadbe + owned changes | done: requests pass validated on main a96173e snapshot | next: Lead checkpoint/rebase; named identity/native/hardware handoffs
@@ -20,6 +21,22 @@ READY 63f4abb package 2 injected-fault verification; unit tests pass
 READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 # capture status
+
+## RV — static-screen heartbeat ordering
+
+Review R5 finding 4 is resolved. `SegmentWriter` now keeps written screen PTS
+(real or heartbeat) separate from real-source PTS and cadence state. Heartbeats no
+longer advance the real-frame deadline. When a newer real source frame is delivered
+after a host-now heartbeat with an earlier PTS, its pixels are kept and only its
+written PTS is moved to 1ns after the heartbeat, preserving the media sink's strict
+monotonicity.
+
+The injected regression writes a real frame at `t=0`, a copied heartbeat at
+`t=1.0s`, then a changed real frame delivered later with source PTS `t=0.9s`. It
+asserts output PTS `[0, 1.0s, 1.0s+1ns]` and verifies the third pixel buffer is the
+changed real image, not another heartbeat copy. Focused heartbeat/cadence tests
+**4/4 pass**; complete `YapcamCaptureTests` **174/174 pass** in six suites. Native
+opt-ins remain skipped. `git diff --check` passes; Lead must commit the worktree.
 
 ## W3 — A4.1 / W4 Hide Desktop Icons
 
