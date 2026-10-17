@@ -44,4 +44,31 @@ import AppKit
         #expect(document.model.revision == failedRevision)
         #expect(try document.project.toJSON() == before)
     }
+
+    /// Intention tools mutate through the core directly; the editor (and the vision hint cache keyed by revision)
+    /// must still see a new revision, or the timeline doesn't redraw and stale hints break `check` (eval round 3).
+    @Test func intentionToolBumpsRevisionAndReachesTheEditor() throws {
+        _ = NSApplication.shared
+        let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let package = FileManager.default.temporaryDirectory.appendingPathComponent("mcp-intent-\(UUID().uuidString).yapcam")
+        try FileManager.default.copyItem(at: source, to: package)
+        defer { try? FileManager.default.removeItem(at: package) }
+        let document = try EditorDocument(package: package)
+        defer { document.model.close() }
+        func call(_ name: String, _ args: [String: Any] = [:]) throws -> [String: Any] {
+            let request: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": ["name": name, "arguments": args]]
+            let response = try document.handleMCP(JSONSerialization.data(withJSONObject: request))
+            let rpc = try #require(JSONSerialization.jsonObject(with: response) as? [String: Any])
+            return try #require(rpc["result"] as? [String: Any])
+        }
+        let revision = document.model.revision
+        let zoom = try call("zoom_on_click", ["click_index": 0])
+        #expect(zoom["isError"] as? Bool == false)
+        #expect(document.model.revision == revision + 1)
+        #expect(document.model.project.zooms.count == 1)
+        #expect(try call("check")["isError"] as? Bool == false)
+        let unchanged = document.model.revision
+        _ = try call("moments")
+        #expect(document.model.revision == unchanged)
+    }
 }

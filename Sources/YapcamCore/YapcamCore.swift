@@ -138,6 +138,8 @@ public final class Project: @unchecked Sendable {
             if body?["isError"] as? Bool == false {
                 if ["apply", "batch"].contains(name) { changed = !(content?["changed"] as? [String] ?? []).isEmpty }
                 if ["undo", "redo"].contains(name) { changed = content?["changed"] as? Bool == true }
+                // Intention tools (cut_words, tighten_pauses, zoom_on_click, …) report `"changed": true` themselves.
+                else if !["apply", "batch"].contains(name), content?["changed"] as? Bool == true { changed = true }
                 if changed { mutationRevision &+= 1 }
             }
             if name == "save", body?["isError"] as? Bool == false { savedRevision = mutationRevision }
