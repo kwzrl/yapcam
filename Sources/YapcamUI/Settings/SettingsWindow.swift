@@ -60,6 +60,7 @@ struct GeneralSettings: View {
             }))
             if let loginError { Text(loginError).font(.caption).foregroundStyle(.orange) }
             Toggle("Hide Dock Icon", isOn: Binding(get: { !s.showInDock }, set: { s.showInDock = !$0 }))
+            Text("The icon only disappears while no project window is open.").font(.caption).foregroundStyle(.secondary)
             Toggle("Show menu bar item", isOn: $s.showMenuBarItem)
             Section("Permissions") {
                 Button("Review permissions…") { OnboardingWindow.shared.show(reason: nil, all: true) }
@@ -118,7 +119,7 @@ struct EditingSettings: View {
     var body: some View {
         Form {
             Toggle("Use last project settings as default for new recordings", isOn: $s.reuseLastProjectSettings)
-            Text("Off: new projects start from your default preset (or the standard look). On: from the look of the most recently edited project instead; with no earlier project the default preset is used.")
+            Text("A preset marked as default always wins. Without one, On starts new projects from the look of the most recently edited project; Off (or no earlier project) uses the standard look.")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Use autosave (every 30 s)", isOn: $s.autosaveEnabled)
             Text(s.autosaveEnabled ? "Edits are saved 30 seconds after your last change. Closing a project window and quitting always save."

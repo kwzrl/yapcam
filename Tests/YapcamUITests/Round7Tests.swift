@@ -1,6 +1,8 @@
 import AppKit
 import Foundation
 import Testing
+import YapcamCore
+import YapcamEditor
 @testable import YapcamUI
 
 @MainActor @Suite struct Round7RecordingShellTests {
@@ -90,5 +92,64 @@ import Testing
         #expect(NotesWindow.shared.isVisible && PrompterModel.shared.playing)
         PrompterModel.shared.playing = false; NotesWindow.shared.hide()
         if before { NotesWindow.shared.show() }
+    }
+
+    // B-05 / B-07 / B-08
+    @Test func speakerNotesShortcutIsGlobal() {
+        #expect(HotkeyAction.allCases.filter(\.isGlobal).contains(.toggleNotes))
+    }
+    @Test func activationPolicyKeepsTheDockIconWhileAnEditorIsOpen() {
+        typealias A = AppSettings
+        #expect(A.activationPolicy(showInDock: false, hideWhileRecording: false, recording: false, editorOpen: false) == .accessory)
+        #expect(A.activationPolicy(showInDock: false, hideWhileRecording: false, recording: false, editorOpen: true) == .regular)
+        #expect(A.activationPolicy(showInDock: false, hideWhileRecording: true, recording: true, editorOpen: true) == .regular)
+        #expect(A.activationPolicy(showInDock: true, hideWhileRecording: true, recording: true, editorOpen: false) == .accessory)
+        #expect(A.activationPolicy(showInDock: true, hideWhileRecording: true, recording: false, editorOpen: false) == .regular)
+    }
+    @Test func reuseLastProjectSettingsDefaultsToOn() {
+        #expect(AppSettings(store: UserDefaults(suiteName: "r7reuse-\(UUID())")!).reuseLastProjectSettings)
+    }
+    @Test func initialLookPrecedence() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "r7-look-\(UUID())", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func make(_ name: String, padding: Double?) throws -> (URL, Project) {
+            let u = dir.appending(path: name, directoryHint: .isDirectory)
+            let fixture = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appending(path: "Fixtures/synthetic/basic.yapcam")
+            try FileManager.default.copyItem(at: fixture, to: u)
+            let p = try Project.create(package: u)
+            if let padding { try p.apply(.set(path: "canvas.padding", value: .number(padding))); try p.save() }
+            return (u, p)
+        }
+        func padding(_ p: Project) -> Double {
+            let j = (try? JSONSerialization.jsonObject(with: p.snapshot().toJSON())) as? [String: Any]
+            return ((j?["canvas"] as? [String: Any])?["padding"] as? NSNumber)?.doubleValue ?? -1
+        }
+        let (lastURL, _) = try make("Last.yapcam", padding: 0.31)
+        // a preset marked as default (padding 0.62)
+        let presetDir = dir.appending(path: "presets", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: presetDir, withIntermediateDirectories: true)
+        let store = YapcamEditor.PresetStore(directory: presetDir, defaults: UserDefaults(suiteName: "r7presets-\(UUID())")!)
+        let (_, src) = try make("Src.yapcam", padding: 0.62)
+        try src.exportPreset(to: store.url("Mine"))
+
+        // 1. default preset + option on: the preset wins
+        let (a, pa) = try make("A.yapcam", padding: nil)
+        store.defaultName = "Mine"
+        ProjectActions.applyInitialLook(to: pa, package: a, reuseLast: true, in: dir, presets: store)
+        #expect(abs(padding(pa) - 0.62) < 0.001)
+        // 2. no default preset + option on: the last project's look
+        store.defaultName = nil
+        let (b, pb) = try make("B.yapcam", padding: nil)
+        let only = dir.appending(path: "only-last", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: only, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: lastURL, to: only.appending(path: "Last.yapcam"))
+        ProjectActions.applyInitialLook(to: pb, package: b, reuseLast: true, in: only, presets: store)
+        #expect(abs(padding(pb) - 0.31) < 0.001)                   // taken from the earlier project, not the preset
+        // 3. option off, no default preset: standard look
+        let (c, pc) = try make("C.yapcam", padding: nil)
+        let standard = padding(pc)
+        ProjectActions.applyInitialLook(to: pc, package: c, reuseLast: false, in: dir, presets: store)
+        #expect(padding(pc) == standard)
     }
 }

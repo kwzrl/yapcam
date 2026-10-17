@@ -199,7 +199,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         systemAudioApps = d.stringArray(forKey: "systemAudioApps") ?? []
         areaCustomRatioW = CGFloat(d.object(forKey: "areaCustomRatioW") as? Double ?? 16)
         areaCustomRatioH = CGFloat(d.object(forKey: "areaCustomRatioH") as? Double ?? 10)
-        reuseLastProjectSettings = d.object(forKey: "reuseLastProjectSettings") as? Bool ?? false
+        reuseLastProjectSettings = d.object(forKey: "reuseLastProjectSettings") as? Bool ?? true
         presetsDirectory = d.string(forKey: "presetsDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) }
         experimentalVariableFrameRate = d.object(forKey: "experimentalVariableFrameRate") as? Bool ?? false
         autosaveEnabled = d.object(forKey: "autosaveEnabled") as? Bool ?? true
@@ -253,13 +253,14 @@ struct KeyCombo: Codable, Equatable, Hashable {
 extension AppSettings {
     /// The activation policy the app should have: a hidden Dock icon stays hidden; with the Dock icon shown it
     /// goes away while a recording runs when `hideDockWhileRecording` is on.
-    static func activationPolicy(showInDock: Bool, hideWhileRecording: Bool, recording: Bool) -> NSApplication.ActivationPolicy {
+    static func activationPolicy(showInDock: Bool, hideWhileRecording: Bool, recording: Bool, editorOpen: Bool = false) -> NSApplication.ActivationPolicy {
+        if editorOpen { return .regular }                     // an open project always has a Dock icon (Hide Dock Icon applies when nothing is open)
         guard showInDock else { return .accessory }
         return recording && hideWhileRecording ? .accessory : .regular
     }
     var activationPolicy: NSApplication.ActivationPolicy {
         let phase = RecordingController.shared.phase
-        return Self.activationPolicy(showInDock: showInDock, hideWhileRecording: hideDockWhileRecording, recording: phase == .recording || phase == .paused)
+        return Self.activationPolicy(showInDock: showInDock, hideWhileRecording: hideDockWhileRecording, recording: phase == .recording || phase == .paused, editorOpen: EditorWindows.openCount > 0)
     }
 }
 

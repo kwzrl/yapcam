@@ -18,7 +18,7 @@ import Testing
         #expect(s.playSounds)                        // begin / end sound: on
         #expect(s.showQuickExportWidget)             // after recording: quick export widget on
         #expect(s.showRecordingWidget && s.createAutoZooms && s.highlightRecordedArea)
-        #expect(!s.hideDesktopIcons && s.countdown == 0 && s.autosaveEnabled && !s.reuseLastProjectSettings)
+        #expect(!s.hideDesktopIcons && s.countdown == 0 && s.autosaveEnabled && s.reuseLastProjectSettings)
     }
 
     @Test func savedChoicesSurviveTheNewDefaults() {

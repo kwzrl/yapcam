@@ -106,6 +106,9 @@ import YapcamEditor
         // Re-apply settings that need side effects.
         // A sink, not `objectWillChange.values`: AsyncPublisher traps when two settings change back to back
         // (e.g. Start on the display overlay sets displayID and sourceMode) while the loop is still sleeping.
+        NotificationCenter.default.addObserver(forName: EditorWindows.openCountDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyLiveSettings() }     // Hide Dock Icon follows editor windows opening and closing
+        }
         settingsObserver = settings.objectWillChange
             .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.applyLiveSettings() } }

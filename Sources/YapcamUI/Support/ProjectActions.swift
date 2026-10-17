@@ -160,12 +160,12 @@ import YapcamCore
         return project
     }
 
-    /// A new project's starting look: the last project's when the user asked for that and there is one,
-    /// otherwise the default preset.
+    /// A new project's starting look, in this order: a preset marked as default; else the last project's look when the
+    /// user asked for that and there is one; else the standard look.
     static func applyInitialLook(to project: Project, package: URL, reuseLast: Bool = AppSettings.shared.reuseLastProjectSettings,
-                                 in directory: URL = AppSettings.shared.storageDirectory) {
-        if reuseLast, let last = lastProject(excluding: package, in: directory), copyLook(from: last, to: project) { return }
-        EditorPresets.applyDefaultPreset(to: project)
+                                 in directory: URL = AppSettings.shared.storageDirectory, presets: YapcamEditor.PresetStore? = nil) {
+        if EditorPresets.applyDefaultPreset(to: project, from: presets) { return }
+        if reuseLast, let last = lastProject(excluding: package, in: directory) { _ = copyLook(from: last, to: project) }
     }
 
     /// The most recently saved project in `directory` other than `package`.

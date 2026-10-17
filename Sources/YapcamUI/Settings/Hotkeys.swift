@@ -29,7 +29,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     /// Registered system-wide (works while another app is in front). The others are menu shortcuts.
     var isGlobal: Bool {
         switch self {
-        case .toggleNotes, .quickExportCopy, .quickExportSave, .openLast: false
+        case .quickExportCopy, .quickExportSave, .openLast: false
         default: true
         }
     }

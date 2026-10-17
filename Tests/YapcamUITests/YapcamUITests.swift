@@ -1745,7 +1745,7 @@ extension UISmokeTests {
     @Test func newSettingsDefaultAndPersist() {
         let d = store()
         let s = AppSettings(store: d)
-        #expect(!s.reuseLastProjectSettings && !s.experimentalVariableFrameRate && s.presetsDirectory == nil)
+        #expect(s.reuseLastProjectSettings && !s.experimentalVariableFrameRate && s.presetsDirectory == nil)
         #expect(s.areaCustomRatioW == 16 && s.areaCustomRatioH == 10)
         s.reuseLastProjectSettings = true; s.experimentalVariableFrameRate = true
         s.presetsDirectory = URL(filePath: "/tmp/yp-presets", directoryHint: .isDirectory)
