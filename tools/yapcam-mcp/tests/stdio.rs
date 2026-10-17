@@ -517,3 +517,142 @@ fn handbook_instructions_resources_and_prompts() {
     drop(c);
     assert_eq!(tree(&f.0), before);
 }
+
+fn craft3_fixture(events: Vec<Value>) -> Fixture {
+    let f = Fixture::new();
+    fs::write(
+        f.0.join("recording/seg-000/events.jsonl"),
+        events
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n",
+    )
+    .unwrap();
+    fs::write(f.0.join("recording/seg-001/events.jsonl"), "").unwrap();
+    f
+}
+
+#[test]
+fn craft_static_cuts_and_pixel_hints_cross_stdio() {
+    let f = craft3_fixture(vec![
+        json!({"t":1_500_000_000,"type":"move","x":160,"y":100}),
+        json!({"t":2_200_000_000_i64,"type":"down","x":160,"y":100}),
+    ]);
+    let mut c = Client::new(&f.0);
+    c.init();
+    let catalog = c.rpc("tools/list", json!({}));
+    for name in ["moments", "check", "zoom_on_click"] {
+        let tool = catalog["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap();
+        assert!(tool["inputSchema"]["properties"]["static_cuts_s"].is_object());
+        assert!(tool["inputSchema"]["properties"]["visual_view_changes_s"].is_object());
+    }
+    c.ok("apply",json!({"command":{"op":"delete_range","tl_start_ns":1_000_000_000,"tl_end_ns":2_000_000_000}}));
+    let before = c.ok("read_project", json!({}));
+    assert!(c.ok("moments", json!({}))["view_changes"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let z = c.ok("zoom_on_click", json!({"click_index":0,"end_s":1.7}));
+    assert_eq!(z["from_s"], 0.7);
+    c.ok("undo", json!({}));
+    assert_eq!(c.ok("read_project", json!({})), before);
+    let m = c.ok(
+        "moments",
+        json!({"visual_view_changes_s":[1.8],"static_cuts_s":[1.0]}),
+    );
+    assert_eq!(m["hints_accepted"], true);
+    assert_eq!(
+        m["moments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == "click")
+            .unwrap()["view_change_s"],
+        1.8
+    );
+    assert_eq!(
+        c.call(
+            "zoom_on_click",
+            json!({"click_index":0,"end_s":1.7,"visual_view_changes_s":[1.0]})
+        )["isError"],
+        true
+    );
+    for name in ["moments", "check", "zoom_on_click"] {
+        let mut args = json!({"static_cuts_s":["1"]});
+        if name == "zoom_on_click" {
+            args["click_index"] = json!(0);
+        }
+        assert_eq!(c.call(name, args)["isError"], true);
+    }
+    assert_eq!(c.ok("read_project", json!({})), before);
+    assert_eq!(c.ok("project_summary", json!({}))["undo_steps"], 1);
+}
+
+#[test]
+fn craft_included_click_timing_crosses_stdio_in_one_undo_step() {
+    let f = craft3_fixture(vec![
+        json!({"t":1_000_000_000,"type":"down","x":140,"y":100}),
+        json!({"t":2_500_000_000_i64,"type":"down","x":180,"y":100}),
+    ]);
+    let mut c = Client::new(&f.0);
+    c.init();
+    let before = c.ok("read_project", json!({}));
+    for (args, end, extended) in [
+        (json!({"click_index":0,"include":[1]}), 4.1, true),
+        (
+            json!({"click_index":0,"include":[1],"end_s":2.0}),
+            2.0,
+            false,
+        ),
+        (
+            json!({"click_index":0,"include":[1],"visual_view_changes_s":[2.9]}),
+            2.85,
+            true,
+        ),
+    ] {
+        let z = c.ok("zoom_on_click", args);
+        assert_eq!(z["to_s"], end);
+        assert_eq!(z["include_extended"], extended);
+        assert_eq!(c.ok("project_summary", json!({}))["undo_steps"], 1);
+        c.ok("undo", json!({}));
+        assert_eq!(c.ok("read_project", json!({})), before);
+    }
+}
+
+#[test]
+fn craft_visual_result_warnings_cross_stdio_without_mutation() {
+    let f = craft3_fixture(vec![json!({"t":800_000_000,"type":"down","x":160,"y":100})]);
+    let mut c = Client::new(&f.0);
+    c.init();
+    c.ok("apply",json!({"command":{"op":"delete_range","tl_start_ns":1_900_000_000,"tl_end_ns":2_500_000_000_i64}}));
+    c.ok("zoom_on_click", json!({"click_index":0,"scale":2}));
+    let before = c.ok("read_project", json!({}));
+    let hints = json!({"visual_view_changes":[{"at_s":1.5,"bbox":{"x":0.9,"y":0.8,"w":0.08,"h":0.1},"click_index":0}]});
+    let checked = c.ok("check", hints);
+    assert_eq!(checked["hints_accepted"], true);
+    for kind in ["zoom_hides_change", "toast_cut_short"] {
+        assert!(
+            checked["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["kind"] == kind && r["severity"] == "warning"),
+            "{checked}"
+        );
+    }
+    for hints in [
+        json!({"visual_view_changes":[{"at_s":1,"bbox":{"x":0.9,"y":0.8,"w":0.2,"h":0.1}}]}),
+        json!({"visual_view_changes":[{"at_s":1,"bbox":{"x":0.9,"y":0.8,"w":0.08,"h":0.1},"click_index":99}]}),
+    ] {
+        assert_eq!(c.call("check", hints)["isError"], true);
+    }
+    assert_eq!(c.ok("read_project", json!({})), before);
+    assert_eq!(c.ok("project_summary", json!({}))["undo_steps"], 2);
+}
