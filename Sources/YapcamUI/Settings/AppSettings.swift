@@ -75,7 +75,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         guard let src = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
               let ptr = TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData) else { return "?" }
         let layout = unsafeBitCast(ptr, to: CFData.self)
-        let data = CFDataGetBytePtr(layout)!
+        guard let data = CFDataGetBytePtr(layout) else { return "?" }
         var dead: UInt32 = 0
         var chars = [UniChar](repeating: 0, count: 4)
         var len = 0
@@ -92,7 +92,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
 /// `didSet` persistence keep the view code trivial.
 @MainActor final class AppSettings: ObservableObject {
     static let shared = AppSettings(store: AppDefaults.store)
-    private let d: UserDefaults
+    let d: UserDefaults   // the backing store (also read off the main actor by editor hooks)
 
     @Published var sourceMode: SourceMode { didSet { d.set(sourceMode.rawValue, forKey: "sourceMode") } }
     @Published var displayID: UInt32 { didSet { d.set(Int(displayID), forKey: "displayID") } }
@@ -129,6 +129,10 @@ struct KeyCombo: Codable, Equatable, Hashable {
     /// What the editor's export reads (EditorWindows.hardwareEncodingEnabled): the stored switch, off the main actor.
     nonisolated static func hardwareEncodingEnabledInStore(_ store: UserDefaults = AppDefaults.store) -> Bool {
         !(store.object(forKey: "disableHardwareEncoding") as? Bool ?? false)
+    }
+    /// Read by the editor when an export starts; that can be off the main thread, so it reads the store, not `shared`.
+    nonisolated static func variableFrameRateInStore(_ store: UserDefaults = AppDefaults.store) -> Bool {
+        store.object(forKey: "experimentalVariableFrameRate") as? Bool ?? false
     }
     @Published var hideDesktopIcons: Bool { didSet { d.set(hideDesktopIcons, forKey: "hideDesktopIcons") } }
     /// While a recording runs the Dock icon is hidden (reference "Hide Dock Icon", default on). The menu bar item stays.

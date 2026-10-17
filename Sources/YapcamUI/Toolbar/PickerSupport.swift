@@ -37,6 +37,27 @@ import AVFoundation
     }
 }
 
+/// What a Start / area confirm / window pick writes into the settings, as one pure function so it is testable
+/// without windows. Each case changes several @Published settings back to back (the crash class from 0.10.0).
+enum SourceChoice: Equatable {
+    case display(UInt32)
+    case window(UInt32)
+    case area(display: UInt32, rect: CGRect)
+
+    /// An area smaller than the recordable minimum is refused (nil): the confirm button does nothing.
+    static func confirmedArea(display: UInt32, rect: CGRect?) -> SourceChoice? {
+        guard let rect, AreaGeometry.canRecord(rect) else { return nil }
+        return .area(display: display, rect: rect.integral)
+    }
+    @MainActor func apply(to s: AppSettings) {
+        switch self {
+        case .display(let id): s.displayID = id; s.sourceMode = .display
+        case .window(let id): s.windowID = id; s.sourceMode = .window
+        case .area(let id, let rect): s.areaDisplayID = id; s.areaRect = rect; s.sourceMode = .area
+        }
+    }
+}
+
 /// The recording widget's timer: grows with the length (0:00 → 00:00 → 0:00:00 → 00:00:00), like the reference.
 enum RecordingTimeFormat {
     static func string(_ t: TimeInterval) -> String {

@@ -3,6 +3,12 @@ import YapcamEditor
 import UniformTypeIdentifiers
 import YapcamCore
 
+/// "Show in Finder" for every button that has one; the side effect is replaceable so the buttons' real target is testable.
+@MainActor enum FinderReveal {
+    static var perform: ([URL]) -> Void = { NSWorkspace.shared.activateFileViewerSelecting($0) }
+    static func show(_ url: URL) { perform([url]) }
+}
+
 /// File-level operations on .yapcam packages and diagnostics, shared by menus and the Recordings window.
 @MainActor enum ProjectActions {
     /// Destinations claimed by imports that are still running, so two imports of
@@ -94,7 +100,7 @@ import YapcamCore
         guard panel.runModal() == .OK, let chosen = panel.url else { return }
         do {
             let dest = try saveCopy(of: url, named: chosen.deletingPathExtension().lastPathComponent, in: chosen.deletingLastPathComponent())
-            NSWorkspace.shared.activateFileViewerSelecting([dest])
+            FinderReveal.show(dest)
         } catch { RecordingController.shared.alert = AppAlert(title: "Could not save a copy", error: error) }
     }
 
@@ -256,6 +262,11 @@ import YapcamCore
         panel.nameFieldStringValue = "Yapcam-Diagnostics.txt"
         panel.allowedContentTypes = [.plainText]
         guard panel.runModal() == .OK, let dest = panel.url else { return }
+        writeDiagnostics(to: dest)
+    }
+
+    /// The diagnostics report: version, permissions, displays and the log tail.
+    static func diagnosticsText() -> String {
         var out = "Yapcam diagnostics \(Date().ISO8601Format())\n"
         let info = Bundle.main.infoDictionary
         out += "Version \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?"))\n"
@@ -267,6 +278,11 @@ import YapcamCore
         if let text = try? String(contentsOf: log, encoding: .utf8) {
             out += "\nLog (last 200 lines)\n" + text.split(separator: "\n").suffix(200).joined(separator: "\n") + "\n"
         }
+        return out
+    }
+
+    static func writeDiagnostics(to dest: URL) {
+        let out = diagnosticsText()
         do { try out.write(to: dest, atomically: true, encoding: .utf8) }
         catch { RecordingController.shared.alert = AppAlert(title: "Could not write diagnostics", error: error) }
     }

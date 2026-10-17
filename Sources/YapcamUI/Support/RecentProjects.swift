@@ -99,7 +99,7 @@ struct ProjectEntry: Identifiable, Equatable {
     }
 
     func extractRaw(_ p: ProjectEntry) {
-        do { if let dest = try ProjectActions.extractRaw(p.url) { NSWorkspace.shared.activateFileViewerSelecting([dest]) } }
+        do { if let dest = try ProjectActions.extractRaw(p.url) { FinderReveal.show(dest) } }
         catch { RecordingController.shared.alert = AppAlert(title: "Could not extract files", error: error) }
     }
 
@@ -161,7 +161,7 @@ struct RecentProjectsView: View {
             } else {
                 List(filtered) { p in
                     Row(entry: p, thumbnail: model.thumbnails[p.url], open: { open(p) },
-                        reveal: { NSWorkspace.shared.activateFileViewerSelecting([p.url]) },
+                        reveal: { FinderReveal.show(p.url) },
                         rename: { model.rename(p) }, duplicate: { model.duplicate(p) }, removeFromRecents: { model.removeFromRecents(p) },
                         extract: { model.extractRaw(p) }, saveAs: { ProjectActions.saveAs(p.url) }, zip: { ProjectActions.copyAndZip(p.url) },
                         trash: { model.trash(p) })
@@ -178,7 +178,7 @@ struct RecentProjectsView: View {
                             Text((p.url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             Spacer()
                             Button("Open") { open(p) }
-                            Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([p.url]) }
+                            Button("Show") { FinderReveal.show(p.url) }
                         }.controlSize(.small)
                     }
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
@@ -207,7 +207,7 @@ struct RecentProjectsView: View {
                     Text(u.deletingPathExtension().lastPathComponent).lineLimit(1)
                     Spacer()
                     Button("Recover") { recover(u) }
-                    Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([u]) }
+                    Button("Show") { FinderReveal.show(u) }
                 }
             }
         }

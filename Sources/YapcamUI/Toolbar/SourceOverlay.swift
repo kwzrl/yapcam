@@ -185,15 +185,20 @@ struct SourceCard: View {
             Prompt.text(title: "Window size", message: "Width × height in points, for example 1280x720",
                         initial: "\(Int(w.bounds.width))x\(Int(w.bounds.height))")
         }) else { return }
+        applyTypedSize(text, to: w)
+    }
+
+    /// What the "Custom…" prompt does with the text typed: resize, or explain what is accepted.
+    func applyTypedSize(_ text: String, to w: WindowRow) {
         guard let size = WindowAX.parseSize(text) else { notice = "Enter two numbers between 150 and 8192, like 1280x720."; return }
         resize(w, toSize: size)
     }
 
-    func saveSize(of w: WindowRow) {
+    func saveSize(of w: WindowRow, in settings: AppSettings = .shared) {
         let t = "\(Int(w.bounds.width))x\(Int(w.bounds.height))"
-        var list = AppSettings.shared.savedWindowSizes
+        var list = settings.savedWindowSizes
         list.removeAll { $0 == t }; list.insert(t, at: 0)
-        AppSettings.shared.savedWindowSizes = Array(list.prefix(8))
+        settings.savedWindowSizes = Array(list.prefix(8))
     }
 
     struct AppWindows: Identifiable { let app: String; let rows: [WindowRow]; var id: String { app } }
@@ -448,14 +453,12 @@ private final class OverlayWindow: NSWindow {
     }
 
     private func startDisplay(_ id: UInt32) {
-        let s = AppSettings.shared
-        s.displayID = id; s.sourceMode = .display
+        SourceChoice.display(id).apply(to: AppSettings.shared)
         hide(); beginSoon()
     }
 
     private func startWindow(_ id: UInt32) {
-        let s = AppSettings.shared
-        s.windowID = id; s.sourceMode = .window
+        SourceChoice.window(id).apply(to: AppSettings.shared)
         hide(); beginSoon()
     }
 

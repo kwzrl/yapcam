@@ -322,9 +322,9 @@ import Testing
     }
 
     @Test func macScanKeepsOnlyNewPackagesOutsideTheTrash() {
-        let out = "/Users/a/Movies/Yapcam/One.yapcam\n/Users/a/Desktop/Two.yapcam\n/Users/a/.Trash/Old.yapcam\n/Users/a/notes.txt\n"
-        let urls = RecentProjectsModel.parseScan(out, excluding: ["/Users/a/Movies/Yapcam/One.yapcam"])
-        #expect(urls.map(\.path) == ["/Users/a/Desktop/Two.yapcam"])
+        let out = "/tmp/fixture/Movies/Yapcam/One.yapcam\n/tmp/fixture/Desktop/Two.yapcam\n/tmp/fixture/.Trash/Old.yapcam\n/tmp/fixture/notes.txt\n"
+        let urls = RecentProjectsModel.parseScan(out, excluding: ["/tmp/fixture/Movies/Yapcam/One.yapcam"])
+        #expect(urls.map(\.path) == ["/tmp/fixture/Desktop/Two.yapcam"])
     }
 }
 

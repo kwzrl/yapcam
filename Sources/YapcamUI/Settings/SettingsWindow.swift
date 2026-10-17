@@ -295,6 +295,22 @@ enum LoginItem {
 }
 
 /// Click, then press the new combination. Esc cancels.
+/// What a key press means while a shortcut recorder is waiting (Esc cancels; a usable combo is taken; anything else beeps).
+enum RecorderKey {
+    enum Outcome<Value: Equatable>: Equatable { case cancel, accept(Value), reject }
+    static let escape: UInt16 = 53
+    static func decide(keyCode: UInt16, combo: KeyCombo?) -> Outcome<KeyCombo> {
+        if keyCode == escape { return .cancel }
+        if let combo { return .accept(combo) }
+        return .reject
+    }
+    static func decideEditing(keyCode: UInt16, chars: String?, modifiers: NSEvent.ModifierFlags) -> Outcome<Character> {
+        if keyCode == escape { return .cancel }
+        if let c = EditingKeyRules.character(chars: chars, modifiers: modifiers) { return .accept(c) }
+        return .reject
+    }
+}
+
 /// Pure rules for the Editing tab, so they can be tested without UI.
 enum EditingKeyRules {
     /// The editor key a key-down stands for: one printable character, no ⌘/⌃/⌥.
@@ -320,8 +336,11 @@ struct SingleKeyRecorder: View {
     private func start() {
         recording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
-            if e.keyCode == 53 { stop(); return nil }
-            if let c = EditingKeyRules.character(chars: e.charactersIgnoringModifiers, modifiers: e.modifierFlags) { key = c; stop() } else { NSSound.beep() }
+            switch RecorderKey.decideEditing(keyCode: e.keyCode, chars: e.charactersIgnoringModifiers, modifiers: e.modifierFlags) {
+            case .cancel: stop()
+            case .accept(let c): key = c; stop()
+            case .reject: NSSound.beep()
+            }
             return nil
         }
     }
@@ -351,8 +370,11 @@ struct ShortcutRecorder: View {
     private func start() {
         recording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
-            if e.keyCode == 53 { stop(); return nil }
-            if let c = KeyCombo(event: e) { combo = c; stop() } else { NSSound.beep() }
+            switch RecorderKey.decide(keyCode: e.keyCode, combo: KeyCombo(event: e)) {
+            case .cancel: stop()
+            case .accept(let c): combo = c; stop()
+            case .reject: NSSound.beep()
+            }
             return nil
         }
     }

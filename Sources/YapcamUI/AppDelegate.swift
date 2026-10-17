@@ -261,7 +261,7 @@ import YapcamEditor
             if dest != u { RecordingController.shared.engine.openEditor(package: dest) }
         } catch { RecordingController.shared.alert = AppAlert(title: "Could not rename", error: error) }
     }
-    @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { NSWorkspace.shared.activateFileViewerSelecting([u]) } }
+    @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { FinderReveal.show(u) } }
     @objc func showRecordings() { RecentProjectsWindow.shared.show() }
     @objc func importVideo() { ProjectActions.importVideo() }
     @objc func exportDiagnostics() { ProjectActions.exportDiagnostics() }
