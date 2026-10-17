@@ -38,7 +38,7 @@ def call(name, args=None):
     return result['structuredContent']
 
 rpc('initialize', {'protocolVersion':'2025-06-18', 'capabilities':{}, 'clientInfo':{'name':'Night curl verification', 'version':'1'}})
-assert len(rpc('tools/list')['tools']) == 14
+assert {'list_documents', 'apply', 'batch', 'moments', 'check', 'tighten_pauses', 'zoom_on_click'} <= {t['name'] for t in rpc('tools/list')['tools']}
 documents = call('list_documents')['documents']
 assert documents and any(d['frontmost'] for d in documents)
 summary = call('project_summary')
