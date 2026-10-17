@@ -82,7 +82,7 @@ struct TimelineScrollHost: NSViewRepresentable {
             guard window != nil else { if model?.timelineScroller === self { model?.timelineScroller = nil }; return }
             scrollView = enclosingScrollView
             model?.timelineScroller = self
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.magnify, .scrollWheel]) { [weak self] e in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.magnify, .scrollWheel, .flagsChanged]) { [weak self] e in
                 guard let self else { return e }
                 nonisolated(unsafe) let ev = e
                 let used = MainActor.assumeIsolated { self.handle(ev) }
@@ -92,6 +92,9 @@ struct TimelineScrollHost: NSViewRepresentable {
 
         private func handle(_ e: NSEvent) -> Bool {
             guard let sv = scrollView, let model, e.window === window, sv.window != nil else { return false }
+            if e.type == .flagsChanged {
+                model.optionHeld(EditorModel.isOptionAlone(e.modifierFlags)); return false           // never consumed: other views see it too
+            }
             let p = sv.contentView.convert(e.locationInWindow, from: nil)
             guard sv.contentView.bounds.contains(p) else { return false }           // only over the timeline
             let anchor = Double(p.x)                                                // content x: the clip view's origin is the scroll offset

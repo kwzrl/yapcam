@@ -38,7 +38,7 @@ import Testing
         let s = FakeScroller(); s.offsetX = 100; m.timelineScroller = s
         m.seek(toNs: 20_000_000_000)                                           // playhead at content x 400, viewport x 300
         m.zoomTimeline(by: 1.25)
-        try await Task.sleep(for: .milliseconds(100))
+        for _ in 0..<200 where s.scrolledTo == nil { try await Task.sleep(for: .milliseconds(25)) }     // two main-queue hops; slow when the machine is busy
         let g = m.geometry
         #expect(g.pixelsPerSecond == 25)
         let scrolled = try #require(s.scrolledTo)

@@ -50,6 +50,10 @@ extension EditorModel {
         case "m": if let z = selectedZoom { setZoomMode(id: z.id, .manual); return true }; return false
         case "d": if selectedZoom != nil { toggleSelectedZoomEnabled(); return true }; return false
         case "0"..."9":
+            guard selectedZoom != nil else {                              // no zoom selected: 2…8 show or hide timelines (4 = masks)
+                guard let lane = LaneVisibility.lane(forKey: k) else { return false }
+                toggleLane(lane); return true
+            }
             guard selectedZoom != nil, let d = k.wholeNumberValue else { return false }
             setSelectedZoomLevel(d == 0 ? defaultZoomScale : zoomLevel(forDigit: d), coalesce: true); return true
         case "=", "+": if selectedZoom != nil { stepSelectedZoomLevel(by: 0.2); return true }; return false

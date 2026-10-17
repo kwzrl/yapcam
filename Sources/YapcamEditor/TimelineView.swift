@@ -1,7 +1,7 @@
 import SwiftUI
 import YapcamDesign
 
-enum TimelineLane: CaseIterable { case typing, camera, cursor, highlight, text, caption, music }
+enum TimelineLane: String, CaseIterable { case typing, camera, cursor, highlight, text, caption, music }
 
 extension TimelineLane {
     /// Quiet name in the track-name column.
@@ -48,21 +48,6 @@ struct TimelineLayout {
     var totalHeight: CGFloat { lanes.isEmpty ? lanesTop + 4 : lanesTop + CGFloat(lanes.count) * (Self.laneHeight + Self.gap) + 2 }
 }
 
-extension EditorModel {
-    /// Overlay lanes that currently have content.
-    var visibleLanes: [TimelineLane] {
-        var out: [TimelineLane] = []
-        if !typingSuggestions.isEmpty { out.append(.typing) }
-        if !layouts.isEmpty { out.append(.camera) }
-        if !cursorHides.isEmpty { out.append(.cursor) }
-        if !highlights.isEmpty { out.append(.highlight) }
-        if !textItems(.annotation).isEmpty || !textItems(.reaction).isEmpty { out.append(.text) }
-        if !textItems(.caption).isEmpty { out.append(.caption) }
-        if !music.isEmpty { out.append(.music) }
-        return out
-    }
-}
-
 /// Colours of the timeline. Chrome stays grey and white; colour only on content: clips yellow to amber, zooms violet,
 /// camera green, regions pink. Selection is a white outline and a step of brightness, never a colour.
 enum TimelineLook {
@@ -106,6 +91,7 @@ struct TimelineView: View {
         case rangeStart(key: String)
         case rangeEnd(key: String)
         case clipEdge(id: String, edge: ClipTrim.Edge)
+        case laneCreate(lane: TimelineLane, startNs: Int64)
     }
 
     var body: some View {
@@ -216,7 +202,7 @@ struct TimelineView: View {
                 .frame(width: max(w - 1, 1), height: TimelineLayout.clipTrackHeight)
                 .offset(x: x, y: layout.clipTop)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Clip \(idx + 1)\(entry.clip.speed == 1 ? "" : String(format: ", %.2g× speed", entry.clip.speed)), \(formatTimecode(entry.startNs)) to \(formatTimecode(entry.startNs + entry.clip.timelineDurationNs))")
+                .accessibilityLabel(TimelineChipText.clipAccessibility(entry.clip, number: idx + 1, start: formatTimecode(entry.startNs), end: formatTimecode(entry.startNs + entry.clip.timelineDurationNs)))
                 .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                 .accessibilityAction(named: "Select") { model.selection = .clip(entry.clip.id); model.seek(toNs: entry.startNs) }
                 .accessibilityAction(named: "Delete") { model.selection = .clip(entry.clip.id); model.deleteSelection() }
@@ -226,7 +212,11 @@ struct TimelineView: View {
     /// The length (and speed) on a small dark label, above the waveform; only where it fits whole.
     private func clipFace(_ c: TimelineClip) -> some View {
         ViewThatFits(in: .horizontal) {
-            Text(clipLabel(c)).font(.system(size: 10, weight: .semibold)).lineLimit(1).fixedSize()
+            HStack(spacing: 5) {
+                Text(clipLabel(c)).font(.system(size: 10, weight: .semibold)).lineLimit(1).fixedSize()
+                if c.hideCursor { Image(systemName: "eye.slash").font(.system(size: 9, weight: .semibold)).help("Cursor hidden in this clip") }
+                if c.disableSmoothing { Image(systemName: "cursorarrow.motionlines.click").font(.system(size: 9, weight: .semibold)).help("Smooth cursor movement is off in this clip") }
+            }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .background(Color.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
@@ -263,19 +253,34 @@ struct TimelineView: View {
                 RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
                     .fill(z.mode == .auto ? TimelineLook.zoomAuto : TimelineLook.zoom)
                     .overlay(alignment: .leading) {
-                        ChipLabel(text: String(format: "%.1fx · ", z.scale).replacingOccurrences(of: ".0x", with: "x") + (z.mode == .auto ? "Auto" : "Manual"),
-                                  symbol: "plus.magnifyingglass")
+                        ChipLabel(text: TimelineChipText.zoomTitle(z), symbol: "plus.magnifyingglass")
                     }
                     .modifier(ChipChrome(selected: selected))
+                    .opacity(z.enabled ? 1 : 0.4)
                     .frame(width: w, height: TimelineLayout.zoomTrackHeight - 4)
                     .offset(x: g.x(forNs: r.start), y: 2)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(String(format: "Zoom %.1f×", z.scale) + (z.mode == .auto ? ", automatic" : "") + ", \(formatTimecode(r.start)) to \(formatTimecode(r.end))")
+                    .accessibilityLabel(TimelineChipText.zoomAccessibility(z, start: formatTimecode(r.start), end: formatTimecode(r.end)))
                     .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                     .modifier(ItemActions(model: model, selection: .zoom(z.id)))
             }
         }
         .offset(y: layout.zoomTop)
+    }
+
+    /// Hint on an empty creatable lane, and the dashed chip while dragging out a new item.
+    @ViewBuilder private func laneHint(_ g: TimelineGeometry, top: CGFloat, lane: TimelineLane, empty: Bool, text: String) -> some View {
+        if empty && model.laneCreatePreview == nil {
+            Text(text).font(.system(size: 11)).foregroundStyle(Yap.faint).lineLimit(1).padding(.leading, 8)
+                .frame(width: g.contentWidth(durationNs: model.durationNs), height: TimelineLayout.laneHeight, alignment: .leading)
+                .offset(y: top).allowsHitTesting(false)
+        }
+        if let p = model.laneCreatePreview, p.lane == lane {
+            RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                .frame(width: max(g.contentWidth(durationNs: p.end - p.start), 2), height: TimelineLayout.laneHeight - 4)
+                .offset(x: g.x(forNs: p.start), y: top + 2).allowsHitTesting(false)
+        }
     }
 
     private func laneBackground(_ g: TimelineGeometry, top: CGFloat) -> some View {
@@ -327,6 +332,7 @@ struct TimelineView: View {
     private func cameraLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
             laneBackground(g, top: layout.cameraTop)
+            laneHint(g, top: layout.cameraTop, lane: .camera, empty: model.layouts.isEmpty, text: "Click or drag to add a camera layout")
             ForEach(model.layouts) { l in
                 rangeChip(g, key: l.id, span: TimeSpan(startNs: l.startNs, endNs: l.endNs), top: layout.cameraTop, fill: TimelineLook.camera,
                           title: (layoutModes.first { $0.value == l.mode }?.label ?? l.mode) + (l.enabled ? "" : " (off)"), sel: .layout(l.id), enabled: l.enabled)
@@ -337,6 +343,7 @@ struct TimelineView: View {
     private func highlightLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
             laneBackground(g, top: layout.highlightTop)
+            laneHint(g, top: layout.highlightTop, lane: .highlight, empty: model.highlights.isEmpty, text: "Click or drag to add a mask")
             ForEach(model.highlights) { h in
                 rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, fill: TimelineLook.regions,
                           title: h.kind.label + (h.enabled ? "" : " (off)"), sel: .highlight(h.id), enabled: h.enabled)
@@ -417,6 +424,8 @@ struct TimelineView: View {
                     if let c = currentSpan(key) { model.previewRange(key: key, current: c, startNs: model.snapped(ns)) }
                 case .rangeEnd(let key):
                     if let c = currentSpan(key) { model.previewRange(key: key, current: c, endNs: model.snapped(ns)) }
+                case .laneCreate(let lane, let s):
+                    model.laneCreatePreview = (lane, min(s, ns), max(s, ns))
                 case .clipEdge(let id, let edge):
                     // The guide shows where the edge will land (clamped to the minimum length and the trimmed source).
                     model.snapGuideNs = model.trimPlan(clipID: id, edge: edge, targetNs: model.snapped(ns, includePlayhead: false))?.edgeNs
@@ -427,6 +436,10 @@ struct TimelineView: View {
                 case .scrub: model.seek(toNs: model.playheadNs, precise: true)
                 case .zoomMove(let id, _), .zoomStart(let id), .zoomEnd(let id): model.commitZoomPreview(id: id)
                 case .rangeMove(let k, _), .rangeStart(let k), .rangeEnd(let k): model.commitRange(key: k)
+                case .laneCreate(let lane, let s):
+                    model.laneCreatePreview = nil
+                    let end: Int64? = dragMoved ? model.snapped(g.ns(forX: v.location.x), includePlayhead: false) : nil
+                    if lane == .camera { model.addLayout(fromNs: s, toNs: end) } else { model.addHighlight(fromNs: s, toNs: end) }
                 case .clipEdge(let id, let edge):
                     if dragMoved { model.trimClipEdge(clipID: id, start: edge == .start, toNs: model.snapped(g.ns(forX: v.location.x), includePlayhead: false)) }
                     else { model.seek(toNs: model.snapped(g.ns(forX: v.location.x), includePlayhead: false), precise: true) }
@@ -522,6 +535,7 @@ struct TimelineView: View {
             model.seek(toNs: model.snapped(ns, includePlayhead: false), precise: true)
             model.splitAtPlayhead()
             return .inert
+        case .laneCreate(let lane, let ns): model.selection = .none; return .laneCreate(lane: lane, startNs: model.snapped(ns, includePlayhead: false))
         case .restoreCut(let ns): model.restoreCut(atNs: ns); return .inert
         case .clipEdge(let id, let edge): model.selection = .clip(id); return .clipEdge(id: id, edge: edge)
         case .nothing: return .inert

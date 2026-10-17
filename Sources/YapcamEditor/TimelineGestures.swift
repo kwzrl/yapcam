@@ -32,6 +32,7 @@ enum TimelineClick {
         case zoomToggleSelect(id: String)
         case zoomDrag(id: String, part: ZoomPart)
         case clipCut(atNs: Int64)
+        case laneCreate(lane: TimelineLane, atNs: Int64)        // empty Layouts / Masks lane: click or drag adds an item
         case restoreCut(atNs: Int64)                           // S-EDT-24: click on a scissors bubble
         case clipEdge(id: String, edge: ClipTrim.Edge)         // S-EDT-23: drag the end of a clip
         case nothing
@@ -60,7 +61,12 @@ enum TimelineClick {
                 }
                 return .rangeDrag(key: hit.key, part: hit.part, select: hit.tag)
             }
-            return i.cutTool ? .nothing : .scrub(selectClip: nil)
+            if i.cutTool { return .nothing }
+            if let lane = l.lanes.first(where: { (l.top(of: $0) ?? -1) <= p.y && p.y < (l.top(of: $0) ?? -1) + TimelineLayout.laneHeight }),
+               lane == .camera || lane == .highlight, p.x >= 0, ns >= 0, ns < i.durationNs {
+                return .laneCreate(lane: lane, atNs: ns)
+            }
+            return .scrub(selectClip: nil)
         }
         if p.y >= l.zoomTop {
             if let z = i.zooms.last(where: { p.x >= g.x(forNs: $0.startNs) - 2 && p.x <= g.x(forNs: $0.endNs) + 2 }) {

@@ -129,7 +129,7 @@ import YapcamCore
 
     @Test func zoomKeysOnlyActOnASelectedZoom() {
         let (m, _) = make()
-        #expect(!m.handleShortcut("a") && !m.handleShortcut("5") && !m.handleShortcut("="))
+        #expect(!m.handleShortcut("a") && !m.handleShortcut("9") && !m.handleShortcut("="))      // 2…8 toggle timelines
         m.addZoomAtPlayhead(); let id = m.zooms[0].id
         #expect(m.handleShortcut("a") && m.zooms[0].mode == .auto); #expect(m.handleShortcut("m") && m.zooms[0].mode == .manual)
         #expect(m.handleShortcut("d") && !m.zooms[0].enabled); m.handleShortcut("d"); #expect(m.zooms[0].enabled)

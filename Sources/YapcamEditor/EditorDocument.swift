@@ -42,6 +42,7 @@ import UniformTypeIdentifiers
         export.remember(in: .dialog, defaults: presets.defaults)
         model.presetStore = presets; model.defaults = presets.defaults
         model.loadStoredPreviewOptions()
+        model.loadLaneVisibility()
         model.favoriteWallpapers = Set(presets.defaults.stringArray(forKey: "editor.favoriteWallpapers") ?? [])
         model.smoothWaveform = presets.defaults.bool(forKey: "editor.smoothWaveform")
         model.showWaveform = presets.defaults.object(forKey: "editor.showWaveform") as? Bool ?? true

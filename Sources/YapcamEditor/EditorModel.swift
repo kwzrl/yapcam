@@ -83,6 +83,10 @@ public final class EditorModel: ObservableObject {
     public var timelineViewportWidth: Double = 900
     /// The timeline's scroll view (set by the view), for zoom anchoring.
     var timelineScroller: (any TimelineScroller)?
+    @Published var laneVisibility = LaneVisibility()
+    var optionRestoresCutTool: Bool?
+    /// Range being dragged out in an empty Layouts or Masks lane.
+    @Published var laneCreatePreview: (lane: TimelineLane, start: Int64, end: Int64)?
     /// Set once the timeline view has fitted the project to its real width.
     var timelineFitted = false
     /// Raised by the toolbar-less "Move to Trash" command; the editor shows its confirmation.
