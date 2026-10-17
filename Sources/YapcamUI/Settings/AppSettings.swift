@@ -126,6 +126,10 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "playSounds") } }
     /// Settings → Advanced: export with the VideoToolbox software encoder (decoding stays system-managed).
     @Published var disableHardwareEncoding: Bool { didSet { d.set(disableHardwareEncoding, forKey: "disableHardwareEncoding") } }
+    /// What the editor's export reads (EditorWindows.hardwareEncodingEnabled): the stored switch, off the main actor.
+    nonisolated static func hardwareEncodingEnabledInStore(_ store: UserDefaults = AppDefaults.store) -> Bool {
+        !(store.object(forKey: "disableHardwareEncoding") as? Bool ?? false)
+    }
     @Published var hideDesktopIcons: Bool { didSet { d.set(hideDesktopIcons, forKey: "hideDesktopIcons") } }
     /// While a recording runs the Dock icon is hidden (reference "Hide Dock Icon", default on). The menu bar item stays.
     @Published var hideDockWhileRecording: Bool { didSet { d.set(hideDockWhileRecording, forKey: "hideDockWhileRecording") } }

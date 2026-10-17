@@ -344,6 +344,17 @@ import Testing
         s.resetToDefaults()
         #expect(s.disableHardwareEncoding == false)
     }
+    @Test func editorHookFollowsTheStoredToggle() {
+        let suite = UserDefaults(suiteName: "hwe-\(UUID())")!
+        let s = AppSettings(store: suite)
+        #expect(AppSettings.hardwareEncodingEnabledInStore(suite))
+        s.disableHardwareEncoding = true
+        #expect(!AppSettings.hardwareEncodingEnabledInStore(suite))
+        let saved = EditorWindows.hardwareEncodingEnabled
+        defer { EditorWindows.hardwareEncodingEnabled = saved }
+        EditorWindows.hardwareEncodingEnabled = { AppSettings.hardwareEncodingEnabledInStore(suite) }
+        #expect(EditorWindows.hardwareEncodingEnabled() == false)
+    }
     @Test func quickExportStoreIsSeparateFromTheEditorDialog() {
         let suite = UserDefaults(suiteName: "qx-\(UUID())")!
         let s = AppSettings(store: suite)
