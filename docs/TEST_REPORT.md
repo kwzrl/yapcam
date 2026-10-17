@@ -246,6 +246,20 @@ Parity score (match/total): Recording flow 41/44, Settings 7/9, Editor 49/50, Pr
 
 Not verified: any live app behaviour, hardware (camera, microphone), real input, VoiceOver, Screen Studio side-by-side, F16, F17 (p95 232 ms vs 150 ms), F18 (4K 0.98x vs 1.3x), the HW acceleration toggle (stored, not wired).
 
+## Round 6 (2026-10-17, midday): click-path audit, soak, parity re-verification on main 11ce970 (0.10.1)
+Environment: Mac mini M4, debug build of 11ce970 (scripts/build-app.sh debug), app lock held for the soak, launched with `open -n -W`; the user's own instance (started 10:53) stayed untouched. Programmatic self-tests only: not user interaction.
+
+| Check | How | Result |
+|---|---|---|
+| Click-path coverage | script: every Button/gesture/key handler in YapcamEditor and YapcamUI vs. tests that call the same function; manual read of TimelineView.begin(at:) | 19 button targets without any test; timeline click routing, RectEdit, inset/focus pads, AreaSelector mouse routing and hotkey recorders have no test at all (list and repros in docs/status/qa.md "R6 click-path audit"); requests R6-QA-E1/E2/U1 |
+| Soak ui-record | `--ui-record-selftest 4 --source display/window/area` x `--after-recording create/widget/copy/save`, 20 runs each | 240/240 pass |
+| Soak drive-input | `--drive-input-selftest 4 --source display --after-recording create`, 20 runs | 19/20; run 6 crashed (SIGSEGV in -[AVAudioPlayer finishedPlaying:], new report 12:36), routed to ui R6-QA-U2 |
+| Crash reports | Yapcam-*.ips newer than 10:38 | 1 new (above); reports from 10:37 (the fixed overlay crash) predate the cutoff |
+| Parity re-verification | A2.6, A3.3, A4.1, E2.1, E9.1 read against code | A3.3 downgraded to partial (no "Sound from N apps" label); others match; matrix 126/135 (126/129 without out-of-scope rows) |
+
+Per area match/total: Recording flow 40/44 (1 partial), Settings 7/9, Editor 49/50, Project/timeline 6/6, Export 9/10, Project handling 6/6, Website 9/10.
+Not done: user-input flows, hardware, Screen Studio comparison, clipboard contents after the copy runs (the runs overwrite the clipboard).
+
 ## Update log (keep current with each Lead integration)
 | Date | Main | What changed in this report |
 |---|---|---|
@@ -268,3 +282,4 @@ Not verified: any live app behaviour, hardware (camera, microphone), real input,
 - 2026-10-17: Round 4 section added (blur, cursor sets, VFR, autosave/queue unit tests; F16 and F17/F18 not re-measured, reasons in the table).
 
 - 2026-10-17: Round 5 section added (parity matrix, suites on a12448c, nothing live).
+- 2026-10-17: Round 6 section added (click-path audit, 260 soak runs, one new crash found).

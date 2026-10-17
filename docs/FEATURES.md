@@ -353,6 +353,7 @@ only; capture-side A/V sync on a real recording stays open (TCC).
 | R5-09 | Editor | Highlight mask default dim 0.5 | core | dim_opacity 0.4 (model.rs:202,429) | integrated | Matrix E13.3 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
 | R5-10 | Timeline | C, X, Backspace, V, S, Cmd+C/X/V full set | editor | split/ripple/merge chords partly done (TimelineCommands.swift:56) | integrated | Matrix P4 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
 | R5-11 | Export | Separate remembered store for quick export | ui+render | remember(in: .quick) not called; only .dialog (EditorDocument.swift:41) | integrated | Matrix X5 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-12 | Recording | System audio menu shows 'Sound from N apps' / 'No system audio' labels | ui | labels are 'Record system audio from all apps / selected apps' and 'Don't record system audio' (SystemAudioChoice.swift:10); no per-app count | partial | Matrix A3.3, downgraded in R6; code reading |
 
 Parity matrix on a12448c (135 rows, match = equal in code, not user-verified): 127 match; 6 out of scope; 2 gaps open (B.Shortcuts, B.Advanced); wave 3 closed the other rows (W4 shares R5-02). Per area match/total: Recording flow 41/44, Settings 7/9, Editor 49/50, Project/timeline 6/6, Export 9/10, Project handling 6/6, Website 9/10 (final recount on a12448c).
 
@@ -363,8 +364,8 @@ Parity matrix on a12448c (135 rows, match = equal in code, not user-verified): 1
 | verified (named test / native measurement) | 29 |
 | integrated | 79 |
 | implemented | 33 |
-| partial | 9 |
+| partial | 10 |
 | limited (no hardware) | 10 |
 | excluded by user | 6 |
 | extra | 8 (section M list; their technical status is counted above) |
-| **Total rows** | **187** |
+| **Total rows** | **188** |
