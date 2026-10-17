@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
 
 @MainActor final class OnboardingWindow {
     static let shared = OnboardingWindow()
@@ -14,9 +15,10 @@ import SwiftUI
             let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 480),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = "Welcome to Yapcam"
+            w.applyYapChrome()
             w.isReleasedWhenClosed = false
             w.contentView = NSHostingView(rootView: OnboardingView(model: model, close: { [weak self] in self?.close() })
-                .environmentObject(PermissionsModel.shared))
+                .environmentObject(PermissionsModel.shared).yapWindow())
             w.center()
             RecordingController.shared.engine.registerExcluded(w)
             window = w

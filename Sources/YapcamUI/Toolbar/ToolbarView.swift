@@ -1,4 +1,5 @@
 import SwiftUI
+import YapcamDesign
 
 enum ToolbarPopover: Hashable { case source, audio, microphone, camera, notes }
 
@@ -116,7 +117,7 @@ struct ToolbarView: View {
         let paused = rec.phase == .paused
         return VStack(spacing: 4) {
             HStack(spacing: 5) {
-                Circle().fill(paused ? Color.secondary : Color.red).frame(width: 7, height: 7)
+                Circle().fill(paused ? Color.secondary : Yap.record).frame(width: 7, height: 7)
                     .opacity(paused ? 1 : 0.9).accessibilityHidden(true)
             }.padding(.top, 2)
             Text(timeString(rec.elapsed))
@@ -126,7 +127,7 @@ struct ToolbarView: View {
                 .accessibilityLabel(paused ? "Recording paused" : "Recording time")
                 .accessibilityValue(Announcer.timeDescription(rec.elapsed))
             if !rec.warnings.isEmpty || rec.lowDisk {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Yap.warning)
                     .help((rec.warnings + (rec.lowDisk ? ["Low disk space: recording may stop soon."] : [])).joined(separator: "\n"))
             }
             Divider().padding(.vertical, 2)
@@ -187,10 +188,10 @@ struct ToolbarButton: View {
                 Text(label).font(.system(size: 9.5)).lineLimit(1)
             }
             .frame(width: 48, height: 46)
-            .foregroundStyle(active ? Color.accentColor : Color.primary)
+            .foregroundStyle(active ? Yap.accent : Color.primary)
             .opacity(enabled ? 1 : 0.35)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(active ? Color.accentColor.opacity(contrast.activeFill) : (hover ? Color.primary.opacity(contrast.hoverFill) : .clear)))
+                .fill(active ? Yap.accent.opacity(contrast.activeFill) : (hover ? Color.primary.opacity(contrast.hoverFill) : .clear)))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressableStyle())
@@ -219,9 +220,9 @@ struct RecordButton: View {
             ZStack {
                 Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 2).frame(width: 40, height: 40).accessibilityHidden(true)
                 if recording {
-                    RoundedRectangle(cornerRadius: 3).fill(Color.red).frame(width: 16, height: 16)
+                    RoundedRectangle(cornerRadius: 3).fill(Yap.record).frame(width: 16, height: 16)
                 } else {
-                    Circle().fill(Color.red.opacity(hover ? 1 : 0.9)).frame(width: 28, height: 28)
+                    Circle().fill(Yap.record.opacity(hover ? 1 : 0.9)).frame(width: 28, height: 28)
                 }
             }
             .frame(width: 48, height: 48)

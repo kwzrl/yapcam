@@ -1,3 +1,4 @@
+import YapcamDesign
 import AppKit
 import YapcamCapture
 import YapcamEditor
@@ -21,6 +22,7 @@ import YapcamEditor
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = CommandLine.arguments
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         if let i = args.firstIndex(of: "--probe-record") {
             let seconds = args.indices.contains(i + 1) ? Double(args[i + 1]) ?? 5 : 5
             Task {

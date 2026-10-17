@@ -84,7 +84,7 @@ struct KeyCombo: Codable, Equatable {
     @Published var countdown: Int { didSet { d.set(countdown, forKey: "countdown") } }
     @Published var recordKeystrokes: Bool { didSet { d.set(recordKeystrokes, forKey: "recordKeystrokes") } }
     @Published var maxFPS: Int { didSet { d.set(maxFPS, forKey: "maxFPS") } }
-    @Published var openEditorAfterRecording: Bool { didSet { d.set(openEditorAfterRecording, forKey: "openEditor") } }
+    @Published var afterRecording: AfterRecording { didSet { d.set(afterRecording.rawValue, forKey: "afterRecording") } }
     @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "playSounds") } }
     @Published var hideDesktopIcons: Bool { didSet { d.set(hideDesktopIcons, forKey: "hideDesktopIcons") } }
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
@@ -118,7 +118,9 @@ struct KeyCombo: Codable, Equatable {
         countdown = [0, 3, 5].contains(cd) ? cd : 3
         recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? false
         maxFPS = d.object(forKey: "maxFPS") as? Int == 30 ? 30 : 60
-        openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
+        // Before 0.11 this was a Bool ("openEditor"); false meant "show in Finder".
+        afterRecording = (d.string(forKey: "afterRecording")).flatMap(AfterRecording.init(rawValue:))
+            ?? (d.object(forKey: "openEditor") as? Bool == false ? .finder : .review)
         playSounds = d.object(forKey: "playSounds") as? Bool ?? false
         hideDesktopIcons = d.object(forKey: "hideDesktopIcons") as? Bool ?? false
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
@@ -130,4 +132,12 @@ struct KeyCombo: Codable, Equatable {
     }
 
     func resetShortcuts() { startStopShortcut = .startStop; pauseShortcut = .pauseResume }
+}
+
+/// What happens when a recording stops.
+enum AfterRecording: String, CaseIterable {
+    case review, editor, finder
+    var title: String {
+        switch self { case .review: "Show the recording"; case .editor: "Open the editor"; case .finder: "Show in Finder" }
+    }
 }

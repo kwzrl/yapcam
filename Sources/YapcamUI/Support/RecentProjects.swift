@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import SwiftUI
+import YapcamDesign
 
 struct ProjectEntry: Identifiable, Equatable {
     let url: URL
@@ -88,8 +89,9 @@ struct ProjectEntry: Identifiable, Equatable {
             let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 560, height: 460),
                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
             w.title = "Recordings"
+            w.applyYapChrome()
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: RecentProjectsView(model: model))
+            w.contentView = NSHostingView(rootView: RecentProjectsView(model: model).yapWindow())
             w.setFrameAutosaveName("RecentProjects")
             w.center()
             RecordingController.shared.engine.registerExcluded(w)
@@ -123,7 +125,7 @@ struct RecentProjectsView: View {
                         .onAppear { model.loadThumbnail(p) }
                 }
             }
-            if let message { Text(message).font(.caption).foregroundStyle(.orange).padding(8) }
+            if let message { Text(message).font(.caption).foregroundStyle(Yap.warning).padding(8) }
         }
         .frame(minWidth: 480, minHeight: 320)
         .toolbar {
@@ -138,7 +140,7 @@ struct RecentProjectsView: View {
     private var interruptedBanner: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("\(model.interrupted.count) interrupted recording\(model.interrupted.count == 1 ? "" : "s")", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange).font(.headline)
+                .foregroundStyle(Yap.warning).font(.headline)
             Text("Yapcam stopped before these were finished. Recover keeps everything that was written to disk.")
                 .font(.callout).foregroundStyle(.secondary)
             ForEach(model.interrupted, id: \.self) { u in
@@ -151,7 +153,7 @@ struct RecentProjectsView: View {
             }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.1))
+        .background(Yap.warning.opacity(0.1))
     }
 
     private func recover(_ u: URL) {

@@ -1,4 +1,5 @@
 import SwiftUI
+import YapcamDesign
 
 /// Editor window content. The preview surface is injected so the module can be built and
 /// previewed against fakes; `EditorDocument` passes `PreviewView(player:)`.
@@ -18,7 +19,7 @@ public struct EditorContent<Preview: View>: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 ZStack {
-                    Color.black.opacity(0.88)
+                    Yap.bg
                     preview
                         .aspectRatio(model.previewAspect, contentMode: .fit)
                         .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model, playhead: model.playhead) } }
@@ -29,7 +30,7 @@ public struct EditorContent<Preview: View>: View {
                 if showInspector { Divider(); InspectorView(model: model).frame(width: 280) }
             }
             Divider()
-            TransportBar(model: model)
+            TransportBar(model: model).tint(Yap.text)
             Divider()
             TimelineView(model: model)
         }
@@ -166,7 +167,7 @@ struct FocusPickerOverlay: View {
                 Color.clear
                 if let z = model.selectedZoom {
                     // Marker shows the stored focus in the same (uncropped) preview space as the click mapping.
-                    Circle().strokeBorder(Color.orange, lineWidth: 2).background(Circle().fill(Color.orange.opacity(0.25)))
+                    Circle().strokeBorder(Yap.accent, lineWidth: 2).background(Circle().fill(Yap.accent.opacity(0.25)))
                         .frame(width: 22, height: 22)
                         .position(markerPosition(z, in: geo.size))
                 }
@@ -217,43 +218,58 @@ struct RectEditOverlay: View {
         commit()
     }
 
+    private func pixelFrame(_ rect: [Double], space: String, _ g: FrameGeometry, _ size: CGSize) -> CGRect {
+        let r = g.previewRect(fromNormalized: rect, space: space)
+        return CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
+    }
+
+    @ViewBuilder private func box(_ size: CGSize) -> some View {
+        if let c = current(), let g = model.project.frameGeometry(atNs: model.playheadNs) {
+            let frame = pixelFrame(c.rect, space: c.space, g, size)
+            Rectangle().strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                .background(Yap.accent.opacity(0.08))
+                .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
+            ForEach(0..<4, id: \.self) { i in
+                Circle().fill(Color.white).overlay(Circle().stroke(Yap.accent, lineWidth: 2)).frame(width: 12, height: 12)
+                    .position(x: i % 2 == 0 ? frame.minX : frame.maxX, y: i < 2 ? frame.minY : frame.maxY)
+            }
+        }
+    }
+
+    private func drag(_ size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { v in
+                guard let c = current(), let rect = base(), let g = model.project.frameGeometry(atNs: model.playheadNs) else { return }
+                if start == nil {
+                    let f = pixelFrame(rect, space: c.space, g, size)
+                    let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.minX, y: f.maxY), CGPoint(x: f.maxX, y: f.maxY)]
+                    let hit = corners.firstIndex { hypot($0.x - v.startLocation.x, $0.y - v.startLocation.y) <= 14 }
+                    guard hit != nil || f.contains(v.startLocation) else { return }
+                    start = (hit.map { .corner($0) } ?? .move, rect, v.startLocation)
+                }
+                guard let s = start else { return }
+                let d = g.normalizedDelta(dx: (v.location.x - s.origin.x) / size.width, dy: (v.location.y - s.origin.y) / size.height, space: c.space)
+                preview(HighlightGeometry.apply(rect: s.rect, delta: d, mode: s.mode))
+            }
+            .onEnded { _ in start = nil; commit() }
+    }
+
+    private var accessibilityRect: String {
+        guard let r = current()?.rect else { return "" }
+        return String(format: "left %.0f, top %.0f, width %.0f, height %.0f percent", r[0] * 100, r[1] * 100, r[2] * 100, r[3] * 100)
+    }
+
     var body: some View {
         GeometryReader { geo in
-            let size = geo.size
             ZStack(alignment: .topLeading) {
                 Color.clear.contentShape(Rectangle())
-                if let c = current(), let g = model.project.frameGeometry(atNs: model.playheadNs) {
-                    let r = g.previewRect(fromNormalized: c.rect, space: c.space)
-                    let frame = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
-                    Rectangle().strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
-                        .background(Color.accentColor.opacity(0.08))
-                        .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
-                    ForEach(0..<4, id: \.self) { i in
-                        Circle().fill(Color.white).overlay(Circle().stroke(Color.accentColor, lineWidth: 2)).frame(width: 12, height: 12)
-                            .position(x: i % 2 == 0 ? frame.minX : frame.maxX, y: i < 2 ? frame.minY : frame.maxY)
-                    }
-                }
+                box(geo.size)
             }
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { v in
-                    guard let c = current(), let rect = base(), let g = model.project.frameGeometry(atNs: model.playheadNs) else { return }
-                    if start == nil {
-                        let r = g.previewRect(fromNormalized: rect, space: c.space)
-                        let f = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
-                        let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY), CGPoint(x: f.minX, y: f.maxY), CGPoint(x: f.maxX, y: f.maxY)]
-                        let hit = corners.firstIndex { hypot($0.x - v.startLocation.x, $0.y - v.startLocation.y) <= 14 }
-                        guard hit != nil || f.contains(v.startLocation) else { return }
-                        start = (hit.map { .corner($0) } ?? .move, rect, v.startLocation)
-                    }
-                    guard let s = start else { return }
-                    let d = g.normalizedDelta(dx: (v.location.x - s.origin.x) / size.width, dy: (v.location.y - s.origin.y) / size.height, space: c.space)
-                    preview(HighlightGeometry.apply(rect: s.rect, delta: d, mode: s.mode))
-                }
-                .onEnded { _ in start = nil; commit() })
+            .gesture(drag(geo.size))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Box editor")
-        .accessibilityValue(current().map { r in String(format: "left %.0f, top %.0f, width %.0f, height %.0f percent", r.rect[0] * 100, r.rect[1] * 100, r.rect[2] * 100, r.rect[3] * 100) } ?? "")
+        .accessibilityValue(accessibilityRect)
         .accessibilityAction(named: "Move left") { nudge(-0.02, 0, resize: false) }
         .accessibilityAction(named: "Move right") { nudge(0.02, 0, resize: false) }
         .accessibilityAction(named: "Move up") { nudge(0, -0.02, resize: false) }

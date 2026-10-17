@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
 
 @MainActor final class SettingsWindow {
     static let shared = SettingsWindow()
@@ -10,8 +11,9 @@ import SwiftUI
             let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 400),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = "Yapcam Settings"
+            w.applyYapChrome()
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: SettingsView().environmentObject(AppSettings.shared))
+            w.contentView = NSHostingView(rootView: SettingsView().environmentObject(AppSettings.shared).yapWindow())
             w.center()
             RecordingController.shared.engine.registerExcluded(w)
             window = w
@@ -41,15 +43,17 @@ struct GeneralSettings: View {
             Picker("Countdown", selection: $s.countdown) {
                 Text("None").tag(0); Text("3 seconds").tag(3); Text("5 seconds").tag(5)
             }
-            Toggle("Open the editor when a recording stops", isOn: $s.openEditorAfterRecording)
+            Picker("When a recording stops", selection: $s.afterRecording) {
+                ForEach(AfterRecording.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
             Section("Appearance of the app") {
                 Toggle("Show in Dock", isOn: $s.showInDock)
                 Toggle("Show menu bar item", isOn: $s.showMenuBarItem)
             }
             Section("Permissions") {
-                Button("Review permissions…") { OnboardingWindow.shared.show(reason: nil) }
+                Button("Review permissions…") { OnboardingWindow.shared.show(reason: nil) }.tint(Yap.text)
             }
-        }.formStyle(.grouped)
+        }.yapForm()
     }
 }
 
@@ -65,7 +69,7 @@ struct RecordingSettings: View {
             Toggle("Record keystrokes", isOn: $s.recordKeystrokes)
             Text("Keystrokes are stored with the recording to show key overlays in the editor. Needs Input Monitoring permission. Never uploaded anywhere.")
                 .font(.caption).foregroundStyle(.secondary)
-        }.formStyle(.grouped)
+        }.yapForm()
     }
 }
 
@@ -76,7 +80,7 @@ struct ShortcutSettings: View {
             LabeledContent("Start / stop recording") { ShortcutRecorder(combo: $s.startStopShortcut) }
             LabeledContent("Pause / resume") { ShortcutRecorder(combo: $s.pauseShortcut) }
             Button("Restore defaults") { s.resetShortcuts() }
-        }.formStyle(.grouped)
+        }.yapForm()
     }
 }
 
@@ -98,7 +102,7 @@ struct StorageSettings: View {
             }
             Text("Each recording is a .yapcam package in this folder. Nothing leaves your Mac.")
                 .font(.caption).foregroundStyle(.secondary)
-        }.formStyle(.grouped)
+        }.yapForm()
     }
     private var freeSpace: Int64? {
         try? s.storageDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -127,7 +131,7 @@ struct AdvancedSettings: View {
             Button("Open logs folder") {
                 NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Logs/Yapcam"))
             }
-        }.formStyle(.grouped)
+        }.yapForm()
     }
 }
 

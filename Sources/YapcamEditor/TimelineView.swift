@@ -1,4 +1,5 @@
 import SwiftUI
+import YapcamDesign
 
 struct TimelineLayout {
     static let rulerHeight: CGFloat = 24
@@ -66,7 +67,7 @@ struct TimelineView: View {
         .frame(height: layout.totalHeight + 16)
         .background(GeometryReader { p in Color.clear.onAppear { viewportWidth = p.size.width }
             .onChange(of: p.size.width) { _, w in viewportWidth = w } })
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Yap.bg)
     }
 
     // x positions use scrollOffsetPx = 0 inside the scroll view (scrolling is native).
@@ -76,13 +77,13 @@ struct TimelineView: View {
             let w = max(g.contentWidth(durationNs: entry.clip.timelineDurationNs), 2)
             let selected = model.selection == .clip(entry.clip.id)
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor.opacity(selected ? 0.55 : 0.28))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor.opacity(selected ? 1 : 0.5), lineWidth: selected ? 2 : 1))
+                .fill(LinearGradient(colors: [Yap.accent, Yap.amber], startPoint: .top, endPoint: .bottom))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? Color.white : Color.black.opacity(0.25), lineWidth: selected ? 2 : 1))
                 .overlay(alignment: .leading) {
                     HStack(spacing: 4) {
-                        Text("Clip \(idx + 1)").font(.caption.weight(.medium))
-                        if entry.clip.speed != 1 { Text(String(format: "%.2g×", entry.clip.speed)).font(.caption2).foregroundStyle(.secondary) }
-                    }.padding(.leading, 8).lineLimit(1)
+                        Text("Clip \(idx + 1)").font(.caption.weight(.semibold))
+                        if entry.clip.speed != 1 { Text(String(format: "%.2g×", entry.clip.speed)).font(.caption2).opacity(0.6) }
+                    }.foregroundStyle(Yap.onAccent).padding(.leading, 8).lineLimit(1)
                 }
                 .frame(width: max(w - 1, 1), height: TimelineLayout.clipTrackHeight)
                 .offset(x: x, y: layout.clipTop)
@@ -100,18 +101,18 @@ struct TimelineView: View {
                 .frame(width: g.contentWidth(durationNs: model.durationNs), height: TimelineLayout.zoomTrackHeight)
             ForEach(model.zooms) { z in
                 let selected = model.selection == .zoom(z.id) || model.extraZoomSelection.contains(z.id)
-                let tint: Color = z.mode == .auto ? .purple : .orange
+                let tint: Color = z.mode == .auto ? Yap.violetSoft : Yap.violet
                 let r = model.displayedRange(of: z)
                 let w = max(g.contentWidth(durationNs: r.end - r.start), 6)
                 RoundedRectangle(cornerRadius: 5)
-                    .fill(tint.opacity(selected ? 0.6 : 0.32))
-                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
+                    .fill(tint.opacity(selected ? 0.95 : 0.8))
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? Color.white : Color.black.opacity(0.25), lineWidth: selected ? 2 : 1))
                     .overlay(alignment: .leading) {
                         Label(String(format: "%.1f×", z.scale), systemImage: "plus.magnifyingglass")
-                            .font(.caption2.weight(.medium)).labelStyle(.titleAndIcon).padding(.leading, 8).lineLimit(1)
+                            .font(.caption2.weight(.semibold)).foregroundStyle(.white).labelStyle(.titleAndIcon).padding(.leading, 8).lineLimit(1)
                     }
-                    .overlay(alignment: .leading) { Capsule().fill(tint).frame(width: 3, height: 16).padding(.leading, 2).opacity(selected ? 1 : 0) }
-                    .overlay(alignment: .trailing) { Capsule().fill(tint).frame(width: 3, height: 16).padding(.trailing, 2).opacity(selected ? 1 : 0) }
+                    .overlay(alignment: .leading) { Capsule().fill(Color.white).frame(width: 3, height: 16).padding(.leading, 2).opacity(selected ? 1 : 0) }
+                    .overlay(alignment: .trailing) { Capsule().fill(Color.white).frame(width: 3, height: 16).padding(.trailing, 2).opacity(selected ? 1 : 0) }
                     .frame(width: w, height: TimelineLayout.zoomTrackHeight - 4)
                     .offset(x: g.x(forNs: r.start), y: 2)
                     .accessibilityElement(children: .ignore)
@@ -124,7 +125,7 @@ struct TimelineView: View {
     }
 
     private func laneBackground(_ g: TimelineGeometry, top: CGFloat, label: String) -> some View {
-        RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04))
+        RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.025))
             .overlay(alignment: .leading) { Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.tertiary).padding(.leading, 6) }
             .frame(width: g.contentWidth(durationNs: model.durationNs), height: TimelineLayout.laneHeight)
             .offset(y: top)
@@ -134,9 +135,9 @@ struct TimelineView: View {
         let selected = model.selection == sel
         let r = model.zoomPreview[key] ?? (span.startNs, span.endNs)
         return RoundedRectangle(cornerRadius: 5)
-            .fill(tint.opacity(selected ? 0.6 : 0.32))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
-            .overlay(alignment: .leading) { Text(title).font(.caption2.weight(.medium)).lineLimit(1).padding(.leading, 8) }
+            .fill(tint.opacity(selected ? 0.95 : 0.8))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(selected ? Color.white : Color.black.opacity(0.25), lineWidth: selected ? 2 : 1))
+            .overlay(alignment: .leading) { Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.white).lineLimit(1).padding(.leading, 8) }
             .frame(width: max(g.contentWidth(durationNs: r.1 - r.0), 6), height: TimelineLayout.laneHeight - 4)
             .offset(x: g.x(forNs: r.0), y: top + 2)
             .accessibilityElement(children: .ignore)
@@ -159,7 +160,7 @@ struct TimelineView: View {
         ZStack(alignment: .topLeading) {
             laneBackground(g, top: layout.highlightTop, label: "")
             ForEach(model.highlights) { h in
-                rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, tint: .yellow,
+                rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, tint: .orange,
                           title: h.kind.label, sel: .highlight(h.id))
             }
         }
@@ -360,8 +361,8 @@ struct PlayheadMarker: View {
     let height: CGFloat
     var body: some View {
         ZStack(alignment: .top) {
-            Rectangle().fill(Color.red).frame(width: 1.5, height: height)
-            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 10)).foregroundStyle(.red).offset(y: -1)
+            Rectangle().fill(Color.white).frame(width: 1.5, height: height)
+            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 10)).foregroundStyle(Color.white).offset(y: -1)
         }
         .frame(width: 12, height: height, alignment: .top)
         .offset(x: geometry.x(forNs: playhead.ns) - 6)

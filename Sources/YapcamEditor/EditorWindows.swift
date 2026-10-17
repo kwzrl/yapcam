@@ -1,4 +1,5 @@
 import SwiftUI
+import YapcamDesign
 import AppKit
 import YapcamCore
 
@@ -59,7 +60,8 @@ import YapcamCore
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = document.title
-        window.contentView = NSHostingView(rootView: EditorView(document: document))
+        window.applyYapChrome()
+        window.contentView = NSHostingView(rootView: EditorView(document: document).yapWindow())
         window.setFrameAutosaveName("YapcamEditor")
         window.center()
         super.init(window: window)

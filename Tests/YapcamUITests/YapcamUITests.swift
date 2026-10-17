@@ -141,14 +141,14 @@ import YapcamEditor
     }
 }
 
-// MARK: - UI smoke test: every window renders, light and dark
+// MARK: - UI smoke test: every window renders (dark only)
 
 @MainActor @Suite(.serialized) struct UISmokeTests {
     /// Fails if a PNG is missing, tiny, or a single flat colour (a blank render).
     static func check(_ dir: URL) -> [String] {
         var problems: [String] = []
         for name in UISnapshot.expectedNames {
-            for mode in ["light", "dark"] {
+            for mode in ["dark"] {
                 let url = dir.appending(path: "\(name)-\(mode).png")
                 guard let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else {
                     problems.append("missing \(name)-\(mode)"); continue
@@ -168,7 +168,7 @@ import YapcamEditor
         return problems
     }
 
-    @Test func everyWindowRendersInLightAndDark() async throws {
+    @Test func everyWindowRendersDark() async throws {
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appending(path: "yapcam-smoke-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: dir) }

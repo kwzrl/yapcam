@@ -1,4 +1,5 @@
 import SwiftUI
+import YapcamDesign
 import UniformTypeIdentifiers
 import YapcamCore
 
@@ -94,7 +95,7 @@ struct InspectorView: View {
                 case .camera: camera
                 case .audio: audio
                 }
-            }.formStyle(.grouped)
+            }.yapForm()
         }
         .onChange(of: model.selection) { _, s in
             switch s {
@@ -571,7 +572,7 @@ struct CaptionSection: View {
                                     Spacer()
                                 }
                                 .padding(.vertical, 2).padding(.horizontal, 6)
-                                .background(model.selection == .text(.caption, c.id) ? Color.accentColor.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 4))
+                                .background(model.selection == .text(.caption, c.id) ? Yap.accent.opacity(0.2) : .clear, in: RoundedRectangle(cornerRadius: 4))
                             }.buttonStyle(.plain)
                         }
                     }

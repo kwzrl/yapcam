@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import YapcamDesign
 
 struct PopoverHeader: View {
     let title: String
@@ -18,7 +19,7 @@ private struct SelectableRow<Content: View>: View {
     var body: some View {
         Button(action: action) {
             HStack { content; Spacer(minLength: 4)
-                if selected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) } }
+                if selected { Image(systemName: "checkmark").foregroundStyle(Yap.accent) } }
                 .padding(.vertical, 5).padding(.horizontal, 8)
                 .background(RoundedRectangle(cornerRadius: 6).fill(hover ? Color.primary.opacity(contrast.hoverFill) : .clear))
                 .contentShape(Rectangle())
@@ -164,7 +165,7 @@ private struct WindowCell: View {
                     else { ProgressView().controlSize(.small) }
                 }
                 .frame(height: 88)
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? Color.accentColor : (hover ? Color.primary.opacity(contrast.outline) : .clear), lineWidth: 2))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(selected ? Yap.accent : (hover ? Color.primary.opacity(contrast.outline) : .clear), lineWidth: 2))
                 Text(info.displayTitle).font(.system(size: 11, weight: .medium)).lineLimit(1)
                 Text(info.appName).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -219,7 +220,7 @@ struct MicrophonePopover: View {
                 }
                 if settings.microphoneID != nil && !devices.isAvailable(microphone: settings.microphoneID) {
                     Label("Selected microphone is not connected. Recording without it.", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange)
+                        .font(.caption).foregroundStyle(Yap.warning)
                 } else if settings.microphoneID != nil {
                     LevelMeter(level: devices.level).padding(.horizontal, 8).padding(.top, 4)
                     if let e = devices.meterError { Text(e).font(.caption).foregroundStyle(.secondary) }
@@ -257,7 +258,7 @@ struct CameraPopover: View {
                 }
                 if settings.cameraID != nil && !devices.isAvailable(camera: settings.cameraID) {
                     Label("Selected camera is not connected. Recording without it.", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange)
+                        .font(.caption).foregroundStyle(Yap.warning)
                 } else if settings.cameraID != nil {
                     CameraPreview(session: devices.previewSession)
                         .frame(height: 140).clipShape(RoundedRectangle(cornerRadius: 8))

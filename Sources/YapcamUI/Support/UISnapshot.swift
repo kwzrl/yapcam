@@ -1,5 +1,7 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
+import YapcamEditor
 
 /// `Yapcam --snapshot-ui <dir>` renders the app's own windows to PNGs in light and dark
 /// appearance and exits. Works without Screen Recording permission (draws our own views).
@@ -10,6 +12,7 @@ import SwiftUI
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
                  "settings-storage", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
+        n += ["editor", "recording-ready"]
         return n
     }()
 
@@ -30,7 +33,7 @@ import SwiftUI
         }
         try? await Task.sleep(for: .milliseconds(600))
 
-        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+        for (name, appearance) in [("dark", NSAppearance.Name.darkAqua)] {
             NSApp.appearance = NSAppearance(named: appearance)
             for phase in [RecordingPhase.idle, .countdown(3), .recording, .paused] {
                 RecordingController.shared.debugSetPhase(phase)
@@ -43,9 +46,37 @@ import SwiftUI
             }
             // Each view is built right before it is written, so per-view state (source mode…) holds.
             for (title, make) in extraViews() { write(make(), "\(title)-\(name)", dir, size: nil, dark: name == "dark") }
+            if let pkg = snapshotPackage() {
+                RecordingReadyWindow.shared.show(package: pkg) { _ in }
+                try? await Task.sleep(for: .milliseconds(1200))
+                if let w = RecordingReadyWindow.shared.window { write(w, "recording-ready-\(name)", dir, dark: name == "dark") }
+                RecordingReadyWindow.shared.close()
+            }
+            if let editor = editorWindow() { try? await Task.sleep(for: .milliseconds(800)); write(editor, "editor-\(name)", dir, dark: name == "dark"); editor.orderOut(nil) }
         }
         NSApp.appearance = nil
         AreaSelector.shared.cancelForTesting()
+    }
+
+    /// A fresh copy of `YAPCAM_SNAPSHOT_PACKAGE` (defaults to the repo's synthetic fixture when run from the checkout).
+    private static func snapshotPackage() -> URL? {
+        let env = ProcessInfo.processInfo.environment["YAPCAM_SNAPSHOT_PACKAGE"]
+        let src = URL(filePath: env ?? FileManager.default.currentDirectoryPath + "/Tests/Fixtures/synthetic/basic.yapcam")
+        guard FileManager.default.fileExists(atPath: src.path) else { return nil }
+        let pkg = FileManager.default.temporaryDirectory.appending(path: "snapshot-\(UUID().uuidString).yapcam")
+        return (try? FileManager.default.copyItem(at: src, to: pkg)) != nil ? pkg : nil
+    }
+
+    /// Editor on a copy of `YAPCAM_SNAPSHOT_PACKAGE` (defaults to the repo's synthetic fixture when run from the checkout).
+    private static func editorWindow() -> NSWindow? {
+        guard let pkg = snapshotPackage(), let doc = try? EditorDocument(package: pkg) else { return nil }
+        doc.model.seek(toNs: 1_000_000_000); doc.model.addZoomAtPlayhead()
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 1280, height: 800), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.title = doc.title
+        window.applyYapChrome()
+        window.contentView = NSHostingView(rootView: EditorView(document: doc).yapWindow())
+        window.orderFront(nil)
+        return window
     }
 
     private static func label(_ p: RecordingPhase) -> String {
@@ -54,7 +85,7 @@ import SwiftUI
 
     private static func host<V: View>(_ v: V, width: CGFloat) -> NSView {
         let h = NSHostingView(rootView: v.environmentObject(AppSettings.shared).environmentObject(PermissionsModel.shared)
-            .frame(width: width).background(Color(nsColor: .windowBackgroundColor)))
+            .frame(width: width).yapWindow())
         h.frame = CGRect(origin: .zero, size: h.fittingSize)
         return h
     }
@@ -103,7 +134,7 @@ import SwiftUI
             NSGraphicsContext.saveGraphicsState()
             if let ctx = NSGraphicsContext(bitmapImageRep: out) {
                 NSGraphicsContext.current = ctx
-                (dark ? NSColor(white: 0.18, alpha: 1) : NSColor(white: 0.85, alpha: 1)).setFill()
+                NSColor(white: 0.18, alpha: 1).setFill()
                 NSRect(origin: .zero, size: view.bounds.size).fill()
             }
             NSGraphicsContext.restoreGraphicsState()

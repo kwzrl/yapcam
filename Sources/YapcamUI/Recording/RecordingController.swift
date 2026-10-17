@@ -223,8 +223,11 @@ enum RecordingPhase: Equatable {
                     do { try ProjectActions.attachNotes(notes, to: url); notes = "" }
                     catch { alert = AppAlert(title: "Notes were not saved", message: "The recording is fine, but its speaker notes could not be stored: \(UserMessage.describe(error))") }
                 }
-                if settings.openEditorAfterRecording { engine.openEditor(package: url) }
-                else { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                switch settings.afterRecording {
+                case .review: RecordingReadyWindow.shared.show(package: url) { [engine] in engine.openEditor(package: $0) }
+                case .editor: engine.openEditor(package: url)
+                case .finder: NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
             } catch {
                 finish()
                 alert = AppAlert(title: "Recording could not be saved", error: error)

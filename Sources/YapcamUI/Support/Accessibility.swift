@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
 
 /// Surface for floating panels: translucent material normally, solid when the user turned on
 /// Reduce Transparency; stronger outline with Increase Contrast.
@@ -13,9 +14,9 @@ struct PanelSurface: ViewModifier {
         content
             .background {
                 if reduceTransparency { shape.fill(Color(nsColor: .windowBackgroundColor)) }
-                else { shape.fill(.regularMaterial) }
+                else { shape.fill(Yap.bg.opacity(0.92)) }
             }
-            .overlay(shape.strokeBorder(Color.primary.opacity(contrast == .increased ? 0.6 : 0.12), lineWidth: contrast == .increased ? 1.5 : 1))
+            .overlay(shape.strokeBorder(Color.white.opacity(contrast == .increased ? 0.6 : 0.10), lineWidth: contrast == .increased ? 1.5 : 1))
     }
 }
 
