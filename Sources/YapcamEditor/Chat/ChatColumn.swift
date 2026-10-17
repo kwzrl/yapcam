@@ -37,6 +37,10 @@ struct ChatColumn: View {
             Text("Chat").font(Yap.Font.label).foregroundStyle(Yap.title)
             Text(log.connection ?? "Not connected").font(Yap.Font.caption).foregroundStyle(Yap.faint).lineLimit(1)
             Spacer()
+            if let newChat = hooks.newChat {
+                InspectorIconButton(symbol: "square.and.pencil", label: "New chat: Claude forgets this conversation", action: newChat)
+                    .disabled(log.isWorking)
+            }
         }
         // No off switch here: the sparkles toggle in the title row turns the agent on and off.
         .padding(.horizontal, 16).frame(height: Yap.Grid.cell + 4)
@@ -48,7 +52,7 @@ struct ChatColumn: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     if log.entries.isEmpty { ChatWelcome().padding(.top, 40) }
                     ForEach(log.entries) { e in ChatEntryView(model: model, entry: e).id(e.id) }
-                    if log.isWorking { ChatWorking().id("working") }
+                    if log.isWorking { ChatWorking(line: hooks.workingLine).id("working") }
                 }
                 .padding(.horizontal, 12).padding(.bottom, 12)
             }
@@ -86,10 +90,12 @@ private struct ChatWelcome: View {
 }
 
 private struct ChatWorking: View {
+    var line: String?
     var body: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text("Working…").font(Yap.Font.body).foregroundStyle(Yap.caption)
+            Text(line ?? "Working…").font(Yap.Font.body).foregroundStyle(Yap.caption).lineLimit(1)
+                .contentTransition(.opacity).animation(Yap.Motion.select, value: line)
         }
         .padding(.leading, 8)
         .accessibilityElement(children: .combine)

@@ -102,11 +102,20 @@ import YapcamCore
             guard clients.count < 128 else { reply(connection, status: 503); return }
             let key = UUID().uuidString; clients[key] = name
             for doc in EditorWindows.openDocuments { doc.model.agentLog.connection = name }
-            reply(connection, object: ["jsonrpc": "2.0", "id": id, "result": ["protocolVersion": "2025-06-18", "capabilities": ["tools": ["listChanged": false]], "serverInfo": ["name": "yapcam", "version": "1.0"]]], session: key); return
+            let capabilities: [String: Any] = ["tools": ["listChanged": false], "resources": ["listChanged": false], "prompts": ["listChanged": false]]
+            var result: [String: Any] = ["protocolVersion": "2025-06-18", "capabilities": capabilities, "serverInfo": ["name": "yapcam", "version": "1.0"]]
+            result["instructions"] = Project.agentDoc("app_instructions")
+            reply(connection, object: ["jsonrpc": "2.0", "id": id, "result": result], session: key); return
         }
         guard let session, let client = clients[session] else { reply(connection, status: 404); return }
         if request["id"] == nil { reply(connection, status: 202); return }
         if method == "ping" { rpc([:]); return }
+        // The handbook (resources/*, prompts/*) is compiled into the core; no document needed.
+        if method.hasPrefix("resources/") || method.hasPrefix("prompts/") {
+            if let response = try? Project.agentDocsRPC(data), let object = try? JSONSerialization.jsonObject(with: response) as? [String: Any] { reply(connection, object: object) }
+            else { reply(connection, object: ["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Method not found"]]) }
+            return
+        }
         if method == "tools/list", let bytes = try? Project.mcpCatalog(), var tools = try? JSONSerialization.jsonObject(with: bytes) as? [[String: Any]] {
                 tools += Self.extraTools
                 for i in tools.indices {

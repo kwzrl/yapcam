@@ -358,3 +358,24 @@ fn craft_tools_use_seconds_and_one_undo_per_call() {
     }
     assert!(!f.0.join("autosave/project.json").exists());
 }
+
+#[test]
+fn handbook_instructions_resources_and_prompts() {
+    let f = Fixture::new();
+    let before = tree(&f.0);
+    let mut c = Client::new(&f.0);
+    assert_eq!(c.rpc("resources/list", json!({}))["error"]["code"], -32000);
+    let r = c.rpc("initialize", json!({"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test"}}));
+    assert!(r["result"]["instructions"].as_str().unwrap().contains("yapcam://playbook"));
+    assert!(r["result"]["capabilities"]["resources"].is_object() && r["result"]["capabilities"]["prompts"].is_object());
+    let list = c.rpc("resources/list", json!({}));
+    assert_eq!(list["result"]["resources"][0]["uri"], "yapcam://playbook");
+    let read = c.rpc("resources/read", json!({"uri":"yapcam://playbook"}));
+    assert!(read["result"]["contents"][0]["text"].as_str().unwrap().starts_with("# Yapcam playbook"));
+    assert_eq!(c.rpc("resources/read", json!({"uri":"yapcam://x"}))["error"]["code"], -32002);
+    assert_eq!(c.rpc("prompts/list", json!({}))["result"]["prompts"].as_array().unwrap().len(), 3);
+    let get = c.rpc("prompts/get", json!({"name":"walkthrough"}));
+    assert_eq!(get["result"]["messages"][3]["content"]["resource"]["uri"], "yapcam://examples/walkthrough");
+    drop(c);
+    assert_eq!(tree(&f.0), before);
+}
