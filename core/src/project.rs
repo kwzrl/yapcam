@@ -141,7 +141,8 @@ pub fn decode_project(bytes: &[u8]) -> Result<ProjectData> {
     if let Some(cursor) = raw.get_mut("cursor") {
         crate::model::migrate_cursor(cursor, true);
     }
-    let p: ProjectData = serde_json::from_value(raw)?;
+    let mut p: ProjectData = serde_json::from_value(raw)?;
+    crate::speech_activity::refresh(&mut p)?;
     validate_data(&p)?;
     Ok(p)
 }
@@ -338,7 +339,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     }
     let cur = &p.cursor;
     if !(0.1..=10.0).contains(&cur.size)
-        || !matches!(cur.rotation_mode.as_str(), "static" | "tilt")
+        || !matches!(cur.rotation_mode.as_str(), "static" | "tilt" | "follow")
         || !(-180.0..=180.0).contains(&cur.rotation_degrees)
         || !(0.0..=2.0).contains(&cur.tilt_amount)
         || !(100.0..=2000.0).contains(&cur.shake_threshold)
@@ -370,6 +371,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     }
     crate::camera_style::validate(p)?;
     crate::camera_layout::validate(p)?;
+    crate::speech_activity::validate(p)?;
     let cam = &p.camera;
     if !(0.01..=1.0).contains(&cam.size)
         || cam.position.iter().any(|v| !(0.0..=1.0).contains(v))
@@ -522,6 +524,20 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             || !(0.0..=16384.0).contains(&h.stroke_width)
             || !(0.0..=1.0).contains(&h.opacity)
             || !(0.0..=1.0).contains(&h.dim_opacity)
+            || h.keyframes.iter().any(|k| {
+                k.tl_ns < h.tl_start_ns
+                    || k.tl_ns > h.tl_end_ns
+                    || k.rect.iter().any(|v| !v.is_finite())
+                    || k.rect[0] < 0.0
+                    || k.rect[1] < 0.0
+                    || k.rect[2] <= 0.0
+                    || k.rect[3] <= 0.0
+                    || k.rect[0] + k.rect[2] > 1.0
+                    || k.rect[1] + k.rect[3] > 1.0
+            })
+            || h.keyframes
+                .windows(2)
+                .any(|keys| keys[0].tl_ns >= keys[1].tl_ns)
             || !color_ok(&h.fill)
             || !color_ok(&h.stroke)
         {
@@ -531,7 +547,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     // The fixed ABI stores a prefix without truncation. Bound simultaneous
     // highlights, allowing arbitrarily many non-overlapping timeline regions.
     let mut boundaries = Vec::with_capacity(c.highlights.len() * 2);
-    for h in &c.highlights {
+    for h in c.highlights.iter().filter(|h| h.enabled) {
         boundaries.push((h.tl_start_ns, 1_i32));
         boundaries.push((h.tl_end_ns, -1_i32));
     }
@@ -662,6 +678,14 @@ impl Project {
             .segments
             .last()
             .map_or(0, |s| s.src_start_ns + s.duration_ns);
+        if data
+            .camera
+            .speech_activity
+            .as_ref()
+            .is_some_and(|a| a.coverage_end_ns > end)
+        {
+            return Err(Error::new(2, "Speech activity exceeds recording duration"));
+        }
         if data.timeline.clips.iter().any(|c| c.src_end_ns > end) {
             return Err(Error::new(2, "Clip exceeds recording duration"));
         }
@@ -853,7 +877,7 @@ pub(crate) mod tests {
     fn aligned_new_defaults_and_legacy_decode_preserve_distinct_appearance() {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();
-        assert_eq!(p.data.defaults_revision, 1);
+        assert_eq!(p.data.defaults_revision, 2);
         assert_eq!(p.data.canvas.padding_ratio, Some(0.1));
         let frame = p.frame(0).unwrap();
         assert_eq!((frame.canvas_w, frame.canvas_h), (1728, 1080));

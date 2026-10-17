@@ -62,7 +62,14 @@ pub fn validate(p: &ProjectData) -> Result<()> {
         }
     }
     let k = &p.cursor.key_overlay;
-    if k.duration_ns <= 0 || !rect(&k.rect) || !style(&k.style) {
+    if k.duration_ns <= 0
+        || !rect(&k.rect)
+        || !style(&k.style)
+        || k.hidden_shortcuts.len() > 256
+        || k.hidden_shortcuts
+            .iter()
+            .any(|s| s.trim().is_empty() || s.len() > 256)
+    {
         return Err(bad("Invalid key overlay"));
     }
     let click = &p.audio.click_sound;
@@ -137,6 +144,10 @@ pub fn collection_command(p: &mut ProjectData, v: &Value, cs: &mut ChangeSet) ->
                 .filter(|v| v.is_object())
                 .cloned()
                 .ok_or_else(|| bad("Missing record object"))?;
+            if kind == "caption" && record.get("style").is_none() {
+                record["style"] =
+                    serde_json::to_value(crate::captions::factory_style(p.defaults_revision))?;
+            }
             if kind == "music" && record.get("gain_db").is_none() {
                 record["gain_db"] = (if p.audio.music_volume == 0.0 {
                     -96.0
@@ -202,7 +213,7 @@ pub fn import_transcript(
         .ok_or_else(|| bad("Missing transcript words"))?;
     let mut style: TextStyle = match v.get("style") {
         Some(s) => serde_json::from_value(s.clone())?,
-        None => TextStyle::default(),
+        None => crate::captions::factory_style(p.defaults_revision),
     };
     if !self::style(&style) {
         return Err(bad("Invalid caption style"));
@@ -242,6 +253,31 @@ pub fn import_transcript(
             Ok((text, a, b))
         })
         .collect::<Result<Vec<_>>>()?;
+    let derived = p
+        .camera
+        .speech_activity
+        .as_ref()
+        .is_some_and(|a| a.source == "transcript");
+    if source_end > 0
+        && (derived || p.camera.speech_activity.is_none() && p.camera.silence_ranges.is_empty())
+    {
+        let mut ranges = if !replace && derived {
+            p.camera.speech_activity.as_ref().unwrap().ranges.clone()
+        } else {
+            vec![]
+        };
+        ranges.extend(words.iter().map(|(_, a, b)| SourceActivityRange {
+            src_start_ns: *a,
+            src_end_ns: *b,
+        }));
+        p.camera.speech_activity = Some(SpeechActivity {
+            source: "transcript".into(),
+            coverage_start_ns: 0,
+            coverage_end_ns: source_end,
+            ranges,
+        });
+        cs.changed.push("camera.speech_activity".into());
+    }
     let mut records = vec![];
     for (i, c) in p.timeline.clips.iter().enumerate() {
         for &(text, a, b) in &words {
@@ -284,7 +320,7 @@ pub fn camera_options(p: &ProjectData, tl: i64) -> (bool, bool, f64) {
         .camera
         .layouts
         .iter()
-        .filter(|l| tl >= l.tl_start_ns && tl < l.tl_end_ns)
+        .filter(|l| l.enabled && tl >= l.tl_start_ns && tl < l.tl_end_ns)
         .max_by_key(|l| l.tl_start_ns);
     (
         crate::camera_layout::current(p, tl).0 == "cutout"

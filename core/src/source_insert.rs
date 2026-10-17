@@ -38,7 +38,24 @@ pub(crate) fn apply(p: &mut ProjectData, v: &Value, cs: &mut ChangeSet) -> Resul
         },
     };
     let map = time::InsertTimeMap::new(&p.timeline.clips, &clip, at);
+    crate::commands::seed_mask_keyframes(p, &[at.saturating_sub(1), at]);
+    let held: Vec<_> = p
+        .canvas
+        .highlights
+        .iter()
+        .filter(|h| !h.keyframes.is_empty() && h.tl_start_ns < at && h.tl_end_ns > at)
+        .map(|h| (h.id.clone(), crate::layers::mask_rect_at(h, at)))
+        .collect();
     crate::commands::remap_effect_edges(p, |t| map.start(t), |t| map.end(t));
+    for (id, rect) in held {
+        let h = p.canvas.highlights.iter_mut().find(|h| h.id == id).unwrap();
+        h.keyframes.push(MaskKeyframe {
+            tl_ns: map.end(at),
+            rect,
+        });
+        h.keyframes.sort_by_key(|k| k.tl_ns);
+        h.keyframes.dedup_by_key(|k| k.tl_ns);
+    }
     cs.created_ids.push(clip.id.clone());
     p.timeline.clips.insert(index, clip);
     cs.changed.extend(

@@ -53,13 +53,14 @@ private final class AutosaveObservation: @unchecked Sendable {
     func waitForScheduledSave() async { await pending?.value }
     private func schedule() {
         pending?.cancel(); pending = nil
-        guard active, project.isDirty else { return }
+        guard active, !project.isClosed, project.isDirty else { return }
         do { guard try project.autosavePolicy().enabled else { return } }
         catch { lastError = error.localizedDescription; return }
         let expected = project.revision, delay = self.delay, sleep = self.sleep
         pending = Task { [weak self] in
             do { try await sleep(delay) } catch { return }
-            guard !Task.isCancelled, let self, self.active, self.project.isDirty else { return }
+            guard !Task.isCancelled, let self, self.active else { return }
+            guard self.project.isDirty else { self.lastError = nil; return }
             do {
                 let project = self.project
                 let saved = try await Task.detached(priority: .utility) { try project.save(ifRevision: expected) }.value
@@ -69,6 +70,9 @@ private final class AutosaveObservation: @unchecked Sendable {
             } catch {
                 guard !Task.isCancelled, self.active else { return }
                 self.lastError = error.localizedDescription
+                // Retry after the same quiet period. Edits restart this timer;
+                // closed/disabled/cancelled documents never reschedule.
+                self.schedule()
             }
         }
     }

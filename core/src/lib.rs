@@ -86,3 +86,10 @@ mod captions;
 
 #[cfg(test)]
 mod screen_quality_tests;
+
+#[cfg(test)]
+mod parity_tests;
+
+pub(crate) mod adaptive;
+
+pub(crate) mod speech_activity;

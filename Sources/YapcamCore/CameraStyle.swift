@@ -117,6 +117,7 @@ public struct CoreCameraLayoutSettings: Decodable, Sendable, Equatable {
     public var edgeSoftness: Double
     public var edgeInset: Double
     public var cornerRatio: Double?
+    public var edgePaddingRatio: Double?
 }
 public struct CoreCameraLayout: Decodable, Sendable, Equatable {
     public var mode: String
@@ -126,5 +127,30 @@ public struct CoreCameraLayout: Decodable, Sendable, Equatable {
 extension Project {
     public func cameraLayout(atNs: Int64) throws -> CoreCameraLayout {
         try query("{\"q\":\"camera_layout_at\",\"tl_ns\":\(atNs)}", as: CoreCameraLayout.self)
+    }
+}
+
+
+public struct CameraSpeechActivity: Codable, Sendable, Equatable {
+    public enum Source: String, Codable, Sendable { case vad, transcript }
+    public struct Range: Codable, Sendable, Equatable {
+        public var srcStartNs: Int64
+        public var srcEndNs: Int64
+        public init(startNs: Int64, endNs: Int64) { srcStartNs = startNs; srcEndNs = endNs }
+    }
+    public var source: Source
+    public var coverageStartNs: Int64
+    public var coverageEndNs: Int64
+    public var ranges: [Range]
+    public init(source: Source, coverageStartNs: Int64 = 0, coverageEndNs: Int64, ranges: [Range]) {
+        self.source = source; self.coverageStartNs = coverageStartNs; self.coverageEndNs = coverageEndNs; self.ranges = ranges
+    }
+}
+extension Project {
+    @discardableResult public func setCameraSpeechActivity(_ activity: CameraSpeechActivity?) throws -> ChangeSet {
+        guard let activity else { return try apply(.set(path: "camera.speech_activity", value: .null)) }
+        let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase
+        let value = try JSONDecoder().decode(JSONValue.self, from: encoder.encode(activity))
+        return try apply(.set(path: "camera.speech_activity", value: value))
     }
 }

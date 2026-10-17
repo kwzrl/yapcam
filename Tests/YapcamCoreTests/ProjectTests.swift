@@ -62,6 +62,7 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
             .set(path:"canvas.padding",value:.number(0)),
             .set(path:"cursor.smoothing",value:.number(0)),
             .set(path:"cursor.remove_shakes",value:.bool(true)),
+            .set(path:"cursor.rotation_mode",value:.string("static")),
             .set(path:"cursor.rotation_degrees",value:.number(90))
         ]))
         #expect(abs(try p.frame(atNs:100_000_000).cursor_x-100.75)<1e-9)
@@ -79,7 +80,7 @@ private func withFixture<T>(_ body: (URL) throws -> T) throws -> T {
         #expect(abs(try reopened.frame(atNs:200_000_000).cursor_x-100)<1e-9)
         #expect(abs(try reopened.motion(atNs:0).cursorRotationRad - .pi/2)<1e-6)
         try p.apply(.batch([.set(path:"cursor.rotation_mode",value:.string("tilt")),.set(path:"cursor.tilt_amount",value:.number(2))]))
-        #expect(try p.motion(atNs:0).cursorRotationRad == 0)
+        #expect(abs(try p.motion(atNs:0).cursorRotationRad - .pi/2) < 1e-6)
         #expect(try p.motion(atNs:250_000_000).cursorRotationRad > 0)
         let before = try p.toJSON()
         #expect(throws:CoreError.self) { try p.apply(.set(path:"cursor.shake_threshold",value:.number(2001))) }
@@ -384,6 +385,48 @@ private func expectClosed(_ operation: () throws -> Void) {
         #expect(try old.insertionStyles().mask?.blurRadius == 32)
         try old.save()
         #expect(try Project.open(package: package).renderLayers(atNs: 1_000_000_000) == expected)
+    }
+}
+
+@Test func r5CaptionDefaultsAndAdaptiveAspectQueriesPreserveAuthoredData() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let defaults = try p.captionDefaults()
+        #expect(defaults.fontSizeRatio == 0.05 && defaults.growth == .expanding && defaults.fontSize == 54)
+        let transcript = Data("{\"schema_version\":1,\"words\":[{\"text\":\"Hello\",\"src_start_ns\":0,\"src_end_ns\":2000000000}]}".utf8)
+        try p.importTranscript(transcript)
+        #expect(try p.textEffects(.caption)[0].style.fontSizeRatio == 0.05)
+        for aspect in ["16:9", "1:1", "9:16", "4:5"] {
+            try p.apply(.set(path: "canvas.aspect", value: .string(aspect)))
+            let before = try p.toJSON()
+            let frame = try p.frame(atNs: 500_000_000)
+            let text = try #require(p.renderLayers(atNs: 500_000_000).first { $0.kind == "text" })
+            #expect(text.fontSize == Double(frame.canvas_h) * 0.05)
+            #expect(text.rect[0] >= 0 && text.rect[0] + text.rect[2] <= Double(frame.canvas_w))
+            #expect(try p.toJSON() == before)
+        }
+        try p.importTranscript(transcript, style: TextStyle(fontSize: 28))
+        #expect(try p.renderLayers(atNs: 500_000_000).last?.fontSize == 28)
+        #expect(try p.textEffects(.caption)[0].style.fontSizeRatio == nil)
+        let snapshot = try p.snapshot()
+        try p.save()
+        #expect(try Project.open(package: package).renderLayers(atNs: 500_000_000) == snapshot.renderLayers(atNs: 500_000_000))
+    }
+}
+
+@Test func r5CursorLoopClosesInCanvasCoordinatesAcrossDifferentFinalZooms() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.batch([
+            .set(path: "cursor.loop_to_start", value: .bool(true)),
+            .set(path: "cursor.loop_duration_ns", value: .integer(2_000_000_000)),
+            .set(path: "cursor.stop_before_end_ns", value: .integer(4_000_000_000))
+        ]))
+        try p.apply(.addZoom(ZoomSpec(startNs: 2_000_000_000, endNs: 6_000_000_000, target: [0.7,0.7], scale: 2, easeInNs: 0, easeOutNs: 0)))
+        let first = try p.frame(atNs: 0), last = try p.frame(atNs: p.durationNs)
+        #expect(abs(first.cursor_x - last.cursor_x) < 1e-9 && abs(first.cursor_y - last.cursor_y) < 1e-9)
+        try p.save()
+        #expect(abs(try Project.open(package: package).frame(atNs: p.durationNs).cursor_x - first.cursor_x) < 1e-9)
     }
 }
 
@@ -946,6 +989,7 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
             .set(path: "cursor.remove_shakes", value: .bool(true)),
             .set(path: "cursor.optimize_types", value: .bool(true)),
             .set(path: "cursor.rotate_on_move", value: .bool(true)),
+            .set(path: "cursor.tilt_amount", value: .number(1)),
             .set(path: "cursor.motion_blur", value: .number(0.7))
         ]))
         #expect(try p.frame(atNs: 100_000_000).cursor_x == first.cursor_x)
@@ -1708,5 +1752,88 @@ private func identityCubeData() -> Data {
         try p.apply(.set(path: "canvas.global_motion_blur", value: .null))
         #expect(try p.renderOptions().globalMotionBlur == nil)
         #expect(try p.renderOptions().cursorMotionBlur == 1)
+    }
+}
+
+@Test func roundFiveSourceActivityAndMovingMasksUsePublicWireContracts() throws {
+    try withFixture { package in
+        let p = try Project.create(package: package)
+        let activity = CameraSpeechActivity(source: .vad, coverageEndNs: 5_000_000_000, ranges: [.init(startNs: 0, endNs: 1_000_000_000), .init(startNs: 4_000_000_000, endNs: 5_000_000_000)])
+        try p.setCameraSpeechActivity(activity)
+        struct Range: Decodable, Equatable { var tlStartNs: Int64; var tlEndNs: Int64 }
+        struct Camera: Decodable { var speechActivity: CameraSpeechActivity?; var silenceRanges: [Range] }
+        struct Document: Decodable { var camera: Camera }
+        let camera = try p.query("{\"q\":\"project\"}", as: Document.self).camera
+        #expect(camera.speechActivity == activity)
+        #expect(camera.silenceRanges == [.init(tlStartNs: 1_000_000_000, tlEndNs: 4_000_000_000)])
+        try p.apply(.split(atNs: 2_000_000_000))
+        let clips = try p.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+        try p.apply(.setSpeed(clipID: clips[0].id, speed: 2))
+        let mapped = try p.query("{\"q\":\"project\"}", as: Document.self).camera
+        #expect(mapped.silenceRanges == [.init(tlStartNs: 500_000_000, tlEndNs: 3_000_000_000)])
+        try p.apply(.set(path: "canvas.highlights", value: .array([.object([
+            "id": .string("moving"), "space": .string("canvas"), "tl_start_ns": .number(0), "tl_end_ns": .number(4_000_000_000),
+            "rect": .array([0.1,0.1,0.2,0.2].map(JSONValue.number)),
+            "keyframes": .array([.object(["tl_ns": .number(4_000_000_000), "rect": .array([0.5,0.1,0.2,0.2].map(JSONValue.number))])])
+        ])])))
+        let layers = try p.renderLayers(atNs: 2_000_000_000)
+        let moving = try #require(layers.first(where: { $0.id == "moving" }))
+        let f = try p.frame(atNs: 2_000_000_000)
+        #expect(abs(moving.rect[0] - Double(f.canvas_w) * 0.3) < 1e-8)
+        #expect(try p.frameExtras(atNs: 2_000_000_000).highlight_count == 1)
+        let snapshot = try p.snapshot(); let before = try p.toJSON()
+        #expect(throws: CoreError.self) { try p.setCameraSpeechActivity(.init(source: .vad, coverageEndNs: 6_000_000_001, ranges: [])) }
+        #expect(try p.toJSON() == before)
+        try p.save(); #expect(try Project.open(package: package).toJSON() == p.toJSON())
+        try p.setCameraSpeechActivity(nil)
+        #expect(try p.query("{\"q\":\"project\"}", as: Document.self).camera.silenceRanges.isEmpty)
+        #expect(try snapshot.query("{\"q\":\"project\"}", as: Document.self).camera.speechActivity == activity)
+    }
+}
+
+@Test func roundFiveFollowCursorAndRememberedZoomLevelRoundTrip() throws {
+    try withGuideCursorFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.batch([
+            .set(path: "cursor.smoothing", value: .number(0)),
+            .set(path: "cursor.remove_shakes", value: .bool(false)),
+            .set(path: "cursor.rotation_mode", value: .string("follow")),
+            .set(path: "cursor.rotation_degrees", value: .number(15)),
+            .set(path: "cursor.tilt_amount", value: .number(0))
+        ]))
+        #expect(abs(try p.frameMotion(atNs: 350_000_000).cursor_rotation_rad - Float(150 * Double.pi/180)) < 1e-6)
+        #expect(abs(try p.frameMotion(atNs: 500_000_000).cursor_rotation_rad - Float(15 * Double.pi/180)) < 1e-6)
+        let id = try #require(try p.apply(.addZoom(.init(startNs: 1_000_000_000, endNs: 2_000_000_000))).createdIDs.first)
+        let before = try p.toJSON()
+        try p.apply(.updateZoom(id: id, patch: ["scale": .number(3.2)]))
+        struct Defaults: Decodable { var defaultScale: Double }
+        struct Document: Decodable { var zoomSettings: Defaults }
+        #expect(try p.query("{\"q\":\"project\"}", as: Document.self).zoomSettings.defaultScale == 3.2)
+        try p.undo(); #expect(try p.toJSON() == before); try p.redo()
+        try p.save()
+        #expect(try Project.open(package: package).toJSON() == p.toJSON())
+    }
+}
+
+
+@Test func hiddenShortcutChordsUseCanonicalCapturedTextAndPersistWithoutEditingEvents() throws {
+    try withFixture { package in
+        let eventURL = package.appendingPathComponent("recording/seg-000/events.jsonl")
+        let events = Data("{\"t\":100000000,\"type\":\"key\",\"key\":\"c\",\"modifiers\":[\"cmd\"]}\n".utf8)
+        try events.write(to: eventURL)
+        let p = try Project.create(package: package)
+        try p.apply(.set(path: "cursor.key_overlay.enabled", value: .bool(true)))
+        let rows = try p.keyOverlayShortcuts()
+        #expect(rows.count == 1 && rows[0].text == "⌘c" && rows[0].isShortcut && !rows[0].hidden)
+        #expect(try p.renderLayers(atNs: 200_000_000).contains { $0.id == "core:key-overlay" })
+        try p.setHiddenShortcuts(["⌘c"])
+        #expect(try p.keyOverlayShortcuts()[0].hidden)
+        #expect(try !p.renderLayers(atNs: 200_000_000).contains { $0.id == "core:key-overlay" })
+        let snap = try p.snapshot(); try p.undo()
+        #expect(try !p.keyOverlayShortcuts()[0].hidden)
+        #expect(try snap.keyOverlayShortcuts()[0].hidden)
+        try p.redo(); try p.save()
+        #expect(try Project.open(package: package).keyOverlayShortcuts() == p.keyOverlayShortcuts())
+        #expect(try Data(contentsOf: eventURL) == events)
     }
 }

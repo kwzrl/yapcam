@@ -122,6 +122,9 @@ impl Project {
                 Ok(rows.into())
             }
             "preset" => crate::preset::export(&self.data),
+            "caption_defaults" => Ok(serde_json::to_value(crate::captions::factory_style(
+                self.data.defaults_revision,
+            ))?),
             "autosave_policy" => {
                 Ok(json!({"enabled":self.data.autosave,"delay_ns":30_000_000_000_i64}))
             }
@@ -303,6 +306,9 @@ impl Project {
                 }
                 Ok(rows.into())
             }
+            "key_overlay_shortcuts" => Ok(self
+                .key_overlay_index
+                .shortcut_catalog(&self.data.cursor.key_overlay.hidden_shortcuts)),
             "key_events" => {
                 let mut rows = Vec::new();
                 for (segment, event, src, tl) in self.key_overlay_index.events() {

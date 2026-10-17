@@ -140,6 +140,17 @@ impl KeyOverlayIndex {
         }
         Some(&self.source[row.segment].keys[row.key].text)
     }
+    pub(crate) fn shortcut_catalog(&self, hidden: &[String]) -> Value {
+        let mut rows = std::collections::BTreeMap::new();
+        for row in &self.all {
+            let key = &self.source[row.segment].keys[row.key];
+            if key.text.trim().is_empty() {
+                continue;
+            }
+            rows.entry(&key.text).or_insert_with(|| serde_json::json!({"text":key.text,"is_shortcut":key.shortcut,"hidden":hidden.contains(&key.text)}));
+        }
+        Value::Array(rows.into_values().collect())
+    }
     /// Captured source clocks, unaffected by cuts, speed, or repeated clips.
     pub(crate) fn captured_times(&self) -> impl Iterator<Item = (usize, i64)> + '_ {
         self.source
@@ -204,6 +215,70 @@ mod tests {
         }
         rows.sort_by_key(|row| row["tl_ns"].as_i64());
         rows.into()
+    }
+    #[test]
+    fn hidden_chords_keep_source_keys_and_history_and_catalog_follow_edits() {
+        let (fixture, mut p) = project();
+        let query = json!({"q":"key_overlay_shortcuts"});
+        assert_eq!(p.query(&query).unwrap().as_array().unwrap().len(), 4);
+        let before = p.query(&json!({"q":"key_events"})).unwrap();
+        p.apply(&json!({"op":"set","path":"cursor.key_overlay.hidden_shortcuts","value":["⌘a"]}))
+            .unwrap();
+        assert!(p
+            .query(&json!({"q":"layers_at","tl_ns":150_000_000}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["id"] != "core:key-overlay"));
+        assert!(p
+            .query(&query)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["text"] == "⌘a" && r["hidden"] == true));
+        assert_eq!(p.query(&json!({"q":"key_events"})).unwrap(), before);
+        let snapshot = p.clone();
+        p.undo().unwrap();
+        assert!(p
+            .query(&json!({"q":"layers_at","tl_ns":150_000_000}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == "core:key-overlay"));
+        assert!(snapshot
+            .data
+            .cursor
+            .key_overlay
+            .hidden_shortcuts
+            .contains(&"⌘a".into()));
+        p.redo().unwrap();
+        p.save(&fixture.0).unwrap();
+        assert_eq!(
+            Project::open(&fixture.0)
+                .unwrap()
+                .data
+                .cursor
+                .key_overlay
+                .hidden_shortcuts,
+            vec!["⌘a"]
+        );
+        let before = p.data.clone();
+        assert!(p
+            .apply(&json!({"op":"set","path":"cursor.key_overlay.hidden_shortcuts","value":[""]}))
+            .is_err());
+        assert_eq!(p.data, before);
+        p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":250_000_000}))
+            .unwrap();
+        assert!(p
+            .query(&query)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["text"] != "⌘a"));
     }
     #[test]
     fn indexed_overlay_preserves_shortcuts_expiry_empty_keys_ties_and_layers() {

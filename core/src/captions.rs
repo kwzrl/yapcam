@@ -28,6 +28,19 @@ pub(crate) fn valid_style(style: &TextStyle) -> bool {
         && matches!(style.growth.as_str(), "full" | "expanding" | "centered")
         && matches!(style.entrance.as_str(), "appear" | "fade" | "slide")
         && valid_language(&style.language)
+        && style
+            .font_size_ratio
+            .is_none_or(|v| (0.005..=0.25).contains(&v))
+}
+pub(crate) fn factory_style(revision: u32) -> TextStyle {
+    let mut style = TextStyle::default();
+    if revision >= 2 {
+        style.font_size = 54.0;
+        style.font_size_ratio = Some(0.05);
+        style.growth = "expanding".into();
+        style.background = [0.0, 0.0, 0.0, 1.0];
+    }
+    style
 }
 fn normalized(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -100,6 +113,11 @@ pub(crate) fn did_patch(
     previous: &Value,
     patch: &Map<String, Value>,
 ) -> Result<()> {
+    if let Some(style) = patch.get("style").and_then(Value::as_object) {
+        if style.contains_key("font_size") && !style.contains_key("font_size_ratio") {
+            row["style"]["font_size_ratio"] = Value::Null;
+        }
+    }
     if patch.contains_key("words") {
         return Ok(());
     }

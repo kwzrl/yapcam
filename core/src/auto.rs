@@ -235,6 +235,17 @@ pub fn speed_typing(
             c.speed = speed;
         }
     }
+    let clock = time::ClipTimeIndex::new(&before);
+    let boundaries: Vec<_> = before
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            clock
+                .source_boundary_to_timeline(&before, i, c.src_start_ns)
+                .unwrap()
+        })
+        .collect();
+    crate::commands::seed_mask_keyframes(p, &boundaries);
     let map = time::BulkSpeedTimeMap::new(&before, &next);
     crate::commands::remap_effects(p, |t| map.map(t));
     p.timeline.clips = next;

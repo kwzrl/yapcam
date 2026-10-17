@@ -12,15 +12,17 @@ public struct TextStyle: Codable, Sendable, Equatable {
     public var entrance: Entrance
     public var language: String
     public var fontSize: Double
+    public var fontSizeRatio: Double?
     public var color: [Float]
     public var background: [Float]
     public var radius: Double
     public var opacity: Double
-    public init(fontSize: Double = 36, color: [Float] = [1,1,1,1], background: [Float] = [0,0,0,0.65], radius: Double = 12, opacity: Double = 1, fontFamily: FontFamily = .sans, reveal: Reveal = .line, growth: Growth = .full, entrance: Entrance = .appear, language: String = "auto") {
+    public init(fontSize: Double = 36, color: [Float] = [1,1,1,1], background: [Float] = [0,0,0,0.65], radius: Double = 12, opacity: Double = 1, fontFamily: FontFamily = .sans, reveal: Reveal = .line, growth: Growth = .full, entrance: Entrance = .appear, language: String = "auto", fontSizeRatio: Double? = nil) {
+        self.fontSizeRatio = fontSizeRatio
         self.fontSize = fontSize; self.color = color; self.background = background; self.radius = radius; self.opacity = opacity
         self.fontFamily = fontFamily; self.reveal = reveal; self.growth = growth; self.entrance = entrance; self.language = language
     }
-    private enum CodingKeys: String, CodingKey { case fontSize, color, background, radius, opacity, fontFamily, reveal, growth, entrance, language }
+    private enum CodingKeys: String, CodingKey { case fontSize, fontSizeRatio, color, background, radius, opacity, fontFamily, reveal, growth, entrance, language }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(fontSize: try c.decodeIfPresent(Double.self, forKey: .fontSize) ?? 36,
@@ -32,7 +34,8 @@ public struct TextStyle: Codable, Sendable, Equatable {
                   reveal: try c.decodeIfPresent(Reveal.self, forKey: .reveal) ?? .line,
                   growth: try c.decodeIfPresent(Growth.self, forKey: .growth) ?? .full,
                   entrance: try c.decodeIfPresent(Entrance.self, forKey: .entrance) ?? .appear,
-                  language: try c.decodeIfPresent(String.self, forKey: .language) ?? "auto")
+                  language: try c.decodeIfPresent(String.self, forKey: .language) ?? "auto",
+                  fontSizeRatio: try c.decodeIfPresent(Double.self, forKey: .fontSizeRatio))
     }
 }
 public struct CaptionWord: Codable, Sendable, Equatable {
@@ -142,8 +145,30 @@ extension Project {
     public func renderOptions(atNs: Int64) throws -> CoreRenderOptions { try query("{\"q\":\"render_options_at\",\"tl_ns\":\(atNs)}", as: CoreRenderOptions.self) }
     /// Pass Capture RecordingTranscript JSON directly; Core does not read files
     /// or request speech permission. Captions are replaced in a single undo step.
-    @discardableResult public func importTranscript(_ data: Data, style: TextStyle = TextStyle(), replace: Bool = true) throws -> ChangeSet {
+    @discardableResult public func importTranscript(_ data: Data, style: TextStyle? = nil, replace: Bool = true) throws -> ChangeSet {
         let json = try JSONDecoder().decode(JSONValue.self, from: data)
-        return try apply(.importTranscript(json, style: style, replace: replace))
+        let selected = try style ?? captionDefaults()
+        return try apply(.importTranscript(json, style: selected, replace: replace))
+    }
+}
+
+extension Project {
+    public func captionDefaults() throws -> TextStyle {
+        try query("{\"q\":\"caption_defaults\"}", as: TextStyle.self)
+    }
+}
+
+
+public struct KeyOverlayShortcut: Decodable, Sendable, Equatable {
+    public var text: String
+    public var isShortcut: Bool
+    public var hidden: Bool
+}
+extension Project {
+    public func keyOverlayShortcuts() throws -> [KeyOverlayShortcut] {
+        try query("{\"q\":\"key_overlay_shortcuts\"}", as: [KeyOverlayShortcut].self)
+    }
+    @discardableResult public func setHiddenShortcuts(_ chords: [String]) throws -> ChangeSet {
+        try apply(.set(path: "cursor.key_overlay.hidden_shortcuts", value: .array(chords.map(JSONValue.string))))
     }
 }

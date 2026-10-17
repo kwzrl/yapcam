@@ -1,0 +1,480 @@
+//! Round-5 behavioural parity regressions, using synthetic model inputs only.
+use crate::{
+    model::*,
+    project::{tests::Fixture, Project},
+};
+use serde_json::json;
+
+#[test]
+fn revision_two_factory_defaults_and_camera_geometry_preserve_existing_projects() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    assert_eq!(p.data.defaults_revision, 2);
+    assert_eq!(p.data.camera.position, [1.0, 1.0]);
+    assert_eq!(p.data.camera.size, 0.5);
+    assert_eq!(p.data.camera.zoom_scale, 0.8);
+    assert_eq!(p.data.camera.layout_settings.aspect, Some(1.0));
+    assert_eq!(p.data.camera.layout_settings.corner_ratio, Some(0.15));
+    assert_eq!(p.data.camera.layout_settings.edge_padding_ratio, 0.5);
+    assert_eq!(p.data.cursor.loop_duration_ns, 1_000_000_000);
+    assert!(p.data.cursor.remove_shakes && p.data.cursor.optimize_types);
+    assert_eq!(p.data.cursor.rotation_mode, "tilt");
+    assert_eq!(p.data.cursor.tilt_amount, 0.5);
+    assert_eq!(p.data.canvas.inset_color, [0.0, 0.0, 0.0, 0.5]);
+    assert_eq!(p.data.canvas.screen_quality, Some(ScreenQuality::default()));
+    p.session.tracks.camera = Some(CameraTrack {
+        device_name: "Synthetic".into(),
+        pixel_size: [320, 200],
+        fps: 30.0,
+        mirrored: false,
+    });
+    for segment in &mut p.session.segments {
+        segment
+            .files
+            .insert("camera".into(), segment.files["screen"].clone());
+    }
+    let frame = p.frame(0).unwrap();
+    assert_eq!(frame.camera.present, 1);
+    assert!((frame.camera_dest.w / frame.camera_dest.h - 1.0).abs() < 1e-9);
+    assert!(
+        (frame.camera_dest.x + frame.camera_dest.w - frame.canvas_w as f64 + 54.0).abs() < 1e-9
+    );
+    assert!(
+        (frame.camera_dest.y + frame.camera_dest.h - frame.canvas_h as f64 + 54.0).abs() < 1e-9
+    );
+    assert!((frame.camera_corner_radius as f64 - frame.camera_dest.w * 0.15).abs() < 1e-4);
+    p.apply(&json!({"op":"insert_mask"})).unwrap();
+    assert_eq!(p.data.canvas.highlights[0].dim_opacity, 0.5);
+    let mut legacy = p.data.clone();
+    legacy.defaults_revision = 1;
+    legacy.camera = Camera::default();
+    legacy.cursor = Cursor::default();
+    legacy.canvas.screen_quality = None;
+    let decoded = crate::project::decode_project(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert_eq!(decoded, legacy);
+    let mut raw = serde_json::to_value(&legacy).unwrap();
+    raw["camera"]["layout_settings"]
+        .as_object_mut()
+        .unwrap()
+        .remove("edge_padding_ratio");
+    let decoded = crate::project::decode_project(&serde_json::to_vec(&raw).unwrap()).unwrap();
+    assert_eq!(decoded.camera.layout_settings.edge_padding_ratio, 0.0);
+    assert_eq!(decoded.camera.size, 0.22);
+}
+
+#[test]
+fn cursor_loop_returns_to_first_canvas_hotspot_after_edits_and_beats_stop() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.autosave = false;
+    p.apply(&json!({"op":"batch","commands":[
+        {"op":"set","path":"cursor.loop_to_start","value":true},
+        {"op":"set","path":"cursor.loop_duration_ns","value":2_000_000_000_i64},
+        {"op":"set","path":"cursor.stop_before_end_ns","value":4_000_000_000_i64},
+        {"op":"set","path":"canvas.crop","value":[0.1,0.1,0.7,0.7]}
+    ]}))
+    .unwrap();
+    p.apply(&json!({"op":"add_zoom","tl_start_ns":2_000_000_000_i64,"tl_end_ns":6_000_000_000_i64,"mode":"manual","target":[0.7,0.7],"scale":2,"ease_in_ns":0,"ease_out_ns":0})).unwrap();
+    for edited in [false, true] {
+        if edited {
+            p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":500_000_000}))
+                .unwrap();
+            p.apply(&json!({"op":"set_speed","clip_id":p.data.timeline.clips[0].id,"speed":1.6}))
+                .unwrap();
+        }
+        let duration = crate::time::duration(&p.data.timeline.clips);
+        let first = p.frame(0).unwrap();
+        let end = p.frame(duration).unwrap();
+        assert!((end.cursor_x - first.cursor_x).abs() < 1e-9);
+        assert!((end.cursor_y - first.cursor_y).abs() < 1e-9);
+        let near = p.frame(duration - 1_000).unwrap();
+        assert!((near.cursor_x - first.cursor_x).abs() < 0.001);
+        assert!((near.cursor_y - first.cursor_y).abs() < 0.001);
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                p.frame(duration).unwrap();
+                p.frame_motion(duration).unwrap();
+            }),
+            0
+        );
+    }
+    p.save(&fixture.0).unwrap();
+    let reopened = Project::open(&fixture.0).unwrap();
+    let t = crate::time::duration(&p.data.timeline.clips);
+    assert_eq!(
+        reopened.frame(t).unwrap().cursor_x,
+        p.frame(0).unwrap().cursor_x
+    );
+}
+
+fn synthetic_camera(p: &mut Project) {
+    p.session.tracks.camera = Some(CameraTrack {
+        device_name: "Synthetic".into(),
+        pixel_size: [320, 200],
+        fps: 30.0,
+        mirrored: false,
+    });
+    for segment in &mut p.session.segments {
+        segment
+            .files
+            .insert("camera".into(), segment.files["screen"].clone());
+    }
+}
+#[test]
+fn smart_auto_framing_keeps_cursor_clear_across_aspects_and_source_edges() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    synthetic_camera(&mut p);
+    p.data.autosave = false;
+    p.events[0] =
+        vec![serde_json::from_value(json!({"type":"move","t":0,"x":280,"y":170})).unwrap()];
+    p.input = p
+        .events
+        .iter()
+        .map(|events| crate::input::InputCache::new(events))
+        .collect();
+    p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":3_000_000_000_i64,"mode":"auto","scale":2,"target":[0.875,0.85],"ease_in_ns":0,"ease_out_ns":0})).unwrap();
+    let covered = |f: crate::frame::Frame| {
+        f.cursor_x >= f.camera_dest.x
+            && f.cursor_x <= f.camera_dest.x + f.camera_dest.w
+            && f.cursor_y >= f.camera_dest.y
+            && f.cursor_y <= f.camera_dest.y + f.camera_dest.h
+    };
+    let mut overlaps = 0;
+    for aspect in ["16:9", "1:1", "9:16", "4:5"] {
+        p.data.canvas.aspect = aspect.into();
+        p.data.zoom_settings.smart_framing = false;
+        let prior = p.frame(1_000_000_000).unwrap();
+        if covered(prior) {
+            overlaps += 1;
+        }
+        p.data.zoom_settings.smart_framing = true;
+        let f = p.frame(1_000_000_000).unwrap();
+        assert!(
+            f.cursor_visible != 0 && !covered(f),
+            "{aspect}: cursor {},{} camera {:?}",
+            f.cursor_x,
+            f.cursor_y,
+            f.camera_dest
+        );
+        assert!(f.camera_dest.x >= 0.0 && f.camera_dest.y >= 0.0);
+        assert!(f.camera_dest.x + f.camera_dest.w <= f.canvas_w as f64 + 1e-8);
+        assert!(f.screen_crop.x >= 0.0 && f.screen_crop.x + f.screen_crop.w <= 1.0 + 1e-12);
+        assert_eq!(
+            p.frame(500_000_000).unwrap().cursor_x,
+            p.frame(1_000_000_000).unwrap().cursor_x
+        );
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                p.frame(1_000_000_000).unwrap();
+                p.frame_motion(1_000_000_000).unwrap();
+            }),
+            0
+        );
+    }
+    assert!(
+        overlaps > 0,
+        "Fixture must exercise camera occlusion before the policy"
+    );
+    p.data.zooms[0].mode = "manual".into();
+    let manual = p.frame(1_000_000_000).unwrap();
+    p.data.zoom_settings.smart_framing = false;
+    assert_eq!(
+        manual.camera_dest,
+        p.frame(1_000_000_000).unwrap().camera_dest
+    );
+}
+#[test]
+fn aspect_adaptation_keeps_captions_and_shortcuts_readable_without_rewriting_data() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    synthetic_camera(&mut p);
+    p.data.canvas.captions = vec![TextRecord {
+        id: "caption".into(),
+        tl_end_ns: 3_000_000_000,
+        text: "Caption".into(),
+        style: crate::captions::factory_style(2),
+        ..TextRecord::default()
+    }];
+    p.data.cursor.key_overlay.enabled = true;
+    p.events[0].insert(
+        0,
+        serde_json::from_value(json!({"t":0,"type":"key","key":"k","modifiers":["cmd"]})).unwrap(),
+    );
+    p.key_overlay_index =
+        crate::key_overlay::KeyOverlayIndex::new(&p.session, &p.events, &p.data.timeline.clips);
+    for aspect in ["16:9", "1:1", "9:16", "4:5"] {
+        p.data.canvas.aspect = aspect.into();
+        let before = p.data.clone();
+        let f = p.frame(500_000_000).unwrap();
+        let layers = p.layers_at(500_000_000).unwrap();
+        let text: Vec<_> = layers
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["kind"] == "text")
+            .collect();
+        assert_eq!(text.len(), 2);
+        for row in &text {
+            let r: Vec<_> = row["rect"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_f64().unwrap())
+                .collect();
+            assert!(
+                r[0] >= 0.0
+                    && r[1] >= 0.0
+                    && r[0] + r[2] <= f.canvas_w as f64 + 1e-8
+                    && r[1] + r[3] <= f.canvas_h as f64 + 1e-8
+            );
+            let c = f.camera_dest;
+            assert!(
+                !(r[0] < c.x + c.w && c.x < r[0] + r[2] && r[1] < c.y + c.h && c.y < r[1] + r[3]),
+                "text overlaps camera: {row}"
+            );
+        }
+        assert_eq!(text[0]["font_size"], f.canvas_h as f64 * 0.05);
+        assert_eq!(text[1]["font_size"], f.canvas_h as f64 * 0.1);
+        assert_eq!(
+            p.data, before,
+            "queries must never rewrite authored positions/targets"
+        );
+    }
+}
+#[test]
+fn avoid_empty_zoom_area_fills_allocated_region_without_leaking_outside_crop() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.canvas.aspect = "9:16".into();
+    p.data.canvas.crop = [0.1, 0.1, 0.7, 0.7];
+    p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":3_000_000_000_i64,"mode":"manual","scale":2,"target":[0.4,0.4],"ease_in_ns":0,"ease_out_ns":0})).unwrap();
+    let fitted = p.frame(1_000_000_000).unwrap();
+    p.data.canvas.avoid_empty_zoom_area = true;
+    let filled = p.frame(1_000_000_000).unwrap();
+    assert!(filled.screen_dest.h > fitted.screen_dest.h);
+    assert!(filled.screen_crop.x >= 0.1 && filled.screen_crop.y >= 0.1);
+    assert!(
+        filled.screen_crop.x + filled.screen_crop.w <= 0.8 + 1e-12
+            && filled.screen_crop.y + filled.screen_crop.h <= 0.8 + 1e-12
+    );
+    assert!(
+        (filled.screen_dest.w / filled.screen_dest.h
+            - filled.screen_crop.w / filled.screen_crop.h * 1.6)
+            .abs()
+            < 1e-9
+    );
+}
+
+#[test]
+fn smart_camera_and_cursor_loop_do_not_reocclude_the_final_hotspot() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    synthetic_camera(&mut p);
+    for (i, events) in p.events.iter_mut().enumerate() {
+        *events = vec![serde_json::from_value(
+            json!({"type":"move","t":0,"x":if i==0 {40}else{280},"y":if i==0 {40}else{170}}),
+        )
+        .unwrap()];
+        if i == 0 {
+            events.push(
+                serde_json::from_value(json!({"type":"move","t":1_000_000_000,"x":280,"y":170}))
+                    .unwrap(),
+            );
+        }
+    }
+    p.input = p
+        .events
+        .iter()
+        .map(|e| crate::input::InputCache::new(e))
+        .collect();
+    p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":6_000_000_000_i64,"mode":"auto","scale":2,"target":[0.5,0.5],"ease_in_ns":0,"ease_out_ns":0})).unwrap();
+    p.data.cursor.loop_to_start = true;
+    let first = p.frame(0).unwrap();
+    let last = p.frame(5_000_000_000).unwrap();
+    let c = last.camera_dest;
+    assert_eq!(
+        (last.cursor_x, last.cursor_y),
+        (first.cursor_x, first.cursor_y)
+    );
+    assert!(
+        !(last.cursor_x >= c.x
+            && last.cursor_x <= c.x + c.w
+            && last.cursor_y >= c.y
+            && last.cursor_y <= c.y + c.h)
+    );
+}
+
+#[test]
+fn moving_masks_follow_source_through_speed_cuts_and_restore_and_disabled_items_are_inert() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.autosave = false;
+    synthetic_camera(&mut p);
+    p.apply(&json!({"op":"set","path":"canvas.highlights","value":[{
+        "id":"moving","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"space":"canvas",
+        "rect":[0.1,0.1,0.2,0.2],"keyframes":[{"tl_ns":5_000_000_000_i64,"rect":[0.6,0.1,0.2,0.2]}]
+    }]}))
+    .unwrap();
+    p.apply(&json!({"op":"split","at_tl_ns":1_000_000_000}))
+        .unwrap();
+    p.apply(&json!({"op":"set_speed","clip_id":p.data.timeline.clips[0].id,"speed":2}))
+        .unwrap();
+    for t in [250_000_000, 500_000_000, 750_000_000, 2_000_000_000] {
+        let source = p.frame(t).unwrap().screen.src_ns;
+        let rect = crate::layers::mask_rect_at(&p.data.canvas.highlights[0], t);
+        assert!(
+            (rect[0] - (0.1 + source as f64 / 1e10)).abs() < 1e-9,
+            "{t} {source} {rect:?}"
+        );
+    }
+    p.apply(
+        &json!({"op":"delete_range","tl_start_ns":1_000_000_000,"tl_end_ns":2_000_000_000_i64}),
+    )
+    .unwrap();
+    for t in [0, 999_999_999, 1_000_000_000, 2_000_000_000] {
+        let source = p.frame(t).unwrap().screen.src_ns;
+        assert!(
+            (crate::layers::mask_rect_at(&p.data.canvas.highlights[0], t)[0]
+                - (0.1 + source as f64 / 1e10))
+                .abs()
+                < 1e-9
+        );
+    }
+    p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":500_000_000}))
+        .unwrap();
+    assert!((crate::layers::mask_rect_at(&p.data.canvas.highlights[0], 0)[0] - 0.2).abs() < 1e-9);
+    p.apply(
+        &json!({"op":"insert_source","src_start_ns":0,"src_end_ns":1_000_000_000,"at_tl_ns":0}),
+    )
+    .unwrap();
+    assert!(
+        (crate::layers::mask_rect_at(&p.data.canvas.highlights[0], 1_000_000_000)[0] - 0.2).abs()
+            < 1e-9
+    );
+    p.apply(&json!({"op":"set","path":"camera.layouts","value":[{"id":"off","tl_start_ns":0,"tl_end_ns":4_000_000_000_i64,"mode":"screen","enabled":false}]})).unwrap();
+    assert_eq!(p.frame(2_000_000_000).unwrap().camera.present, 1);
+    let before = p.data.clone();
+    let mut masks = serde_json::to_value(&p.data.canvas.highlights).unwrap();
+    masks[0]["enabled"] = false.into();
+    p.apply(&json!({"op":"set","path":"canvas.highlights","value":masks}))
+        .unwrap();
+    assert_eq!(p.frame_extras(2_000_000_000).unwrap().highlight_count, 0);
+    assert_eq!(
+        crate::allocation_test::count(|| {
+            p.frame_extras(2_000_000_000).unwrap();
+        }),
+        0
+    );
+    p.undo().unwrap();
+    assert_eq!(p.data, before);
+    let mut invalid = serde_json::to_value(&p.data.canvas.highlights).unwrap();
+    invalid[0]["keyframes"] = json!([{"tl_ns":-1,"rect":[0.0,0.0,0.2,0.2]}]);
+    assert!(p
+        .apply(&json!({"op":"set","path":"canvas.highlights","value":invalid}))
+        .is_err());
+    assert_eq!(p.data, before);
+    p.save(&fixture.0).unwrap();
+    assert_eq!(Project::open(&fixture.0).unwrap().data, before);
+}
+
+#[test]
+fn source_speech_activity_maps_known_silence_through_edits_and_transcript_respects_vad() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.autosave = false;
+    synthetic_camera(&mut p);
+    p.apply(&json!({"op":"batch","commands":[
+        {"op":"set","path":"camera.hide_during_silence","value":true},
+        {"op":"set","path":"camera.min_silence_ns","value":2_000_000_000_i64},
+        {"op":"set","path":"camera.speech_activity","value":{"source":"vad","coverage_start_ns":0,"coverage_end_ns":5_000_000_000_i64,"ranges":[
+            {"src_start_ns":4_000_000_000_i64,"src_end_ns":5_000_000_000_i64},
+            {"src_start_ns":500_000_000,"src_end_ns":1_000_000_000},
+            {"src_start_ns":0,"src_end_ns":800_000_000}]}}
+    ]})).unwrap();
+    assert_eq!(
+        p.data.camera.speech_activity.as_ref().unwrap().ranges.len(),
+        2
+    );
+    assert_eq!(p.data.camera.silence_ranges[0].tl_start_ns, 1_000_000_000);
+    assert_eq!(p.frame(3_500_000_000).unwrap().camera.present, 0);
+    assert_eq!(p.frame(4_900_000_000).unwrap().camera.present, 1);
+    p.apply(&json!({"op":"split","at_tl_ns":2_000_000_000_i64}))
+        .unwrap();
+    p.apply(&json!({"op":"set_speed","clip_id":p.data.timeline.clips[0].id,"speed":2}))
+        .unwrap();
+    assert_eq!(p.data.camera.silence_ranges[0].tl_start_ns, 500_000_000);
+    assert_eq!(p.data.camera.silence_ranges[0].tl_end_ns, 3_000_000_000_i64);
+    let snapshot = p.clone();
+    p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":500_000_000}))
+        .unwrap();
+    assert_eq!(p.data.camera.silence_ranges[0].tl_start_ns, 0);
+    p.apply(
+        &json!({"op":"insert_source","src_start_ns":0,"src_end_ns":1_000_000_000,"at_tl_ns":0}),
+    )
+    .unwrap();
+    assert_eq!(p.data.camera.silence_ranges[0].tl_start_ns, 1_000_000_000);
+    let vad = p.data.camera.speech_activity.clone();
+    p.apply(&json!({"op":"import_transcript","transcript":{"schema_version":1,"words":[{"src_start_ns":0,"src_end_ns":5_000_000_000_i64,"text":"hello"}]}})).unwrap();
+    assert_eq!(p.data.camera.speech_activity, vad);
+    let before = p.data.clone();
+    assert!(p.apply(&json!({"op":"set","path":"camera.speech_activity","value":{"source":"vad","coverage_start_ns":0,"coverage_end_ns":6_000_000_001_i64,"ranges":[]}})).is_err());
+    assert_eq!(p.data, before);
+    p.save(&fixture.0).unwrap();
+    assert_eq!(Project::open(&fixture.0).unwrap().data, before);
+    assert_eq!(
+        snapshot.data.camera.silence_ranges[0].tl_start_ns,
+        500_000_000
+    );
+    p.apply(&json!({"op":"set","path":"camera.silence_ranges","value":[]}))
+        .unwrap();
+    assert!(p.data.camera.speech_activity.is_none());
+    p.apply(&json!({"op":"import_transcript","transcript":{"schema_version":1,"words":[{"src_start_ns":1_000_000_000,"src_end_ns":2_000_000_000_i64,"text":"speech"}]}})).unwrap();
+    assert_eq!(
+        p.data.camera.speech_activity.as_ref().unwrap().source,
+        "transcript"
+    );
+    p.apply(&json!({"op":"set","path":"camera.speech_activity","value":null}))
+        .unwrap();
+    assert!(p.data.camera.silence_ranges.is_empty());
+}
+
+#[test]
+fn edited_zoom_magnification_remembers_default_in_same_undo_without_item_metadata() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.autosave = false;
+    let result = p
+        .apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":1_000_000_000,"scale":2,"mode":"manual","target":[0.5,0.5],"ease_in_ns":0,"ease_out_ns":0}))
+        .unwrap();
+    let id = &result.created_ids[0];
+    let before = p.data.clone();
+    p.apply(&json!({"op":"update_zoom","id":id,"patch":{"scale":3.2}}))
+        .unwrap();
+    assert_eq!(p.data.zoom_settings.default_scale, 3.2);
+    p.undo().unwrap();
+    assert_eq!(p.data, before);
+    p.redo().unwrap();
+    p.apply(
+        &json!({"op":"add_zoom","tl_start_ns":2_000_000_000_i64,"tl_end_ns":3_000_000_000_i64,"mode":"manual","target":[0.5,0.5],"ease_in_ns":0,"ease_out_ns":0}),
+    )
+    .unwrap();
+    assert_eq!(p.data.zooms[1].scale, 3.2);
+    p.save(&fixture.0).unwrap();
+    assert_eq!(Project::open(&fixture.0).unwrap().data, p.data);
+}
+
+#[test]
+fn new_caption_without_style_uses_factory_and_legacy_project_keeps_legacy_style() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.autosave = false;
+    p.apply(&json!({"op":"add_caption","record":{"text":"new","tl_start_ns":0,"tl_end_ns":1_000_000_000}})).unwrap();
+    assert_eq!(
+        p.data.canvas.captions[0].style,
+        crate::captions::factory_style(2)
+    );
+    p.data.defaults_revision = 1;
+    p.apply(&json!({"op":"add_caption","record":{"text":"legacy","tl_start_ns":1_000_000_000,"tl_end_ns":2_000_000_000_i64}})).unwrap();
+    assert_eq!(p.data.canvas.captions[1].style, TextStyle::default());
+}

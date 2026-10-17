@@ -9,6 +9,8 @@ import YapcamCore
     defer { try? FileManager.default.removeItem(at: package) }
     try FileManager.default.copyItem(at: fixtures.appendingPathComponent("Fixtures/synthetic/basic.yapcam"), to: package)
     let project = try Project.create(package: package)
+    #expect(try project.renderOptions().screenQuality == CoreScreenQuality())
+    try project.setScreenQuality(nil) // Explicit legacy/null baseline for the opt-in regression.
     #expect(try project.renderOptions().screenQuality == nil)
     let frame = try project.frame(atNs: 500_000_000)
     let snapshot = try project.snapshot()

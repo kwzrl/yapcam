@@ -260,7 +260,7 @@ pub(crate) fn migrate_cursor(value: &mut serde_json::Value, legacy_threshold: bo
         .get("rotation_mode")
         .and_then(serde_json::Value::as_str)
     {
-        let tilt = mode == "tilt";
+        let tilt = matches!(mode, "tilt" | "follow");
         fields.insert("rotate_on_move".into(), tilt.into());
     } else if let Some(tilt) = fields
         .get("rotate_on_move")
@@ -287,6 +287,7 @@ settings!(ZoomSettings {
     start_early: bool = false,
     animation_style: String = "custom".into(),
     automatic: bool = true,
+    smart_framing: bool = false,
     follow_cursor: bool = true,
     dead_zone: f64 = 0.15,
     speed_preset: String = "custom".into(),
@@ -309,12 +310,14 @@ settings!(CameraLayoutSettings {
     mode: String = "overlay".into(), aspect: Option<f64> = None,
     split_ratio: Option<f64> = None, split_flip: bool = false, split_padded: bool = false,
     cutout_position: [f64; 2] = [1.0,1.0], cutout_size: f64 = 0.5,
-    edge_softness: f64 = 0.2, edge_inset: f64 = 0.0, corner_ratio: Option<f64> = None
+    edge_softness: f64 = 0.2, edge_inset: f64 = 0.0, corner_ratio: Option<f64> = None,
+    edge_padding_ratio: f64 = 0.0
 });
 settings!(Camera {
     layout_settings: CameraLayoutSettings = CameraLayoutSettings::default(),
     hide_during_silence: bool = false, min_silence_ns: i64 = 5_000_000_000,
     silence_ranges: Vec<ActivityRange> = vec![],
+    speech_activity: Option<SpeechActivity> = None,
     style: CameraStyle = CameraStyle::default(),
     visible: bool = true, position: [f64; 2] = [0.82, 0.78], size: f64 = 0.22,
     shape: String = "rounded_rect".into(), radius: f64 = 24.0,
@@ -324,6 +327,8 @@ settings!(Camera {
 });
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Layout {
+    #[serde(default = "enabled")]
+    pub enabled: bool,
     #[serde(default)]
     pub settings: Option<CameraLayoutSettings>,
     pub id: String,
@@ -386,6 +391,7 @@ settings!(Canvas {
     screen_quality: Option<ScreenQuality> = None,
     device_frame: Option<String> = None,
     aspect: String = "16:9".into(),
+    avoid_empty_zoom_area: bool = false, auto_layout: bool = false,
     output_size: [u32; 2] = [1920, 1080],
     background: Background = Background::default(),
     padding: f64 = 48.0, padding_ratio: Option<f64> = None,
@@ -404,6 +410,7 @@ settings!(Canvas {
     captions: Vec<TextRecord> = vec![],
 });
 settings!(Highlight {
+    enabled: bool = true, keyframes: Vec<MaskKeyframe> = vec![],
     id: String = String::new(),
     tl_start_ns: i64 = 0,
     tl_end_ns: i64 = 1,
@@ -418,6 +425,26 @@ settings!(Highlight {
     stroke: [f32; 4] = [1.0, 0.85, 0.2, 1.0],
     stroke_width: f64 = 3.0,
 });
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct MaskKeyframe {
+    pub tl_ns: i64,
+    pub rect: [f64; 4],
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SourceActivityRange {
+    pub src_start_ns: i64,
+    pub src_end_ns: i64,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SpeechActivity {
+    pub source: String,
+    pub coverage_start_ns: i64,
+    pub coverage_end_ns: i64,
+    pub ranges: Vec<SourceActivityRange>,
+}
 settings!(MotionBlurSettings { zoom: Option<f64> = None, pan: Option<f64> = None });
 settings!(Animation {
     entrance: String = "none".into(),
@@ -495,6 +522,7 @@ settings!(TextStyle {
     entrance: String = "appear".into(),
     language: String = "auto".into(),
     font_size: f64 = 36.0,
+    font_size_ratio: Option<f64> = None,
     color: [f32; 4] = [1.0, 1.0, 1.0, 1.0],
     background: [f32; 4] = [0.0, 0.0, 0.0, 0.65],
     radius: f64 = 12.0,
@@ -552,6 +580,7 @@ settings!(KeyOverlay {
     enabled: bool = false,
     duration_ns: i64 = 1_000_000_000,
     shortcuts_only: bool = true,
+    hidden_shortcuts: Vec<String> = vec![],
     rect: [f64; 4] = [0.3, 0.82, 0.4, 0.12],
     style: TextStyle = TextStyle::default(),
 });
@@ -595,7 +624,7 @@ impl ProjectData {
             .last()
             .map_or(0, |s| s.src_start_ns + s.duration_ns);
         let mut data = Self {
-            defaults_revision: 1,
+            defaults_revision: 2,
             schema_version: SCHEMA_VERSION,
             id,
             created_at: session.created_at.clone(),
@@ -648,6 +677,24 @@ impl ProjectData {
             mass: 1.5,
             allow_overshoot: false,
         };
+        data.camera.position = [1.0, 1.0];
+        data.camera.size = 0.5;
+        data.camera.zoom_scale = 0.8;
+        data.camera.layout_settings.aspect = Some(1.0);
+        data.camera.layout_settings.corner_ratio = Some(0.15);
+        data.camera.layout_settings.edge_padding_ratio = 0.5;
+        data.cursor.loop_duration_ns = 1_000_000_000;
+        data.cursor.remove_shakes = true;
+        data.cursor.optimize_types = true;
+        data.cursor.rotation_mode = "tilt".into();
+        data.cursor.rotate_on_move = true;
+        data.cursor.tilt_amount = 0.5;
+        data.zoom_settings.smart_framing = true;
+        data.canvas.auto_layout = true;
+        data.cursor.key_overlay.style.font_size = 108.0;
+        data.cursor.key_overlay.style.font_size_ratio = Some(0.1);
+        data.canvas.inset_color = [0.0, 0.0, 0.0, 0.5];
+        data.canvas.screen_quality = Some(ScreenQuality::default());
         data.audio.click_sound.gain_db = 20.0 * 0.25_f64.log10();
         data
     }

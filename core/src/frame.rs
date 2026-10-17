@@ -330,12 +330,13 @@ impl Project {
             .camera
             .layouts
             .iter()
-            .filter(|l| tl_ns >= l.tl_start_ns && tl_ns < l.tl_end_ns)
+            .filter(|l| l.enabled && tl_ns >= l.tl_start_ns && tl_ns < l.tl_end_ns)
             .max_by_key(|l| l.tl_start_ns)
         {
             camera_pos = l.camera_position.unwrap_or(camera_pos);
             camera_size = l.camera_size.unwrap_or(camera_size);
         }
+        let mut allocated_screen = area;
         match layout_mode {
             "camera" => {
                 if frame.camera.present != 0 && camera_visible {
@@ -381,6 +382,7 @@ impl Project {
                     horizontal,
                     layout_settings.split_flip,
                 );
+                allocated_screen = screen_region;
                 frame.screen_dest = fit(screen_region, source_aspect);
                 frame.camera_dest = fit(camera_region, camera_aspect);
             }
@@ -391,13 +393,22 @@ impl Project {
             _ => {}
         }
         if frame.camera_dest.w == 0.0 {
+            let edge = layout_settings.edge_padding_ratio * pad;
             let w = (canvas.w * camera_size * zoom_camera_factor)
-                .min(canvas.w)
-                .min(canvas.h * camera_aspect);
+                .min((canvas.w - 2.0 * edge).max(0.0))
+                .min((canvas.h - 2.0 * edge).max(0.0) * camera_aspect);
             let h = (w / camera_aspect).min(canvas.h);
             frame.camera_dest = Rect {
-                x: coordinate(canvas.w * camera_pos[0] - w / 2.0, 0.0, canvas.w - w),
-                y: coordinate(canvas.h * camera_pos[1] - h / 2.0, 0.0, canvas.h - h),
+                x: coordinate(
+                    canvas.w * camera_pos[0] - w / 2.0,
+                    edge,
+                    canvas.w - edge - w,
+                ),
+                y: coordinate(
+                    canvas.h * camera_pos[1] - h / 2.0,
+                    edge,
+                    canvas.h - edge - h,
+                ),
                 w,
                 h,
             };
@@ -414,15 +425,36 @@ impl Project {
         }
         frame.mic_gain = self.audio_gain_for_clip("mic", tl_ns, Some(clip_i));
         frame.system_gain = self.audio_gain_for_clip("system_audio", tl_ns, Some(clip_i));
+        crate::adaptive::fill_zoom_region(self, &mut frame, allocated_screen);
         if frame.screen.present != 0 && capabilities.can_cursor {
             self.cursor_at(&mut frame, src, clip_i);
+            if crate::adaptive::smart_framing(self, &mut frame, true) {
+                self.cursor_at(&mut frame, src, clip_i);
+            }
         }
         crate::layers::animate_frame(
             &mut frame,
             &p.canvas.animation,
             time::duration(&p.timeline.clips),
         );
-        if p.cursor.stop_before_end_ns > 0 {
+        if p.cursor.loop_to_start && tl_ns > 0 {
+            let duration = time::duration(&p.timeline.clips);
+            let window = p.cursor.loop_duration_ns.min(duration);
+            let remaining = duration - tl_ns;
+            if remaining < window && frame.screen.present != 0 {
+                // Re-evaluate only frame zero (which never enters this branch).
+                // Return to the actual canvas hotspot, not a source coordinate
+                // interpreted through a different final crop or layout.
+                let first = self.frame_geometry(0)?;
+                let k = ease(1.0 - remaining as f64 / window as f64);
+                frame.cursor_x += (first.cursor_x - frame.cursor_x) * k;
+                frame.cursor_y += (first.cursor_y - frame.cursor_y) * k;
+                // Looping has already chosen the canvas hotspot. Move only the
+                // camera if needed; reprojecting the crop would break the loop.
+                crate::adaptive::smart_framing(self, &mut frame, false);
+            }
+        }
+        if !p.cursor.loop_to_start && p.cursor.stop_before_end_ns > 0 {
             let stop = time::duration(&p.timeline.clips)
                 .saturating_sub(p.cursor.stop_before_end_ns)
                 .max(0);
@@ -508,24 +540,6 @@ impl Project {
                 }
                 x = x * (1.0 - cursor.smoothing) + sx * cursor.smoothing;
                 y = y * (1.0 - cursor.smoothing) + sy * cursor.smoothing;
-            }
-        }
-        if cursor.loop_to_start {
-            let duration = time::duration(&self.data.timeline.clips);
-            let remaining = duration - f.tl_ns;
-            if remaining < cursor.loop_duration_ns {
-                if let Some((_, first_src)) = time::timeline_to_source(&self.data.timeline.clips, 0)
-                {
-                    let sample = time::sample(&self.session, "screen", first_src);
-                    let segment = &self.session.segments[sample.segment as usize];
-                    if let Some(first) = self.input[sample.segment as usize]
-                        .position_filtered(first_src - segment.src_start_ns, cursor.remove_shakes)
-                    {
-                        let k = ease(1.0 - remaining as f64 / cursor.loop_duration_ns as f64);
-                        x += (first.x - x) * k;
-                        y += (first.y - y) * k;
-                    }
-                }
             }
         }
         let points = self.session.source.content_rect_points;
@@ -715,6 +729,7 @@ mod tests {
         p.data.canvas.aspect = "9:16".into();
         assert_eq!(p.frame(0).unwrap().canvas_w, 608);
         p.data.camera.layouts.push(Layout {
+            enabled: true,
             settings: None,
             camera_background_removal: None,
             camera_face_framing: None,
@@ -771,6 +786,7 @@ mod m2_tests {
     fn camera_geometry_and_dynamic_layout() {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();
+        p.data.camera.layout_settings.aspect = None; // Exercise recorded camera aspect, not factory square.
         p.session.tracks.camera = Some(CameraTrack {
             device_name: "synthetic".into(),
             pixel_size: [640, 480],
@@ -784,6 +800,7 @@ mod m2_tests {
         assert_eq!(overlay.camera.present, 1);
         assert!((overlay.camera_dest.w / overlay.camera_dest.h - 4.0 / 3.0).abs() < 1e-6);
         p.data.camera.layouts.push(Layout {
+            enabled: true,
             settings: None,
             camera_background_removal: None,
             camera_face_framing: None,

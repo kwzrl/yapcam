@@ -87,6 +87,10 @@ public final class Project: @unchecked Sendable {
             return true
         }
     }
+    public var isClosed: Bool {
+        mutationGate.lock(); defer { mutationGate.unlock() }
+        return closed
+    }
     public var revision: UInt64 {
         mutationGate.lock(); defer { mutationGate.unlock() }
         return mutationRevision

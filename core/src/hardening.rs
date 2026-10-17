@@ -477,7 +477,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 .as_str()
                 .unwrap_or("missing");
             let random = arbitrary_json(&mut seed, 4);
-            let mut command = match n % 33 {
+            let mut command = match n % 39 {
                 0 => random.clone(),
                 1 => json!({"op":"set","path":"canvas.padding","value":random}),
                 2 => json!({"op":"set","path":"notes","value":format!("fuzz-{n} ☕\0字幕")}),
@@ -536,6 +536,18 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 32 => {
                     json!({"op":"update_caption","id":before["canvas"]["captions"][0]["id"].as_str().unwrap_or("missing"),"patch":{"style":{"font_family":"mono","reveal":"word","growth":"expanding","entrance":"fade","language":"en-US"},"words":random}})
                 }
+                33 => json!({"op":"set","path":"camera.speech_activity","value":random}),
+                34 => {
+                    json!({"op":"set","path":"camera.speech_activity","value":{"source":"vad","coverage_start_ns":0,"coverage_end_ns":5_000_000_000_i64,"ranges":arbitrary_json(&mut seed,2)}})
+                }
+                35 => {
+                    json!({"op":"set","path":"canvas.highlights","value":[{"id":"moving","enabled":true,"tl_start_ns":0,"tl_end_ns":duration.max(1),"keyframes":random}]})
+                }
+                36 => {
+                    json!({"op":"set","path":"camera.layouts","value":[{"id":"disabled","enabled":random,"mode":"screen","tl_start_ns":0,"tl_end_ns":duration.max(1)}]})
+                }
+                37 => json!({"op":"set","path":"cursor.rotation_mode","value":"follow"}),
+                38 => json!({"op":"set","path":"canvas.auto_layout","value":random}),
                 _ => {
                     json!({"op":"update_zoom","id":before["zooms"][0]["id"].as_str().unwrap_or("missing"),"patch":{"style":"lens","lens":random}})
                 }

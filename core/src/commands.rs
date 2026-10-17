@@ -49,6 +49,14 @@ impl Project {
         let mut next = self.data.clone();
         let mut changes = ChangeSet::default();
         apply_inner(&mut next, command, &mut changes, 0, self)?;
+        if next.camera.speech_activity != self.data.camera.speech_activity
+            || next.timeline != self.data.timeline
+        {
+            crate::speech_activity::refresh(&mut next)?;
+            if next.camera.silence_ranges != self.data.camera.silence_ranges {
+                changes.changed.push("camera.silence_ranges".into());
+            }
+        }
         validate_data(&next)?;
         crate::microphone::validate(&next, &self.session)?;
         let end = self
@@ -56,6 +64,14 @@ impl Project {
             .segments
             .last()
             .map_or(0, |s| s.src_start_ns + s.duration_ns);
+        if next
+            .camera
+            .speech_activity
+            .as_ref()
+            .is_some_and(|a| a.coverage_end_ns > end)
+        {
+            return Err(Error::new(1, "Speech activity coverage exceeds recording"));
+        }
         if next.timeline.clips.iter().any(|c| c.src_end_ns > end) {
             return Err(Error::new(1, "Clip outside recording"));
         }
@@ -257,6 +273,7 @@ pub(crate) fn apply_inner(
                 }
             }
             let map = time::CutTimeMap::new(&p.timeline.clips, &removed);
+            seed_mask_keyframes(p, &[a.saturating_sub(1), b]);
             p.timeline.clips = clips;
             remap_effects(p, |t| map.map(t));
             cs.changed.extend([
@@ -288,6 +305,8 @@ pub(crate) fn apply_inner(
                 return Ok(());
             }
             let map = time::SpeedTimeMap::new(&p.timeline.clips, i, speed);
+            let (a, b) = time::clip_bounds(&p.timeline.clips, i).unwrap();
+            seed_mask_keyframes(p, &[a, b]);
             p.timeline.clips[i].speed = speed;
             remap_effects(p, |t| map.map(t));
             cs.changed.extend([
@@ -361,6 +380,10 @@ pub(crate) fn apply_inner(
                     || crate::capabilities::external(&context.session.source.kind))
             {
                 z.mode = "manual".into();
+            }
+            if patch.contains_key("scale") && (1.0..=4.0).contains(&z.scale) {
+                p.zoom_settings.default_scale = z.scale;
+                cs.changed.push("zoom_settings.default_scale".into());
             }
             p.insertion_styles.zoom = Some(crate::editing::zoom_style(z));
             cs.changed
@@ -603,6 +626,14 @@ pub(crate) fn apply_inner(
                 cs.changed.push("camera.style".into());
             }
             match path {
+                "camera.silence_ranges" => {
+                    p.camera.speech_activity = None;
+                    cs.changed.push("camera.speech_activity".into());
+                }
+                "camera.speech_activity" if value.is_null() => {
+                    p.camera.silence_ranges.clear();
+                    cs.changed.push("camera.silence_ranges".into());
+                }
                 "cursor.rotate_on_move" => {
                     p.cursor.rotation_mode = if p.cursor.rotate_on_move {
                         "tilt"
@@ -613,7 +644,8 @@ pub(crate) fn apply_inner(
                     cs.changed.push("cursor.rotation_mode".into());
                 }
                 "cursor.rotation_mode" => {
-                    p.cursor.rotate_on_move = p.cursor.rotation_mode == "tilt";
+                    p.cursor.rotate_on_move =
+                        matches!(p.cursor.rotation_mode.as_str(), "tilt" | "follow");
                     cs.changed.push("cursor.rotate_on_move".into());
                 }
                 "audio.mic_preset" => {
@@ -703,6 +735,27 @@ pub(crate) fn apply_inner(
     }
     Ok(())
 }
+/// Add curve knots at time-map slope changes before mapping existing knots.
+/// Static masks stay compact. Sampling happens before mutating the original curve.
+pub(crate) fn seed_mask_keyframes(p: &mut ProjectData, boundaries: &[i64]) {
+    for h in &mut p.canvas.highlights {
+        if h.keyframes.is_empty() {
+            continue;
+        }
+        let keys: Vec<_> = boundaries
+            .iter()
+            .copied()
+            .filter(|t| *t >= h.tl_start_ns && *t <= h.tl_end_ns)
+            .map(|t| MaskKeyframe {
+                tl_ns: t,
+                rect: crate::layers::mask_rect_at(h, t),
+            })
+            .collect();
+        h.keyframes.extend(keys);
+        h.keyframes.sort_by_key(|k| k.tl_ns);
+        h.keyframes.dedup_by_key(|k| k.tl_ns);
+    }
+}
 pub(crate) fn remap_effects(p: &mut ProjectData, map: impl Fn(i64) -> i64) {
     remap_effect_edges(p, &map, &map);
 }
@@ -741,6 +794,14 @@ pub(crate) fn remap_effect_edges(
     for h in &mut p.canvas.highlights {
         h.tl_start_ns = map(h.tl_start_ns);
         h.tl_end_ns = end(h.tl_end_ns);
+        if h.tl_end_ns > h.tl_start_ns {
+            for key in &mut h.keyframes {
+                key.tl_ns = map(key.tl_ns).clamp(h.tl_start_ns, h.tl_end_ns);
+            }
+            h.keyframes.reverse();
+            h.keyframes.dedup_by_key(|k| k.tl_ns);
+            h.keyframes.reverse();
+        }
     }
     p.canvas.highlights.retain(|h| h.tl_end_ns > h.tl_start_ns);
     for records in [

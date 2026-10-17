@@ -17,7 +17,10 @@ fn schema() -> Value {
             &["crop", "highlights", "annotations", "reactions", "captions"][..],
         ),
         ("cursor", &["ranges"][..]),
-        ("camera", &["layouts", "silence_ranges"][..]),
+        (
+            "camera",
+            &["layouts", "silence_ranges", "speech_activity"][..],
+        ),
         ("audio", &["ranges", "music", "mic_replacements"][..]),
     ] {
         for field in fields {

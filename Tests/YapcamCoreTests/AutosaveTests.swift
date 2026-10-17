@@ -90,3 +90,30 @@ private actor AutosaveSleeps {
     #expect(after == inode)
     #expect(!p.isDirty && autosaver.lastError == nil)
 }
+
+@MainActor @Test func failedAutosaveRetriesWithoutNewEditsAndKeepsDirtyUntilSuccess() async throws {
+    let package = try autosaveFixture(); defer { try? FileManager.default.removeItem(at: package) }
+    let p = try Project.create(package: package); try p.save()
+    // Make the document dirty before subscribing, so only the initial timer fires.
+    try p.apply(.set(path: "notes", value: .string("retry without another edit")))
+    let sleeps = AutosaveSleeps()
+    let autosaver = ProjectAutosaver(project: p, delay: .seconds(30), sleep: { await sleeps.sleep($0) })
+    defer { autosaver.cancel(); Task { await sleeps.releaseAll() } }
+    for _ in 0..<1000 { if await sleeps.contains(1) { break }; await Task.yield() }
+    #expect(await sleeps.contains(1))
+    let file = package.appendingPathComponent("project.json")
+    let held = package.appendingPathComponent("saved-before-test.json")
+    try FileManager.default.moveItem(at: file, to: held)
+    try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+    await sleeps.release(1)
+    for _ in 0..<500 { if await sleeps.contains(2) { break }; try await Task.sleep(for: .milliseconds(1)) }
+    #expect(p.isDirty && autosaver.lastError != nil)
+    #expect(await sleeps.contains(2))
+    try FileManager.default.removeItem(at: file)
+    try FileManager.default.moveItem(at: held, to: file)
+    await sleeps.release(2)
+    await autosaver.waitForScheduledSave()
+    #expect(!p.isDirty && autosaver.lastError == nil)
+    #expect(try Project.open(package: package).toJSON() == p.toJSON())
+    p.close(); #expect(p.isClosed)
+}

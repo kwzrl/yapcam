@@ -520,7 +520,7 @@ Yapcam choices; implementation/checkpoint progress is in Core status.
 |---|---|
 | `cursor.always_default` | bool, false; force pointer style and cursor_id=0 |
 | `cursor.rotate_on_move` | bool, false; evaluated tilt up to ±15° |
-| `cursor.rotation_mode` | `static` / `tilt`, new-project default `static`; authoritative mode, synchronizes legacy `rotate_on_move` |
+| `cursor.rotation_mode` | `static` / `tilt` / `follow`, revision2 factory `tilt` (legacy `static`); authoritative mode, synchronizes legacy `rotate_on_move` |
 | `cursor.rotation_degrees` | finite degrees −180…180, default0; clockwise static rotation |
 | `cursor.tilt_amount` | finite0…2, default1; multiplier on velocity tilt (maximum ±15° × amount) |
 | `cursor.stop_before_end_ns` | nonnegative Int64 ns, 0 (off) |
@@ -1322,3 +1322,154 @@ Swift TextStyle adds typed FontFamily/Reveal/Growth/Entrance plus language;
 TextEffectRecord adds [CaptionWord], both decoding older records with defaults.
 CoreRenderLayer exposes optional fontFamily/caption evaluation. Presets continue
 omitting caption records/timing, while shared style preferences remain portable.
+
+
+## Round 5 factory revision 2
+
+Only Project.create applies defaults_revision=2. Opening revision0/1 or files
+without these fields keeps stored values and legacy decode defaults unchanged.
+
+| Field | Revision1 factory → revision2 factory |
+|---|---|
+| camera.position / size / zoom_scale | [.82,.78] / .22 /1 → [1,1] /.5 /.8 |
+| camera.layout_settings.aspect / corner_ratio | null/null →1/.15 |
+| camera.layout_settings.edge_padding_ratio | new field, legacy0 → factory.5 |
+| cursor.loop_duration_ns |400000000 →1000000000 (loop remains off) |
+| cursor.remove_shakes / optimize_types |false/false →true/true |
+| cursor.rotation_mode / rotate_on_move / tilt_amount |static/false/1 →tilt/true/.5 |
+| canvas.inset_color |[1,1,1,1] →[0,0,0,.5] (size stays0) |
+| canvas.screen_quality |null →{improve_quality:.5,upscaling:quality} |
+| newly inserted highlight dim_opacity with no remembered style |.4 →.5 |
+
+`camera.layout_settings.edge_padding_ratio` and the same field in each layout's
+settings accept finite0…1, default0 on old decode. The inset from each canvas edge
+is that ratio times evaluated canvas padding. Overlay/cutout geometry uses this
+inset; screen/full-camera/split modes retain their own fitting rules. Stored
+camera.radius remains available for legacy/null corner_ratio. New cursor palette
+remains original and our calm dark background remains our own artwork choice.
+All paths participate in normal set/batch, history, presets and save/reopen.
+
+
+### Round 5 seamless cursor loop
+
+Loop interpolation happens after crop/layout/entrance transforms, in canonical
+canvas pixels. During the last min(loop_duration_ns,duration) of the edited
+video, the cursor glides toward its first evaluated canvas hotspot using a
+stateless quintic ease. The last evaluated hotspot equals frame0 even with
+changes of source segment, speed, crop, zoom or camera layout. Loop takes
+precedence over stop_before_end_ns; stored stop duration is retained. No frame
+layout, ABI, field value or legacy duration is rewritten.
+
+### Round 5 adaptive composition
+
+New `zoom_settings.smart_framing` bool defaults false on legacy decode, true
+for revision2 create. Auto zooms keep the evaluated cursor hotspot clear of a
+visible overlay/cutout camera. The evaluator first chooses a bounded crop shift;
+if source edges prevent that, the camera moves to the nearest clear corner and
+shrinks only when all corners would cover the cursor. Manual zooms/hidden cameras
+are unchanged. Selected source crop is never expanded and the policy is stateless.
+
+New `canvas.avoid_empty_zoom_area` bool defaults false. When enabled, classic zooms
+progressively fill their allocated screen region by adjusting the bounded crop
+aspect; disabled retains the fitted screen/background. No source outside the
+selected crop is sampled. `canvas.auto_layout` bool defaults false on legacy
+files and true for revision2. It adapts canvas-space caption/shortcut rectangles
+for portrait output and avoids the evaluated camera; shortcuts also avoid active
+captions. Authored annotations/reactions/source-space items are unchanged. Turn
+it off to retain fixed normalized text positions. This evaluates rectangles;
+changing aspect never rewrites saved targets, rectangles, time ranges or IDs.
+
+New optional `TextStyle.font_size_ratio` (null legacy; finite .005…0.25) is a
+fraction of canvas height. Evaluated layers convert it to pixel font_size, while
+stored font_size remains the explicit pixel fallback. `caption_defaults` query
+returns the factory insertion style: revision2 sans/line/expanding/appear,
+white on black, ratio.05, pixel fallback54; older projects retain the original
+36px/full-line defaults. Importing a transcript without an explicit style uses
+these defaults. Revision2 key-overlay style uses ratio.1/fallback108. The Swift
+importTranscript style argument becomes optional; explicit styles retain their
+values. Updating a caption's explicit pixel font_size clears its ratio unless
+a ratio is supplied in the same style patch. Geometry/canvas/ABI types unchanged.
+
+
+### Round 5 source-backed camera speech activity
+
+New nullable `camera.speech_activity` stores analysis in recording source ns:
+`{source:"vad"|"transcript",coverage_start_ns,coverage_end_ns,ranges:[{src_start_ns,src_end_ns}]}`.
+Coverage is nonnegative, increasing and within recording duration; speech ranges
+must lie within it. Unsorted/overlapping speech input is canonicalized to a sorted
+union. Null is the legacy/manual mode. An empty range list inside known coverage
+means confirmed silence; time outside coverage remains unknown/visible.
+
+When this input or clips change, Core computes the complement, maps it through
+cuts/speeds/repeated clips and restores, merges adjacent silence, and stores
+camera.silence_ranges. Existing hide_during_silence/min_silence_ns semantics use
+these output-timeline intervals (2…15s minimum, factory5s). New analysis is one
+transaction/undo step. Setting camera.silence_ranges explicitly clears source
+analysis (manual override); setting speech_activity=null clears its derived ranges.
+Portable presets exclude both analysis and intervals. Source metadata survives
+undo/redo, snapshots and save/reopen. Importing a complete capture transcript
+updates transcript activity over the session; existing VAD activity takes priority.
+Manual add_caption commands that omit style also use caption_defaults; explicit
+styles and decoded existing records retain their appearance.
+The typed Swift setCameraSpeechActivity(_:) accepts the same metadata. Use the
+existing mapAudioRanges API for file-local VAD clocks, or provide global source
+intervals directly with known coverage; do not relabel file clocks as source ns.
+
+### Round 5 timeline item state and moving masks
+
+Layout records append enabled (bool, missing=true). Disabled ranges retain all
+settings but do not override the default/other enabled layout. Highlight/mask
+records append enabled (bool, missing=true) and keyframes (default[]), a strictly
+ordered list `{tl_ns,rect:[x,y,w,h]}` within that mask's half-open interval (an
+endpoint key at tl_end_ns is allowed). Rectangles obey the existing normalized
+bounds. Bounds interpolate linearly from the mask's initial rect/time to keys,
+then hold the last key; exact keys use their rect. Crop/zoom clipping happens
+after interpolation. Disabled masks emit no layers/extras and don't consume the
+32 simultaneous-active slots. Geometry, enabled state and keyframes are never
+inherited as insertion style. Cuts/speeds/restores retime keys along with masks;
+collapsed times keep the last key. Curve knots are sampled at map slope changes
+and immediately around cuts, preserving retained source motion; a mask spanning
+restored time holds its boundary rectangle over the insertion. Editing arrays uses existing canvas.highlights
+and camera.layouts paths. Existing C structs and extras slot geometry are intact.
+
+
+### Round 5 directional cursor and remembered zoom level
+
+`cursor.rotation_mode` additionally accepts `follow`. It aligns the authored
+arrow's NW heading with evaluated canvas motion, then applies rotation_degrees.
+Idle/hidden/cut frames return to the base angle; there is no mutable seek state.
+Tilt adds its velocity angle to the base for revision2; older tilt projects retain
+the original ignored-base behaviour. Follow ignores tilt_amount; the legacy
+rotate_on_move alias selects tilt/static and both moving modes report it true.
+Mode values, history, presets and save/reopen remain synchronized.
+
+An explicit update_zoom patch containing scale in1…4 also remembers that scale
+as zoom_settings.default_scale in the same undo step. Automatic zoom generation
+never changes it; precision zooms above4 retain the prior default. Editor owns
+the1s gesture debounce (then sends the final level); Core publishes atomically.
+
+
+### Round 5 autosave retry
+
+ProjectAutosaver retains the30s trailing delay after a save failure and retries
+without requiring another edit. Every new edit restarts the pending timer; a
+successful save/manual clean state clears the error. Dirty revision stays dirty
+through failures. Closed, disabled or cancelled documents never reschedule.
+Project.isClosed is a read-only synchronized lifecycle query. Journaling and
+atomic-save semantics are unchanged; no busy retry loop or IO on frame calls.
+
+
+### Round 5 hidden shortcut chords
+
+`cursor.key_overlay.hidden_shortcuts` is a list of exact canonical display
+chords (default[], max256 nonblank strings of at most256 UTF-8 bytes). Modifier
+order is Ctrl/Option/Shift/Command, represented by ⌃⌥⇧⌘ followed by the captured
+key. A hidden latest event suppresses the overlay until another eligible event;
+it does not reveal a preceding chord. Source events/typing suggestions remain
+unchanged. This display preference is portable, undoable and saveable.
+`{"q":"key_overlay_shortcuts"}` lists unique nonempty captured keys/chords
+remaining on the edited timeline as `{text,is_shortcut,hidden}`, sorted by text.
+The query includes single-key presses so Editor can edit their preference even
+when shortcuts_only currently filters them out. Swift keyOverlayShortcuts() and
+setHiddenShortcuts(_:) use these payloads. These are cold queries; filtering does
+not add event scans to frame_at or binary-search overlay lookup.

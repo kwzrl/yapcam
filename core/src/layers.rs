@@ -56,26 +56,42 @@ fn smooth(t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
     t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
 }
+/// Normalized, seek-independent mask curve, shared by frame evaluation and retiming.
+pub(crate) fn mask_rect_at(h: &Highlight, tl_ns: i64) -> [f64; 4] {
+    let i = h.keyframes.partition_point(|key| key.tl_ns <= tl_ns);
+    let (a, at) = if i > 0 {
+        (h.keyframes[i - 1].rect, h.keyframes[i - 1].tl_ns)
+    } else {
+        (h.rect, h.tl_start_ns)
+    };
+    if let Some(next) = h.keyframes.get(i) {
+        let k = ((tl_ns - at) as f64 / (next.tl_ns - at).max(1) as f64).clamp(0.0, 1.0);
+        std::array::from_fn(|j| a[j] + (next.rect[j] - a[j]) * k)
+    } else {
+        a
+    }
+}
 fn highlight_at(h: &Highlight, f: &Frame) -> Option<FrameHighlight> {
-    if f.tl_ns < h.tl_start_ns || f.tl_ns >= h.tl_end_ns {
+    if !h.enabled || f.tl_ns < h.tl_start_ns || f.tl_ns >= h.tl_end_ns {
         return None;
     }
+    let bounds = mask_rect_at(h, f.tl_ns);
     let rect = if h.space == "canvas" {
         Rect {
-            x: h.rect[0] * f.canvas_w as f64,
-            y: h.rect[1] * f.canvas_h as f64,
-            w: h.rect[2] * f.canvas_w as f64,
-            h: h.rect[3] * f.canvas_h as f64,
+            x: bounds[0] * f.canvas_w as f64,
+            y: bounds[1] * f.canvas_h as f64,
+            w: bounds[2] * f.canvas_w as f64,
+            h: bounds[3] * f.canvas_h as f64,
         }
     } else {
         if f.screen.present == 0 {
             return None;
         }
         let crop = f.screen_crop;
-        let x = h.rect[0].max(crop.x);
-        let y = h.rect[1].max(crop.y);
-        let right = (h.rect[0] + h.rect[2]).min(crop.x + crop.w);
-        let bottom = (h.rect[1] + h.rect[3]).min(crop.y + crop.h);
+        let x = bounds[0].max(crop.x);
+        let y = bounds[1].max(crop.y);
+        let right = (bounds[0] + bounds[2]).min(crop.x + crop.w);
+        let bottom = (bounds[1] + bounds[3]).min(crop.y + crop.h);
         if right <= x || bottom <= y {
             return None;
         }
@@ -97,7 +113,14 @@ fn highlight_at(h: &Highlight, f: &Frame) -> Option<FrameHighlight> {
         stroke_width: h.stroke_width as f32,
     })
 }
-fn append_text(layers: &mut Vec<Value>, r: &TextRecord, f: &Frame, id: &str) {
+fn append_text(
+    layers: &mut Vec<Value>,
+    r: &TextRecord,
+    f: &Frame,
+    id: &str,
+    p: &crate::model::ProjectData,
+    adapt: bool,
+) {
     let h = Highlight {
         tl_start_ns: r.tl_start_ns,
         tl_end_ns: r.tl_end_ns,
@@ -112,12 +135,20 @@ fn append_text(layers: &mut Vec<Value>, r: &TextRecord, f: &Frame, id: &str) {
         ..Highlight::default()
     };
     if let Some(evaluated) = highlight_at(&h, f) {
-        let d = evaluated.rect;
+        let d = if adapt && r.space == "canvas" {
+            crate::adaptive::text_rect(p, evaluated.rect, f, id == "core:key-overlay")
+        } else {
+            evaluated.rect
+        };
+        let font_size = r
+            .style
+            .font_size_ratio
+            .map_or(r.style.font_size, |ratio| ratio * f.canvas_h as f64);
         let rect = [d.x, d.y, d.w, d.h];
         if r.style.background[3] > 0.0 {
             layers.push(json!({"id":format!("{id}:background"),"kind":"highlight","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":r.style.background,"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0}));
         }
-        layers.push(json!({"id":id,"kind":"text","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":[0.0,0.0,0.0,0.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0,"text":r.text,"font_size":r.style.font_size,"font_family":r.style.font_family,"color":r.style.color}));
+        layers.push(json!({"id":id,"kind":"text","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":[0.0,0.0,0.0,0.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0,"text":r.text,"font_size":font_size,"font_family":r.style.font_family,"color":r.style.color}));
     }
 }
 /// Apply content entrance/exit to the legacy geometry. No additional ABI slots,
@@ -288,7 +319,14 @@ impl Project {
                     let mut visible = r.clone();
                     visible.text = evaluation.visible_text.clone();
                     visible.style.opacity *= evaluation.line_opacity;
-                    append_text(&mut layers, &visible, &f, &format!("core:{kind}:{}", r.id));
+                    append_text(
+                        &mut layers,
+                        &visible,
+                        &f,
+                        &format!("core:{kind}:{}", r.id),
+                        &self.data,
+                        true,
+                    );
                     for row in &mut layers[first..] {
                         let y = row["rect"][1].as_f64().unwrap();
                         let height = row["rect"][3].as_f64().unwrap();
@@ -298,7 +336,14 @@ impl Project {
                         }
                     }
                 } else {
-                    append_text(&mut layers, r, &f, &format!("core:{kind}:{}", r.id));
+                    append_text(
+                        &mut layers,
+                        r,
+                        &f,
+                        &format!("core:{kind}:{}", r.id),
+                        &self.data,
+                        false,
+                    );
                 }
             }
         }
@@ -308,7 +353,7 @@ impl Project {
                 self.key_overlay_index
                     .latest(tl_ns, key.duration_ns, key.shortcuts_only)
             {
-                if !text.trim().is_empty() {
+                if !text.trim().is_empty() && !key.hidden_shortcuts.iter().any(|s| s == text) {
                     let record = TextRecord {
                         text: text.to_owned(),
                         rect: key.rect,
@@ -317,7 +362,14 @@ impl Project {
                         tl_end_ns: tl_ns.saturating_add(1),
                         ..TextRecord::default()
                     };
-                    append_text(&mut layers, &record, &f, "core:key-overlay");
+                    append_text(
+                        &mut layers,
+                        &record,
+                        &f,
+                        "core:key-overlay",
+                        &self.data,
+                        true,
+                    );
                 }
             }
         }

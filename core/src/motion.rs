@@ -99,10 +99,13 @@ impl Project {
     pub fn frame_motion(&self, tl_ns: i64) -> Result<FrameMotion> {
         let current = self.frame_geometry(tl_ns)?;
         let cursor = &self.data.cursor;
-        let tilting = cursor.rotation_mode == "tilt" || cursor.rotate_on_move;
+        let following = cursor.rotation_mode == "follow";
+        let tilting = !following && (cursor.rotation_mode == "tilt" || cursor.rotate_on_move);
         let mut motion = FrameMotion {
             tl_ns,
-            cursor_rotation_rad: if !tilting && current.cursor_visible != 0 {
+            cursor_rotation_rad: if (!tilting || self.data.defaults_revision >= 2)
+                && current.cursor_visible != 0
+            {
                 cursor.rotation_degrees.to_radians() as f32
             } else {
                 0.0
@@ -115,7 +118,8 @@ impl Project {
         let prior_ns = tl_ns.saturating_sub(16_666_667).max(0);
         let prior = self.frame_geometry(prior_ns)?;
         let duration = time::duration(&self.data.timeline.clips);
-        let stopped = cursor.stop_before_end_ns > 0
+        let stopped = !cursor.loop_to_start
+            && cursor.stop_before_end_ns > 0
             && tl_ns >= duration.saturating_sub(cursor.stop_before_end_ns).max(0);
         if !self.same_motion_clip(tl_ns) {
             return Ok(motion);
@@ -132,9 +136,16 @@ impl Project {
                 motion.cursor_motion_blur = (cursor.motion_blur
                     * self.data.canvas.global_motion_blur.unwrap_or(1.0))
                     as f32;
-                if tilting {
+                if following {
+                    let heading = dy.atan2(dx)
+                        + 3.0 * std::f64::consts::FRAC_PI_4
+                        + motion.cursor_rotation_rad as f64;
+                    motion.cursor_rotation_rad =
+                        ((heading + std::f64::consts::PI).rem_euclid(2.0 * std::f64::consts::PI)
+                            - std::f64::consts::PI) as f32;
+                } else if tilting {
                     let seconds = (tl_ns - prior_ns) as f64 / 1e9;
-                    motion.cursor_rotation_rad = ((dx / seconds / 600.0).clamp(-1.0, 1.0)
+                    motion.cursor_rotation_rad += ((dx / seconds / 600.0).clamp(-1.0, 1.0)
                         * 15_f64.to_radians()
                         * cursor.tilt_amount)
                         as f32;
@@ -179,7 +190,15 @@ mod tests {
     fn make() -> (Fixture, Project) {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();
+        // Physics goldens explicitly retain the pre-R5 baseline; factory defaults
+        // are covered independently in parity_tests.
         p.data.cursor.smoothing = 0.0;
+        p.data.cursor.rotation_mode = "static".into();
+        p.data.cursor.rotate_on_move = false;
+        p.data.cursor.tilt_amount = 1.0;
+        p.data.cursor.remove_shakes = false;
+        p.data.cursor.optimize_types = false;
+        p.data.camera = crate::model::Camera::default();
         p.events[0] = vec![
             cursor(0, 5),
             event(0, 100.0),
@@ -195,6 +214,60 @@ mod tests {
         ];
         p.input[0] = InputCache::new(&p.events[0]);
         (f, p)
+    }
+    #[test]
+    fn follow_rotation_uses_heading_and_base_with_idle_cut_hidden_and_legacy_tilt_guards() {
+        let (fixture, mut p) = make();
+        p.apply(&json!({"op":"batch","commands":[
+            {"op":"set","path":"cursor.rotation_mode","value":"follow"},
+            {"op":"set","path":"cursor.rotation_degrees","value":15},
+            {"op":"set","path":"cursor.tilt_amount","value":0}]}))
+            .unwrap();
+        assert!(p.data.cursor.rotate_on_move);
+        let angle = p.frame_motion(350_000_000).unwrap().cursor_rotation_rad;
+        assert!((angle - 150_f32.to_radians()).abs() < 1e-6);
+        for t in [0, 500_000_000] {
+            assert!(
+                (p.frame_motion(t).unwrap().cursor_rotation_rad - 15_f32.to_radians()).abs() < 1e-6
+            );
+        }
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                p.frame_motion(350_000_000).unwrap();
+            }),
+            0
+        );
+        p.save(&fixture.0).unwrap();
+        assert_eq!(
+            Project::open(&fixture.0).unwrap().data.cursor.rotation_mode,
+            "follow"
+        );
+        p.apply(&json!({"op":"split","at_tl_ns":350_000_000}))
+            .unwrap();
+        assert!(
+            (p.frame_motion(350_000_000).unwrap().cursor_rotation_rad - 15_f32.to_radians()).abs()
+                < 1e-6
+        );
+        p.apply(&json!({"op":"set","path":"cursor.visible","value":false}))
+            .unwrap();
+        assert_eq!(
+            p.frame_motion(350_000_000).unwrap().cursor_rotation_rad,
+            0.0
+        );
+        p.undo().unwrap();
+        p.undo().unwrap();
+        p.apply(&json!({"op":"set","path":"cursor.rotate_on_move","value":true}))
+            .unwrap();
+        assert_eq!(p.data.cursor.rotation_mode, "tilt");
+        assert!(
+            (p.frame_motion(350_000_000).unwrap().cursor_rotation_rad - 15_f32.to_radians()).abs()
+                < 1e-6
+        );
+        p.data.defaults_revision = 1;
+        assert_eq!(
+            p.frame_motion(350_000_000).unwrap().cursor_rotation_rad,
+            0.0
+        );
     }
     #[test]
     fn static_and_scaled_tilt_goldens_use_existing_motion_abi_at_start_idle_and_cuts() {
@@ -221,6 +294,7 @@ mod tests {
             );
         }
         p.apply(&json!({"op":"batch","commands":[
+            {"op":"set","path":"cursor.rotation_degrees","value":0},
             {"op":"set","path":"cursor.rotation_mode","value":"tilt"},
             {"op":"set","path":"cursor.tilt_amount","value":2}]}))
             .unwrap();
@@ -247,7 +321,7 @@ mod tests {
             p.frame_motion(350_000_000).unwrap().cursor_rotation_rad,
             0.0
         );
-        p.apply(&json!({"op":"set","path":"cursor.rotation_mode","value":"static"}))
+        p.apply(&json!({"op":"batch","commands":[{"op":"set","path":"cursor.rotation_mode","value":"static"},{"op":"set","path":"cursor.rotation_degrees","value":90}]}))
             .unwrap();
         assert!(!p.data.cursor.rotate_on_move);
         assert!(
@@ -267,7 +341,7 @@ mod tests {
         assert_eq!(p.frame_motion(0).unwrap().cursor_rotation_rad, 0.0);
         let before = p.data.clone();
         for (path, value) in [
-            ("rotation_mode", json!("follow")),
+            ("rotation_mode", json!("invalid")),
             ("rotation_degrees", json!(180.01)),
             ("rotation_degrees", json!(-180.01)),
             ("tilt_amount", json!(-0.1)),

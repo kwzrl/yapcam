@@ -59,7 +59,7 @@ private func withCaptionFixture(_ body: (URL, Project) throws -> Void) throws {
         let transcript = Data(#"{"schema_version":1,"locale":"zh-Hans-CN","words":[{"text":"你好","src_start_ns":100000000,"src_end_ns":800000000}]}"#.utf8)
         try project.importTranscript(transcript)
         let row = try #require(project.textEffects(.caption).first)
-        #expect(row.style.language == "zh-Hans-CN" && row.style.reveal == .line && row.style.growth == .full)
+        #expect(row.style.language == "zh-Hans-CN" && row.style.reveal == .line && row.style.growth == .expanding && row.style.fontSizeRatio == 0.05)
         #expect(row.words == [CaptionWord(text: "你好", startNs: row.tlStartNs, endNs: row.tlEndNs)])
         let layer = try #require(project.renderLayers(atNs: 200_000_000).first { $0.kind == "text" && $0.caption != nil })
         #expect(layer.text == "你好" && layer.opacity == 1 && layer.caption?.lineOffsetY == 0)

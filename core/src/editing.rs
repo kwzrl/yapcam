@@ -193,7 +193,7 @@ pub(crate) fn command(
                     json!({"style":"classic","lens":ZoomLens::default(),"mode":"auto","scale":p.zoom_settings.default_scale,"target":[0.5,0.5],"ease_in_ns":300_000_000,"ease_out_ns":300_000_000,"enabled":true})
                 }
                 "insert_layout" => {
-                    json!({"mode":"overlay","settings":null,"camera_position":null,"camera_size":null,"camera_background_removal":null,"camera_face_framing":null,"camera_shadow_radius":null})
+                    json!({"enabled":true,"mode":"overlay","settings":null,"camera_position":null,"camera_size":null,"camera_background_removal":null,"camera_face_framing":null,"camera_shadow_radius":null})
                 }
                 _ => serde_json::to_value(Highlight::default())?,
             };
@@ -203,6 +203,9 @@ pub(crate) fn command(
                 }
             }
             if op == "insert_mask" {
+                if p.defaults_revision >= 2 {
+                    row["dim_opacity"] = 0.5.into();
+                }
                 if let Some(style) = &p.insertion_styles.mask {
                     merge_style(&mut row, serde_json::to_value(style)?);
                 }

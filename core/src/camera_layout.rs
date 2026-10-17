@@ -9,7 +9,7 @@ pub(crate) fn current(p: &ProjectData, tl: i64) -> (&str, &CameraLayoutSettings)
     p.camera
         .layouts
         .iter()
-        .filter(|l| tl >= l.tl_start_ns && tl < l.tl_end_ns)
+        .filter(|l| l.enabled && tl >= l.tl_start_ns && tl < l.tl_end_ns)
         .max_by_key(|l| l.tl_start_ns)
         .map_or(
             (
@@ -98,6 +98,7 @@ pub(crate) fn validate(p: &ProjectData) -> Result<()> {
             && (0.2..=1.0).contains(&s.cutout_size)
             && (0.0..=1.0).contains(&s.edge_softness)
             && (0.0..=8.0).contains(&s.edge_inset)
+            && (0.0..=1.0).contains(&s.edge_padding_ratio)
             && s.corner_ratio.is_none_or(|v| (0.0..=0.5).contains(&v))
     }
     if !valid(&p.camera.layout_settings)
