@@ -105,8 +105,7 @@ private final class AreaOverlayView: NSView {
     private var customW = AppSettings.shared.areaCustomRatioW
     private var customH = AppSettings.shared.areaCustomRatioH
 
-    private enum Drag { case none, create(CGPoint), move(CGPoint, CGRect), resize(Handle, CGRect) }
-    private enum Handle: CaseIterable { case tl, t, tr, r, br, b, bl, l }
+    private enum Drag { case none, create(CGPoint), move(CGPoint, CGRect), resize(AreaHandle, CGRect) }
     private var drag = Drag.none
     private var bar: NSHostingView<AreaBar>?
 
@@ -131,8 +130,8 @@ private final class AreaOverlayView: NSView {
         NSGraphicsContext.current?.compositingOperation = .sourceOver
         NSColor.white.setStroke()
         let path = NSBezierPath(rect: r.insetBy(dx: -0.5, dy: -0.5)); path.lineWidth = 1.5; path.stroke()
-        for h in Handle.allCases {
-            let p = point(of: h, in: r)
+        for h in AreaHandle.allCases {
+            let p = h.point(in: r)
             let hr = CGRect(x: p.x - 4.5, y: p.y - 4.5, width: 9, height: 9)
             NSColor.white.setFill(); NSBezierPath(roundedRect: hr, xRadius: 2, yRadius: 2).fill()
             NSColor.black.withAlphaComponent(0.4).setStroke(); NSBezierPath(roundedRect: hr, xRadius: 2, yRadius: 2).stroke()
@@ -154,27 +153,16 @@ private final class AreaOverlayView: NSView {
         s.draw(at: CGPoint(x: box.minX + 8, y: box.minY + 3))
     }
 
-    private func point(of h: Handle, in r: CGRect) -> CGPoint {
-        switch h {
-        case .tl: CGPoint(x: r.minX, y: r.minY); case .t: CGPoint(x: r.midX, y: r.minY)
-        case .tr: CGPoint(x: r.maxX, y: r.minY); case .r: CGPoint(x: r.maxX, y: r.midY)
-        case .br: CGPoint(x: r.maxX, y: r.maxY); case .b: CGPoint(x: r.midX, y: r.maxY)
-        case .bl: CGPoint(x: r.minX, y: r.maxY); case .l: CGPoint(x: r.minX, y: r.midY)
-        }
-    }
-
-    private func hitHandle(_ p: CGPoint) -> Handle? {
-        guard let r = rect else { return nil }
-        return Handle.allCases.first { hypot(point(of: $0, in: r).x - p.x, point(of: $0, in: r).y - p.y) <= 9 }
-    }
 
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        if let h = hitHandle(p), let r = rect { drag = .resize(h, r) }
-        else if let r = rect, r.contains(p) { drag = .move(p, r) }
-        else { drag = .create(p); rect = nil }
+        switch AreaMouseDown.decide(at: p, rect: rect) {
+        case .resize(let h): if let r = rect { drag = .resize(h, r) }
+        case .move: if let r = rect { drag = .move(p, r) }
+        case .create: drag = .create(p); rect = nil
+        }
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -214,7 +202,7 @@ private final class AreaOverlayView: NSView {
         return CGRect(x: min(o.x, o.x + w), y: min(o.y, o.y + h), width: abs(w), height: abs(h))
     }
 
-    private func resized(_ r0: CGRect, handle h: Handle, to raw: CGPoint) -> CGRect {
+    private func resized(_ r0: CGRect, handle h: AreaHandle, to raw: CGPoint) -> CGRect {
         let p = clamp(raw)
         // Anchor = the opposite corner/edge; rebuild the rect from anchor and pointer.
         let anchor: CGPoint
@@ -440,5 +428,28 @@ enum AreaOverlayBarLayout {
         if y < 8 { y = min(bounds.maxY - size.height - 8, r.maxY - size.height - gap) }   // no room either side: inside, at the bottom
         let x = min(max(8, r.midX - size.width / 2), bounds.maxX - size.width - 8)
         return CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+}
+
+enum AreaHandle: CaseIterable {
+    case tl, t, tr, r, br, b, bl, l
+    func point(in r: CGRect) -> CGPoint {
+        switch self {
+        case .tl: CGPoint(x: r.minX, y: r.minY); case .t: CGPoint(x: r.midX, y: r.minY)
+        case .tr: CGPoint(x: r.maxX, y: r.minY); case .r: CGPoint(x: r.maxX, y: r.midY)
+        case .br: CGPoint(x: r.maxX, y: r.maxY); case .b: CGPoint(x: r.midX, y: r.maxY)
+        case .bl: CGPoint(x: r.minX, y: r.maxY); case .l: CGPoint(x: r.minX, y: r.midY)
+        }
+    }
+}
+
+/// What a mouse-down in the area overlay starts: a handle hit wins over the body, the body moves, anywhere else draws a new area.
+enum AreaMouseDown: Equatable {
+    case resize(AreaHandle), move, create
+    static let handleRadius: CGFloat = 9
+    static func decide(at p: CGPoint, rect: CGRect?) -> AreaMouseDown {
+        guard let r = rect else { return .create }
+        if let h = AreaHandle.allCases.first(where: { hypot($0.point(in: r).x - p.x, $0.point(in: r).y - p.y) <= handleRadius }) { return .resize(h) }
+        return r.contains(p) ? .move : .create
     }
 }

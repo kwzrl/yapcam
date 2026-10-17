@@ -166,7 +166,7 @@ import YapcamRender
                         lastOutput = dest
                         state = .done("Saved \(dest.lastPathComponent)")
                         Self.notify("Export saved", dest.lastPathComponent)
-                        if AppSettings.shared.actionAfterQuickExport == .revealInFinder { NSWorkspace.shared.activateFileViewerSelecting([dest]) }
+                        if AppSettings.shared.actionAfterQuickExport == .revealInFinder { FinderReveal.show(dest) }
                     } else { state = .idle }
                 }
             }
@@ -407,7 +407,7 @@ struct QuickExportWidgetView: View {
         case .done(let m):
             HStack(spacing: 6) {
                 Label(m, systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green).lineLimit(1)
-                if let u = export.lastOutput { Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([u]) }.buttonStyle(.link).font(.caption) }
+                if let u = export.lastOutput { Button("Show in Finder") { FinderReveal.show(u) }.buttonStyle(.link).font(.caption) }
             }
         case .failed(let m): Label(m, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange).lineLimit(2)
         case .idle: EmptyView()
