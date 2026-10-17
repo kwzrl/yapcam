@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 @MainActor
 public final class ExportModel: ObservableObject {
@@ -22,6 +23,9 @@ public final class ExportModel: ObservableObject {
     @Published public var target: ExportTarget = .file { didSet { if oldValue != target { normalize(); persist() } } }
     /// Formats offered for the current target (the paired H.264 + HEVC export needs a folder, so not the clipboard).
     public var availableFormats: [ExportFormat] { ExportFormat.allCases.filter { target == .file || !$0.fileTargetOnly } }
+    /// Shows a file in Finder (the sheet reveals a finished export). Replaceable so tests and snapshots never open Finder.
+    public var revealHandler: @MainActor (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
+    public func reveal(_ url: URL) { revealHandler(url) }
     /// Files the clipboard export kept, newest first.
     @Published public private(set) var history: [URL] = []
     public func refreshHistory() { history = engine.clipboardHistory() }
@@ -54,6 +58,8 @@ public final class ExportModel: ObservableObject {
     public var usesVariableFrameRate: Bool { format != .gif && variableFrameRateProvider() }
     /// Defaults to the app-wide experimental setting (`EditorWindows.variableFrameRate`).
     public var variableFrameRateProvider: () -> Bool = { EditorWindows.variableFrameRate() }
+    /// Defaults to the app-wide switch (`EditorWindows.hardwareEncodingEnabled`).
+    public var hardwareEncodingProvider: () -> Bool = { EditorWindows.hardwareEncodingEnabled() }
     public var options: ExportOptionSet { format.options }
     public var availablePresets: [CompressionPreset] { format.options.presets(atHeight: height) }
 
@@ -81,22 +87,27 @@ public final class ExportModel: ObservableObject {
     public var isRunning: Bool { if case .running = state { return true }; return false }
 
     /// Exports to the clipboard: a local file kept in the history is rendered and copied as a file.
+    /// The remembered target (the dialog's File/Clipboard choice) is left exactly as it was: only this run goes to the clipboard.
     public func copyToClipboard() {
         guard !isRunning else { return }
-        target = .clipboard
-        start(to: ClipboardPlaceholder.url)
+        begin(to: ClipboardPlaceholder.url, target: .clipboard)
     }
 
-    public func start(to destination: URL) {
+    public func start(to destination: URL) { begin(to: destination, target: target) }
+
+    /// Target of the export that is running or finished last (what the progress and result screens describe).
+    @Published public private(set) var runningTarget: ExportTarget = .file
+
+    private func begin(to destination: URL, target: ExportTarget) {
         guard !isRunning else { return }
+        runningTarget = target
         lastDestination = destination
         failedWithAudio = false
         state = .running(0)
         queueStatus = .waiting
         startedAt = Date()
         onOutcome?(Outcome(kind: .started, target: target))
-        let req = makeRequest(destination: destination)
-        let target = self.target
+        let req = makeRequest(destination: destination, target: target)
         let engine = engine
         task = Task { [weak self] in
             do {
@@ -122,11 +133,12 @@ public final class ExportModel: ObservableObject {
         }
     }
 
-    func makeRequest(destination: URL) -> ExportRequest {
+    func makeRequest(destination: URL, target: ExportTarget? = nil) -> ExportRequest {
         ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio && format.supportsAudio,
                       speech: includeAudio && format.supportsAudio ? speechProvider() : nil, format: format, quality: quality,
                       compression: format == .gif ? nil : preset, gifHighQuality: gifHighQuality, gifDisableLoop: gifDisableLoop,
-                      variableFrameRate: variableFrameRateProvider() && format != .gif, target: target)
+                      variableFrameRate: variableFrameRateProvider() && format != .gif, target: target ?? self.target,
+                      hardwareEncoding: hardwareEncodingProvider())
     }
     /// Size and time readout for the current choices (nil when the engine cannot plan them).
     public var estimate: ExportEstimateInfo? { engine.estimate(for: makeRequest(destination: URL(fileURLWithPath: "/dev/null"))) }

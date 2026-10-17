@@ -286,10 +286,12 @@ public struct ExportRequest: Equatable, Sendable {
     /// Experimental (Settings): MP4/MOV omit exact duplicate rendered frames. Ignored for GIF.
     public var variableFrameRate: Bool
     public var target: ExportTarget
+    /// false = VideoToolbox software encoder (render `hardwareEncodingEnabled`); decoding stays system-managed.
+    public var hardwareEncoding: Bool
     public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true, speech: SpeechEnhancement? = nil,
                 format: ExportFormat = .mp4h264, quality: Double = 0.8, compression: CompressionPreset? = nil,
-                gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false, target: ExportTarget = .file) {
-        self.target = target
+                gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false, target: ExportTarget = .file, hardwareEncoding: Bool = true) {
+        self.target = target; self.hardwareEncoding = hardwareEncoding
         self.height = height; self.fps = fps; self.destination = destination; self.includeAudio = includeAudio; self.speech = speech
         self.format = format; self.quality = quality; self.compression = compression
         self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop
