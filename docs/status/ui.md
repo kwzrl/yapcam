@@ -1,4 +1,4 @@
-READY R6b 53cb006 | R6-QA-U1: AreaMouseDown.decide, RecorderKey.decide/decideEditing, tests on the real targets of Custom size / Save current size / Ignore / Adjust area / Export diagnostics / Show in Finder (FinderReveal); privacy-scan fixture paths | YapcamUITests 208 green; not run live
+READY R7 89c255e | P0 B-01..B-04, S-01, S-02; P1 B-05..B-08, B-10, S-09, S-11, S-15, S-EDT-76/83/84, quit-guard; P2 B-11..B-13, B-16, S-EDT-48 | YapcamUITests green; not run live. Open: see ## R7 items
 READY R6 d2e148f | crash-class audit (4 fixes), SourceChoice start decisions testable, speaker notes/saved sizes confirmed | YapcamUITests 200 green; not run live
 READY W3 571c2e2 | A1.5, A7.3, X5, B.HW done | swift test --filter YapcamUITests 188 green; not run live
 READY R5 195d560 | every H/M row in ## R5 incoming requests (round 5b, read from main a96173e status files)
@@ -423,12 +423,27 @@ Follow-up: `appLaunchedWithSnapshotFlagRendersEverything` now skips itself while
 R6 tasks: 2. A4.1 Show Speaker Notes (⌘⌥/) exists in the gear menu and as a hotkey (test added); A2.6 saved area sizes exist (Saved sizes menu, persisted; existing tests). 3. `SourceChoice` (display/window/area) is the single decision for Start/window pick/area confirm; tiny areas are refused; tests in Round6Tests.swift.
 
 ## R7 items
-R7 REC B-01 | Dock menu | DockMenu.items / dockMenuIsBuilt... | live: not verified
-R7 REC B-02 / CAM-46 | camera preview during takes (own session carries over; position saved; dimmed when paused) | cameraPreviewStaysDuringATakeUnlessHidden | live: not verified (no camera). Request to capture: frame tap from AuxiliaryCapture (optional; the preview keeps its own session meanwhile). Not done: "Camera disconnected" placeholder
-R7 REC B-03 | start/finish opens picker first | startStopOpensThePickerFirst | live: not verified
-R7 REC B-04 | one speaker notes panel with play/gear, speed 1-25 default 8 | prompter* tests | live: not verified
-R7 REC B-05 | global speaker notes shortcut | speakerNotesShortcutIsGlobal | live: not verified
+R7 REC B-01 | Dock menu | DockMenu.items / dockMenuIsBuiltForTheCurrentPhase | live: not verified
+R7 REC B-02 / CAM-46 | camera preview stays through the take (same session continues from the picker; position saved; dimmed when paused) | cameraPreviewStaysDuringATakeUnlessHidden | live: not verified (no camera). NOT done: "Camera disconnected" placeholder; frame tap from capture (optional request to capture: forward AuxiliaryCapture buffers)
+R7 REC B-03 | start/finish opens the picker first | startStopOpensThePickerFirst | live: not verified
+R7 REC B-04 | one speaker notes panel (play/pause, gear: speed 1-25 default 8, opacity, text size + Reset), auto-start with the take, play shortcut opens the panel | prompter* + notesAreOneWindow... | live: not verified
+R7 REC B-05 | speaker notes shortcut is global | speakerNotesShortcutIsGlobal | live: not verified
+R7 REC B-06 | mic menu "Clean up voice (noise + level)" -> new project audio.speech_enhancement | cleanVoiceOnRecordTurnsOnTheProjectsVoiceCleanup | live: not verified (no mic)
 R7 REC B-07 | default preset > last project > standard; default ON | initialLookPrecedence | live: n/a
 R7 REC B-08 | Dock icon stays while an editor is open | activationPolicyKeepsTheDockIconWhileAnEditorIsOpen | live: not verified
-R7 S-01 | File > Save (cmd S) -> saveNow | fileMenuHasSaveAndOpenRecent | live: not verified. Editor part (handleShortcut s, "Saved" label) is the editor's
-R7 S-02 | Open Recent + recents reporting | openRecentMenu..., choosingAMovedProject... | live: not verified
+R7 REC B-10 | Window button right-click lists windows by app, choosing opens the overlay on it (small behaviour edit in ToolbarView.swift, for the laptop's attention) | windowMenuGroupsByApp... | live: not verified
+R7 REC B-11 | hide controls for this take (context menu on the recording widget; small edit in ToolbarView.swift) | hidingControlsAppliesToOneTakeOnly | live: not verified
+R7 REC B-12 | menu-bar icon: click opens the picker, right/option-click the menu | menuBarIconOpensThePickerWhenIdle | live: not verified
+R7 REC B-13 | display card in points, pixels in the helper | displayCardShowsPoints | live: n/a
+R7 REC B-16 | diagnostics: model, chip, memory, arch, cameras, microphones, privacy line | diagnosticsListsMachineAndDevices | live: n/a
+R7 REC B-14 / B-15 / B-17 / B-18 / B-19 | NOT done: B-14/B-15 need render hooks (request to render: `hardwareDecodingEnabled`, `lowMemory` in ExportSettings); B-17 editor/render/core; B-18/B-19 need a Lead decision
+R7 S-01 | File > Save (cmd S) -> saveNow | fileMenuHasSaveAndOpenRecent | live: not verified. Editor part ("Saved" label, handleShortcut) is the editor's
+R7 S-02 | Open Recent + recents reporting (also feeds the Dock menu) | openRecentMenu..., choosingAMovedProject..., projectsOpenedAreReported... | live: not verified
+R7 S-09 | widget close asks Keep / Move to Trash (Don't ask again; setting "Always keep the project...") | closingTheWidgetAsksOnly... | live: not verified
+R7 S-11 | .yapcampreset UTI + doc type in Info.plist, File > Import Preset…, open routes presets | presetFileTypeIsDeclared... | live: not verified. Request to editor/inspector: add "Import Preset…" to the presets dropdown (call `PresetFileType.importPreset(url)` pattern from AppDelegate.importPreset)
+R7 S-15 | Export menu (Export…, to File…, Copy to Clipboard, Recent Clipboard Copies, Quick Export items moved) | exportMenuHoldsEditorExportsAndQuickExport | live: not verified. Note: ⌥⌘S/⌥⌘C stay editor-handled (they collide with the Quick Export defaults)
+R7 S-EDT-48 | ⌘K while recording opens a command list | recordingPaletteListsTheTakeCommands | live: not verified
+R7 S-EDT-76 | Keep? question when a fresh recording's editor closes within 10 s (setting, off by default). Limitation: ui cannot see edits, so it asks on any quick close | keepQuestionOnlyForFreshRecordingsClosedQuickly | live: not verified
+R7 S-EDT-83/84 | File > Extract Raw Recording Files… / Extract Screen Recording File… (passthrough join, cancel panel) | extract* tests | live: not verified. Request to editor: add both to the ⌘K palette (call AppDelegate.extractRawFiles / extractScreenFile via NSApp.sendAction)
+R7 MKT quit guard | Quit asks while an export runs | quitIsGuardedWhileAnyExportRuns | live: not verified
+R7 MKT Quick Look preview of project files | NOT done: needs a Quick Look preview extension bundle (a separate app-extension target, not buildable with SwiftPM alone); Lead decision
