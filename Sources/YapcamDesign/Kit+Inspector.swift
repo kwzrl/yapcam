@@ -16,8 +16,8 @@ public extension Yap {
         public static let width: CGFloat = rail + column
         public static let gutter: CGFloat = 12
         public static let slider: CGFloat = 92
-        public static let readout: CGFloat = 46
-        public static let resetSlot: CGFloat = 12
+        public static let readout: CGFloat = 44
+        public static let resetSlot: CGFloat = 14
         /// Gap between the columns of a slider row.
         public static let gap: CGFloat = 6
         public static let rowHeight: CGFloat = 26
@@ -48,11 +48,10 @@ public struct InspectorSlider: View {
                 label.fixedSize()
                 Spacer(minLength: 0)
                 slider.frame(width: Yap.Inspector.slider)
-                readout.frame(width: Yap.Inspector.readout, alignment: .trailing)
-                resetSlot
+                HStack(spacing: 0) { readout.frame(width: Yap.Inspector.readout, alignment: .trailing); resetSlot }
             }
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) { label; Spacer(minLength: 4); readout; resetSlot }
+                HStack(spacing: 0) { label; Spacer(minLength: 4); readout; resetSlot }
                 slider
             }
         }
@@ -86,9 +85,9 @@ private struct ResetGlyph: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "arrow.counterclockwise").font(.system(size: 10, weight: .semibold))
+            Image(systemName: "arrow.counterclockwise").font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(hover ? Yap.title : Yap.faint)
-                .frame(width: Yap.Inspector.resetSlot, height: Yap.Inspector.rowHeight)
+                .frame(width: Yap.Inspector.resetSlot, height: Yap.Inspector.rowHeight, alignment: .trailing)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -132,17 +131,23 @@ public struct InspectorMore<Content: View>: View {
     var value: String
     let content: Content
     @State private var open: Bool
+    @Environment(\.inspectorExpandsAll) private var expandsAll
 
     public init(_ title: String = "More", value: String = "", initiallyOpen: Bool = false, @ViewBuilder content: () -> Content) {
         self.title = title; self.value = value; self.content = content(); _open = State(initialValue: initiallyOpen)
     }
 
     public var body: some View {
-        DisclosureSection(title, value: value, open: $open) {
+        DisclosureSection(title, value: value, open: Binding(get: { open || expandsAll }, set: { open = $0 })) {
             VStack(alignment: .leading, spacing: 12) { content }
         }
         .padding(.horizontal, -8)
     }
+}
+
+public extension EnvironmentValues {
+    /// Opens every "More" of the inspector (review snapshots).
+    @Entry var inspectorExpandsAll = false
 }
 
 /// A quiet explanation under a setting.

@@ -9,7 +9,7 @@ import YapcamDesign
     /// that is left in the 300-pt content column must hold the usual labels on one line ("Rounded corners", "Shadow intensity").
     @Test func inspectorSlidersLineUpAtTheRealInspectorWidth() {
         let content = Yap.Inspector.column - 2 * Yap.Inspector.gutter
-        let label = content - Yap.Inspector.slider - Yap.Inspector.readout - Yap.Inspector.resetSlot - 4 * Yap.Inspector.gap   // label, spacer, slider, value, reset
+        let label = content - Yap.Inspector.slider - Yap.Inspector.readout - Yap.Inspector.resetSlot - 3 * Yap.Inspector.gap   // label, spacer, slider, value + reset
         #expect(label >= 100, "label column \(label) pt")
         #expect(Yap.Inspector.slider >= 90)
     }

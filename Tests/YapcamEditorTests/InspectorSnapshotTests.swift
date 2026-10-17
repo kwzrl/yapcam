@@ -8,7 +8,7 @@ import YapcamDesign
 /// The docked inspector in the approved look (ae-inspector, 2026-10-17): kit controls only, and a PNG per section and
 /// per selected item for visual review: YAPCAM_INSPECTOR_DIR=<dir outside the repo> swift test --filter InspectorSnapshotTests
 @MainActor @Suite(.serialized) struct InspectorSnapshotTests {
-    static let size = CGSize(width: Yap.Inspector.width, height: 2200)
+    static let size = CGSize(width: Yap.Inspector.width, height: 3000)
 
     /// A project with one of everything the inspector can show.
     static func richModel() -> EditorModel {
@@ -26,9 +26,10 @@ import YapcamDesign
         return m
     }
 
-    static func host(_ m: EditorModel, _ section: InspectorSection, height: CGFloat = size.height) -> (NSWindow, NSHostingView<some View>) {
+    static func host(_ m: EditorModel, _ section: InspectorSection, height: CGFloat = size.height, expanded: Bool = false) -> (NSWindow, NSHostingView<some View>) {
         _ = NSApplication.shared
         let view = InspectorView(model: m, initialSection: section)
+            .environment(\.inspectorExpandsAll, expanded)
             .frame(width: size.width, height: height)
             .background(Yap.dock)
         let host = NSHostingView(rootView: view)
@@ -39,8 +40,8 @@ import YapcamDesign
         return (window, host)
     }
 
-    private static func shoot(_ m: EditorModel, _ section: InspectorSection, _ name: String, in dir: URL) async throws {
-        let (window, host) = host(m, section)
+    private static func shoot(_ m: EditorModel, _ section: InspectorSection, _ name: String, in dir: URL, expanded: Bool = false) async throws {
+        let (window, host) = host(m, section, expanded: expanded)
         defer { window.orderOut(nil) }
         try await Task.sleep(for: .milliseconds(500)); host.layoutSubtreeIfNeeded()
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width) * 2, pixelsHigh: Int(size.height) * 2, bitsPerSample: 8,
@@ -57,7 +58,13 @@ import YapcamDesign
         for (i, s) in InspectorSection.allCases.enumerated() {
             let m = Self.richModel()
             try await Self.shoot(m, s, String(format: "%02d-%@", i, s.rawValue), in: dir)
+            try await Self.shoot(Self.richModel(), s, String(format: "%02d-%@-open", i, s.rawValue), in: dir, expanded: true)
         }
+        let gradient = Self.richModel(); gradient.applyGradientPreset(3)
+        try await Self.shoot(gradient, .background, "bg-gradient", in: dir)
+        let wallpaper = Self.richModel(); wallpaper.applyWallpaper(id: "quiet-dawn")
+        try? await Task.sleep(for: .milliseconds(300))
+        try await Self.shoot(wallpaper, .background, "bg-wallpaper", in: dir)
         let items: [(String, (EditorModel) -> EditorSelection)] = [
             ("zoom", { .zoom($0.zooms[0].id) }), ("clip", { .clip($0.clips[0].id) }), ("layout", { .layout($0.layouts[0].id) }),
             ("cursorhide", { .cursorHide($0.cursorHides[0].index) }), ("highlight", { .highlight($0.highlights[0].id) }),

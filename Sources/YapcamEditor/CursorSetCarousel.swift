@@ -52,10 +52,12 @@ struct CursorVariantPicker: View {
         }
         ForEach(VectorCursorStyle.allCases, id: \.shapeID) { style in
             let names = VectorCursorLibrary.variants(for: style)
-            ChoiceRow(names.first?.name ?? style.shapeID,
+            // The cursor type's own name ("Resize vertical"), so the four resize rows stay apart.
+            let title = cursorShapes.first { $0.value == style.shapeID }?.label ?? names.first?.name ?? style.shapeID
+            ChoiceRow(title,
                       selection: Binding(get: { model.cursorVariant(style) }, set: { model.setCursorVariant(style, $0) }),
                       options: names.map { ($0.name, $0.id) })
-                .accessibilityLabel("\(names.first?.name ?? style.shapeID) variant")
+                .accessibilityLabel("\(title) variant")
         }
     }
 }

@@ -290,9 +290,9 @@ private struct AudioRangeRows: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         ForEach(model.audioRanges) { r in range(r) }
-        HStack(spacing: 6) {
-            InspectorAction("Lower system audio here") { model.addAudioRangeAtPlayhead(track: "system_audio") }
-            if model.hasMic { InspectorAction("Lower mic here") { model.addAudioRangeAtPlayhead(track: "mic") } }
+        VStack(alignment: .leading, spacing: 6) {
+            InspectorAction("Lower system audio here", symbol: "speaker.minus") { model.addAudioRangeAtPlayhead(track: "system_audio") }
+            if model.hasMic { InspectorAction("Lower mic here", symbol: "mic") { model.addAudioRangeAtPlayhead(track: "mic") } }
         }
     }
 
