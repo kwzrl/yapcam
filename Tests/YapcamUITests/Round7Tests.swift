@@ -203,4 +203,22 @@ import YapcamEditor
         RecordingController.shared.alert = nil
         #expect(RecentDocuments.choose(kept, open: { opened.append($0) }) && opened == [kept])
     }
+
+    // S-15
+    @Test func exportMenuHoldsEditorExportsAndQuickExport() {
+        _ = NSApplication.shared
+        let menu = MainMenu.build(target: AppDelegate())
+        let exp = menu.items.first { $0.submenu?.title == "Export" }?.submenu
+        #expect(exp?.items.map(\.title).filter { !$0.isEmpty } == ["Export…", "Export to File…", "Copy to Clipboard", "Recent Clipboard Copies",
+                                                                  "Quick Export: Copy to Clipboard", "Quick Export: Save to File…"])
+        let first = exp?.items.first
+        #expect(first?.keyEquivalent == "e" && first?.keyEquivalentModifierMask == [.command, .shift])
+        let rec = menu.items.first { $0.submenu?.title == "Recording" }?.submenu
+        #expect(rec?.items.contains { $0.title.hasPrefix("Quick Export") } == false)
+        #expect(ExportMenuState.enabled(hasEditor: true, exportRunning: false))
+        #expect(!ExportMenuState.enabled(hasEditor: false, exportRunning: false) && !ExportMenuState.enabled(hasEditor: true, exportRunning: true))
+        // with no editor in front the editor items are greyed out
+        let d = AppDelegate()
+        #expect(exp?.items.first.map { d.validateMenuItem($0) } == (EditorBridge.keyEditor() != nil))
+    }
 }

@@ -83,6 +83,18 @@ import AppKit
         let presets = NSMenuItem(title: "Presets", action: nil, keyEquivalent: "")
         presets.submenu = PresetsMenuController.shared.menu
         main.addItem(presets)
+        // ⌥⌘S / ⌥⌘C are also the Quick Export defaults: the editor answers them itself, so only ⇧⌘E carries a key here.
+        let exportEditor: (String, Selector, String) -> NSMenuItem = { t, s, k in item(t, s, k, mods: [.command, .shift]) }
+        add("Export", [
+            exportEditor("Export…", #selector(AppDelegate.exportPicker), "e"),
+            item("Export to File…", #selector(AppDelegate.exportToFile)),
+            item("Copy to Clipboard", #selector(AppDelegate.exportCopy)),
+            item("Recent Clipboard Copies", #selector(AppDelegate.exportHistory)),
+            .separator(),
+            shortcutItem("Quick Export: Copy to Clipboard", #selector(AppDelegate.quickExportCopy), .quickExportCopy),
+            shortcutItem("Quick Export: Save to File…", #selector(AppDelegate.quickExportSave), .quickExportSave),
+        ])
+        main.items.last?.submenu?.items.dropFirst().prefix(3).forEach { $0.toolTip = "Editor shortcut ⌥⌘S / ⌥⌘C" }
         add("Recording", [
             item("Start Recording", #selector(AppDelegate.toggleRecording)),
             item("Pause Recording", #selector(AppDelegate.togglePause)),
@@ -96,8 +108,6 @@ import AppKit
             item("Show Toolbar", #selector(AppDelegate.toggleToolbar)),
             .separator(),
             shortcutItem("Open Last Recording", #selector(AppDelegate.openLastRecording), .openLast),
-            shortcutItem("Quick Export: Copy to Clipboard", #selector(AppDelegate.quickExportCopy), .quickExportCopy),
-            shortcutItem("Quick Export: Save to File…", #selector(AppDelegate.quickExportSave), .quickExportSave),
         ])
         add("Help", [
             item("Third-Party Notices", #selector(AppDelegate.showThirdPartyNotices)),

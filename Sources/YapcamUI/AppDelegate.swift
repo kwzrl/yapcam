@@ -291,6 +291,10 @@ import YapcamEditor
         for url in p.urls { ProjectActions.open(url) }       // each one reports on its own when it can't be opened
     }
     @objc func recoverRecording() { RecoveryFlow.run(silentWhenNone: false) }
+    @objc func exportPicker() { EditorBridge.keyEditor()?.performExport(.picker) }
+    @objc func exportToFile() { EditorBridge.keyEditor()?.performExport(.saveToFile) }
+    @objc func exportCopy() { EditorBridge.keyEditor()?.performExport(.copyToClipboard) }
+    @objc func exportHistory() { EditorBridge.keyEditor()?.performExport(.history) }
     @objc func saveProject() { EditorBridge.keyEditor()?.saveNow() }
     @objc func saveProjectAs() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.saveAs(u) } }
     @objc func copyAndZipProject() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.copyAndZip(u) } }
@@ -331,6 +335,8 @@ extension AppDelegate: NSMenuItemValidation {
             if case .countdown = r.phase { item.title = "Cancel Countdown" }
             return r.phase != .starting && r.phase != .finishing
         case #selector(saveProject), #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
+        case #selector(exportPicker), #selector(exportToFile), #selector(exportCopy), #selector(exportHistory):
+            return ExportMenuState.enabled(hasEditor: EditorBridge.keyEditor() != nil, exportRunning: EditorBridge.keyDocument()?.export.isRunning ?? false)
         case #selector(addMarker): return r.phase == .recording
         case #selector(restartRecording), #selector(cancelRecording): return r.isRecording
         case #selector(togglePause):
