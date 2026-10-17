@@ -32,7 +32,223 @@ struct Word {
     end: i64,
     timed: bool,
 }
+#[derive(Clone, Default, PartialEq)]
+struct View {
+    app: Option<String>,
+    title: Option<String>,
+    url: Option<String>,
+}
+impl View {
+    fn update(&mut self, event: &crate::model::Event) {
+        // Capture metadata is sparse. Missing fields must not erase prior context.
+        for (field, keys) in [
+            (&mut self.app, &["app_bundle_id"][..]),
+            (&mut self.title, &["window_title", "title"][..]),
+            (&mut self.url, &["url", "window_url", "document_url"][..]),
+        ] {
+            if let Some(value) = keys
+                .iter()
+                .find_map(|k| event.details.get(*k).and_then(Value::as_str))
+            {
+                *field = Some(value.to_owned());
+            }
+        }
+    }
+    fn row(&self, t: i64, reason: &str) -> Value {
+        json!({"kind":"view_change","start_s":seconds(t),"app_bundle_id":self.app,"window_title":self.title,"url":self.url,"reason":reason})
+    }
+}
+fn printable(e: &Value) -> Option<&str> {
+    if e["type"] != "key"
+        || e["modifiers"].as_array().is_some_and(|m| {
+            m.iter()
+                .any(|v| !matches!(v.as_str(), Some("shift" | "caps_lock")))
+        })
+    {
+        return None;
+    }
+    let key = e["key"].as_str()?;
+    if key == "space" {
+        return Some(" ");
+    }
+    (key.chars().count() == 1 && !key.chars().any(char::is_control)).then_some(key)
+}
+fn overlaps(ranges: &[(i64, i64)], start: i64, end: i64) -> bool {
+    ranges.iter().any(|&(a, b)| a < end && start < b)
+}
 impl Server<'_> {
+    fn source_views(&self) -> (View, Vec<(i64, View)>) {
+        let initial = View {
+            app: self.project.session.source.app_bundle_id.clone(),
+            title: self.project.session.source.window_title.clone(),
+            url: None,
+        };
+        let mut state = initial.clone();
+        let mut events: Vec<_> = self
+            .project
+            .session
+            .segments
+            .iter()
+            .zip(&self.project.events)
+            .flat_map(|(s, events)| {
+                events
+                    .iter()
+                    .filter(|e| {
+                        matches!(
+                            e.kind.as_str(),
+                            "focus"
+                                | "window_title"
+                                | "title"
+                                | "url"
+                                | "navigation"
+                                | "navigate"
+                                | "view_change"
+                        )
+                    })
+                    .map(move |e| (s.src_start_ns + e.t, e))
+            })
+            .collect();
+        events.sort_by_key(|(t, _)| *t);
+        let mut changes = vec![];
+        for (t, e) in events {
+            let before = state.clone();
+            state.update(e);
+            if before != state {
+                changes.push((t, state.clone()));
+            }
+        }
+        (initial, changes)
+    }
+    fn view_changes(&self) -> Vec<Value> {
+        let (initial, changes) = self.source_views();
+        let clips = &self.project.data.timeline.clips;
+        let mut rows = vec![];
+        for (i, c) in clips.iter().enumerate() {
+            if i > 0 && clips[i - 1].src_end_ns != c.src_start_ns {
+                let view = changes
+                    .iter()
+                    .rev()
+                    .find(|(t, _)| *t <= c.src_start_ns)
+                    .map_or(&initial, |(_, v)| v);
+                rows.push(view.row(time::clip_bounds(clips, i).unwrap().0, "cut"));
+            }
+            for (src, view) in &changes {
+                if let Some(t) = time::source_to_timeline(clips, i, *src) {
+                    rows.push(view.row(t, "metadata"));
+                }
+            }
+        }
+        rows.sort_by(|a, b| {
+            a["start_s"]
+                .as_f64()
+                .partial_cmp(&b["start_s"].as_f64())
+                .unwrap()
+        });
+        rows
+    }
+    fn next_view_change(&self, t: i64) -> Option<i64> {
+        self.view_changes()
+            .iter()
+            .map(|r| (r["start_s"].as_f64().unwrap() * SECOND as f64).round() as i64)
+            .find(|&at| at > t)
+    }
+    fn key_rows(&self, events: &[Value]) -> Vec<Value> {
+        let clips = &self.project.data.timeline.clips;
+        let clip_at = |t| {
+            (0..clips.len()).find(|&i| {
+                let (a, b) = time::clip_bounds(clips, i).unwrap();
+                a <= t && t < b
+            })
+        };
+        let mut rows = vec![];
+        let mut run: Vec<&Value> = vec![];
+        let flush = |run: &mut Vec<&Value>, rows: &mut Vec<Value>| {
+            if let (Some(first), Some(last)) = (run.first(), run.last()) {
+                if run.len() > 1 {
+                    rows.push(json!({"kind":"typing","start_s":seconds(first["tl_ns"].as_i64().unwrap()),"end_s":seconds(last["tl_ns"].as_i64().unwrap()+1),"key_count":run.len(),"text":run.iter().filter_map(|e| printable(e)).collect::<String>()}));
+                } else {
+                    rows.push(json!({"kind":"key","start_s":seconds(first["tl_ns"].as_i64().unwrap()),"key":first["key"],"modifiers":first["modifiers"]}));
+                }
+            }
+            run.clear();
+        };
+        for e in events {
+            if printable(e).is_some() {
+                if run.last().is_some_and(|last| {
+                    let gap = e["src_ns"].as_i64().unwrap() - last["src_ns"].as_i64().unwrap();
+                    gap < 0
+                        || gap >= 500_000_000
+                        || e["segment"] != last["segment"]
+                        || clip_at(e["tl_ns"].as_i64().unwrap())
+                            != clip_at(last["tl_ns"].as_i64().unwrap())
+                }) {
+                    flush(&mut run, &mut rows);
+                }
+                run.push(e);
+            } else if matches!(
+                e["type"].as_str(),
+                Some("key" | "down" | "scroll" | "focus" | "navigation" | "url" | "window_title")
+            ) {
+                flush(&mut run, &mut rows);
+                if e["type"] == "key" {
+                    rows.push(json!({"kind":"key","start_s":seconds(e["tl_ns"].as_i64().unwrap()),"key":e["key"],"modifiers":e["modifiers"]}));
+                }
+            }
+        }
+        flush(&mut run, &mut rows);
+        rows
+    }
+    fn typing_ranges(&self) -> Vec<(i64, i64)> {
+        // Use the same source bursts as auto_speed_typing, including dismissed ones.
+        let clips = &self.project.data.timeline.clips;
+        let clock = time::ClipTimeIndex::new(clips);
+        crate::auto::typing_bursts(self.project)
+            .iter()
+            .flat_map(|b| {
+                clips
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, c)| {
+                        let a = b.start.max(c.src_start_ns);
+                        let end = b.end.min(c.src_end_ns);
+                        if end <= a {
+                            return None;
+                        }
+                        Some((
+                            clock.source_boundary_to_timeline(clips, i, a)?,
+                            clock.source_boundary_to_timeline(clips, i, end)?,
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+    fn activity_ranges(&self) -> Result<Vec<(i64, i64)>> {
+        let events = self.project.query(&json!({"q":"events"}))?;
+        let events = events.as_array().unwrap();
+        let mut ranges = self.typing_ranges();
+        ranges.extend(
+            events
+                .iter()
+                .filter(|e| matches!(e["type"].as_str(), Some("down" | "scroll" | "key")))
+                .map(|e| {
+                    let t = e["tl_ns"].as_i64().unwrap();
+                    (t, t + 1)
+                }),
+        );
+        ranges.extend(
+            self.key_rows(events)
+                .iter()
+                .filter(|r| r["kind"] == "typing")
+                .map(|r| {
+                    (
+                        (r["start_s"].as_f64().unwrap() * SECOND as f64).round() as i64,
+                        (r["end_s"].as_f64().unwrap() * SECOND as f64).round() as i64,
+                    )
+                }),
+        );
+        Ok(ranges)
+    }
     fn craft_words(&self) -> Result<(Vec<Word>, bool)> {
         // User-authored caption cards are not speech. Prefer explicit word timings,
         // then the immutable recording transcript; expose untimed cards only as spans.
@@ -116,58 +332,30 @@ impl Server<'_> {
             i += 1;
         }
         let events = self.project.query(&json!({"q":"events"}))?;
-        let mut click_index = 0;
-        for e in events.as_array().unwrap() {
-            if e["type"] != "down" && e["type"] != "key" {
-                continue;
-            }
-            let t = e["tl_ns"].as_i64().unwrap();
-            if e["type"] == "down" {
-                // Focus metadata must be found in SOURCE time, even if its event
-                // was cut out of the edited timeline before this click.
-                let src = e["src_ns"].as_i64().unwrap();
-                let mut app = self.project.session.source.app_bundle_id.clone();
-                let mut title = self.project.session.source.window_title.clone();
-                for (segment, input) in self
-                    .project
-                    .session
-                    .segments
-                    .iter()
-                    .zip(&self.project.events)
-                {
-                    for event in input {
-                        if event.kind == "focus" && segment.src_start_ns + event.t <= src {
-                            app = event
-                                .details
-                                .get("app_bundle_id")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned);
-                            title = event
-                                .details
-                                .get("window_title")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned);
-                        }
-                    }
-                }
-                rows.push(json!({"kind":"click","start_s":seconds(t),"click_index":click_index,"x":e["x"],"y":e["y"],"button":e["button"],"app_bundle_id":app,"window_title":title}));
-                click_index += 1;
-            } else {
-                rows.push(json!({"kind":"key","start_s":seconds(t),"key":e["key"],"modifiers":e["modifiers"]}));
-            }
-        }
-        // Include dismissed bursts too: dismissal changes suggestions, not history.
-        let mut p = self.project.clone();
-        p.data.typing.dismissed.clear();
-        for phase in p
-            .query(&json!({"q":"typing_suggestions"}))?
+        let (initial, views) = self.source_views();
+        let changes = self.view_changes();
+        for (click_index, e) in events
             .as_array()
             .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "down")
+            .enumerate()
         {
-            for r in phase["ranges"].as_array().unwrap() {
-                rows.push(json!({"kind":"typing","id":phase["id"],"start_s":seconds(r["tl_start_ns"].as_i64().unwrap()),"end_s":seconds(r["tl_end_ns"].as_i64().unwrap()),"key_count":phase["key_count"]}));
-            }
+            let t = e["tl_ns"].as_i64().unwrap();
+            let src = e["src_ns"].as_i64().unwrap();
+            let view = views
+                .iter()
+                .rev()
+                .find(|(at, _)| *at <= src)
+                .map_or(&initial, |(_, v)| v);
+            let next = changes
+                .iter()
+                .find(|r| r["start_s"].as_f64().unwrap() > seconds(t))
+                .map(|r| r["start_s"].clone());
+            rows.push(json!({"kind":"click","start_s":seconds(t),"click_index":click_index,"x":e["x"],"y":e["y"],"button":e["button"],"app_bundle_id":view.app,"window_title":view.title,"url":view.url,"view_change_s":next}));
         }
+        rows.extend(self.key_rows(events.as_array().unwrap()));
+        rows.extend(changes);
         for z in &self.project.data.zooms {
             rows.push(json!({"kind":"zoom","id":z.id,"start_s":seconds(z.tl_start_ns),"end_s":seconds(z.tl_end_ns),"scale":z.scale,"enabled":z.enabled}));
         }
@@ -205,7 +393,7 @@ impl Server<'_> {
                 .unwrap()
         });
         Ok(
-            json!({"duration_s":seconds(time::duration(clips)),"transcript_available":available,"word_timing_available":!words.is_empty() && words.iter().all(|w|w.timed),"moments":rows,"note":"Times are current timeline seconds; indices are zero-based and global before range filtering. Re-read after edits. Click x/y are capture points, not normalized coordinates."}),
+            json!({"duration_s":seconds(time::duration(clips)),"transcript_available":available,"word_timing_available":!words.is_empty() && words.iter().all(|w|w.timed),"view_changes":rows.iter().filter(|r| r["kind"] == "view_change").collect::<Vec<_>>(),"moments":rows,"note":"Times are current timeline seconds; indices are zero-based and global before range filtering. Re-read after edits. Click x/y are capture points, not normalized coordinates."}),
         )
     }
     fn cut_ranges(&mut self, mut ranges: Vec<(i64, i64)>, noun: &str) -> Result<Value> {
@@ -267,6 +455,8 @@ impl Server<'_> {
                         "max_gap_s must be at least keep_s (clamped to 0.3–0.5 seconds).",
                     ));
                 }
+                let activity = self.activity_ranges()?;
+                let mut skipped = vec![];
                 let mut ranges = vec![];
                 // Running maximum handles overlapping recognizer words safely.
                 let mut end = words[0].end;
@@ -275,15 +465,36 @@ impl Server<'_> {
                         let x = (end + keep / 2).max(from);
                         let y = (w.start - (keep - keep / 2)).min(to);
                         if y > x {
-                            ranges.push((x, y));
+                            if overlaps(&activity, end, w.start) {
+                                skipped.push((end, w.start));
+                            } else {
+                                ranges.push((x, y));
+                            }
                         }
                     }
                     end = end.max(w.end);
                 }
                 if to == duration && duration - end > 800_000_000 {
-                    ranges.push(((end + 800_000_000).max(from), duration));
+                    if overlaps(&activity, end, duration) {
+                        skipped.push((end, duration));
+                    } else {
+                        ranges.push(((end + 800_000_000).max(from), duration));
+                    }
                 }
-                self.cut_ranges(ranges, "pauses")
+                let mut result = self.cut_ranges(ranges, "pauses")?;
+                result["activity_pauses_kept"] = json!(skipped
+                    .iter()
+                    .map(|(a, b)| json!({"from_s":seconds(*a),"to_s":seconds(*b)}))
+                    .collect::<Vec<_>>());
+                if !skipped.is_empty() {
+                    result["message"] = format!(
+                        "{} Kept {} pause(s) with typing, clicks or scrolls.",
+                        result["message"].as_str().unwrap(),
+                        skipped.len()
+                    )
+                    .into();
+                }
+                Ok(result)
             }
             "cut_words" | "remove_fillers" => {
                 let mut selected = vec![false; words.len()];
@@ -428,15 +639,110 @@ impl Server<'_> {
                 "Click lies outside the captured picture; choose another click.",
             ));
         }
-        let scale = number(a, "scale", 1.8)?;
+        let mut scale = number(a, "scale", 1.8)?;
         if !(1.05..=4.0).contains(&scale) {
             return Err(bad("Craft zoom scale must be between 1.05 and 4."));
+        }
+        let mut target = [x / geometry[2], y / geometry[3]];
+        if let Some(include) = a.get("include") {
+            let items = include.as_array().ok_or_else(|| {
+                bad("include must be an array of click indices or normalized {x,y,w,h} rectangles")
+            })?;
+            if !items.is_empty() {
+                let mut bounds = [target[0], target[1], target[0], target[1]];
+                for item in items {
+                    let rect = if let Some(index) = item.as_u64() {
+                        let c = clicks
+                            .get(index as usize)
+                            .ok_or_else(|| bad("include click index out of range"))?;
+                        [
+                            c["x"]
+                                .as_f64()
+                                .ok_or_else(|| bad("Included click has no position"))?
+                                / geometry[2],
+                            c["y"]
+                                .as_f64()
+                                .ok_or_else(|| bad("Included click has no position"))?
+                                / geometry[3],
+                            0.0,
+                            0.0,
+                        ]
+                    } else {
+                        let o = item
+                            .as_object()
+                            .ok_or_else(|| bad("include entries must be indices or rectangles"))?;
+                        if o.len() != 4 || !["x", "y", "w", "h"].iter().all(|k| o.contains_key(*k))
+                        {
+                            return Err(bad("include rectangles require exactly x,y,w,h"));
+                        }
+                        let rect = [
+                            number(item, "x", 0.0)?,
+                            number(item, "y", 0.0)?,
+                            number(item, "w", 0.0)?,
+                            number(item, "h", 0.0)?,
+                        ];
+                        if rect[2] <= 0.0 || rect[3] <= 0.0 {
+                            return Err(bad("include rectangle sizes must be positive"));
+                        }
+                        rect
+                    };
+                    if rect[0] < 0.0
+                        || rect[1] < 0.0
+                        || rect[0] + rect[2] > 1.0
+                        || rect[1] + rect[3] > 1.0
+                    {
+                        return Err(bad("include must lie inside the normalized source picture"));
+                    }
+                    bounds[0] = bounds[0].min(rect[0]);
+                    bounds[1] = bounds[1].min(rect[1]);
+                    bounds[2] = bounds[2].max(rect[0] + rect[2]);
+                    bounds[3] = bounds[3].max(rect[1] + rect[3]);
+                }
+                let crop = self.project.data.canvas.crop;
+                if bounds[0] < crop[0]
+                    || bounds[1] < crop[1]
+                    || bounds[2] > crop[0] + crop[2]
+                    || bounds[3] > crop[1] + crop[3]
+                {
+                    return Err(bad(
+                        "Included context is outside canvas.crop; widen the crop first.",
+                    ));
+                }
+                let fit = (crop[2] / (bounds[2] - bounds[0]).max(f64::EPSILON))
+                    .min(crop[3] / (bounds[3] - bounds[1]).max(f64::EPSILON));
+                if fit < 1.3 {
+                    return Err(bad("Included context cannot fit at 1.3×; use a smaller region or leave this shot at 1×."));
+                }
+                scale = scale.clamp(1.3, 2.0).min(fit);
+                for axis in 0..2 {
+                    let half = crop[axis + 2] / scale / 2.0;
+                    target[axis] = ((bounds[axis] + bounds[axis + 2]) / 2.0)
+                        .clamp(crop[axis] + half, crop[axis] + crop[axis + 2] - half);
+                }
+            }
         }
         let lead = ns(a, "lead_s", 400_000_000)?.min(2 * SECOND);
         let hold = ns(a, "hold_s", 1_600_000_000)?.clamp(SECOND, 6 * SECOND);
         let duration = time::duration(&self.project.data.timeline.clips);
-        let mut start = (t - lead).max(0);
-        let mut end = t.saturating_add(hold).min(duration);
+        let requested_start = ns(a, "start_s", (t - lead).max(0))?;
+        let requested_end = ns(a, "end_s", t.saturating_add(hold))?;
+        if requested_start > t || requested_end <= t || requested_end <= requested_start {
+            return Err(bad("start_s/end_s must enclose the selected click."));
+        }
+        let mut start = requested_start;
+        let mut end = requested_end.min(duration);
+        let view_change = self.next_view_change(t);
+        if let Some(change) = view_change {
+            end = end.min(change.saturating_sub(50_000_000));
+        }
+        let mut earliest = 0;
+        // Do not extend the lead across a cut or a prior known view change.
+        for change in self.view_changes() {
+            let at = (change["start_s"].as_f64().unwrap() * SECOND as f64).round() as i64;
+            if at <= t {
+                earliest = earliest.max(at);
+            }
+        }
         let active: Vec<_> = self
             .project
             .data
@@ -451,15 +757,16 @@ impl Server<'_> {
                 return Err(bad("This click already has a zoom. Update or remove that zoom instead of overlapping it."));
             }
             if z.tl_end_ns <= t {
-                start = start.max(z.tl_end_ns);
+                earliest = earliest.max(z.tl_end_ns);
             }
             if z.tl_start_ns > t {
                 end = end.min(z.tl_start_ns);
             }
         }
-        if end - start < SECOND {
+        start = start.min(end - SECOND).max(earliest);
+        if end <= t || end - start < SECOND || end - start > 8 * SECOND {
             return Err(bad(
-                "Less than 1 second is free around this click before another zoom or the end.",
+                "Cannot fit a 1–8 second zoom around this click within view changes, other zooms and timeline bounds. Zoom on the result instead.",
             ));
         }
         // A rolling minute limit avoids bursts even on short recordings.
@@ -472,9 +779,17 @@ impl Server<'_> {
         {
             return Err(bad("Zoom budget reached: at most 6 zooms in any minute. Choose fewer important clicks."));
         }
-        let change=self.project.apply(&json!({"op":"batch","commands":[{"op":"add_zoom","mode":"manual","target":[x/geometry[2],y/geometry[3]],"scale":scale,"tl_start_ns":start,"tl_end_ns":end,"ease_in_ns":300_000_000,"ease_out_ns":300_000_000}]}))?;
+        let clamped = start != requested_start || end != requested_end;
+        let reason = if view_change.is_some_and(|v| end == v.saturating_sub(50_000_000)) {
+            "; clamped before the view change (50 ms margin), lead adjusted to keep at least 1 s"
+        } else if clamped {
+            "; clamped to the available interval, lead adjusted to keep at least 1 s"
+        } else {
+            ""
+        };
+        let change=self.project.apply(&json!({"op":"batch","commands":[{"op":"add_zoom","mode":"manual","target":target,"scale":scale,"tl_start_ns":start,"tl_end_ns":end,"ease_in_ns":300_000_000,"ease_out_ns":300_000_000}]}))?;
         Ok(
-            json!({"changed":true,"message":format!("Zoom {scale}× on click {} ({}–{})",clock(t),clock(start),clock(end)),"click_index":index,"at_s":seconds(t),"from_s":seconds(start),"to_s":seconds(end),"scale":scale,"change":change}),
+            json!({"changed":true,"message":format!("Zoom {scale:.2}× on click {} ({}–{}){reason}",clock(t),clock(start),clock(end)),"click_index":index,"at_s":seconds(t),"from_s":seconds(start),"to_s":seconds(end),"scale":scale,"target":target,"clamped":clamped,"view_change_s":view_change.map(seconds),"change":change}),
         )
     }
 }
@@ -487,6 +802,8 @@ impl Server<'_> {
         let p = &self.project.data;
         let duration = time::duration(&p.timeline.clips);
         let (words, available) = self.craft_words()?;
+        let activity = self.activity_ranges()?;
+        let typing = self.typing_ranges();
         let mut issues = vec![];
         let mut issue = |severity: &str, kind: &str, at: i64, message: String, hint: &str| {
             issues.push(json!({"severity":severity,"kind":kind,"at_s":seconds(at),"message":message,"fix_hint":hint}));
@@ -497,6 +814,15 @@ impl Server<'_> {
             .filter(|z| z.enabled && (z.mode != "auto" || p.zoom_settings.automatic))
             .collect();
         for (i, z) in zooms.iter().enumerate() {
+            if overlaps(&typing, z.tl_start_ns, z.tl_end_ns) {
+                issue(
+                    "warning",
+                    "zoom_during_typing",
+                    z.tl_start_ns,
+                    format!("Zoom '{}' overlaps a fast typing burst.", z.id),
+                    "Move the zoom to the typing result, or shorten it to avoid the burst.",
+                );
+            }
             if z.tl_end_ns > duration {
                 issue(
                     "error",
@@ -547,18 +873,37 @@ impl Server<'_> {
             let mut end = words[0].end;
             for w in &words[1..] {
                 if w.start - end > 1_200_000_000 {
+                    let busy = overlaps(&activity, end, w.start);
                     issue(
-                        "warning",
-                        "long_pause",
+                        if busy { "info" } else { "warning" },
+                        if busy { "activity_pause" } else { "long_pause" },
                         end,
                         format!("{:.2} s between transcribed words.", seconds(w.start - end)),
-                        "Review the gap, then tighten_pauses to retain 0.35 s breathing room.",
+                        if busy {
+                            "Recorded activity occupies this pause; keep it for context or deliberately speed it up after visual review."
+                        } else {
+                            "Review the gap, then tighten_pauses to retain 0.35 s breathing room."
+                        },
                     );
                 }
                 end = end.max(w.end);
             }
             if duration - end > 800_000_000 {
-                issue("warning","long_tail",end,format!("{:.2} s after the last transcribed word.",seconds(duration-end)),"Use tighten_pauses to retain at most 0.8 s of tail; verify transcript coverage.");
+                let busy = overlaps(&activity, end, duration);
+                issue(
+                    if busy { "info" } else { "warning" },
+                    if busy { "activity_pause" } else { "long_tail" },
+                    end,
+                    format!(
+                        "{:.2} s after the last transcribed word.",
+                        seconds(duration - end)
+                    ),
+                    if busy {
+                        "Recorded activity continues after speech; verify the visible result before trimming."
+                    } else {
+                        "Use tighten_pauses to retain at most 0.8 s of tail; verify transcript coverage."
+                    },
+                );
             }
         }
         // Timeline captions have already been clipped, so use original word
@@ -696,13 +1041,13 @@ pub(crate) fn catalog() -> Vec<Value> {
     pauses["max_gap_s"] = json!({"type":"number","default":0.5,"minimum":0.3});
     pauses["keep_s"] = json!({"type":"number","default":0.35,"minimum":0.3,"maximum":0.5});
     vec![
-        ("moments","Start here: one chronological timeline of sentences with word indices/timings, clicks with capture-point x/y and known app/window, shortcuts, typing, zooms and cuts. All times SECONDS. Indices are zero-based/global; re-read after edits. Example: moments {}.",range,vec![]),
-        ("check","Verify after every edit stage: structural errors and craft warnings with severity, kind, at_s in SECONDS, message and fix_hint. Checks source-word cuts when original transcript exists; no pixel analysis. Follow with capture to verify appearance. Example: check {}.",json!({}),vec![]),
+        ("moments","Start here: one chronological timeline of sentences with word indices/timings, clicks with capture-point x/y, known app/window/URL and next event-based view_change_s (null if unknown), view_changes rows, shortcuts, printable typing text (including short bursts), zooms and cuts. All times SECONDS. Indices are zero-based/global; re-read after edits. Example: moments {}.",range,vec![]),
+        ("check","Verify after every edit stage: structural errors and craft warnings with severity, kind, at_s in SECONDS, message and fix_hint. Checks source-word cuts, zoom_during_typing and activity_pause (info for recorded activity); no pixel analysis. Follow with capture to verify appearance. Example: check {}.",json!({}),vec![]),
         ("cut_words","Remove an inclusive range of word indices from moments; snap to timed speech boundaries, retain up to 0.35 s breathing room, ripple all tracks. One undo step. Requires word timing, refuses overlaps with retained speech. Example: cut_words {\"from_word_index\":3,\"to_word_index\":4}.",json!({"from_word_index":{"type":"integer","minimum":0},"to_word_index":{"type":"integer","minimum":0}}),vec!["from_word_index","to_word_index"]),
-        ("tighten_pauses","Tighten gaps between timed transcript words over max_gap_s (default 0.5 SECONDS), retaining keep_s (default 0.35, clamped 0.3–0.5). Also trim tail to 0.8 s when range reaches end. Transcript gaps need review; missing words do not prove silence. One undo step. Example: tighten_pauses {\"max_gap_s\":0.5,\"keep_s\":0.35}.",pauses,vec![]),
+        ("tighten_pauses","Tighten gaps between timed transcript words over max_gap_s (default 0.5 SECONDS), retaining keep_s (default 0.35, clamped 0.3–0.5). Skips whole gaps/tails containing typing, clicks or scrolls and reports activity_pauses_kept. Otherwise trim tail to 0.8 s when range reaches end. Transcript gaps need review; missing words do not prove silence. One undo step. Example: tighten_pauses {\"max_gap_s\":0.5,\"keep_s\":0.35}.",pauses,vec![]),
         ("remove_fillers","Remove exact case-insensitive timed filler words, ignoring surrounding punctuation. Defaults um, uh, erm, er, hmm; never automatically remove like/so/also. Keeps breathing room and makes one undo step. Example: remove_fillers {\"words\":[\"um\",\"uh\"]}.",json!({"words":{"type":"array","items":{"type":"string"}}}),vec![]),
         ("trim_start_to_first_word","Trim opening to first timed word minus lead_s (default 0.1 SECONDS, clamped 0–0.5). No transcript means an explicit error, never guessed silence. One undo step. Example: trim_start_to_first_word {\"lead_s\":0.1}.",json!({"lead_s":{"type":"number","default":0.1,"minimum":0,"maximum":0.5}}),vec![]),
-        ("zoom_on_click","Focus an important captured click by global click_index from moments OR at_s (nearest click within 0.25 SECONDS). Default scale 1.8, lead_s 0.4, hold_s 1.6; eased 0.3 s, clamped to timeline and free interval, 1–8 s long, max 6/minute. Refuses a click already zoomed; update/remove existing zoom via apply instead. One undo step. Example: zoom_on_click {\"click_index\":0}.",json!({"click_index":{"type":"integer","minimum":0},"at_s":{"type":"number","minimum":0},"scale":{"type":"number","default":1.8,"minimum":1.05,"maximum":4},"lead_s":{"type":"number","default":0.4,"minimum":0},"hold_s":{"type":"number","default":1.6,"minimum":0}}),vec![]),
+        ("zoom_on_click","Focus an important captured click by global click_index from moments OR at_s (nearest click within 0.25 SECONDS). Default scale 1.8, lead_s 0.4, hold_s 1.6. Optional start_s/end_s override timing in seconds; ends 0.05 s before next known view change, extends lead for >=1 s without crossing previous view changes. include is an array of other click indices and/or normalized source {x,y,w,h} rectangles; fits union at 1.3–2x or refuses if impossible. Reports clamps; eased 0.3 s, clamped to timeline and free interval, 1–8 s long, max 6/minute. Refuses a click already zoomed; update/remove existing zoom via apply instead. One undo step. Example: zoom_on_click {\"click_index\":0}.",json!({"click_index":{"type":"integer","minimum":0},"at_s":{"type":"number","minimum":0},"scale":{"type":"number","default":1.8,"minimum":1.05,"maximum":4},"lead_s":{"type":"number","default":0.4,"minimum":0},"hold_s":{"type":"number","default":1.6,"minimum":0},"start_s":{"type":"number","minimum":0},"end_s":{"type":"number","minimum":0},"include":{"type":"array","items":{"oneOf":[{"type":"integer","minimum":0},{"type":"object","properties":{"x":{"type":"number","minimum":0,"maximum":1},"y":{"type":"number","minimum":0,"maximum":1},"w":{"type":"number","exclusiveMinimum":0,"maximum":1},"h":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["x","y","w","h"],"additionalProperties":false}]}}}),vec![]),
     ].into_iter().map(|(name,description,properties,required)| json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name=="moments" || name=="check","openWorldHint":false}})).collect()
 }
 
@@ -756,9 +1101,229 @@ mod tests {
             .map(|v| v["kind"].as_str().unwrap().into())
             .collect()
     }
+    fn events(p: &mut Project, rows: Value) {
+        p.events.iter_mut().for_each(Vec::clear);
+        p.events[0] = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| serde_json::from_value(e.clone()).unwrap())
+            .collect();
+        p.rebuild_key_overlay_index();
+    }
+    #[test]
+    fn view_metadata_clamps_zoom_and_survives_cuts_speed_and_repeats() {
+        let (_f, mut p) = setup();
+        p.session.source.window_title = Some("Before".into());
+        events(
+            &mut p,
+            json!([
+                {"t":100_000_000,"type":"focus","window_title":"Before"},
+                {"t":1_500_000_000,"type":"down","x":160,"y":100},
+                {"t":1_600_000_000,"type":"focus","window_title":"Before"},
+                {"t":1_800_000_000,"type":"focus","window_title":"After"},
+                {"t":2_000_000_000,"type":"url","url":"https://example.test/result"}
+            ]),
+        );
+        let m = call(&mut p, "moments", json!({}));
+        assert_eq!(m["view_changes"].as_array().unwrap().len(), 2);
+        assert_eq!(m["moments"][0]["view_change_s"], 1.8);
+        let before = p.data.clone();
+        let z = call(&mut p, "zoom_on_click", json!({"click_index":0}));
+        assert_eq!(z["from_s"], 0.75);
+        assert_eq!(z["to_s"], 1.75);
+        assert_eq!(z["clamped"], true);
+        assert!(z["message"].as_str().unwrap().contains("view change"));
+        assert_eq!(p.undo.len(), 1);
+        p.undo().unwrap();
+        assert_eq!(p.data, before);
+        let z = call(
+            &mut p,
+            "zoom_on_click",
+            json!({"click_index":0,"start_s":0.2,"end_s":1.7}),
+        );
+        assert_eq!(z["from_s"], 0.2);
+        assert_eq!(z["to_s"], 1.7);
+        assert_eq!(z["clamped"], false);
+        p.undo().unwrap();
+        p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":500_000_000}))
+            .unwrap();
+        let mut c = p.data.timeline.clips[0].clone();
+        c.speed = 2.0;
+        let mut repeat = c.clone();
+        repeat.id = "repeat".into();
+        p.data.timeline.clips = vec![c, repeat];
+        let m = call(&mut p, "moments", json!({"from_s":2.3}));
+        let clicks: Vec<_> = m["moments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["kind"] == "click")
+            .collect();
+        assert_eq!(clicks.len(), 1);
+        assert_eq!(clicks[0]["click_index"], 1);
+        assert_eq!(clicks[0]["window_title"], "Before");
+        assert_eq!(clicks[0]["start_s"], 2.75);
+        assert_eq!(clicks[0]["view_change_s"], 2.9);
+    }
+    #[test]
+    fn zoom_timing_failures_and_context_fit_are_atomic() {
+        let (_f, mut p) = setup();
+        events(
+            &mut p,
+            json!([
+                {"t":1_500_000_000,"type":"down","x":80,"y":100},
+                {"t":2_000_000_000,"type":"down","x":240,"y":100}
+            ]),
+        );
+        let before = p.data.clone();
+        let z = call(
+            &mut p,
+            "zoom_on_click",
+            json!({"click_index":0,"scale":4,"include":[1,{"x":0.2,"y":0.3,"w":0.6,"h":0.4}]}),
+        );
+        assert!((z["scale"].as_f64().unwrap() - 1.0 / 0.6).abs() < 1e-9);
+        assert_eq!(z["target"], json!([0.5, 0.5]));
+        let visible = p.frame_geometry(1_500_000_000).unwrap().screen_crop;
+        assert!(visible.x <= 0.2 + 1e-9 && visible.x + visible.w >= 0.8 - 1e-9);
+        assert!(visible.y <= 0.3 + 1e-9 && visible.y + visible.h >= 0.7 - 1e-9);
+        p.undo().unwrap();
+        assert_eq!(p.data, before);
+        for args in [
+            json!({"click_index":0,"start_s":1.6}),
+            json!({"click_index":0,"end_s":1.5}),
+            json!({"click_index":0,"include":[99]}),
+            json!({"click_index":0,"include":[{"x":0,"y":0,"w":1,"h":1}]}),
+            json!({"click_index":0,"include":[{"x":0.2,"y":0.2,"w":-0.1,"h":0.1}]}),
+            json!({"click_index":0,"include":{}}),
+        ] {
+            assert!(
+                Server {
+                    project: &mut p,
+                    initialized: true
+                }
+                .craft("zoom_on_click", &args)
+                .is_err(),
+                "{args}"
+            );
+            assert_eq!(p.data, before);
+            assert!(p.undo.is_empty());
+        }
+        events(
+            &mut p,
+            json!([
+                {"t":1_400_000_000,"type":"focus","window_title":"New"},
+                {"t":1_500_000_000,"type":"down","x":80,"y":100},
+                {"t":1_700_000_000,"type":"focus","window_title":"Next"}
+            ]),
+        );
+        assert!(Server {
+            project: &mut p,
+            initialized: true
+        }
+        .craft("zoom_on_click", &json!({"click_index":0}))
+        .is_err());
+        assert_eq!(p.data, before);
+    }
+    #[test]
+    fn activity_pauses_keep_clicks_scrolls_short_typing_and_active_tail() {
+        for event in [
+            json!({"type":"down","x":80,"y":100}),
+            json!({"type":"scroll","dy":2}),
+            json!({"type":"key","key":"a"}),
+        ] {
+            let (_f, mut p) = setup();
+            speech(&mut p);
+            let mut middle = event.clone();
+            middle["t"] = json!(2_000_000_000);
+            let mut tail = event;
+            tail["t"] = json!(4_500_000_000_i64);
+            events(&mut p, json!([middle, tail]));
+            let before = p.data.clone();
+            let issues = call(&mut p, "check", json!({}));
+            assert_eq!(
+                issues["issues"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|r| r["kind"] == "activity_pause" && r["severity"] == "info")
+                    .count(),
+                2
+            );
+            assert!(!kinds(&mut p).contains(&"long_pause".into()));
+            let r = call(&mut p, "tighten_pauses", json!({}));
+            assert_eq!(r["changed"], false);
+            assert_eq!(r["activity_pauses_kept"].as_array().unwrap().len(), 2);
+            assert_eq!(p.data, before);
+            assert!(p.undo.is_empty());
+            // A restricted range still preserves activity elsewhere in the same gap.
+            assert_eq!(
+                call(&mut p, "tighten_pauses", json!({"from_s":2.1,"to_s":2.6}))["changed"],
+                false
+            );
+        }
+    }
+    #[test]
+    fn typing_text_shortcuts_short_runs_and_zoom_warning() {
+        let (_f, mut p) = setup();
+        let mut input = vec![json!({"t":0,"type":"key","key":"k","modifiers":["cmd"]})];
+        for (i, key) in ["H", "i", "space", "é", "!", "a", "b"].iter().enumerate() {
+            input.push(json!({"t":100_000_000+i as i64*300_000_000,"type":"key","key":key}));
+        }
+        input.extend([
+            json!({"t":2_500_000_000_i64,"type":"key","key":"x"}),
+            json!({"t":2_600_000_000_i64,"type":"key","key":"y"}),
+        ]);
+        events(&mut p, json!(input));
+        let m = call(&mut p, "moments", json!({}));
+        let rows = m["moments"].as_array().unwrap();
+        assert_eq!(rows.iter().filter(|r| r["kind"] == "key").count(), 1);
+        let typing: Vec<_> = rows.iter().filter(|r| r["kind"] == "typing").collect();
+        assert_eq!(typing.len(), 2);
+        assert_eq!(typing[0]["text"], "Hi é!ab");
+        assert_eq!(typing[1]["text"], "xy");
+        assert_eq!(typing[1]["key_count"], 2);
+        p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":2_000_000_000,"target":[0.5,0.5],"scale":1.8})).unwrap();
+        assert!(kinds(&mut p).contains(&"zoom_during_typing".into()));
+        p.data.zooms[0].enabled = false;
+        assert!(!kinds(&mut p).contains(&"zoom_during_typing".into()));
+    }
+    #[test]
+    fn typing_activity_retimes_and_dismissal_does_not_hide_it() {
+        let (_f, mut p) = setup();
+        events(
+            &mut p,
+            json!((0..7)
+                .map(|i| json!({"t":1_000_000_000_i64+i*300_000_000,"type":"key","key":"a"}))
+                .collect::<Vec<_>>()),
+        );
+        let id = crate::auto::typing_bursts(&p)[0].id.clone();
+        p.data.typing.dismissed.push(id);
+        p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":500_000_000}))
+            .unwrap();
+        let id = p.data.timeline.clips[0].id.clone();
+        p.apply(&json!({"op":"set_speed","clip_id":id,"speed":2}))
+            .unwrap();
+        let server = Server {
+            project: &mut p,
+            initialized: true,
+        };
+        assert_eq!(server.typing_ranges(), vec![(250_000_000, 1_150_000_000)]);
+        assert!(overlaps(
+            &server.activity_ranges().unwrap(),
+            700_000_000,
+            800_000_000
+        ));
+        p.apply(&json!({"op":"add_zoom","tl_start_ns":1_200_000_000,"tl_end_ns":2_400_000_000_i64,"target":[0.5,0.5],"scale":1.8})).unwrap();
+        assert!(!kinds(&mut p).contains(&"zoom_during_typing".into()));
+        p.undo().unwrap();
+        p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":1_100_000_000,"target":[0.5,0.5],"scale":1.8})).unwrap();
+        assert!(kinds(&mut p).contains(&"zoom_during_typing".into()));
+    }
     #[test]
     fn word_tools_atomic_and_noop_history() {
         let (_f, mut p) = setup();
+        events(&mut p, json!([]));
         speech(&mut p);
         for (name, args, total) in [
             ("trim_start_to_first_word", json!({}), 0.5),
@@ -962,6 +1527,7 @@ mod tests {
     #[test]
     fn check_clean_and_all_structural_rules() {
         let (_f, mut p) = setup();
+        events(&mut p, json!([]));
         assert!(kinds(&mut p).is_empty());
         speech(&mut p);
         let k = kinds(&mut p);
@@ -1090,6 +1656,17 @@ mod edge_tests {
         assert_eq!(server.project.data.zooms[0], neighbor);
         server.project.undo().unwrap();
         server.project.data.zooms[0].tl_start_ns = click + 100_000_000;
+        // Lead now extends to retain a full second when space exists.
+        let extended = server
+            .craft("zoom_on_click", &json!({"click_index":0}))
+            .unwrap();
+        assert_eq!(extended["from_s"], seconds(click - 900_000_000));
+        server.project.undo().unwrap();
+        let mut previous = base.clone();
+        previous.id = "previous".into();
+        previous.tl_start_ns = 0;
+        previous.tl_end_ns = click - 500_000_000;
+        server.project.data.zooms.push(previous);
         assert!(server
             .craft("zoom_on_click", &json!({"click_index":0}))
             .is_err());
