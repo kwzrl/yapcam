@@ -124,7 +124,6 @@ struct EditingSettings: View {
             Text(s.autosaveEnabled ? "Edits are saved 30 seconds after your last change. Closing a project window and quitting always save."
                                    : "Edits are saved only when you close the project window or quit. A crash can lose changes since then.")
                 .font(.caption).foregroundStyle(.secondary)
-            Picker("Editor appearance", selection: $s.editorAppearance) { ForEach(EditorAppearance.allCases, id: \.self) { Text($0.label).tag($0) } }
             LabeledContent("Save presets in") {
                 VStack(alignment: .trailing) {
                     Text((PresetsFolder.effective(s.presetsDirectory).path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.middle)

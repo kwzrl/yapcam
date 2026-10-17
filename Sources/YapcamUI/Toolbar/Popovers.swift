@@ -18,7 +18,7 @@ private struct SelectableRow<Content: View>: View {
     var body: some View {
         Button(action: action) {
             HStack { content; Spacer(minLength: 4)
-                if selected { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) } }
+                if selected { Image(systemName: "checkmark").foregroundStyle(Color.white) } }
                 .padding(.vertical, 5).padding(.horizontal, 8)
                 .background(RoundedRectangle(cornerRadius: 6).fill(hover ? Color.primary.opacity(contrast.hoverFill) : .clear))
                 .contentShape(Rectangle())

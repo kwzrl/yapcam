@@ -104,7 +104,7 @@ struct CommandPaletteView: View {
                                 Text(c.shortcut).font(.callout.monospaced()).foregroundStyle(.secondary)
                             }
                             .padding(.horizontal, 14).padding(.vertical, 7)
-                            .background(i == highlighted ? Color.accentColor.opacity(0.18) : .clear)
+                            .background(i == highlighted ? Color.white.opacity(0.18) : .clear)
                             .contentShape(Rectangle())
                             .onTapGesture { highlighted = i; run(items) }
                         }

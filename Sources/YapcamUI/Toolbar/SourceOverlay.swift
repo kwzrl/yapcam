@@ -328,8 +328,8 @@ struct WindowOverlayRoot: View {
             if let w = model.hover {
                 let r = OverlayGeometry.localRect(cg: w.bounds, screenFrame: screenFrame, primaryMaxY: primaryMaxY)
                 if r.intersects(CGRect(origin: .zero, size: screenFrame.size)) {
-                    Rectangle().fill(Color.accentColor.opacity(0.22))
-                        .overlay(Rectangle().strokeBorder(Color.accentColor, lineWidth: 3))
+                    Rectangle().fill(Color.white.opacity(0.22))
+                        .overlay(Rectangle().strokeBorder(Color.white, lineWidth: 3))
                         .frame(width: r.width, height: r.height)
                         .offset(x: r.minX, y: r.minY)
                         .allowsHitTesting(false)
