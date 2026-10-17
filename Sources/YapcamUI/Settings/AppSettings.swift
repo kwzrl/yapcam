@@ -1,5 +1,6 @@
 import AppKit
 import YapcamCapture
+import YapcamEditor
 import YapcamRender
 import Carbon.HIToolbox
 import SwiftUI
@@ -14,6 +15,13 @@ enum AfterRecording: String, CaseIterable, Identifiable {
     var recordLabel: String {
         switch self { case .createProject: "Start recording"; case .exportCopy: "Record & Copy"; case .exportSave: "Record & Save" }
     }
+}
+
+/// What happens after a quick export finishes (reference: "Action after quick export", default do nothing).
+enum ActionAfterQuickExport: String, CaseIterable, Identifiable {
+    case nothing, revealInFinder
+    var id: String { rawValue }
+    var title: String { self == .nothing ? "Do nothing" : "Show the file in Finder" }
 }
 
 enum SourceMode: String, CaseIterable, Identifiable {
@@ -135,6 +143,9 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var savedAreaSizes: [String] { didSet { d.set(savedAreaSizes, forKey: "savedAreaSizes") } }
     /// Export settings used by quick export and the quick export widget (Settings → Quick export).
     @Published var quickExport: ExportSettings { didSet { d.set(try? JSONEncoder().encode(quickExport), forKey: "quickExport.v1") } }
+    /// Editor window appearance (Settings → Editing): dark by default, like the reference.
+    @Published var editorAppearance: EditorAppearance { didSet { d.set(editorAppearance.rawValue, forKey: "editorAppearance"); EditorWindows.appearance = editorAppearance } }
+    @Published var actionAfterQuickExport: ActionAfterQuickExport { didSet { d.set(actionAfterQuickExport.rawValue, forKey: "actionAfterQuickExport") } }
     @Published var showRecordingWidget: Bool { didSet { d.set(showRecordingWidget, forKey: "showRecordingWidget") } }
     @Published var createAutoZooms: Bool { didSet { d.set(createAutoZooms, forKey: "createAutoZooms") } }
     @Published var afterRecording: AfterRecording { didSet { d.set(afterRecording.rawValue, forKey: "afterRecording") } }
@@ -205,6 +216,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         savedAreaSizes = store.stringArray(forKey: "savedAreaSizes") ?? []
         quickExport = (d.data(forKey: "quickExport.v1").flatMap { try? JSONDecoder().decode(ExportSettings.self, from: $0) })
             .map { $0.closestValidPreset(for: .file) } ?? AppSettings.defaultQuickExport
+        editorAppearance = EditorAppearance(rawValue: d.string(forKey: "editorAppearance") ?? "") ?? .dark
+        actionAfterQuickExport = ActionAfterQuickExport(rawValue: d.string(forKey: "actionAfterQuickExport") ?? "") ?? .nothing
         showRecordingWidget = store.object(forKey: "showRecordingWidget") as? Bool ?? true
         createAutoZooms = store.object(forKey: "createAutoZooms") as? Bool ?? true
         afterRecording = AfterRecording(rawValue: store.string(forKey: "afterRecording") ?? "") ?? .createProject
@@ -259,7 +272,7 @@ extension AppSettings {
         hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview
         showInDock = f.showInDock; showMenuBarItem = f.showMenuBarItem
         shortcuts = f.shortcuts; highlightRecordedArea = f.highlightRecordedArea; savedWindowSizes = f.savedWindowSizes; savedAreaSizes = f.savedAreaSizes
-        quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms
+        editorAppearance = f.editorAppearance; actionAfterQuickExport = f.actionAfterQuickExport; quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms
         afterRecording = f.afterRecording; showQuickExportWidget = f.showQuickExportWidget
     }
 }

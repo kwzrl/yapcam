@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import SwiftUI
+import YapcamEditor
 import YapcamRender
 
 @MainActor final class SettingsWindow {
@@ -123,6 +124,7 @@ struct EditingSettings: View {
             Text(s.autosaveEnabled ? "Edits are saved 30 seconds after your last change. Closing a project window and quitting always save."
                                    : "Edits are saved only when you close the project window or quit. A crash can lose changes since then.")
                 .font(.caption).foregroundStyle(.secondary)
+            Picker("Editor appearance", selection: $s.editorAppearance) { ForEach(EditorAppearance.allCases, id: \.self) { Text($0.label).tag($0) } }
             LabeledContent("Save presets in") {
                 VStack(alignment: .trailing) {
                     Text((PresetsFolder.effective(s.presetsDirectory).path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.middle)
@@ -170,6 +172,7 @@ struct QuickExportSettings: View {
             Toggle("Show quick export widget after recording", isOn: $s.showQuickExportWidget)
             Text("The widget offers Copy, Save and Edit instead of opening the editor right away. Quick export uses the settings above; Copy and Save in the widget, the Record menu and the shortcuts all use them.")
                 .font(.caption).foregroundStyle(.secondary)
+            Picker("After a quick export", selection: $s.actionAfterQuickExport) { ForEach(ActionAfterQuickExport.allCases) { Text($0.title).tag($0) } }
             Picker("After recording", selection: $s.afterRecording) { ForEach(AfterRecording.allCases) { Text($0.title).tag($0) } }
         }.formStyle(.grouped)
     }

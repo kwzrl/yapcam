@@ -1,6 +1,7 @@
 import AppKit
 import YapcamCapture
 import SwiftUI
+import YapcamEditor
 import YapcamRender
 import Foundation
 import Testing
@@ -395,5 +396,54 @@ import Testing
         #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99, allowed: [2])?.id == 2)
         #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99, allowed: nil)?.id == 1)
         #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99, allowed: [])?.id == nil)
+    }
+}
+
+@MainActor @Suite struct Round5EditorRequestTests {
+    @Test func editorAppearanceDefaultsDarkPersistsAndReachesTheEditor() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.r5-\(UUID().uuidString)")!
+        let old = EditorWindows.appearance
+        defer { EditorWindows.appearance = old }
+        let s = AppSettings(store: suite)
+        #expect(s.editorAppearance == .dark)
+        s.editorAppearance = .light
+        #expect(EditorWindows.appearance == .light)
+        #expect(AppSettings(store: suite).editorAppearance == .light)
+    }
+
+    @Test func fileMenuHasTheProjectItems() {
+        _ = NSApplication.shared
+        let menu = MainMenu.build(target: AppDelegate())
+        let file = menu.items.first { $0.title == "File" }?.submenu?.items.map(\.title) ?? []
+        for t in ["Rename Project…", "Move to Trash…", "Save As…", "Copy and Zip Project", "Show Project in Finder", "Recover Recording…"] { #expect(file.contains(t), "\(t)") }
+    }
+
+    @Test func projectItemsAreDisabledWithoutAnOpenEditor() {
+        let d = AppDelegate()
+        for sel in [#selector(AppDelegate.moveProjectToTrash), #selector(AppDelegate.renameProject), #selector(AppDelegate.saveProjectAs)] {
+            #expect(!d.validateMenuItem(NSMenuItem(title: "x", action: sel, keyEquivalent: "")))
+        }
+    }
+}
+
+@MainActor @Suite struct Round5ExportUXTests {
+    @Test func dockBadgeShowsPercent() {
+        #expect(QuickExport.dockBadge(for: 0.426) == "42%" && QuickExport.dockBadge(for: 1.4) == "100%" && QuickExport.dockBadge(for: nil) == nil)
+    }
+    @Test func remainingTimeNeedsEnoughProgress() {
+        #expect(QuickExport.remainingText(elapsed: 10, progress: 0.01) == nil)
+        #expect(QuickExport.remainingText(elapsed: 10, progress: 0.5) == "about 10 s left")
+        #expect(QuickExport.remainingText(elapsed: 120, progress: 0.25) == "about 6 min left")
+        #expect(QuickExport.remainingText(elapsed: 5, progress: 1) == nil)
+    }
+    @Test func cancelFlagIsSticky() {
+        let f = CancelFlag(); #expect(!f.isSet); f.set(); #expect(f.isSet)
+    }
+    @Test func afterExportActionDefaultsToNothingAndPersists() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.r5-\(UUID().uuidString)")!
+        let s = AppSettings(store: suite)
+        #expect(s.actionAfterQuickExport == .nothing)
+        s.actionAfterQuickExport = .revealInFinder
+        #expect(AppSettings(store: suite).actionAfterQuickExport == .revealInFinder)
     }
 }
