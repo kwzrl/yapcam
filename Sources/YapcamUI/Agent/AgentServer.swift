@@ -174,7 +174,7 @@ import YapcamCore
             let bytes = try JSONSerialization.data(withJSONObject: request)
             let response = try JSONSerialization.jsonObject(with: doc.handleMCP(bytes)) as? [String: Any] ?? [:]
             reply(connection, object: response)
-            if method == "tools/call", ["apply", "batch", "undo", "redo", "save"].contains(name), let result = response["result"] as? [String: Any], result["isError"] as? Bool == false { log(doc, name: name, args: args, client: client) }
+            if method == "tools/call", let result = response["result"] as? [String: Any], result["isError"] as? Bool == false { log(doc, name: name, args: args, client: client, result: result["structuredContent"] as? [String: Any]) }
         } catch { fail(error.localizedDescription) }
     }
     private static func result(_ value: [String: Any]) -> [String: Any] {
