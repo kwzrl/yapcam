@@ -703,3 +703,75 @@ import YapcamCore
         m.undo(); #expect(m.defaultZoomScale == 2)
     }
 }
+
+@Suite struct CropDraftTests {      // editing.md P1 #3 (EDT-09…13)
+    let frame = CGSize(width: 1920, height: 1080)
+
+    @Test func pixelsRoundTripThroughTheStoredFraction() {
+        let d = CropDraft(frame: frame, rect: CGRect(x: 100, y: 50, width: 960, height: 540))
+        let back = CropDraft(frame: frame, stored: d.stored)
+        #expect(back.rect == d.rect)
+        #expect(abs(d.insets.left - 100.0 / 1920) < 1e-12 && abs(d.insets.right - (1920 - 1060) / 1920.0) < 1e-12)
+        #expect(CropDraft(frame: frame, stored: []).isFullFrame && CropDraft(frame: frame, stored: [0, 0, 0, 0]).isFullFrame)
+    }
+    @Test func noLockDragMovesOnlyThatEdgeAndKeepsMinimumSize() {
+        let d = CropDraft(frame: frame)
+        let r = d.dragged(.top, from: d.rect, dx: 500, dy: 80)
+        #expect(r == CGRect(x: 0, y: 80, width: 1920, height: 1000))
+        let tiny = d.dragged(.bottom, from: d.rect, dx: 0, dy: -5000)
+        #expect(tiny.height == 32 && tiny.minY == 0)
+        let out = d.dragged(.left, from: d.rect, dx: -300, dy: 0)
+        #expect(out.minX == 0)
+    }
+    @Test func bodyDragStaysInsideTheFrame() {
+        let d = CropDraft(frame: frame, rect: CGRect(x: 100, y: 100, width: 400, height: 300))
+        #expect(d.dragged(.body, from: d.rect, dx: 5000, dy: -5000) == CGRect(x: 1520, y: 0, width: 400, height: 300))
+    }
+    @Test func lockedCornerDragKeepsTheRatioAndAnchorsTheOppositeCorner() {
+        var d = CropDraft(frame: frame, rect: CGRect(x: 100, y: 100, width: 800, height: 450))
+        d.setLock(.r16x9)
+        let r = d.dragged(.bottomRight, from: d.rect, dx: 160, dy: 0)
+        #expect(r.minX == 100 && r.minY == 100 && abs(r.width / r.height - 16.0 / 9) < 1e-9 && r.width > 800)
+        let big = d.dragged(.bottomRight, from: d.rect, dx: 9000, dy: 9000)
+        #expect(big.maxX <= 1920 + 1e-9 && big.maxY <= 1080 + 1e-9 && abs(big.width / big.height - 16.0 / 9) < 1e-9)
+    }
+    @Test func lockedEdgeDragGrowsTheOtherAxisAroundTheCentre() {
+        var d = CropDraft(frame: frame, rect: CGRect(x: 400, y: 300, width: 400, height: 400))
+        d.setLock(.r1x1)
+        let r = d.dragged(.right, from: d.rect, dx: 100, dy: 0)
+        #expect(r.width == 500 && r.height == 500 && r.midY == 500 && r.minX == 400)
+    }
+    @Test func numericFieldsClampAndFollowTheLock() {
+        var d = CropDraft(frame: frame, rect: CGRect(x: 0, y: 0, width: 800, height: 600))
+        d.setWidth(5000); #expect(d.rect.width == 1920)
+        d.setHeight(1); #expect(d.rect.height == 32)
+        d.setX(5000); #expect(d.rect.maxX == 1920)
+        d.reset(); d.setLock(.r9x16)
+        #expect(abs(d.rect.width / d.rect.height - 9.0 / 16) < 1e-9 && d.rect.height == 1080)
+        d.setHeight(540); #expect(abs(d.rect.width - 303.75) < 1e-9)
+        #expect(d.rounded().rect.width == 304)
+    }
+    @Test func resetReturnsTheWholeFrame() {
+        var d = CropDraft(frame: frame, rect: CGRect(x: 10, y: 10, width: 100, height: 100)); d.reset(); #expect(d.isFullFrame)
+    }
+}
+
+@MainActor @Suite struct CropToolModelTests {
+    @Test func confirmWritesOneUndoStepAndFullFrameClears() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        var d = m.cropDraft(); #expect(d.isFullFrame)
+        d.rect = CGRect(x: 192, y: 108, width: 1536, height: 864)
+        m.applyCrop(d)
+        let c = m.cropInsets(); #expect(abs(c.left - 0.1) < 1e-9 && abs(c.top - 0.1) < 1e-9 && abs(c.right - 0.1) < 1e-9)
+        #expect(!m.cropDraft().isFullFrame)
+        m.undo(); #expect(m.cropDraft().isFullFrame)                      // one step
+        m.applyCrop(d); d.reset(); m.applyCrop(d); #expect(m.cropDraft().isFullFrame)
+    }
+    @Test func paletteOffersCropAndDiscardLeavesTheProjectAlone() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        let cmd = m.paletteCommands.first { $0.title == "Crop recording…" }
+        #expect(cmd != nil); cmd?.run(); #expect(m.cropRequested)
+        _ = m.cropDraft()                                                  // staging never writes
+        #expect(m.numbers("canvas.crop").isEmpty || CropDraft(frame: CGSize(width: 10, height: 10), stored: m.numbers("canvas.crop")).isFullFrame)
+    }
+}

@@ -23,9 +23,11 @@ extension EditorModel {
     }
 
     /// The recording's screen frame at the zoom's midpoint, without zoom, cursor or background. Nil for projects that cannot render.
-    func unzoomedFrame(for zoom: TimelineZoom) async -> CGImage? {
+    func unzoomedFrame(for zoom: TimelineZoom) async -> CGImage? { await sourceFrame(atNs: (zoom.startNs + zoom.endNs) / 2) }
+
+    /// The recording's screen frame at a timeline time, straight from the source file (no editing applied).
+    func sourceFrame(atNs mid: Int64) async -> CGImage? {
         guard let core = project as? CoreEditingProject, let snapshot = try? core.project.snapshot() else { return nil }
-        let mid = (zoom.startNs + zoom.endNs) / 2
         struct Box: @unchecked Sendable { let p: Project }
         let box = Box(p: snapshot)
         return await Task.detached(priority: .userInitiated) {
