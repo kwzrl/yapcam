@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
 
-/// Surface for floating panels: translucent material normally, solid when the user turned on
-/// Reduce Transparency; stronger outline with Increase Contrast.
+/// Surface for floating panels: Yapcam glass over the desktop (always dark); solid ground when the user
+/// turned on Reduce Transparency; a visible outline with Increase Contrast.
 struct PanelSurface: ViewModifier {
     var cornerRadius: CGFloat
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -11,11 +12,12 @@ struct PanelSurface: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
+            .environment(\.colorScheme, .dark).tint(Color.white)
             .background {
-                if reduceTransparency { shape.fill(Color(nsColor: .windowBackgroundColor)) }
-                else { shape.fill(.regularMaterial) }
+                if reduceTransparency { shape.fill(Yap.ground) }
+                else { GlassSurface(radius: cornerRadius, floating: false) }
             }
-            .overlay(shape.strokeBorder(Color.primary.opacity(contrast == .increased ? 0.6 : 0.12), lineWidth: contrast == .increased ? 1.5 : 1))
+            .overlay { if contrast == .increased || reduceTransparency { shape.strokeBorder(Color.white.opacity(contrast == .increased ? 0.6 : 0.16), lineWidth: contrast == .increased ? 1.5 : 1) } }
     }
 }
 

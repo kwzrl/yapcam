@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import AppKit
 import SwiftUI
+import YapcamDesign
 
 struct DeviceInfo: Identifiable, Equatable { let id: String; let name: String }
 
@@ -121,8 +122,8 @@ struct LevelMeter: View {
     var body: some View {
         GeometryReader { g in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.12))
-                Capsule().fill(level > 0.9 ? Color.red : Color.green).frame(width: g.size.width * CGFloat(level))
+                Capsule().fill(Yap.recess)
+                Capsule().fill(level > 0.9 ? Yap.record : Color.white.opacity(0.9)).frame(width: g.size.width * CGFloat(level))
                     .animation(reduceMotion ? nil : .linear(duration: 0.08), value: level)
             }
         }

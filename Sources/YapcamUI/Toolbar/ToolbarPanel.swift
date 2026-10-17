@@ -28,6 +28,7 @@ import SwiftUI
         p.isReleasedWhenClosed = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.title = "Yapcam Toolbar"
+        p.appearance = NSAppearance(named: .darkAqua)
         p.delegate = self
         panel = p
 

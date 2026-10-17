@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
 
 enum ToolbarPopover: Hashable { case audio, microphone, camera, afterRecording, recents }
 
@@ -29,7 +30,7 @@ struct ToolbarView: View {
             .padding(.trailing, 8)
         }
         .frame(height: rec.phase == .recording || rec.phase == .paused ? 48 : 62)
-        .panelSurface(cornerRadius: 18)
+        .panelSurface(cornerRadius: rec.phase == .recording || rec.phase == .paused ? 24 : 26)
         .padding(2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Yapcam recording toolbar")
@@ -55,7 +56,7 @@ struct ToolbarView: View {
         HStack(spacing: 3) {
             ForEach(SourceMode.toolbarModes) { sourceButton($0) }
 
-            Divider().frame(height: 34).padding(.horizontal, 3)
+            FadingHairline().frame(height: 40).padding(.horizontal, 3)
 
             deviceButton(symbol: camLabelOn ? "video.fill" : "video.slash", label: DeviceLabels.camera(name: cameraName), isOn: camOn, help: "Camera", menu: .camera)
                 .popover(isPresented: binding(.camera), arrowEdge: edge) { CameraPopover().environmentObject(settings).environmentObject(perms) }
@@ -67,7 +68,7 @@ struct ToolbarView: View {
                          help: "System audio", menu: .audio)
                 .popover(isPresented: binding(.audio), arrowEdge: edge) { SystemAudioPopover().environmentObject(settings) }
 
-            Divider().frame(height: 34).padding(.horizontal, 3)
+            FadingHairline().frame(height: 40).padding(.horizontal, 3)
 
             if recovery.count > 0 {
                 ToolbarButton(symbol: "exclamationmark.arrow.circlepath", label: "Recover", help: "Recover an unfinished recording", active: false) {
@@ -114,7 +115,7 @@ struct ToolbarView: View {
 
     /// A device button: icon + state text; a click opens the device menu.
     private func deviceButton(symbol: String, label: String, isOn: Bool, help: String, menu: ToolbarPopover) -> some View {
-        ToolbarButton(symbol: symbol, label: label, help: help, active: isOn, width: 78) { toggle(menu) }
+        ToolbarButton(symbol: symbol, label: label, help: help, active: open == menu, dim: !isOn, width: 88) { toggle(menu) }
             .accessibilityLabel(help).accessibilityValue(label)
     }
 
@@ -139,7 +140,7 @@ struct ToolbarView: View {
 
     private func countdownControls(_ n: Int) -> some View {
         HStack(spacing: 10) {
-            Text("\(n)").font(.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit())
+            Text("\(n)").font(.system(size: 26, weight: .bold).monospacedDigit()).foregroundStyle(Yap.title)
                 .frame(width: 44)
                 .accessibilityLabel("Recording starts in \(n) seconds")
             ToolbarButton(symbol: "xmark", label: "Cancel", help: "Cancel countdown", active: false, action: rec.cancelCountdown)
@@ -149,7 +150,7 @@ struct ToolbarView: View {
     private var busyControls: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            if rec.workingLong { Text("Working…").font(.system(size: 11)).foregroundStyle(.secondary) }
+            if rec.workingLong { Text("Working…").font(Yap.Font.caption).foregroundStyle(Yap.caption) }
         }
         .frame(minWidth: 90, minHeight: 44)
         .accessibilityLabel(rec.phase == .finishing ? "Saving recording" : "Starting recording")
@@ -162,10 +163,10 @@ struct ToolbarView: View {
         return HStack(spacing: 6) {
             Button(action: rec.toggleStartStop) {
                 HStack(spacing: 7) {
-                    Image(systemName: "stop.circle.fill").font(.system(size: 22)).foregroundStyle(.red)
+                    Image(systemName: "stop.circle.fill").font(.system(size: 22)).foregroundStyle(Yap.record)
                     Text(RecordingTimeFormat.string(rec.elapsed))
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
-                        .foregroundStyle(paused ? .secondary : .primary)
+                        .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(paused ? Yap.faint : Yap.technical)
                         .accessibilityLabel(paused ? "Recording paused" : "Recording time")
                         .accessibilityValue(Announcer.timeDescription(rec.elapsed))
                 }
@@ -176,27 +177,25 @@ struct ToolbarView: View {
             .accessibilityLabel("Stop recording")
             .accessibilityHint("Stops and saves the recording")
             if !rec.warnings.isEmpty || rec.lowDisk {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Yap.technical)
                     .help((rec.warnings + (rec.lowDisk ? ["Low disk space: recording may stop soon."] : [])).joined(separator: "\n"))
             }
-            Divider().frame(height: 22)
+            FadingHairline().frame(height: 28)
             iconButton(paused ? "play.circle" : "pause.circle", label: paused ? "Resume" : "Pause",
                        help: "\(paused ? "Resume" : "Pause") (\(settings.pauseShortcut.display))", action: rec.togglePause)
             iconButton("arrow.counterclockwise", label: "Restart", help: "Discard this take and start over (asks first)", action: rec.confirmRestart)
             iconButton("flag", label: "Add marker", help: "Add a marker here (\(settings.combo(for: .marker)?.display ?? ""))", enabled: !paused, action: rec.addMarker)
             iconButton("trash", label: "Cancel recording", help: "Cancel and delete the recording (asks first)", action: rec.confirmCancel)
-            if rec.workingLong { Text("Working…").font(.system(size: 11)).foregroundStyle(.secondary) }
+            if rec.workingLong { Text("Working…").font(Yap.Font.caption).foregroundStyle(Yap.caption) }
         }
         .padding(.leading, 4)
     }
 
     private func iconButton(_ symbol: String, label: String, help: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 18)).frame(width: 32, height: 32).contentShape(Rectangle())
-        }
-        .buttonStyle(PressableStyle())
-        .disabled(!enabled).opacity(enabled ? 1 : 0.35)
-        .help(help).accessibilityLabel(label)
+        Button(action: action) { Image(systemName: symbol) }
+            .buttonStyle(CircleButtonStyle(size: 32))
+            .disabled(!enabled).opacity(enabled ? 1 : 0.35)
+            .help(help).accessibilityLabel(label)
     }
 
     /// The live input level on the microphone button runs only while the idle bar is showing and a microphone is chosen.
@@ -219,7 +218,7 @@ private struct Grabber: View {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                         .frame(width: 22, height: 22).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .buttonStyle(.plain).foregroundStyle(Yap.caption)
                 .help("Close (Esc)")
                 .accessibilityLabel("Close toolbar")
             }
@@ -228,7 +227,7 @@ private struct Grabber: View {
                     VStack(spacing: 3) { ForEach(0..<3, id: \.self) { _ in Circle().frame(width: 3, height: 3) } }
                 }
             }
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Yap.faint)
             .help("Drag to move")
             .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
         }
@@ -241,24 +240,28 @@ struct ToolbarButton: View {
     let symbol: String
     let label: String
     var help: String = ""
+    /// Selected (open source, open menu): a brighter platter and full white. No colour.
     var active: Bool
+    /// Off state of a device (no camera, mic muted): dimmed label, never a colour.
+    var dim: Bool = false
     var enabled: Bool = true
-    var width: CGFloat = 48
+    var width: CGFloat = 52
     let action: () -> Void
     @State private var hover = false
     @Environment(\.contrastOpacity) private var contrast
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 2) {
-                Image(systemName: symbol).font(.system(size: 17, weight: .regular)).frame(height: 20)
-                Text(label).font(.system(size: 9.5)).lineLimit(1).truncationMode(.tail)
+            VStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(height: 20)
+                Text(label).font(.system(size: 10, weight: .medium)).lineLimit(1).truncationMode(.tail)
             }
             .frame(width: width, height: 44)
-            .foregroundStyle(active ? Color.accentColor : Color.primary)
+            .foregroundStyle(active ? Yap.title : (dim ? Yap.caption : Yap.label))
             .opacity(enabled ? 1 : 0.35)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(active ? Color.accentColor.opacity(contrast.activeFill) : (hover ? Color.primary.opacity(contrast.hoverFill) : .clear)))
+            // Concentric with the bar: 26 pt corner, buttons inset 9 pt.
+            .background(RoundedRectangle(cornerRadius: Yap.concentric(26, inset: 9), style: .continuous)
+                .fill(Color.white.opacity(active ? (contrast.increased ? 0.22 : 0.10) : (hover ? (contrast.increased ? 0.14 : 0.05) : 0))))
             .contentShape(Rectangle())
         }
         .buttonStyle(PressableStyle())

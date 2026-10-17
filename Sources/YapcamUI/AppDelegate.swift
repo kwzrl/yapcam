@@ -21,6 +21,7 @@ import YapcamEditor
     private var recordingObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)   // Yapcam is dark-only (glass design)
         DispatchQueue.global(qos: .utility).async { QuickExport.pruneCache() }
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--probe-record") {
