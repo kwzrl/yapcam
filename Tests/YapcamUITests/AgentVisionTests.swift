@@ -105,6 +105,8 @@ import YapcamCore
         #expect(all["static_cuts_s"] is [Double])
         let allWarm = try await AgentVision.pixelHints(name: "moments", arguments: [:], project: project)
         #expect(allWarm["cache_hit"] as? Bool == true)
+        let explicit = try await AgentVision.enrich(name: "moments", arguments: ["static_cuts_s": "invalid"], project: project)
+        #expect(explicit["static_cuts_s"] as? String == "invalid") // core must reject, never silently replace
         try project.apply(.deleteRange(startNs: 0, endNs: 100_000_000))
         let edited = try await AgentVision.pixelHints(name: "moments", arguments: [:], project: project)
         #expect(edited["cache_hit"] as? Bool == false)

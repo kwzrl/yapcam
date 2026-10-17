@@ -33,7 +33,9 @@ enum AgentVision {
         guard (result?["structuredContent"] as? [String: Any])?["hints_accepted"] as? Bool == true else { return arguments }
         let hints = try await pixelHints(name: name, arguments: arguments, project: project)
         var enriched = arguments
-        for key in supported { enriched[key] = hints[key] }
+        // Explicit caller hints retain the core's override and validation
+        // semantics, including transactional rejection of malformed values.
+        for key in supported where arguments[key] == nil { enriched[key] = hints[key] }
         return enriched
     }
 
