@@ -1510,8 +1510,9 @@ stay captured. `cursor.always_default` remains the existing authoritative bool
 The latter is necessary because captured cursor id0 is a valid image and cannot
 by itself encode “force our own arrow”. Existing frame cursor IDs are unchanged.
 Typed Swift CoreRenderOptions appends optional booleans for older query decoders.
-Its CursorShape enum also includes crosshair/not_allowed, matching all12 already
-accepted Core IDs; valid replacement queries must not fail typed decoding.
+Its CursorShape enum remains aligned with the ten authored shapes accepted by
+`cursor.shape`; crosshair/not_allowed remain captured-cursor variant keys rather
+than authored shape selections.
 
 ### Authoritative layer purpose (R5-C02a)
 

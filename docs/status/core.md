@@ -1,28 +1,40 @@
-R5b 01:57 UTC d8fa8b1 | done: all five other main status files scanned; incoming requests inventoried | next: H cursor flags, M layer purpose and source-mask contract/tests, verify existing deliveries. Main merge denied by read-only Git; Core source matches a96173e.
+READY R5b 3541eb0 + Lead checkpoint needed | H cursor flags, M authoritative layer purpose/original-space privacy contract, QA mirror/mask defaults and all older Core deliveries verified; only EDITOR-R5-MUSIC remains blocked outside Core ownership.
 
 
 
 ## R5 incoming requests
 
 Read every other team's full status file on main a96173e (capture1462 lines,
-editor340, render1000, UI370, QA286); extracted
-current and older Core-addressed requests. Own Core source/FORMATS equals main;
-HEADd8fa8b1 is its ancestor. git merge main failed ORIG_HEAD.lock permission;
-Lead sync/checkpoint is needed, with no sandbox workaround. No other team's status
-or source files are edited. Older requests are retained here with closure evidence.
+editor340, render1000, UI370, QA286); extracted current and older Core-addressed
+requests. Lead checkpoint3541eb0 contains the R5b implementation. Final review
+caught one source-integration defect in that checkpoint: crosshair/not_allowed
+are captured-cursor variant keys, not accepted authored cursor.shape values, so
+adding them to CoreRenderOptions.CursorShape broke Editor's exhaustive switch.
+The working follow-up restores the established ten-value typed enum and corrects
+FORMATS; Lead must checkpoint this status plus those two files. No requester status
+or other team's source was edited. Older requests remain below with closure evidence.
+
+Final owned verification: cargo fmt check and all-target strict Clippy PASS;
+Rust132 PASS +1 intentional scale ignore; Core Swift91 PASS; Render portable
+LayerPurpose2 PASS +1 explicit Metal skip and RecordedCursorReplacement4 PASS;
+the whole package compiles; canonical debug app build and deep/strict codesign
+PASS using the sandbox-compatible `swift build --disable-sandbox` wrapper. The
+local signing identity was unavailable, so the app is ad-hoc signed and was not
+launched. Native privacy pixels/pre-mask/loupe integration remains Render/Lead
+consumer work and hardware-gated, exactly as R5-C02 requested.
 
 | ID | From / main evidence | Priority | State / requester row disposition |
 |---|---|---|---|
-| R5-C01 | Render status:65/104 | H | implementing — persisted cursor fallback preference and two explicit evaluated booleans |
-| R5-C02a | Render status:82/106 | M | implementing — authoritative text_background/privacy_mask query tags, never ID inference/user-forged metadata |
-| R5-C02 | Render status:83/107 | M | implementing — ordered original-space privacy geometry + typed cold query; Render native pre-mask/loupe acceptance stays consumer work |
-| R5-E04 (Core part) | Render status:56/111, Editor R5 background controls | M | verifying — Core already accepts both stop colors/angle and atomic batches; favorite/random/palette/hue control is Editor-owned |
+| R5-C01 | Render status:65/104 | H | delivered, row resolvable — persisted low-resolution fallback preference plus explicit evaluated fallback/always-default booleans; edit/preset/history/snapshot/reopen and real Swift query tests pass |
+| R5-C02a | Render status:82/106 | M | delivered, row resolvable — authoritative text_background/privacy_mask/unspecified query tags derive only from producing collections; forged metadata/ID spoofing regressions pass |
+| R5-C02 | Render status:83/107 | M | delivered, Core row resolvable — schema-versioned typed privacy_masks_at/effects packet preserves original collection order, source/canvas space, unprojected moving geometry, styles and edited screen clocks; Render native pre-mask/loupe pixels remain consumer work |
+| R5-E04 (Core part) | Render status:56/111, Editor R5 background controls | M | verified, Core row resolvable — both gradient stop colors and angle already persist atomically; rollback/one-undo/frame/reopen regression passes; favorite/random/palette/hue control is Editor-owned |
 | EDITOR-R5-FOLLOW | Editor status:304/336 | M | delivered, row resolvable — cursor.rotation_mode=follow; heading/idle/cut/legacy/persistence tests |
 | EDITOR-R5-AVOID | Editor status:305/336 | M | delivered, row resolvable — canvas.avoid_empty_zoom_area bool defaultfalse; bounded-crop evaluator and tests |
 | EDITOR-R5-DISABLE | Editor status:314/336 | L | delivered, row resolvable — Highlight.enabled and Layout.enabled, missing=true; set false to disable; retained history/geometry/persistence |
 | EDITOR-R5-MUSIC | Editor status:308/337 (render/core assets) | M | blocked — Render must supply original18-track audio/catalog for Commercial/Electronic/Instrumental/Lo-fi. Core supports registered local file tracks and real imports now; do not advertise18 inert IDs or duplicate the same audio under new labels. Native audio/artwork production is outside Core ownership. |
-| QA-R5-E7.2 mirror | QA status:21/119 | M | implementing — new create camera.mirrored=false; old/default-missing legacy true and explicit saved values preserved; FORMATS factory table amended |
-| QA-R5-E13.3 first mask | QA status:21/130 | M | implementing — first revision2 insertion starts Sensitive Data/blur32; explicit/inherited styles and legacy Highlight fallback retained |
+| QA-R5-E7.2 mirror | QA status:21/119 | M | delivered, row resolvable — new create camera.mirrored=false; old/default-missing legacy true and explicit saved values preserved; Rust/Swift persistence regressions pass |
+| QA-R5-E13.3 first mask | QA status:21/130 | M | delivered, row resolvable — first revision2 insertion starts Sensitive Data/blur32; explicit/inherited styles and legacy Highlight fallback retained and tested |
 | QA-R5-DEFAULTS / P2/P5/P6 | QA status:21/93–136 | H/M | verified existing factory2 versus legacy defaults: blur0/padding.10/radius16/directional shadow/no click/tilt.5/shakes+optimization/camera.5-BR/caption.05-expanding/springs/highlight.5; own dark artwork is approved; checked minimums/click windows and own-format atomic backup remain covered. Mirror was the remaining correction. |
 | REC-21 notes | UI status:185/242 | M | delivered, row resolvable — notes string + set path; Unicode/history/save regressions; UI itself records resolution |
 | CAP-3/UI markers | UI status:337/339, Capture durable marker sidecar | M | delivered, row resolvable — markers query reads both recording markers and captured flags; maps cuts/speeds/repeats; marker fixture tests |

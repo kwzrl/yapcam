@@ -9,7 +9,6 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
         case resizeHorizontal = "resize_horizontal", resizeVertical = "resize_vertical"
         case resizeDiagonalNWSE = "resize_diagonal_nwse", resizeDiagonalNESW = "resize_diagonal_nesw"
         case openHand = "open_hand", closedHand = "closed_hand"
-        case crosshair, notAllowed = "not_allowed"
     }
     public enum CursorVariant: String, Codable, Sendable, CaseIterable { case standard, alternate }
     public enum CursorLogicalSize: String, Codable, Sendable, CaseIterable, Hashable {
