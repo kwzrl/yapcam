@@ -27,11 +27,10 @@ public struct EditorContent<Preview: View>: View {
                         .padding(8)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if showInspector { Divider(); InspectorView(model: model).frame(width: 280) }
+                if showInspector { Yap.hairline.frame(width: 1); InspectorView(model: model).frame(width: EditorVariant.current == .b ? 324 : 288) }
             }
-            Divider()
-            TransportBar(model: model).tint(Yap.text)
-            Divider()
+            Yap.hairline.frame(height: 1)
+            TransportBar(model: model)
             TimelineView(model: model)
         }
         .frame(minWidth: 900, minHeight: 600)
@@ -107,31 +106,96 @@ public struct EditorContent<Preview: View>: View {
     }
 }
 
+/// Design lab switch for Editor v2 (snapshot harness renders each). Set before the editor window is built.
+public enum EditorVariant: String, CaseIterable, Sendable {
+    /// A: transport centred, icon tab bar on top of the inspector.
+    /// B: transport left, tools in one pill, icon rail on the inspector's outer edge.
+    case a, b
+    nonisolated(unsafe) public static var current: EditorVariant =
+        ProcessInfo.processInfo.environment["YAPCAM_EDITOR_VARIANT"].flatMap(EditorVariant.init(rawValue:)) ?? .a
+}
+
 struct TransportBar: View {
     @ObservedObject var model: EditorModel
     @ObservedObject var playhead: PlayheadState
     init(model: EditorModel) { self.model = model; playhead = model.playhead }
+
     var body: some View {
-        HStack(spacing: 12) {
-            Button { model.togglePlay() } label: {
-                Image(systemName: playhead.isPlaying ? "pause.fill" : "play.fill").frame(width: 20)
+        Group {
+            switch EditorVariant.current {
+            case .a:
+                ZStack {
+                    HStack(spacing: 2) { tools; Spacer(); timelineZoom }
+                    HStack(spacing: 14) { playButton; time }
+                }
+            case .b:
+                HStack(spacing: 14) {
+                    playButton; time
+                    Spacer()
+                    HStack(spacing: 0) { tools }.padding(.horizontal, 4).frame(height: 32)
+                        .background(Capsule().fill(Yap.surface)).overlay(Capsule().strokeBorder(Yap.hairline))
+                    timelineZoom
+                }
             }
-            .help("Play / Pause (Space)")
-            .accessibilityLabel(playhead.isPlaying ? "Pause" : "Play")
-            Text("\(formatTimecode(playhead.ns)) / \(formatTimecode(model.durationNs))")
-                .font(.system(.body, design: .monospaced)).foregroundStyle(.secondary)
-            Spacer()
-            Button { model.splitAtPlayhead() } label: { Label("Split", systemImage: "scissors") }.help("Split at playhead (S, ⌘B)")
-            Button { model.addZoomAtPlayhead() } label: { Label("Add zoom", systemImage: "plus.magnifyingglass") }.help("Add zoom at playhead (Z)")
-            Button { model.deleteSelection() } label: { Label("Delete", systemImage: "trash") }
-                .disabled(model.selection == .none).help("Delete selection (⌫)")
-            Toggle(isOn: $model.snappingEnabled) { Image(systemName: "magnet") }.toggleStyle(.button).help("Snapping").accessibilityLabel("Snapping")
-            Divider().frame(height: 16)
-            Button { model.zoomTimeline(by: 0.8, anchorX: model.geometry.x(forNs: model.playheadNs)) } label: { Image(systemName: "minus.magnifyingglass") }.help("Zoom timeline out (-)").accessibilityLabel("Zoom timeline out")
-            Button { model.zoomTimeline(by: 1.25, anchorX: model.geometry.x(forNs: model.playheadNs)) } label: { Image(systemName: "plus.magnifyingglass") }.help("Zoom timeline in (+)").accessibilityLabel("Zoom timeline in")
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12).padding(.vertical, 8)
+        .padding(.horizontal, 14).frame(height: 52)
+        .background(Yap.bg)
+    }
+
+    private var playButton: some View {
+        Button { model.togglePlay() } label: {
+            Image(systemName: playhead.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 13, weight: .bold)).foregroundStyle(Color.black)
+                .offset(x: playhead.isPlaying ? 0 : 1)
+                .frame(width: 34, height: 34).background(Circle().fill(Color.white))
+        }
+        .buttonStyle(.plain)
+        .help("Play / Pause (Space)")
+        .accessibilityLabel(playhead.isPlaying ? "Pause" : "Play")
+    }
+
+    private var time: some View {
+        HStack(spacing: 6) {
+            Text(formatTimecode(playhead.ns)).foregroundStyle(Yap.text)
+            Text(formatTimecode(model.durationNs)).foregroundStyle(Yap.textTertiary)
+        }
+        .font(.system(size: 13, weight: .medium).monospacedDigit())
+    }
+
+    @ViewBuilder private var tools: some View {
+        ToolIcon(symbol: "scissors", help: "Split at playhead (S, ⌘B)") { model.splitAtPlayhead() }
+        ToolIcon(symbol: "plus.magnifyingglass", help: "Add zoom at playhead (Z)") { model.addZoomAtPlayhead() }
+        ToolIcon(symbol: "trash", help: "Delete selection (⌫)") { model.deleteSelection() }.disabled(model.selection == .none)
+        ToolIcon(symbol: "arrow.right.and.line.vertical.and.arrow.left", help: "Snapping", on: model.snappingEnabled) { model.snappingEnabled.toggle() }
+    }
+
+    private var timelineZoom: some View {
+        HStack(spacing: 2) {
+            ToolIcon(symbol: "minus", help: "Zoom timeline out (-)") { model.zoomTimeline(by: 0.8, anchorX: model.geometry.x(forNs: model.playheadNs)) }
+            ToolIcon(symbol: "plus", help: "Zoom timeline in (+)") { model.zoomTimeline(by: 1.25, anchorX: model.geometry.x(forNs: model.playheadNs)) }
+        }
+    }
+}
+
+/// Icon-only button: secondary white, brighter on hover, accent when toggled on. Tooltip carries the name and shortcut.
+struct ToolIcon: View {
+    let symbol: String, help: String
+    var on = false
+    let action: () -> Void
+    @State private var hover = false
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 13, weight: .medium))
+                .foregroundStyle(on ? Yap.accent : (hover ? Yap.text : Yap.textSecondary))
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: Yap.Radius.control, style: .continuous).fill(hover && enabled ? Yap.raised : .clear))
+                .opacity(enabled ? 1 : 0.35)
+        }
+        .buttonStyle(.plain).onHover { hover = $0 }
+        .help(help).accessibilityLabel(String(help.prefix { $0 != "(" }).trimmingCharacters(in: .whitespaces))
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 

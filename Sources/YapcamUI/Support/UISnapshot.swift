@@ -12,7 +12,7 @@ import YapcamEditor
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
                  "settings-storage", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
-        n += ["editor", "recording-ready"]
+        n += ["recording-ready"] + EditorVariant.allCases.map { "editor-\($0.rawValue)" }
         return n
     }()
 
@@ -52,7 +52,10 @@ import YapcamEditor
                 if let w = RecordingReadyWindow.shared.window { write(w, "recording-ready-\(name)", dir, dark: name == "dark") }
                 RecordingReadyWindow.shared.close()
             }
-            if let editor = editorWindow() { try? await Task.sleep(for: .milliseconds(800)); write(editor, "editor-\(name)", dir, dark: name == "dark"); editor.orderOut(nil) }
+            for v in EditorVariant.allCases {
+                EditorVariant.current = v
+                if let editor = editorWindow() { try? await Task.sleep(for: .milliseconds(800)); write(editor, "editor-\(v.rawValue)-\(name)", dir, dark: name == "dark"); editor.orderOut(nil) }
+            }
         }
         NSApp.appearance = nil
         AreaSelector.shared.cancelForTesting()
@@ -70,7 +73,10 @@ import YapcamEditor
     /// Editor on a copy of `YAPCAM_SNAPSHOT_PACKAGE` (defaults to the repo's synthetic fixture when run from the checkout).
     private static func editorWindow() -> NSWindow? {
         guard let pkg = snapshotPackage(), let doc = try? EditorDocument(package: pkg) else { return nil }
-        doc.model.seek(toNs: 1_000_000_000); doc.model.addZoomAtPlayhead()
+        let m = doc.model
+        m.seek(toNs: 2_600_000_000); m.addHighlightAtPlayhead()
+        m.seek(toNs: 300_000_000); _ = m.addText(.caption, text: "Welcome to Yapcam")
+        m.seek(toNs: 1_000_000_000); m.addZoomAtPlayhead()
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 1280, height: 800), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.title = doc.title
         window.applyYapChrome()

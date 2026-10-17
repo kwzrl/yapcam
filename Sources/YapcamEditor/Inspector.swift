@@ -82,20 +82,25 @@ struct InspectorView: View {
     @State private var tab: Tab
     init(model: EditorModel, initialTab: Tab = .appearance) { self.model = model; _tab = State(initialValue: initialTab) }
     enum Tab: String, CaseIterable { case appearance = "Look", overlays = "Overlays", cursor = "Cursor", camera = "Camera", audio = "Audio" }
+}
+
+extension InspectorView.Tab {
+    var symbol: String {
+        switch self {
+        case .appearance: "paintbrush"; case .overlays: "square.on.square"; case .cursor: "cursorarrow"
+        case .camera: "video"; case .audio: "waveform"
+        }
+    }
+}
+
+extension InspectorView {
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Inspector section", selection: $tab) { ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
-                .pickerStyle(.segmented).labelsHidden().padding(10).accessibilityLabel("Inspector section")
-            Form {
-                switch tab {
-                case .appearance: appearance
-                case .overlays: overlays
-                case .cursor: cursor
-                case .camera: camera
-                case .audio: audio
-                }
-            }.yapForm()
+        Group {
+            switch EditorVariant.current {
+            case .a: VStack(spacing: 0) { tabBar; Yap.hairline.frame(height: 1); form }
+            case .b: HStack(spacing: 0) { form; Yap.hairline.frame(width: 1); rail }
+            }
         }
         .onChange(of: model.selection) { _, s in
             switch s {
@@ -107,6 +112,68 @@ struct InspectorView: View {
             case .none: break
             }
         }
+    }
+
+    private var form: some View {
+        Form {
+            switch tab {
+            case .appearance: appearance
+            case .overlays: overlays
+            case .cursor: cursor
+            case .camera: camera
+            case .audio: audio
+            }
+        }.yapForm()
+    }
+
+    /// What VoiceOver gets for either tab style: the system segmented control (radio buttons), drawn invisibly
+    /// underneath the custom icons, which are hidden from accessibility.
+    private var nativeTabs: some View {
+        Picker("Inspector section", selection: $tab) { ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+            .pickerStyle(.segmented)
+    }
+
+    /// Variant A: five icons with a small label, selected one in white with an accent dot.
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Tab.allCases, id: \.self) { t in
+                Button { tab = t } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: t.symbol).font(.system(size: 14, weight: .medium)).frame(height: 18)
+                        Text(t.rawValue).font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundStyle(tab == t ? Yap.text : Yap.textTertiary)
+                    .frame(maxWidth: .infinity).padding(.vertical, 10)
+                    .overlay(alignment: .bottom) { if tab == t { Capsule().fill(Yap.accent).frame(width: 18, height: 2) } }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(t.rawValue).accessibilityAddTraits(tab == t ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 6)
+        .accessibilityHidden(true)
+        .background { nativeTabs.labelsHidden().opacity(0.011).allowsHitTesting(false) }
+    }
+
+    /// Variant B: vertical icon rail on the window edge, labels as tooltips.
+    private var rail: some View {
+        VStack(spacing: 6) {
+            ForEach(Tab.allCases, id: \.self) { t in
+                Button { tab = t } label: {
+                    Image(systemName: t.symbol).font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(tab == t ? Yap.accent : Yap.textSecondary)
+                        .frame(width: 34, height: 34)
+                        .background(RoundedRectangle(cornerRadius: Yap.Radius.control, style: .continuous).fill(tab == t ? Yap.raised : .clear))
+                }
+                .buttonStyle(.plain).help(t.rawValue)
+                .accessibilityLabel(t.rawValue).accessibilityAddTraits(tab == t ? .isSelected : [])
+            }
+            Spacer()
+        }
+        .padding(.top, 10).frame(width: 46)
+        .accessibilityHidden(true)
+        .background { nativeTabs.labelsHidden().opacity(0.011).allowsHitTesting(false) }
     }
 
     @ViewBuilder private var appearance: some View {

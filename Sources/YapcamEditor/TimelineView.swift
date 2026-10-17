@@ -8,23 +8,30 @@ struct TimelineLayout {
     static let laneHeight: CGFloat = 28
     static let gap: CGFloat = 6
     static let edgeHandle: CGFloat = 7
-    var hasCamera: Bool
+    /// Lanes are only laid out while they hold something; empty lanes take no height.
+    var camera = false, cursor = false, highlight = false, text = false, caption = false, music = false
     var clipTop: CGFloat { Self.rulerHeight + Self.gap }
     var zoomTop: CGFloat { clipTop + Self.clipTrackHeight + Self.gap }
     var cameraTop: CGFloat { zoomTop + Self.zoomTrackHeight + Self.gap }
-    var cursorTop: CGFloat { hasCamera ? cameraTop + Self.laneHeight + Self.gap : cameraTop }
-    var highlightTop: CGFloat { cursorTop + Self.laneHeight + Self.gap }
-    var textTop: CGFloat { highlightTop + Self.laneHeight + Self.gap }
-    var captionTop: CGFloat { textTop + Self.laneHeight + Self.gap }
-    var musicTop: CGFloat { captionTop + Self.laneHeight + Self.gap }
-    var totalHeight: CGFloat { musicTop + Self.laneHeight + 8 }
+    var cursorTop: CGFloat { cameraTop + step(camera) }
+    var highlightTop: CGFloat { cursorTop + step(cursor) }
+    var textTop: CGFloat { highlightTop + step(highlight) }
+    var captionTop: CGFloat { textTop + step(text) }
+    var musicTop: CGFloat { captionTop + step(caption) }
+    var totalHeight: CGFloat { musicTop + step(music) + 8 }
+    private func step(_ shown: Bool) -> CGFloat { shown ? Self.laneHeight + Self.gap : 0 }
 }
 
 struct TimelineView: View {
     @ObservedObject var model: EditorModel
     @State private var viewportWidth: CGFloat = 800
     @State private var drag: DragKind?
-    private var layout: TimelineLayout { TimelineLayout(hasCamera: model.hasCamera) }
+    private var layout: TimelineLayout {
+        let text = model.allText
+        return TimelineLayout(camera: model.hasCamera && !model.layouts.isEmpty, cursor: !model.cursorHides.isEmpty,
+                              highlight: !model.highlights.isEmpty, text: text.contains { $0.kind != .caption },
+                              caption: text.contains { $0.kind == .caption }, music: !model.music.isEmpty)
+    }
 
     private enum DragKind {
         case scrub
@@ -46,12 +53,12 @@ struct TimelineView: View {
                     .frame(width: contentW, height: TimelineLayout.rulerHeight)
                 clipTrack(g)
                 zoomTrack(g)
-                if model.hasCamera { cameraLane(g) }
-                cursorLane(g)
-                highlightLane(g)
-                textLane(g, top: layout.textTop, kinds: [.annotation, .reaction])
-                textLane(g, top: layout.captionTop, kinds: [.caption])
-                musicLane(g)
+                if layout.camera { cameraLane(g) }
+                if layout.cursor { cursorLane(g) }
+                if layout.highlight { highlightLane(g) }
+                if layout.text { textLane(g, top: layout.textTop, kinds: [.annotation, .reaction]) }
+                if layout.caption { textLane(g, top: layout.captionTop, kinds: [.caption]) }
+                if layout.music { musicLane(g) }
                 if let snap = model.snapGuideNs {
                     Rectangle().fill(Color.yellow.opacity(0.9)).frame(width: 1, height: layout.totalHeight)
                         .offset(x: g.x(forNs: snap) + g.scrollOffsetPx)
