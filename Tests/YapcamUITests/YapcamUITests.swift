@@ -69,6 +69,20 @@ import YapcamEditor
     }
 }
 
+@MainActor @Suite struct CaseOnlyRenameTests {
+    @Test func caseOnlyRenameSucceeds() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "case-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appending(path: "demo.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: a.appending(path: "recording"), withIntermediateDirectories: true)
+        let r = try ProjectActions.rename(a, to: "Demo")
+        #expect(r.lastPathComponent == "Demo.yapcam")
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(names == ["Demo.yapcam"])
+        #expect(FileManager.default.fileExists(atPath: r.appending(path: "recording").path))
+    }
+}
+
 @MainActor @Suite struct ReviewFixTests {
     // #2: concurrent imports of same-named videos get different packages.
     @Test func reservedImportDestinationsDoNotCollide() {

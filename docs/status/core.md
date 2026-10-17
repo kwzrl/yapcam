@@ -1,3 +1,31 @@
+READY RV f81e8a4 + Lead checkpoint needed | R5 finding 3 Core fixed: privacy_mask is limited to blur/fully opaque sensitive-data covers; highlight/spotlight have distinct published purposes | Rust134 PASS/1 intentional ignore; Core renderer contract3 PASS; fmt + strict Clippy PASS
+
+
+## R5 review — finding 3 (05:57 UTC)
+
+Core now derives layer purpose from the authored effect rather than treating the
+whole `canvas.highlights` collection as private. Every blur and every highlight
+whose fill alpha and layer opacity are both 1 is `privacy_mask`; other highlights
+with outside dimming are `spotlight`; the remainder are `highlight`. IDs and
+caller metadata still cannot forge purpose. `privacy_masks_at` now contains only
+the active sensitive-data subset while preserving original collection indices.
+
+`FORMATS.md` publishes the exact derivation and packet filtering contract, and
+typed YapcamCore exposes the two new purpose cases. The Rust lens regression
+keeps an active lens alongside the default spotlight, an outline and a
+translucent highlight, while confirming that only an opaque cover and blur enter
+the privacy packet. Render's matching decoding/fail-closed change remains owned
+by the Render row in review finding 3; no Render source was edited here.
+
+Verification after rebuilding the release Rust static library: `cargo test`
+**134 PASS / 1 intentional long benchmark ignored**; focused Rust renderer
+contracts **6 PASS**; typed Core renderer contracts **3 PASS**; `cargo fmt
+--check` and `cargo clippy --all-targets -- -D warnings` PASS. The first Swift
+attempt could not write the sandboxed user module cache; the recorded green run
+used compiler caches under `/private/tmp` and a fresh scratch build. Base remains
+Lead checkpoint `f81e8a4`; Lead must checkpoint the seven owned modified paths.
+
+
 READY W3 00acb17 + Lead checkpoint needed | Core E4.1/E4.3 revision3 Deep Slate wallpaper identity/pixels published; E8.2/E13.3/E11.1/E6.6 verified against reference and locked by Wave 3 regression | Rust133 PASS/1 intentional ignore; Core Swift91 PASS; fmt + strict Clippy PASS
 
 

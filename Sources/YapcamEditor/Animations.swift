@@ -98,12 +98,13 @@ struct SpringSliders: View {
     private func slider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>, step: Double) -> some View {
         SliderRow(title) {
             HStack {
-                Slider(value: value, in: range, step: step) { e in
+                Slider(value: Binding(get: { value.wrappedValue }, set: { value.wrappedValue = ($0 / step).rounded() * step }), in: range) { e in
                     editing = e
                     if !e { model.setSpring(screen: screen, stiffness: v.stiffness, damping: v.damping, mass: v.mass) }
                 }
                 .accessibilityLabel(title).accessibilityValue(String(format: "%.1f", value.wrappedValue))
-                Text(String(format: step < 1 ? "%.1f" : "%.0f", value.wrappedValue)).monospacedDigit().frame(width: 40, alignment: .trailing)
+                Text(String(format: step < 1 ? "%.1f" : "%.0f", value.wrappedValue)).sliderValueLabel()
+                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
             }
         }
     }

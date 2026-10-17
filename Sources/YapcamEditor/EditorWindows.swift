@@ -28,6 +28,9 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
 
     /// Settings > "Autosave while editing" (ui). When false the editor saves only on ⌘S and when the window closes.
     nonisolated(unsafe) public static var autosaveEnabled = true
+    /// Settings > Advanced > "Disable hardware-accelerated encoding" (ui), inverted: true = hardware encoder (the default).
+    /// Read when an export starts, for the picker, ⌥⌘S, ⌥⌘C and every other export of the editor.
+    nonisolated(unsafe) public static var hardwareEncodingEnabled: () -> Bool = { true }
     /// Settings > Experimental > variable frame rate for MP4/MOV (ui). Read when an export starts.
     nonisolated(unsafe) public static var variableFrameRate: () -> Bool = { false }
 
@@ -179,13 +182,27 @@ extension EditorWindows {
         let ext = package.pathExtension.isEmpty ? "yapcam" : package.pathExtension
         let target = package.deletingLastPathComponent().appendingPathComponent(name).appendingPathExtension(ext)
         if target.standardizedFileURL == package.standardizedFileURL { return package }
-        if FileManager.default.fileExists(atPath: target.path) {
+        // "demo" → "Demo" on a case-insensitive volume names the same folder: that is a rename, not a name clash.
+        let sameItem: Bool = {
+            let fm = FileManager.default
+            guard fm.fileExists(atPath: target.path),
+                  let a = (try? fm.attributesOfItem(atPath: package.path))?[.systemFileNumber] as? NSNumber,
+                  let b = (try? fm.attributesOfItem(atPath: target.path))?[.systemFileNumber] as? NSNumber else { return false }
+            return a == b
+        }()
+        if FileManager.default.fileExists(atPath: target.path) && !sameItem {
             throw NSError(domain: "Yapcam", code: 2, userInfo: [NSLocalizedDescriptionKey: "A project named “\(name)” already exists in this folder."])
         }
         if let renameHandler { return try renameHandler(package, name) }
         let wasOpen = isOpen(package: package)
         if wasOpen { close(package: package) }
-        do { try FileManager.default.moveItem(at: package, to: target) }
+        do {
+            if sameItem {                 // through a temporary name, so the case change really lands on disk
+                let temp = package.deletingLastPathComponent().appendingPathComponent(".rename-\(UUID().uuidString)").appendingPathExtension(ext)
+                try FileManager.default.moveItem(at: package, to: temp)
+                do { try FileManager.default.moveItem(at: temp, to: target) } catch { try? FileManager.default.moveItem(at: temp, to: package); throw error }
+            } else { try FileManager.default.moveItem(at: package, to: target) }
+        }
         catch { if wasOpen { open(package: package) }; throw error }
         if wasOpen { open(package: target) }
         return target

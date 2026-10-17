@@ -1,3 +1,29 @@
+READY RV 24feacf+worktree | R5 finding 3 Render side complete: Core `highlight`/`spotlight` purposes pass lens validation; only `privacy_mask` and conservative legacy untagged opaque covers fail closed, while blur protection remains intrinsic | 14 PASS / 8 explicit Metal-media skips; real export regression added for host gate.
+
+## R5 review — finding 3
+
+Coordinated with Core's `READY RV f81e8a4+worktree` status/contract: generated
+drawing-layer purposes are now `highlight`, `spotlight`, `privacy_mask`,
+`text_background`, or `unspecified`. Render decodes both new visual roles and
+accepts only highlight content for them. A lens no longer rejects ordinary
+highlights or spotlights. Tagged cover/dim privacy masks still return
+unavailable until source-space
+masking lands, and blur masks retain their independent fail-closed path. Missing
+purpose on an old/custom opaque cover remains conservative as documented by
+Core. Unknown purposes and purpose/content mismatches still fail decoding or
+validation.
+
+Regression coverage includes portable validation for highlight + spotlight +
+lens, all tagged privacy-mask forms, legacy untagged covers, and bad purpose
+tags. A real short MP4 export regression exercises highlight and spotlight with
+a lens on a native host. Focused release validation: `LayerPurposeTests` **2
+PASS / 2 explicit Metal-media skips**; adjacent `ReferenceEffectsTests|MaskBlurTests`
+**10 PASS / 5 explicit Metal-media skips**; `CoreDrawingLayerTests` **2 PASS /
+1 explicit Metal-media skip**; zero failures. The export/pixel
+checks are present but could not run because this execution environment exposes
+no Metal/media services. Lead should integrate Core's purpose producer with
+these three Render source/test paths before running the native gate.
+
 READY W3 4309b9c+worktree | R5-L01 software-encoder boundary verified; render-owned dark wallpaper `deep-slate` and 18-track/4-category MusicLibrary verified; Hide Desktop Icons now reaches the ScreenCaptureKit filter and no longer mutates/restarts Finder during recording | focused tests 20 PASS / 4 explicit Metal-media skips; live Screen Recording acceptance untested.
 
 ## R5 Wave 3

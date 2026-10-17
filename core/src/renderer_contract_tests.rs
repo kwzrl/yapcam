@@ -113,6 +113,50 @@ fn generated_purpose_comes_from_collections_even_when_ids_are_spoofed() {
 }
 
 #[test]
+fn lens_queries_distinguish_highlights_and_spotlights_from_sensitive_masks() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.autosave = false;
+    p.apply(&json!({"op":"batch","commands":[
+        {"op":"set","path":"canvas.highlights","value":[
+            {"id":"spotlight","tl_start_ns":0,"tl_end_ns":2_000_000_000_i64},
+            {"id":"outline","tl_start_ns":0,"tl_end_ns":2_000_000_000_i64,"dim_opacity":0},
+            {"id":"translucent","tl_start_ns":0,"tl_end_ns":2_000_000_000_i64,"dim_opacity":0,"fill":[0,0,0,1],"opacity":0.5},
+            {"id":"cover","tl_start_ns":0,"tl_end_ns":2_000_000_000_i64,"fill":[0,0,0,1]},
+            {"id":"blur","kind":"blur","tl_start_ns":0,"tl_end_ns":2_000_000_000_i64}]},
+        {"op":"add_zoom","zoom":{"tl_start_ns":0,"tl_end_ns":2_000_000_000_i64,"style":"lens","mode":"manual","target":[0.5,0.5],"scale":2,"ease_in_ns":0,"ease_out_ns":0}}
+    ]})).unwrap();
+
+    assert!(!p
+        .query(&json!({"q":"zoom_lens_at","tl_ns":500_000_000}))
+        .unwrap()
+        .is_null());
+    let rows = p.layers_at(500_000_000).unwrap();
+    let rows = rows.as_array().unwrap();
+    let purpose = |id: &str| {
+        rows.iter().find(|row| row["id"] == id).unwrap()["purpose"]
+            .as_str()
+            .unwrap()
+    };
+    assert_eq!(purpose("spotlight"), "spotlight");
+    assert_eq!(purpose("outline"), "highlight");
+    assert_eq!(purpose("translucent"), "highlight");
+    assert_eq!(purpose("cover"), "privacy_mask");
+    assert_eq!(purpose("blur"), "privacy_mask");
+
+    let packet = p.privacy_masks_at(500_000_000).unwrap();
+    assert_eq!(
+        packet["masks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| (row["id"].as_str().unwrap(), row["order"].as_u64().unwrap()))
+            .collect::<Vec<_>>(),
+        vec![("cover", 3), ("blur", 4)]
+    );
+}
+
+#[test]
 fn original_space_mask_packet_preserves_order_styles_bounds_and_edited_source_clock() {
     let fixture = Fixture::new();
     let mut p = Project::create(&fixture.0).unwrap();
@@ -122,8 +166,8 @@ fn original_space_mask_packet_preserves_order_styles_bounds_and_edited_source_cl
         {"op":"set","path":"canvas.highlights","value":[
             {"id":"disabled","enabled":false,"tl_start_ns":0,"tl_end_ns":5_000_000_000_i64},
             {"id":"moving","kind":"blur","space":"source","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"rect":[0.2,0.2,0.2,0.2],"keyframes":[{"tl_ns":3_000_000_000_i64,"rect":[0.5,0.4,0.2,0.2]}],"blur_radius":17,"radius":8,"opacity":0.6,"dim_opacity":0.2,"stroke_width":2.5},
-            {"id":"canvas","space":"canvas","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"rect":[0.1,0.1,0.8,0.8]},
-            {"id":"offscreen","space":"source","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"rect":[0.8,0.8,0.1,0.1]}]},
+            {"id":"canvas","space":"canvas","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"rect":[0.1,0.1,0.8,0.8],"fill":[0,0,0,1]},
+            {"id":"offscreen","kind":"blur","space":"source","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"rect":[0.8,0.8,0.1,0.1]}]},
         {"op":"add_zoom","zoom":{"tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"mode":"manual","style":"lens","target":[0.4,0.4],"scale":2,"ease_in_ns":0,"ease_out_ns":0}}
     ]})).unwrap();
     for edited in [false, true] {

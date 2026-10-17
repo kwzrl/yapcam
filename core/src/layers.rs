@@ -71,6 +71,19 @@ pub(crate) fn mask_rect_at(h: &Highlight, tl_ns: i64) -> [f64; 4] {
         a
     }
 }
+
+/// Security-sensitive mask intent is derived from the authored effect, never
+/// from its id or other caller-controlled metadata.
+pub(crate) fn highlight_purpose(h: &Highlight) -> &'static str {
+    if h.kind == "blur" || (h.opacity == 1.0 && h.fill[3] == 1.0) {
+        "privacy_mask"
+    } else if h.dim_opacity > 0.0 {
+        "spotlight"
+    } else {
+        "highlight"
+    }
+}
+
 fn highlight_at(h: &Highlight, f: &Frame) -> Option<FrameHighlight> {
     if !h.enabled || f.tl_ns < h.tl_start_ns || f.tl_ns >= h.tl_end_ns {
         return None;
@@ -293,7 +306,7 @@ impl Project {
         for h in &self.data.canvas.highlights {
             if let Some(highlight) = highlight_at(h, &f) {
                 let r = highlight.rect;
-                let mut row = json!({"id":h.id,"purpose":"privacy_mask","kind":h.kind,"rect":[r.x,r.y,r.w,r.h],
+                let mut row = json!({"id":h.id,"purpose":highlight_purpose(h),"kind":h.kind,"rect":[r.x,r.y,r.w,r.h],
                     "corner_radius":h.radius,"opacity":h.opacity,"dim_opacity":h.dim_opacity,
                     "fill":h.fill,"stroke":h.stroke,"stroke_width":h.stroke_width});
                 if h.kind == "blur" {

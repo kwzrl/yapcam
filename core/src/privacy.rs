@@ -1,6 +1,6 @@
 //! Cold, authoritative mask provenance for source pre-processing and loupe sampling.
 use crate::{
-    layers::mask_rect_at,
+    layers::{highlight_purpose, mask_rect_at},
     project::{Project, Result},
 };
 use serde_json::{json, Value};
@@ -23,7 +23,7 @@ impl Project {
             None
         };
         let masks:Vec<_>=self.data.canvas.highlights.iter().enumerate()
-            .filter(|(_,h)|h.enabled && tl_ns>=h.tl_start_ns && tl_ns<h.tl_end_ns)
+            .filter(|(_,h)|h.enabled && tl_ns>=h.tl_start_ns && tl_ns<h.tl_end_ns && highlight_purpose(h)=="privacy_mask")
             .map(|(order,h)|json!({"id":h.id,"order":order,"purpose":"privacy_mask",
                 "space":h.space,"kind":h.kind,"rect":mask_rect_at(h,tl_ns),
                 "tl_start_ns":h.tl_start_ns,"tl_end_ns":h.tl_end_ns,

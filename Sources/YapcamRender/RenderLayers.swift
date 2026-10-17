@@ -10,6 +10,8 @@ public struct RenderLayer: Sendable, Equatable {
     /// neighboring text layer. Old/custom sources retain conservative checks.
     public enum Purpose: String, Sendable, Codable {
         case unspecified
+        case highlight
+        case spotlight
         case privacyMask = "privacy_mask"
         case textBackground = "text_background"
     }
@@ -42,6 +44,10 @@ public struct RenderLayer: Sendable, Equatable {
     func validatePurpose() throws {
         switch purpose {
         case .unspecified: break
+        case .highlight, .spotlight:
+            guard case .highlight = content else {
+                throw RenderError.invalidSettings("Highlight or spotlight purpose requires a highlight layer")
+            }
         case .textBackground:
             guard case .highlight(let dim,_,_,_) = content,dim == 0 else {
                 throw RenderError.invalidSettings("Text background purpose requires an undimmed background layer")

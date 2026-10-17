@@ -24,10 +24,13 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     private var failure: CaptureError?
     private var accepting = true
     private var unavailableTracks: Set<String> = []
+    /// Timestamp of the last screen sample accepted by the sink, real or heartbeat.
     private var lastScreenNs: Int64?
+    /// Original source timestamp of the last accepted real ScreenCaptureKit frame.
+    private var lastRealScreenNs: Int64?
     private var lastScreenSample: CMSampleBuffer?
     private var heartbeat: DispatchSourceTimer?
-    private var nextScreenNs: Int64?
+    private var nextRealScreenNs: Int64?
     private var screenStartNs: Int64?
     private var startedTracks: Set<String> = []
     private var endHostNs: Int64?
@@ -75,7 +78,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
             if let failure { onFailure?(failure) }
             return
         }
-        append(copy, track: "screen")
+        append(copy, track: "screen", isHeartbeat: true)
     }
 
     func end(at hostNs: Int64) {
@@ -155,30 +158,49 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
 
     /// Caller must deliver samples on queue. AVCapture sample clocks are converted before this call.
     func append(_ sample: CMSampleBuffer, track key: String) {
+        append(sample, track: key, isHeartbeat: false)
+    }
+
+    private func append(_ sample: CMSampleBuffer, track key: String, isHeartbeat: Bool) {
         guard accepting, failure == nil, !unavailableTracks.contains(key) else { return }
         let pts = sample.presentationTimeStamp
-        let ns = CaptureClock.nanoseconds(pts)
+        let sourceNs = CaptureClock.nanoseconds(pts)
         let end = stopLock.withLock { requestedEndNs }
-        guard pts.isNumeric, ns >= hostStartNs, end == nil || ns < end! else { return }
+        guard pts.isNumeric, sourceNs >= hostStartNs, end == nil || sourceNs < end! else { return }
         // Drop audio/device preroll instead of giving the source timeline a blank
         // screen lead-in. Every retained track starts at/after the first screen PTS.
-        guard key == "screen" || (screenStartNs != nil && ns >= screenStartNs!) else { return }
+        guard key == "screen" || (screenStartNs != nil && sourceNs >= screenStartNs!) else { return }
         let interval = 1_000_000_000 / Int64(maxFPS)
         if key == "screen" {
-            if let lastScreenNs, ns <= lastScreenNs { return }
-            // Compare against a cadence deadline with half-frame tolerance. Using
-            // the prior PTS alone drops alternate frames on slightly fast 60 Hz panels.
-            if let nextScreenNs, ns <= nextScreenNs - interval / 2 { return }
+            if isHeartbeat {
+                if let lastScreenNs, sourceNs <= lastScreenNs { return }
+            } else {
+                // A synthetic heartbeat may be stamped slightly ahead of a real
+                // frame delivered later. Real ordering/cadence must use only real
+                // source timestamps so that heartbeat can never hide new pixels.
+                if let lastRealScreenNs, sourceNs <= lastRealScreenNs { return }
+                // Compare against a cadence deadline with half-frame tolerance. Using
+                // the prior PTS alone drops alternate frames on slightly fast 60 Hz panels.
+                if let nextRealScreenNs, sourceNs <= nextRealScreenNs - interval / 2 { return }
+            }
         }
         do {
+            var writtenSample = sample
+            var writtenNs = sourceNs
+            if key == "screen", !isHeartbeat, let lastScreenNs, sourceNs <= lastScreenNs {
+                // AVAssetWriter still requires strictly increasing output PTS. Keep
+                // the real image and move only its output timestamp past the heartbeat.
+                writtenNs = lastScreenNs + 1
+                writtenSample = try Self.retimed(sample, atHostNs: writtenNs)
+            }
             let track: any CaptureTrackSink
             if let existing = tracks[key] { track = existing }
             else {
                 let filename = key == "system_audio" ? "system.m4a" : key == "mic" ? "mic.m4a" : "\(key).mov"
-                track = try makeTrack(directory.appendingPathComponent(filename), key, sample)
+                track = try makeTrack(directory.appendingPathComponent(filename), key, writtenSample)
                 tracks[key] = track
             }
-            guard try track.append(sample) else { return }
+            guard try track.append(writtenSample) else { return }
             if key == "screen" {
                 if screenStartNs == nil {
                     // Durable origin closes the crash window before session.json
@@ -186,9 +208,12 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                     try PackageIO.write(track.firstNs, to: directory.appendingPathComponent("host-start.json"))
                     screenStartNs = track.firstNs
                 }
-                lastScreenNs = ns
-                lastScreenSample = sample
-                nextScreenNs = max((nextScreenNs ?? ns) + interval, ns + interval)
+                lastScreenNs = writtenNs
+                if !isHeartbeat {
+                    lastRealScreenNs = sourceNs
+                    lastScreenSample = writtenSample
+                    nextRealScreenNs = max((nextRealScreenNs ?? sourceNs) + interval, sourceNs + interval)
+                }
             }
             if startedTracks.insert(key).inserted, let origin = screenStartNs {
                 if key == "system_audio" || key == "mic", let format = sample.formatDescription,
@@ -213,6 +238,18 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                 onFailure?(error)
             }
         }
+    }
+
+    private static func retimed(_ sample: CMSampleBuffer, atHostNs hostNs: Int64) throws -> CMSampleBuffer {
+        var timing = CMSampleTimingInfo(duration: sample.duration,
+            presentationTimeStamp: CMTime(value: hostNs, timescale: 1_000_000_000), decodeTimeStamp: .invalid)
+        var copy: CMSampleBuffer?
+        let status = CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault, sampleBuffer: sample,
+            sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleBufferOut: &copy)
+        guard status == noErr, let copy else {
+            throw CaptureError.writerFailed("Cannot preserve a real screen frame after a static-screen checkpoint (\(status))")
+        }
+        return copy
     }
 
     static func level(_ sample: CMSampleBuffer) -> Float {

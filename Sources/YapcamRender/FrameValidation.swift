@@ -24,12 +24,16 @@ func validateFrame(_ f: YcFrame,configuration c: RenderConfiguration,layers: [Re
     }
     if c.glassLoupe != nil, f.screen.present != 0 {
         for layer in layers {
-            if case .highlight(let dim,let fill,let stroke,let width) = layer.content,
-               layer.purpose != .textBackground,
-               fill.w*layer.opacity >= 0.999 || (layer.purpose == .privacyMask && layer.opacity > 0 && (fill.w>0 || dim>0 || (stroke.w>0 && width>0))) {
-                let coversCanvas = layer.cornerRadius == 0 && layer.rect.minX <= 0 && layer.rect.minY <= 0 && layer.rect.maxX >= CGFloat(f.canvas_w) && layer.rect.maxY >= CGFloat(f.canvas_h)
-                guard coversCanvas else { throw RenderError.unavailable("Glass magnifier cannot be combined with a cover mask yet; use classic zoom for that range") }
-            }
+            guard case .highlight(let dim,let fill,let stroke,let width) = layer.content else { continue }
+            // Core marks ordinary highlights and spotlights explicitly. Only a
+            // real privacy mask (or a legacy untagged opaque cover) needs the
+            // source-space protection that the local lens cannot yet provide.
+            let isPrivacyMask = layer.purpose == .privacyMask && layer.opacity > 0 &&
+                (fill.w > 0 || dim > 0 || (stroke.w > 0 && width > 0))
+            let isLegacyOpaqueCover = layer.purpose == .unspecified && fill.w*layer.opacity >= 0.999
+            guard isPrivacyMask || isLegacyOpaqueCover else { continue }
+            let coversCanvas = layer.cornerRadius == 0 && layer.rect.minX <= 0 && layer.rect.minY <= 0 && layer.rect.maxX >= CGFloat(f.canvas_w) && layer.rect.maxY >= CGFloat(f.canvas_h)
+            guard coversCanvas else { throw RenderError.unavailable("Glass magnifier cannot be combined with a cover mask yet; use classic zoom for that range") }
         }
     }
     if let id=c.cursorSetID,!VectorCursorLibrary.catalog.contains(where: { $0.id == id }) { throw RenderError.invalidSettings("Unknown original cursor set: \(id)") }

@@ -1556,17 +1556,23 @@ than authored shape selections.
 ### Authoritative layer purpose (R5-C02a)
 
 Core-generated `layers_at`/`effects_at.layers` rows add `purpose`:
+
 - `text_background`: the undimmed highlight backing generated from an annotation,
   reaction, caption or keyboard overlay's text style.
-- `privacy_mask`: an actual record in canvas.highlights, including blur/cover,
-  dim-outside and translucent highlight records.
+- `privacy_mask`: a sensitive-data mask: every `kind:"blur"` record, or a
+  `kind:"highlight"` opaque cover whose fill alpha and layer opacity are both 1.
+- `spotlight`: a non-private `kind:"highlight"` record with `dim_opacity > 0`
+  that is not an opaque cover.
+- `highlight`: every other non-private `kind:"highlight"` record, including
+  outline-only and translucent-fill treatments.
 - `unspecified`: other content such as text glyphs and final scene fade.
 
 Purpose comes from the producing collection, never an ID/name suffix or an
 editable project field. Unknown persisted purpose keys are rejected. Missing/null
 purpose in old/custom query rows stays conservative in Render. A tag does not
-relax blur/cover protection; source-mask support below must land before Render
-removes its explicit unsupported error for unsafe mask/loupe combinations.
+relax blur/cover protection. Render may use `privacy_mask` to fail closed for
+unsafe mask/loupe combinations without rejecting ordinary highlights or
+spotlights.
 
 ### Original-space privacy instructions (R5-C02)
 
@@ -1584,6 +1590,11 @@ New cold query `{"q":"privacy_masks_at","tl_ns":500000000}` returns:
    "corner_radius":12,"blur_radius":32,"opacity":1,"dim_opacity":0,
    "fill":[0,0,0,1],"stroke":[0,0,0,0],"stroke_width":0}]}
 ```
+
+Only active sensitive-data masks appear in `masks`; ordinary `highlight` and
+`spotlight` records remain drawing layers and are deliberately excluded. The
+`order` field retains each mask's original index in `canvas.highlights`, so
+filtering does not change cross-layer ordering.
 
 The packet's screen sample uses the same edited timeline/segment/track clock as
 frame_at; src_ns is recording time and file_ns is segment-file time. The current

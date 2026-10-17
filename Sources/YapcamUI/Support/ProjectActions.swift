@@ -34,9 +34,17 @@ import YapcamCore
         guard !clean.isEmpty else { throw EngineError.failed("The name can't be empty.") }
         let dest = url.deletingLastPathComponent().appending(path: "\(clean).yapcam", directoryHint: .isDirectory)
         guard dest != url else { return url }
-        guard !FileManager.default.fileExists(atPath: dest.path) else { throw EngineError.failed("A recording named “\(clean)” already exists.") }
+        // A case-only change ("demo" → "Demo") names the same file on a case-insensitive volume: go through a temp name.
+        let caseOnly = dest.lastPathComponent.lowercased() == url.lastPathComponent.lowercased()
+        guard caseOnly || !FileManager.default.fileExists(atPath: dest.path) else { throw EngineError.failed("A recording named “\(clean)” already exists.") }
         closeEditor(showing: url)
-        try FileManager.default.moveItem(at: url, to: dest)
+        if caseOnly {
+            let tmp = url.deletingLastPathComponent().appending(path: ".rename-\(UUID().uuidString).yapcam", directoryHint: .isDirectory)
+            try FileManager.default.moveItem(at: url, to: tmp)
+            do { try FileManager.default.moveItem(at: tmp, to: dest) } catch { try? FileManager.default.moveItem(at: tmp, to: url); throw error }
+        } else {
+            try FileManager.default.moveItem(at: url, to: dest)
+        }
         return dest
     }
 
