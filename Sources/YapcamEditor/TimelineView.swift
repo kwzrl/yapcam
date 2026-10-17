@@ -152,6 +152,7 @@ struct TimelineView: View {
         .frame(width: contentW, height: layout.totalHeight, alignment: .topLeading)
         .contentShape(Rectangle())
         .gesture(timelineDrag(g))
+        .overlay(TimelineContextMenuHost { contextMenu(at: $0) })
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Timeline")
     }
@@ -421,9 +422,8 @@ struct TimelineView: View {
             }
     }
 
-    private func begin(at p: CGPoint, _ g: TimelineGeometry) -> DragKind {
-        if !(p.y >= layout.zoomTop && p.y < layout.lanesTop) { model.extraZoomSelection = [] }
-        let flags = NSEvent.modifierFlags
+    /// Snapshot of the timeline for one pointer position, shared by left-click routing and the context menu.
+    private func clickInput(at p: CGPoint, _ g: TimelineGeometry, multiSelect: Bool) -> TimelineClick.Input {
         var items: [LaneHitTest.Item] = []
         func add(_ key: String, _ span: TimeSpan, _ top: CGFloat, _ sel: EditorSelection) { items.append(.init(key: key, span: span, top: top, tag: sel)) }
         if model.hasCamera { for l in model.layouts { add(l.id, TimeSpan(startNs: l.startNs, endNs: l.endNs), layout.cameraTop, .layout(l.id)) } }
@@ -431,13 +431,36 @@ struct TimelineView: View {
         for m in model.music { add(m.id, m.span, layout.musicTop, .music(m.id)) }
         for h in model.highlights { add(h.id, h.span, layout.highlightTop, .highlight(h.id)) }
         for h in model.cursorHides { add(EditorModel.cursorKey(h.index), h.span, layout.cursorTop, .cursorHide(h.index)) }
-        let input = TimelineClick.Input(
-            point: p, layout: layout, geometry: g, cutTool: model.cutToolActive, multiSelect: flags.contains(.shift) || flags.contains(.command),
-            durationNs: model.durationNs,
+        return TimelineClick.Input(
+            point: p, layout: layout, geometry: g, cutTool: model.cutToolActive, multiSelect: multiSelect, durationNs: model.durationNs,
             zooms: model.zooms.map { z in let r = model.displayedRange(of: z); return (z.id, r.start, r.end) },
             rangeItems: items, rangePreview: model.zoomPreview,
             typing: model.typingSuggestions.map { ($0.startNs, $0.endNs) },
             clips: model.clipStarts().map { ($0.clip.id, $0.startNs, $0.startNs + $0.clip.timelineDurationNs) })
+    }
+
+    /// Secondary click: select what is under the pointer, then show its menu.
+    private func contextMenu(at p: CGPoint) -> NSMenu? {
+        let g = model.geometry
+        guard let target = TimelineClick.menuTarget(clickInput(at: p, g, multiSelect: false)) else { return nil }
+        switch target {
+        case .clip(let id, _): model.selection = .clip(id)
+        case .zoom(let id): if !model.extraZoomSelection.contains(id) { model.extraZoomSelection = [] }; model.selection = .zoom(id)
+        case .layout(let id): model.selection = .layout(id)
+        case .highlight(let id): model.selection = .highlight(id)
+        case .text(let k, let id): model.selection = .text(k, id)
+        case .music(let id): model.selection = .music(id)
+        case .cursorHide(let i): model.selection = .cursorHide(i)
+        case .empty: break
+        }
+        let entries = TimelineMenu.entries(for: target, in: model)
+        return entries.isEmpty ? nil : TimelineMenu.nsMenu(entries) { [model] in model.apply($0) }
+    }
+
+    private func begin(at p: CGPoint, _ g: TimelineGeometry) -> DragKind {
+        if !(p.y >= layout.zoomTop && p.y < layout.lanesTop) { model.extraZoomSelection = [] }
+        let flags = NSEvent.modifierFlags
+        let input = clickInput(at: p, g, multiSelect: flags.contains(.shift) || flags.contains(.command))
         switch TimelineClick.decide(input) {
         case .scrub(let clip):
             model.selection = clip.map { .clip($0) } ?? .none
