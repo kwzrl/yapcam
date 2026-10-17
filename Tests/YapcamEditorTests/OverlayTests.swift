@@ -138,17 +138,27 @@ private func pkgCopy() throws -> URL {
         #expect(m.lastError != nil && m.wallpaperBusy == nil)
     }
 
-    @Test func realLibraryAppliesGradientAndImageWallpapers() async throws {
+    @Test func realLibraryAppliesWallpapersOfEveryKindAndUndoesThem() async throws {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let m = try EditorDocument(package: d).model
-        #expect(m.wallpapers.count == 12)
-        m.applyWallpaper(id: "quiet-dawn"); await m.waitForWallpaper()
-        #expect(m.string("canvas.background.kind") == "gradient" && m.lastError == nil, "\(m.lastError ?? "")")
-        m.applyWallpaper(id: "boreal-glow"); await m.waitForWallpaper()
-        #expect(m.string("canvas.background.kind") == "image" && m.lastError == nil, "\(m.lastError ?? "")")
-        let thumb = await m.project.wallpaperThumbnail(id: "sediment")
+        // Expectations come from the library itself (render's catalog size and categories change between releases).
+        let all = m.wallpapers
+        #expect(all.count == BackgroundLibrary.presets.count && all.count >= 12)
+        #expect(Set(all.map(\.id)).count == all.count)                        // ids are unique
+        var firstOfEachCategory: [WallpaperInfo] = []
+        for w in all where !firstOfEachCategory.contains(where: { $0.category == w.category }) { firstOfEachCategory.append(w) }
+        #expect(firstOfEachCategory.count >= 2)
+        var kinds: [String] = []
+        for w in firstOfEachCategory.prefix(4) {
+            m.applyWallpaper(id: w.id); await m.waitForWallpaper()
+            #expect(m.lastError == nil, "\(w.id): \(m.lastError ?? "")")
+            let kind = m.string("canvas.background.kind")
+            #expect(["gradient", "image"].contains(kind), "\(w.id) → \(kind)")
+            kinds.append(kind)
+        }
+        let thumb = await m.project.wallpaperThumbnail(id: all[all.count / 2].id)
         #expect(thumb?.width == 192 && thumb?.height == 108)
-        m.undo(); #expect(m.string("canvas.background.kind") == "gradient")
+        if kinds.count >= 2 { m.undo(); #expect(m.string("canvas.background.kind") == kinds[kinds.count - 2]) }   // one undo step per wallpaper
     }
 }
 
@@ -255,24 +265,33 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let doc = try EditorDocument(package: d)
         let lib = try doc.project.query("{\"q\":\"cursor_library\"}", as: Library.self)
-        #expect(VectorCursorLibrary.catalog.map(\.id) == lib.sets.map(\.id))   // render catalog and core accept the same ids
-        #expect(cursorShapes.map(\.value) == lib.shapes)
+        // Core decides what is storable; render's catalog is what can be drawn. The picker offers the ids both know, and the
+        // two must overlap on at least the recorded cursor and Touch (they grow independently between releases).
+        let core = Set(lib.sets.map(\.id)), render = Set(VectorCursorLibrary.catalog.map(\.id))
+        #expect(core.contains("original") && core.contains("touch") && render.contains("original") && render.contains("touch"))
+        #expect(!core.intersection(render).isEmpty)
+        // Every shape the picker offers is a core shape; every core shape is one render can draw.
+        #expect(Set(cursorShapes.map(\.value)).isSubset(of: Set(lib.shapes)))
+        #expect(lib.shapes.allSatisfy { VectorCursorStyle(shapeID: $0) != nil }, "a core shape render does not know: \(lib.shapes.filter { VectorCursorStyle(shapeID: $0) == nil })")
         #expect(cursorSizes.map(\.value) == lib.logicalSizes.map(\.id))
     }
 
     @Test func carouselChoicesAreAcceptedByCoreAndOneUndoStepEach() throws {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let doc = try EditorDocument(package: d); let m = doc.model
+        let lib = try doc.project.query("{\"q\":\"cursor_library\"}", as: Library.self)
         let choices = m.cursorSetChoices()
-        #expect(choices.map(\.id) == VectorCursorLibrary.catalog.map(\.id))   // original, touch and all 12 authored sets
-        #expect(choices.first?.id == "original")
-        for c in choices { m.chooseCursorSet(c); #expect(m.lastError == nil); #expect(m.selectedCursorSetID() == c.id) }
-        let paper = try #require(choices.first { $0.id == "paper" })
-        m.chooseCursorSet(paper)
+        // The carousel is render's catalog in render's order, limited to what core accepts.
+        let accepted = Set(lib.sets.map(\.id))
+        #expect(choices.map(\.id) == VectorCursorLibrary.catalog.map(\.id).filter { accepted.contains($0) })
+        #expect(choices.first?.id == "original" && choices.contains { $0.id == "touch" } && choices.count >= 3)
+        for c in choices { m.chooseCursorSet(c); #expect(m.lastError == nil, "\(c.id): \(m.lastError ?? "")"); #expect(m.selectedCursorSetID() == c.id) }
+        let pick = choices[choices.count - 1], other = choices[1]
+        m.chooseCursorSet(other); m.chooseCursorSet(pick)
         m.undo()
-        #expect(m.selectedCursorSetID() != "paper")
-        m.chooseCursorSet(paper); try doc.project.save()
-        #expect(try EditorDocument(package: d).model.selectedCursorSetID() == "paper")
+        #expect(m.selectedCursorSetID() == other.id)                          // one undo step per choice
+        m.chooseCursorSet(pick); try doc.project.save()
+        #expect(try EditorDocument(package: d).model.selectedCursorSetID() == pick.id)
     }
 
     @Test func variantsAreStoredPerTypeOneUndoStepAndSurviveReopen() throws {
@@ -300,13 +319,15 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         var baseSet: String? = nil; if case .string(let s)? = m.value("cursor.set_id") { baseSet = s }
         #expect(cfg.cursorSetID == baseSet && cfg.cursorSize == .regular)
         if m.defaultsRevision >= 1 { #expect(baseSet == "original") } else { #expect(baseSet == nil) }
-        m.set("cursor.set_id", string: "lagoon"); m.set("cursor.logical_size", string: "large"); m.set("cursor.shape", string: "text")
+        // Any authored set the library and core both have (the catalog's contents change between releases).
+        let authored = try #require(m.cursorSetChoices().first { $0.id != "original" && $0.id != "touch" }).id
+        m.set("cursor.set_id", string: authored); m.set("cursor.logical_size", string: "large"); m.set("cursor.shape", string: "text")
         #expect(m.lastError == nil, "\(m.lastError ?? "")")
         cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
-        #expect(cfg.cursorSetID == "lagoon" && cfg.cursorSize == .large && cfg.cursorStyle == .text)
+        #expect(cfg.cursorSetID == authored && cfg.cursorSize == .large && cfg.cursorStyle == .text)
         m.set("cursor.always_default", bool: true)
         cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
-        #expect(cfg.cursorStyle == .arrow && cfg.cursorSetID == "lagoon")     // default arrow wins over the shape, set and size stay
+        #expect(cfg.cursorStyle == .arrow && cfg.cursorSetID == authored)     // default arrow wins over the shape, set and size stay
         m.set("cursor.always_default", bool: false); m.set("cursor.set_id", .null); m.set("cursor.shape", .null); m.set("cursor.logical_size", string: "regular")
         cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
         #expect(cfg.cursorSetID == nil && cfg.cursorSize == .regular)
