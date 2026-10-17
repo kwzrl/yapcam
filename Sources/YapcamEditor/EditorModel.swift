@@ -46,6 +46,12 @@ public final class EditorModel: ObservableObject {
     public var cursorSetIDs: [String] = []
     public var defaults: UserDefaults = EditorPresets.currentStore.defaults
     @Published public var paletteVisible = false
+    /// Agentic editor (opt-in): chat column + agent access, the building-blocks bar, and the bottom panel mode.
+    @Published public var agentEnabled = false
+    @Published public var blocksBarVisible = false
+    @Published public var bottomPanel: BottomPanel = .timeline
+    /// Chat history and agent activity of this document (written by the MCP server and the chat runner).
+    public let agentLog = AgentActivityLog()
     @Published public var previewOptions = PreviewOptions()
     @Published public var silenceRangesState: SilenceRangesState = .idle
     var silenceRangesTask: Task<Void, Never>?
