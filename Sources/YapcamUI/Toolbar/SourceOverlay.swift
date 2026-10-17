@@ -1,6 +1,7 @@
 import AppKit
 import YapcamCapture
 import SwiftUI
+import YapcamDesign
 
 // MARK: - Pure geometry / hit testing (unit-tested)
 
@@ -133,11 +134,31 @@ struct SourceCard: View {
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 .accessibilityLabel("Recording options")
             }
-            Text("Esc to cancel").font(.system(size: 11)).foregroundStyle(.secondary)
+            CancelHint()
         }
         .padding(18)
         .panelSurface(cornerRadius: 16)
         .shadow(color: .black.opacity(0.25), radius: 18, y: 6)
+    }
+}
+
+/// "Esc to cancel" that can also be clicked: the same path as the key (closes the overlay, clears the mode).
+private struct CancelHint: View {
+    @State private var hover = false
+
+    var body: some View {
+        Button { SourcePicker.escape() } label: {
+            Text("Esc to cancel").font(.system(size: 11, weight: hover ? .medium : .regular))
+                .foregroundStyle(hover ? Yap.title : Yap.caption)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(Capsule().fill(Color.white.opacity(0.08)).opacity(hover ? 1 : 0).scaleEffect(hover ? 1 : 0.9))
+                .animation(hover ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: hover)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help("Cancel (Esc)")
+        .accessibilityLabel("Cancel")
     }
 }
 
