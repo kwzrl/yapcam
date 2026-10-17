@@ -34,22 +34,28 @@ public struct GlassSurface: View {
 
     public var body: some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let body = t.body + lift
         ZStack {
+            // Strong blur of what lies behind; only its light comes through.
             BackdropBlur(behindWindow: behindWindow)
-            Yap.glassGray.opacity(1 - t.clarity)
+            // Warm-grey glass, lit from above, darker in the middle, light returning at the bottom.
             LinearGradient(stops: [
-                .init(color: .white.opacity(t.topLight + lift), location: 0),
-                .init(color: .white.opacity(lift * 0.6), location: 0.45),
-                .init(color: .white.opacity(t.bottomLight + lift * 0.6), location: 1),
+                .init(color: Color(red: 120 / 255, green: 120 / 255, blue: 125 / 255).opacity(body + t.topLight), location: 0),
+                .init(color: Color(red: 70 / 255, green: 70 / 255, blue: 75 / 255).opacity(body), location: 0.55),
+                .init(color: Color(red: 92 / 255, green: 92 / 255, blue: 97 / 255).opacity(body + t.bottomLight), location: 1),
             ], startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [Color(red: 1, green: 0.55, blue: 0.24).opacity(t.warmth), .clear],
-                           center: UnitPoint(x: 0.25, y: 1.1), startRadius: 0, endRadius: 420)
+            // Ambient light of the scene, from the lower left.
+            RadialGradient(colors: [Color(red: 1, green: 140 / 255, blue: 60 / 255).opacity(t.warmth), .clear],
+                           center: UnitPoint(x: 0.3, y: 1.1), startRadius: 0, endRadius: 360)
         }
         .clipShape(shape)
-        .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(t.rim), .white.opacity(t.rim * 0.25), .white.opacity(t.rim * 0.4)],
+        // Rim light, strongest on top, plus a barely-there edge. No grey line.
+        .overlay(shape.strokeBorder(LinearGradient(stops: [.init(color: .white.opacity(t.rim), location: 0),
+                                                           .init(color: .white.opacity(0.06), location: 0.35),
+                                                           .init(color: .white.opacity(0.06), location: 1)],
                                                    startPoint: .top, endPoint: .bottom), lineWidth: 1))
         .compositingGroup()
-        .shadow(color: .black.opacity(floating ? t.shadow : 0), radius: 30, y: 16)
+        .shadow(color: .black.opacity(floating ? t.shadow : 0), radius: 40, y: 20)
     }
 }
 

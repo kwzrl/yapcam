@@ -167,7 +167,7 @@ private struct DesignLabView: View {
     private var tuning: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Glass").font(Yap.Font.title(20)).foregroundStyle(Yap.title)
-            knob("Clarity", \.clarity, 0...1)
+            knob("Glass body", \.body, 0...1)
             knob("Top light", \.topLight, 0...0.3)
             knob("Bottom light", \.bottomLight, 0...0.3)
             knob("Rim light", \.rim, 0...0.5)
@@ -177,8 +177,8 @@ private struct DesignLabView: View {
                 Button("Reset") { t.reset() }.buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
                 Spacer()
                 Button("Copy values") {
-                    let s = String(format: "clarity %.2f, topLight %.2f, bottomLight %.2f, rim %.2f, warmth %.2f, shadow %.2f",
-                                   t.clarity, t.topLight, t.bottomLight, t.rim, t.warmth, t.shadow)
+                    let s = String(format: "body %.2f, topLight %.2f, bottomLight %.2f, rim %.2f, warmth %.2f, shadow %.2f",
+                                   t.body, t.topLight, t.bottomLight, t.rim, t.warmth, t.shadow)
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string)
                 }.buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
             }

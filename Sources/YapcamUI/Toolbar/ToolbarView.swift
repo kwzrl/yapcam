@@ -24,16 +24,18 @@ struct ToolbarView: View {
     }
     private var separator: some View {
         FadingHairline(axis: vertical ? .horizontal : .vertical)
-            .frame(width: vertical ? 40 : 2, height: vertical ? 2 : 40)
+            .frame(width: vertical ? 40 : 2, height: vertical ? 2 : 30)
             .padding(vertical ? .vertical : .horizontal, 3)
     }
 
     var body: some View {
         let recording = rec.phase == .recording || rec.phase == .paused
         // The vertical widget needs room for the elapsed time across.
-        let thickness: CGFloat = recording ? (vertical ? 64 : 48) : 58
+        let thickness: CGFloat = recording ? (vertical ? 64 : 44) : 46
         line(0) {
-            Grabber(vertical: vertical, onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil)
+            Grabber(vertical: vertical,
+                    onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil,
+                    onRotate: { layout.vertical.toggle() })
             Group {
                 switch rec.phase {
                 case .idle: idleControls
@@ -42,10 +44,10 @@ struct ToolbarView: View {
                 case .recording, .paused: recordingControls
                 }
             }
-            .padding(vertical ? .bottom : .trailing, 8)
+            .padding(vertical ? .bottom : .trailing, 6)
         }
         .frame(width: vertical ? max(thickness, 86) : nil, height: vertical ? nil : thickness)
-        .panelSurface(cornerRadius: rec.phase == .recording || rec.phase == .paused ? 24 : 22)
+        .panelSurface(cornerRadius: vertical ? 22 : (recording ? 22 : 23))
         .padding(2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Yapcam recording toolbar")
@@ -226,23 +228,54 @@ struct ToolbarView: View {
 
 // MARK: - Components
 
-/// Close button at the start of the bar (idle only), like Screen Studio: a white circle. The bar itself is the drag handle.
+/// Bar handle: close (white circle, idle only), horizontal/vertical switch, and the drag grip.
+/// Side by side in the horizontal bar, stacked in the vertical one, so the bar stays thin either way.
 private struct Grabber: View {
     var vertical: Bool
     var onClose: (() -> Void)?
+    var onRotate: () -> Void
 
     var body: some View {
-        Group {
+        let stack = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 0))
+        stack {
             if let onClose {
                 Button(action: onClose) { Image(systemName: "xmark") }
-                    .buttonStyle(CircleButtonStyle(active: true, size: 22))
+                    .buttonStyle(CircleButtonStyle(active: true, size: 20))
                     .help("Close (Esc)").accessibilityLabel("Close toolbar")
-                    .frame(width: 40, height: 40)
-            } else {
-                Color.clear.frame(width: vertical ? 1 : 10, height: vertical ? 10 : 1)
+                    .frame(width: 30, height: 30)
             }
+            HandleButton(symbol: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2",
+                         help: vertical ? "Make the toolbar horizontal" : "Make the toolbar vertical",
+                         label: vertical ? "Make toolbar horizontal" : "Make toolbar vertical", action: onRotate)
+            Grid(horizontalSpacing: 3.5, verticalSpacing: 3.5) {
+                ForEach(0..<(vertical ? 2 : 3), id: \.self) { _ in
+                    GridRow { ForEach(0..<(vertical ? 3 : 2), id: \.self) { _ in Circle().frame(width: 3, height: 3) } }
+                }
+            }
+            .foregroundStyle(Yap.caption)
+            .frame(width: 26, height: 26)
+            .contentShape(Rectangle())
+            .help("Drag to move")
+            .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
         }
         .padding(vertical ? .top : .leading, 6)
+    }
+}
+
+private struct HandleButton: View {
+    let symbol: String, help: String, label: String
+    let action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 14, weight: .medium))
+                .foregroundStyle(hover ? Yap.title : Yap.caption)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.white.opacity(hover ? 0.08 : 0)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain).onHover { hover = $0 }
+        .help(help).accessibilityLabel(label)
     }
 }
 
@@ -284,25 +317,25 @@ struct ToolbarButton: View {
     @ViewBuilder private var content: some View {
         switch style {
         case .stacked:
-            VStack(spacing: 3) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(height: 20)
-                Text(label).font(.system(size: 9.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
+            VStack(spacing: 2) {
+                Image(systemName: symbol).font(.system(size: 14, weight: .medium)).frame(height: 17)
+                Text(label).font(.system(size: 9, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
             }
-            .frame(width: width, height: 42)
+            .frame(width: width, height: 36)
         case .inline:
             HStack(spacing: 7) {
                 Image(systemName: symbol).font(.system(size: 14, weight: .medium))
                 Text(label).font(.system(size: 12, weight: .medium)).lineLimit(1)
             }
-            .padding(.horizontal, 10).frame(height: 34)
+            .padding(.horizontal, 9).frame(height: 30)
         case .iconOnly:
-            Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(width: 38, height: 34)
+            Image(systemName: symbol).font(.system(size: 15, weight: .medium)).frame(width: 34, height: 30)
         case .menu:
             HStack(spacing: 3) {
                 Image(systemName: symbol).font(.system(size: 16, weight: .medium))
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
             }
-            .frame(width: 46, height: 34)
+            .frame(width: 42, height: 30)
         }
     }
 }
