@@ -60,13 +60,19 @@ final class SpeechNoiseRegressionTests: XCTestCase {
         }
     }
 
+    /// Maps an LCG state to a uniform sample in [-1, 1).
+    private static func unit(_ seed: UInt64) -> Float {
+        let fraction: Double = Double(seed >> 11) / 9_007_199_254_740_992   // 2^53
+        return Float(fraction * 2 - 1)
+    }
+
     private func mixture() -> (clean: [Float], noisy: [Float]) {
         let frames = 8*48_000
         var clean = [Float](repeating: 0, count: frames), noise = clean
         var seed: UInt64 = 594150
         for i in 0..<frames {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
-            noise[i] = Float(Double(seed >> 11)/Double(UInt64(1)<<53)*2-1)
+            noise[i] = Self.unit(seed)
             let t = Double(i)/48_000
             let local = t < 3.5 ? t-0.8 : t-4
             if local > 0 && local < 2.5 {
@@ -103,7 +109,7 @@ final class SpeechNoiseRegressionTests: XCTestCase {
         var seed: UInt64 = 42
         let noise: [Float] = (0..<96_000).map { _ in
             seed = seed &* 6364136223846793005 &+ 1
-            return Float(Double(seed >> 11)/Double(UInt64(1)<<53)*2-1)*0.05
+            return Self.unit(seed)*0.05
         }
         for (name,settings) in Self.recipes {
             let result = try SpeechEnhancer.process(interleaved: noise,channels: 1,settings: settings)
@@ -116,7 +122,7 @@ final class SpeechNoiseRegressionTests: XCTestCase {
         var seed: UInt64 = 42
         let noise: [Float] = (0..<96_000).map { _ in
             seed = seed &* 6364136223846793005 &+ 1
-            return Float(Double(seed >> 11)/Double(UInt64(1)<<53)*2-1)*0.05
+            return Self.unit(seed)*0.05
         }
         var learner = SpeechNoiseLearner48k(channels: 1)
         learner.process(Array(repeating: 0,count: 96_000))

@@ -213,42 +213,56 @@ struct RectEditOverlay: View {
         commit()
     }
 
+    private func pixelFrame(_ rect: [Double], space: String, _ g: FrameGeometry, _ size: CGSize) -> CGRect {
+        let r = g.previewRect(fromNormalized: rect, space: space)
+        return CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
+    }
+
+    @ViewBuilder private func box(_ size: CGSize) -> some View {
+        if let c = current(), let g = model.project.frameGeometry(atNs: model.playheadNs) {
+            let frame = pixelFrame(c.rect, space: c.space, g, size)
+            Rectangle().strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                .background(Color.accentColor.opacity(0.08))
+                .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
+            ForEach(0..<4, id: \.self) { i in
+                Circle().fill(Color.white).overlay(Circle().stroke(Color.accentColor, lineWidth: 2)).frame(width: 12, height: 12)
+                    .position(x: i % 2 == 0 ? frame.minX : frame.maxX, y: i < 2 ? frame.minY : frame.maxY)
+            }
+        }
+    }
+
+    private func drag(_ size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { v in
+                guard let c = current(), let rect = base(), let g = model.project.frameGeometry(atNs: model.playheadNs) else { return }
+                if start == nil {
+                    guard let mode = PointerMath.rectHit(at: v.startLocation, frame: pixelFrame(rect, space: c.space, g, size)) else { return }
+                    start = (mode, rect, v.startLocation)
+                }
+                guard let s = start else { return }
+                let pd = PointerMath.delta(from: s.origin, to: v.location, in: size)
+                let d = g.normalizedDelta(dx: pd.width, dy: pd.height, space: c.space)
+                preview(HighlightGeometry.apply(rect: s.rect, delta: d, mode: s.mode))
+            }
+            .onEnded { _ in start = nil; commit() }
+    }
+
+    private var accessibilityRect: String {
+        guard let r = current()?.rect else { return "" }
+        return String(format: "left %.0f, top %.0f, width %.0f, height %.0f percent", r[0] * 100, r[1] * 100, r[2] * 100, r[3] * 100)
+    }
+
     var body: some View {
         GeometryReader { geo in
-            let size = geo.size
             ZStack(alignment: .topLeading) {
                 Color.clear.contentShape(Rectangle())
-                if let c = current(), let g = model.project.frameGeometry(atNs: model.playheadNs) {
-                    let r = g.previewRect(fromNormalized: c.rect, space: c.space)
-                    let frame = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
-                    Rectangle().strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
-                        .background(Color.accentColor.opacity(0.08))
-                        .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
-                    ForEach(0..<4, id: \.self) { i in
-                        Circle().fill(Color.white).overlay(Circle().stroke(Color.accentColor, lineWidth: 2)).frame(width: 12, height: 12)
-                            .position(x: i % 2 == 0 ? frame.minX : frame.maxX, y: i < 2 ? frame.minY : frame.maxY)
-                    }
-                }
+                box(geo.size)
             }
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { v in
-                    guard let c = current(), let rect = base(), let g = model.project.frameGeometry(atNs: model.playheadNs) else { return }
-                    if start == nil {
-                        let r = g.previewRect(fromNormalized: rect, space: c.space)
-                        let f = CGRect(x: r.minX * size.width, y: r.minY * size.height, width: r.width * size.width, height: r.height * size.height)
-                        guard let mode = PointerMath.rectHit(at: v.startLocation, frame: f) else { return }
-                        start = (mode, rect, v.startLocation)
-                    }
-                    guard let s = start else { return }
-                    let pd = PointerMath.delta(from: s.origin, to: v.location, in: size)
-                    let d = g.normalizedDelta(dx: pd.width, dy: pd.height, space: c.space)
-                    preview(HighlightGeometry.apply(rect: s.rect, delta: d, mode: s.mode))
-                }
-                .onEnded { _ in start = nil; commit() })
+            .gesture(drag(geo.size))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Box editor")
-        .accessibilityValue(current().map { r in String(format: "left %.0f, top %.0f, width %.0f, height %.0f percent", r.rect[0] * 100, r.rect[1] * 100, r.rect[2] * 100, r.rect[3] * 100) } ?? "")
+        .accessibilityValue(accessibilityRect)
         .accessibilityAction(named: "Move left") { nudge(-0.02, 0, resize: false) }
         .accessibilityAction(named: "Move right") { nudge(0.02, 0, resize: false) }
         .accessibilityAction(named: "Move up") { nudge(0, -0.02, resize: false) }

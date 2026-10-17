@@ -15,31 +15,43 @@ struct NumberRow: View {
     @State private var value = 0.0
     @State private var editing = false
 
+    private var valueText: String { String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)") }
+
+    private var slider: some View {
+        Slider(value: Binding(get: { value }, set: { value = snapped($0) }), in: range) { isEditing in
+            editing = isEditing
+            if !isEditing { model.set(path, number: value) }
+        }
+        .accessibilityLabel(title)
+        .accessibilityValue(valueText)
+    }
+
+    @ViewBuilder private var reset: some View {
+        if let d = defaultValue {
+            let changed = abs(value - d) > 1e-9
+            Button { value = d; model.set(path, number: d) } label: { Image(systemName: "arrow.counterclockwise") }
+                .buttonStyle(.borderless).help("Reset to default").accessibilityLabel("Reset \(title)")
+                .opacity(changed ? 1 : 0.25).disabled(!changed)
+                .frame(width: EditorMetrics.resetSlot)
+        } else { Color.clear.frame(width: EditorMetrics.resetSlot, height: 1) }
+    }
+
     var body: some View {
         SliderRow(title) {
             HStack {
-                Slider(value: Binding(get: { value }, set: { value = snapped($0) }), in: range) { isEditing in
-                    editing = isEditing
-                    if !isEditing { model.set(path, number: value) }
-                }
-                    .accessibilityLabel(title)
-                    .accessibilityValue(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
-                Text(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
-                    .sliderValueLabel()
-                if let d = defaultValue {
-                    Button { value = d; model.set(path, number: d) } label: { Image(systemName: "arrow.counterclockwise") }
-                        .buttonStyle(.borderless).help("Reset to default").accessibilityLabel("Reset \(title)")
-                        .opacity(abs(value - d) > 1e-9 ? 1 : 0.25).disabled(abs(value - d) <= 1e-9)
-                        .frame(width: EditorMetrics.resetSlot)
-                } else { Color.clear.frame(width: EditorMetrics.resetSlot, height: 1) }
+                slider
+                Text(valueText).sliderValueLabel()
+                reset
             }
         }
         .onAppear { value = model.number(path) }
         .onChange(of: model.revision) { _, _ in if !editing { value = model.number(path) } }
     }
     private func snapped(_ v: Double) -> Double {
-        let tolerance = (range.upperBound - range.lowerBound) * snapDistance
-        return snaps.map { $0 / scale }.filter { range.contains($0) }.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) <= tolerance ? $0 : nil } ?? v
+        let tolerance: Double = (range.upperBound - range.lowerBound) * snapDistance
+        let candidates: [Double] = snaps.map { $0 / scale }.filter { range.contains($0) }
+        guard let nearest = candidates.min(by: { abs($0 - v) < abs($1 - v) }), abs(nearest - v) <= tolerance else { return v }
+        return nearest
     }
 }
 
