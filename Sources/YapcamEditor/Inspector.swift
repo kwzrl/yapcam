@@ -351,11 +351,11 @@ struct InspectorView: View {
     @ViewBuilder private var extras: some View {
         Section("Masks and highlights") {
             if case .highlight(let id) = model.selection, let h = model.highlights.first(where: { $0.id == id }) { HighlightControls(model: model, region: h) }
-            HStack {
-                Button("Highlight") { model.addHighlightAtPlayhead(kind: .highlight) }
-                Button("Spotlight") { model.addHighlightAtPlayhead(kind: .spotlight) }
-                Button("Blur mask") { model.addHighlightAtPlayhead(kind: .blur) }
-                Button("Cover mask") { model.addHighlightAtPlayhead(kind: .mask) }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: EditorMetrics.s), GridItem(.flexible())], spacing: EditorMetrics.s) {
+                Button("Highlight") { model.addHighlightAtPlayhead(kind: .highlight) }.frame(maxWidth: .infinity)
+                Button("Spotlight") { model.addHighlightAtPlayhead(kind: .spotlight) }.frame(maxWidth: .infinity)
+                Button("Blur mask") { model.addHighlightAtPlayhead(kind: .blur) }.frame(maxWidth: .infinity)
+                Button("Cover mask") { model.addHighlightAtPlayhead(kind: .mask) }.frame(maxWidth: .infinity)
             }
             Text("Adds a 3 s region at the playhead. Drag its box in the preview; drag the yellow bar on the timeline to retime it.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -723,7 +723,7 @@ struct BlurStrengthRow: View {
         let range = HighlightRegion.blurRadiusRange
         SliderRow("Blur strength") {
             HStack {
-                Slider(value: Binding(get: { drag ?? region.blurRadius }, set: { drag = $0 }), in: range, step: 1) { editing in
+                Slider(value: Binding(get: { drag ?? region.blurRadius }, set: { drag = $0.rounded() }), in: range) { editing in
                     if !editing, let v = drag { drag = nil; if v != region.blurRadius { model.updateHighlight(id: region.id) { $0.blurRadius = v } } }
                 }.accessibilityLabel("Blur strength")
                 Text("\(Int(drag ?? region.blurRadius)) px").sliderValueLabel()
@@ -911,7 +911,7 @@ struct MusicVolumeSlider: View {
     var body: some View {
         let v = drag ?? model.musicVolume
         HStack {
-            Slider(value: Binding(get: { v }, set: { drag = $0 }), in: 0...1, step: 0.01) { editing in
+            Slider(value: Binding(get: { v }, set: { drag = ($0 * 100).rounded() / 100 }), in: 0...1) { editing in
                 if !editing, let d = drag { drag = nil; model.setMusicVolume(d) }
             }.accessibilityLabel("Background audio volume").accessibilityValue("\(Int((v * 100).rounded())) percent")
             Text("\(Int((v * 100).rounded())) %").sliderValueLabel()
@@ -1036,9 +1036,10 @@ struct ClipVolumeRow: View {
     var body: some View {
         SliderRow(title) {
             HStack {
-                Slider(value: $value, in: 0...100, step: 5) { e in editing = e; if !e { model.setVolume(percent: Int(value), system: system) } }
+                Slider(value: Binding(get: { value }, set: { value = ($0 / 5).rounded() * 5 }), in: 0...100) { e in editing = e; if !e { model.setVolume(percent: Int(value), system: system) } }
                     .accessibilityLabel(title).accessibilityValue("\(Int(value)) percent")
-                Text(value == 0 ? "Muted" : "\(Int(value))%").monospacedDigit().frame(width: 52, alignment: .trailing)
+                Text(value == 0 ? "Muted" : "\(Int(value)) %").sliderValueLabel()
+                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
             }
         }
         .onAppear { value = (system ? clip.systemGain : clip.micGain) * 100 }

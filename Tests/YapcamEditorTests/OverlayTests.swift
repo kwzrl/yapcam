@@ -887,7 +887,7 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         var outcomes: [ExportModel.Outcome] = []
         e.onOutcome = { outcomes.append($0) }
         e.copyToClipboard(); await e.waitUntilFinished()
-        #expect(box.requests.last?.target == .clipboard && e.target == .clipboard)
+        #expect(box.requests.last?.target == .clipboard && e.target == .file && e.runningTarget == .clipboard)   // a copy does not change the remembered target
         e.target = .file
         e.start(to: URL(fileURLWithPath: "/tmp/x.mp4")); await e.waitUntilFinished()
         #expect(box.requests.last?.target == .file)
@@ -1198,5 +1198,110 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         // The dialog still has its own memory.
         let again = ExportModel(engine: FakeExporter()); again.remember(in: .dialog, defaults: d)
         #expect(again.format == .gif && again.fps == 30)
+    }
+}
+
+@MainActor @Suite struct ReviewR5EditorTests {
+    private func doc() throws -> (EditorDocument, () -> Void) {
+        let d = try pkgCopy(); let iso = EditorStorage.makeIsolated()
+        return (try EditorDocument(package: d, presets: iso.store), { try? FileManager.default.removeItem(at: d); iso.cleanup() })
+    }
+    private struct Req: ExportEngine {
+        let box: Box
+        final class Box: @unchecked Sendable { var requests: [ExportRequest] = [] }
+        func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL { box.requests.append(request); return request.destination }
+    }
+
+    // 1: hardware encoding switch reaches every editor export
+    @Test func hardwareEncodingSwitchReachesExportSettingsForEveryTarget() async throws {
+        let box = Req.Box(); let e = ExportModel(engine: Req(box: box))
+        #expect(e.makeRequest(destination: URL(fileURLWithPath: "/tmp/a.mp4")).hardwareEncoding)                 // default: hardware
+        var enabled = false
+        e.hardwareEncodingProvider = { enabled }
+        for format in [ExportFormat.mp4h264, .mp4hevc, .mp4both, .movh264, .gif] {
+            e.format = format
+            let r = e.makeRequest(destination: URL(fileURLWithPath: "/tmp/a.\(format.fileExtension)"))
+            #expect(!r.hardwareEncoding)
+            #expect(RenderExportEngine.settings(for: r).hardwareEncodingEnabled == false, "\(format)")
+        }
+        let clip = e.makeRequest(destination: URL(fileURLWithPath: "/dev/null"), target: .clipboard)
+        #expect(RenderExportEngine.settings(for: clip).hardwareEncodingEnabled == false)
+        enabled = true
+        #expect(RenderExportEngine.settings(for: e.makeRequest(destination: URL(fileURLWithPath: "/tmp/a.mp4"))).hardwareEncodingEnabled)
+        // The app-wide hook is what the default provider reads.
+        let saved = EditorWindows.hardwareEncodingEnabled; defer { EditorWindows.hardwareEncodingEnabled = saved }
+        EditorWindows.hardwareEncodingEnabled = { false }
+        let fresh = ExportModel(engine: Req(box: box))
+        fresh.start(to: URL(fileURLWithPath: "/tmp/b.mp4")); await fresh.waitUntilFinished()
+        #expect(box.requests.last?.hardwareEncoding == false)
+        fresh.copyToClipboard(); await fresh.waitUntilFinished()
+        #expect(box.requests.last?.hardwareEncoding == false && box.requests.last?.target == .clipboard)
+    }
+
+    // 2: trimming / moving a mask with keyframes is accepted by core
+    @Test func movingAndTrimmingAMaskWithKeyframesIsAcceptedByCore() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.seek(toNs: 0); m.addHighlightAtPlayhead(kind: .blur)                       // 0–3 s
+        let id = try #require(m.highlights.first?.id)
+        #expect(m.highlights[0].startNs == 0 && m.highlights[0].endNs == 3_000_000_000)
+        m.updateHighlightKeepingStyle(id: id) { $0.keyframes = [RegionKeyframe(tlNs: 2_000_000_000, rect: [0.5, 0.5, 0.3, 0.3])] }
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        let span = TimeSpan(startNs: 0, endNs: 3_000_000_000)
+        // Trim the end to 1.5 s: the key at 2 s is dropped, the mask ends on the box it had there.
+        m.previewRange(key: id, current: span, endNs: 1_500_000_000); m.commitRange(key: id)
+        #expect(m.lastError == nil, "trim: \(m.lastError ?? "")")
+        let trimmed = try #require(m.highlights.first)
+        #expect(trimmed.endNs == 1_500_000_000 && trimmed.keyframes.allSatisfy { $0.tlNs > trimmed.startNs && $0.tlNs <= trimmed.endNs })
+        #expect(trimmed.keyframes.last?.tlNs == 1_500_000_000)
+        // Move it +2.5 s (the project is 5 s long: 1.5 s mask fits 2.5…4 s): keys move along.
+        m.previewRange(key: id, current: TimeSpan(startNs: trimmed.startNs, endNs: trimmed.endNs), moveToStartNs: 2_500_000_000); m.commitRange(key: id)
+        #expect(m.lastError == nil, "move: \(m.lastError ?? "")")
+        let moved = try #require(m.highlights.first)
+        #expect(moved.startNs == 2_500_000_000 && moved.keyframes.map(\.tlNs) == trimmed.keyframes.map { $0.tlNs + 2_500_000_000 })
+        // Trimming the start drops earlier keys and starts from the box at the new start.
+        m.previewRange(key: id, current: TimeSpan(startNs: moved.startNs, endNs: moved.endNs), startNs: 3_000_000_000); m.commitRange(key: id)
+        #expect(m.lastError == nil, "trim start: \(m.lastError ?? "")")
+        // The pure function: a move shifts keys, a trim keeps those inside.
+        var r = HighlightRegion.preset(.blur, id: "r", start: 0, end: 3_000_000_000)
+        r.keyframes = [RegionKeyframe(tlNs: 1_000_000_000, rect: [0.1, 0.1, 0.2, 0.2]), RegionKeyframe(tlNs: 2_000_000_000, rect: [0.5, 0.5, 0.2, 0.2])]
+        #expect(r.retimed(startNs: 1_000_000_000, endNs: 4_000_000_000).keyframes.map(\.tlNs) == [2_000_000_000, 3_000_000_000])
+        let cut = r.retimed(startNs: 0, endNs: 1_500_000_000)
+        #expect(cut.keyframes.map(\.tlNs) == [1_000_000_000, 1_500_000_000])
+        #expect(abs(cut.keyframes.last!.rect[0] - 0.3) < 1e-9)                    // box at 1.5 s, halfway between the two keys
+        let late = r.retimed(startNs: 1_500_000_000, endNs: 3_000_000_000)
+        #expect(late.keyframes.map(\.tlNs) == [2_000_000_000] && abs(late.rect[0] - 0.3) < 1e-9)
+    }
+
+    // 5: case-only rename
+    @Test func caseOnlyRenameWorksOnACaseInsensitiveVolume() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("case-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("demo.yapcam")
+        try FileManager.default.createDirectory(at: a, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: a.appendingPathComponent("project.json"))
+        let renamed = try EditorWindows.rename(package: a, to: "Demo")
+        #expect(renamed.lastPathComponent == "Demo.yapcam")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["Demo.yapcam"])               // the case change landed on disk
+        #expect(FileManager.default.fileExists(atPath: renamed.appendingPathComponent("project.json").path))
+        // A real clash is still refused.
+        let other = dir.appendingPathComponent("Other.yapcam"); try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        #expect(throws: (any Error).self) { try EditorWindows.rename(package: renamed, to: "other") }               // "other" is "Other"
+        #expect(try Set(FileManager.default.contentsOfDirectory(atPath: dir.path)) == ["Demo.yapcam", "Other.yapcam"])
+    }
+
+    // 6: copyToClipboard leaves the remembered target alone
+    @Test func copyToClipboardKeepsTheRememberedTarget() async throws {
+        let suite = "yapcam.test.\(UUID().uuidString)"; let d = UserDefaults(suiteName: suite)!; defer { d.removePersistentDomain(forName: suite) }
+        let box = Req.Box(); let e = ExportModel(engine: Req(box: box)); e.remember(in: .dialog, defaults: d)
+        #expect(e.target == .file)
+        e.copyToClipboard(); await e.waitUntilFinished()
+        #expect(box.requests.last?.target == .clipboard)
+        #expect(e.target == .file && e.runningTarget == .clipboard)                         // the dialog's choice is untouched, the result screen knows
+        let again = ExportModel(engine: Req(box: box)); again.remember(in: .dialog, defaults: d)
+        #expect(again.target == .file)                                                      // and so is what was remembered
+        e.start(to: URL(fileURLWithPath: "/tmp/x.mp4")); await e.waitUntilFinished()
+        #expect(box.requests.last?.target == .file && e.runningTarget == .file)
+        e.target = .clipboard; e.copyToClipboard(); await e.waitUntilFinished()
+        #expect(e.target == .clipboard)                                                     // chosen by the user: stays
     }
 }

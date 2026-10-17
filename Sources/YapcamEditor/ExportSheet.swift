@@ -21,7 +21,7 @@ struct ExportSheet: View {
                 case .preparing?:
                     ProgressView { Text("Preparing the export…") }
                 default:
-                    ProgressView(value: p) { Text(export.target == .clipboard ? "Copying… \(Int(p * 100))%" : "Rendering… \(Int(p * 100))%") }
+                    ProgressView(value: p) { Text(export.runningTarget == .clipboard ? "Copying… \(Int(p * 100))%" : "Rendering… \(Int(p * 100))%") }
                     SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { ctx in
                         Text(Self.timing(since: export.startedAt, fraction: p, now: ctx.date)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                     }
@@ -32,15 +32,15 @@ struct ExportSheet: View {
                         Button("Keep exporting", role: .cancel) {}
                     } message: { Text("What has been rendered so far is discarded.") }
             case .done(let url):
-                Label(export.target == .clipboard ? "Copied to the clipboard" : "Export finished", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Label(export.runningTarget == .clipboard ? "Copied to the clipboard" : "Export finished", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                 Text(url.lastPathComponent).font(.callout).foregroundStyle(.secondary)
-                if export.target == .clipboard { Text("Paste it into a message or a folder. A copy stays in Recent copies.").font(.caption).foregroundStyle(.secondary) }
+                if export.runningTarget == .clipboard { Text("Paste it into a message or a folder. A copy stays in Recent copies.").font(.caption).foregroundStyle(.secondary) }
                 HStack {
                     Spacer()
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    Button("Show in Finder") { export.reveal(url) }
                     Button("Done") { export.reset(); dismiss() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
                 }
-                .onAppear { if export.target == .file { NSWorkspace.shared.activateFileViewerSelecting([url]) } }   // the finished file is revealed
+                .onAppear { if export.runningTarget == .file { export.reveal(url) } }   // the finished file is revealed
             case .failed(let message):
                 Label("Export failed", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
                 Text(message).font(.callout).textSelection(.enabled)
@@ -115,7 +115,7 @@ struct ExportSheet: View {
                             Text(url.lastPathComponent).font(.caption).lineLimit(1).truncationMode(.middle)
                             Spacer()
                             Button("Copy again") { export.copyAgain(url) }.buttonStyle(.borderless)
-                            Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "magnifyingglass") }.buttonStyle(.borderless).help("Show in Finder")
+                            Button { export.reveal(url) } label: { Image(systemName: "magnifyingglass") }.buttonStyle(.borderless).help("Show in Finder")
                         }
                     }
                 }

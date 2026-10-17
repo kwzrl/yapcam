@@ -72,7 +72,8 @@ struct CaptionStyleControls: View {
             HStack {
                 Slider(value: $size, in: CaptionLook.sizeRange) { e in if !e { var l = look; l.size = size; model.setCaptionLook(l) } }
                     .accessibilityLabel("Caption size").accessibilityValue(String(format: "%.1f percent of the height", size * 100))
-                Text(String(format: "%.1f%%", size * 100)).monospacedDigit().frame(width: 46, alignment: .trailing)
+                Text(String(format: "%.1f %%", size * 100)).sliderValueLabel()
+                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
             }
         }
         LabeledPills("Color", selection: Binding(get: { look.light }, set: { v in var l = look; l.light = v; model.setCaptionLook(l) }), options: [("Dark", false), ("Light", true)])

@@ -114,7 +114,7 @@ struct WaveformLayer: View {
                 let h = max(CGFloat(pow(a, 0.5)) * (size.height - 10) / 2, 0.5)
                 path.addRoundedRect(in: CGRect(x: CGFloat(c) * step, y: mid - h, width: max(step - 0.8, 0.8), height: h * 2), cornerSize: CGSize(width: 0.5, height: 0.5))
             }
-            ctx.fill(path, with: .color(.white.opacity(0.32)))
+            ctx.fill(path, with: .color(Color.primary.opacity(0.4)))     // light on dark chips, dark on light ones
         }
         .frame(width: width, height: height).allowsHitTesting(false).accessibilityHidden(true)
     }

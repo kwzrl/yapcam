@@ -65,6 +65,26 @@ extension HighlightRegion {
         for (a, b) in zip(keyframes, keyframes.dropFirst()) where t < b.tlNs { return lerp(a.rect, b.rect, Double(t - a.tlNs) / Double(max(b.tlNs - a.tlNs, 1))) }
         return keyframes.last!.rect
     }
+    /// The mask after moving or trimming it to [start, end]. Core rejects keyframes outside the interval, so:
+    /// a move (same length) shifts every keyframe with it; a trim keeps the keys that are still inside, starts from the box the
+    /// picture had at the new start, and ends on the box it had at the new end when later keys were cut off.
+    func retimed(startNs newStart: Int64, endNs newEnd: Int64) -> HighlightRegion {
+        var r = self
+        r.startNs = newStart; r.endNs = newEnd
+        guard !keyframes.isEmpty else { return r }
+        if newEnd - newStart == endNs - startNs {
+            let delta = newStart - startNs
+            r.keyframes = keyframes.map { RegionKeyframe(tlNs: $0.tlNs + delta, rect: $0.rect) }
+            return r
+        }
+        r.rect = newStart > startNs ? rect(atNs: newStart) : rect
+        var kept = keyframes.filter { $0.tlNs > newStart && $0.tlNs <= newEnd }
+        if keyframes.contains(where: { $0.tlNs > newEnd }), kept.last?.tlNs != newEnd {
+            kept.append(RegionKeyframe(tlNs: newEnd, rect: rect(atNs: newEnd)))
+        }
+        r.keyframes = kept
+        return r
+    }
     /// The two halves of a split at `t`: keys partition at the cut and both halves keep the picture's motion.
     func split(atNs t: Int64) -> (first: HighlightRegion, second: HighlightRegion) {
         let atCut = rect(atNs: t)
