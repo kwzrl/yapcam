@@ -25,6 +25,7 @@ extension SCStream: CaptureSessionStream {}
     var prepare: (RecordingOptions) async throws -> CaptureSessionPlan
     var makeWriter: (URL, Int64, Int) -> SegmentWriter
     var startEvents: (InputEventRecorder) throws -> Void
+    var validateSource: ((RecordingOptions) async throws -> Void)? = nil
     var automaticHealthChecks = true
 
     static var live: CaptureSessionServices {

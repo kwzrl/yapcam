@@ -61,6 +61,12 @@ private struct IsolationFixture {
 
 // Serialize native file/converter initialization; fixtures remain independent.
 @Suite(.serialized) struct VoiceIsolationTests {
+    @Test func isolationBufferAllocationFailureIsAReportedError() {
+        #expect(throws: VoiceIsolationError.processingFailed("Cannot allocate test buffer")) {
+            _ = try VoiceIsolationBufferPolicy.requireFloat(nil, purpose: "test")
+        }
+    }
+
     @Test(arguments: [UInt32(1), UInt32(2)], [Int64(0), 137, 5000]) func isolationCompensatesDelayPreservesFramesAndOriginal(channels: UInt32, latency: Int64) async throws {
         let fixture = try IsolationFixture(channels: channels); defer { fixture.cleanup() }
         let original = try Data(contentsOf: fixture.source)

@@ -166,10 +166,13 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         let pts = sample.presentationTimeStamp
         let sourceNs = CaptureClock.nanoseconds(pts)
         let end = stopLock.withLock { requestedEndNs }
-        guard pts.isNumeric, sourceNs >= hostStartNs, end == nil || sourceNs < end! else { return }
+        guard pts.isNumeric, sourceNs >= hostStartNs else { return }
+        if let end, sourceNs >= end { return }
         // Drop audio/device preroll instead of giving the source timeline a blank
         // screen lead-in. Every retained track starts at/after the first screen PTS.
-        guard key == "screen" || (screenStartNs != nil && sourceNs >= screenStartNs!) else { return }
+        if key != "screen" {
+            guard let screenStartNs, sourceNs >= screenStartNs else { return }
+        }
         let interval = 1_000_000_000 / Int64(maxFPS)
         if key == "screen" {
             if isHeartbeat {
@@ -374,7 +377,7 @@ final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
 
     @discardableResult func append(_ sample: CMSampleBuffer) throws -> Bool {
         if writer.status == .failed { throw writer.error ?? CaptureError.writerFailed("Media writer failed") }
-        guard lastPTS == nil || sample.presentationTimeStamp > lastPTS! else { return false }
+        if let lastPTS, sample.presentationTimeStamp <= lastPTS { return false }
         guard input.isReadyForMoreMediaData else { return false }
         if !appended {
             firstNs = CaptureClock.nanoseconds(sample.presentationTimeStamp)

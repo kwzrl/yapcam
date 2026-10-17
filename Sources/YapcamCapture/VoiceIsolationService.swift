@@ -23,6 +23,17 @@ public struct VoiceIsolationReport: Sendable, Equatable {
     public let compensatedLatencyFrames: Int64
 }
 
+enum VoiceIsolationBufferPolicy {
+    typealias Channels = UnsafePointer<UnsafeMutablePointer<Float>>
+
+    static func requireFloat(_ buffer: AVAudioPCMBuffer?, purpose: String) throws -> (AVAudioPCMBuffer, Channels) {
+        guard let buffer, let channels = buffer.floatChannelData else {
+            throw VoiceIsolationError.processingFailed("Cannot allocate \(purpose) buffer")
+        }
+        return (buffer, channels)
+    }
+}
+
 /// Local file-to-file groundwork for AUD-06. Call after recording has stopped.
 /// Creates an adjacent lossless 48 kHz Float32 CAF, preserving the original and
 /// file-local duration. No microphone access, playback, permission prompt or network.
@@ -64,16 +75,18 @@ public actor VoiceIsolationService {
             var settings = format.settings
             settings[AVLinearPCMIsNonInterleaved] = false
             let destination = try AVAudioFile(forWriting: temporary, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-            let decoder = VoiceIsolationDecoder(file: input)
-            let converted = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096)!
-            let processed = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096)!
+            let decoder = try VoiceIsolationDecoder(file: input)
+            let (converted, convertedChannels) = try VoiceIsolationBufferPolicy.requireFloat(
+                AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096), purpose: "audio conversion")
+            let (processed, processedChannels) = try VoiceIsolationBufferPolicy.requireFloat(
+                AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096), purpose: "audio processing")
             var position: Int64 = 0
             var decoded: Int64 = 0
             while position < frames + latency {
                 try Task.checkCancellation()
                 let count = AVAudioFrameCount(min(4096, frames + latency - position))
                 converted.frameLength = count
-                for channel in 0..<Int(channels) { converted.floatChannelData![channel].initialize(repeating: 0, count: Int(count)) }
+                for channel in 0..<Int(channels) { convertedChannels[channel].initialize(repeating: 0, count: Int(count)) }
                 if decoded < frames {
                     let wanted = AVAudioFrameCount(min(Int64(count), frames - decoded))
                     var conversionError: NSError?
@@ -88,7 +101,7 @@ public actor VoiceIsolationService {
                     guard wanted - available <= 1 else { throw VoiceIsolationError.processingFailed("Audio decoder ended early") }
                     if available < count {
                         for channel in 0..<Int(channels) {
-                            converted.floatChannelData![channel].advanced(by: Int(available)).initialize(repeating: 0, count: Int(count - available))
+                            convertedChannels[channel].advanced(by: Int(available)).initialize(repeating: 0, count: Int(count - available))
                         }
                     }
                     decoded += Int64(available)
@@ -100,7 +113,7 @@ public actor VoiceIsolationService {
                 let keep = VoiceIsolationWindow.slice(position: position, count: Int64(count), latency: latency, frames: frames)
                 if keep.count > 0 {
                     for channel in 0..<Int(channels) {
-                        let data = processed.floatChannelData![channel]
+                        let data = processedChannels[channel]
                         for index in 0..<Int(keep.count) {
                             let value = data[Int(keep.offset) + index]
                             guard value.isFinite else { throw VoiceIsolationError.processingFailed("Effect returned nonfinite audio") }
@@ -205,10 +218,11 @@ private final class AppleVoiceIsolationKernel: VoiceIsolationKernel {
             guard destination.count == inputList.count else { return kAudioUnitErr_FormatNotSupported }
             for index in 0..<destination.count {
                 let bytes = Int(count) * MemoryLayout<Float>.size
+                guard let source = inputList[index].mData else { return kAudioUnitErr_InvalidPropertyValue }
                 if let pointer = destination[index].mData {
                     guard Int(destination[index].mDataByteSize) >= bytes else { return kAudioUnitErr_TooManyFramesToProcess }
-                    memcpy(pointer, inputList[index].mData!, bytes)
-                } else { destination[index].mData = inputList[index].mData }
+                    memcpy(pointer, source, bytes)
+                } else { destination[index].mData = source }
                 destination[index].mDataByteSize = UInt32(bytes)
             }
             return noErr
@@ -227,9 +241,11 @@ private final class VoiceIsolationDecoder: @unchecked Sendable {
     private var exhausted = false
     private var readError: Error?
     var error: Error? { lock.withLock { readError } }
-    init(file: AVAudioFile) {
+    init(file: AVAudioFile) throws {
         self.file = file
-        buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4096)!
+        let (buffer, _) = try VoiceIsolationBufferPolicy.requireFloat(
+            AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4096), purpose: "decoder")
+        self.buffer = buffer
     }
     func supply(_ requested: AVAudioPacketCount, state: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
         lock.withLock {
