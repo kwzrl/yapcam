@@ -1,4 +1,5 @@
-READY R5 c6ae74a + pending owned package | capture parity implementation: AX sizing, display-refresh FPS, encoding requests, static/disk checkpoints; 167 capture tests +113 Rust +signed debug app pass; 3 real-file SIGKILL recoveries pass; UI/native HEVC gates below
+READY R5 50efc6d + status reconciliation | H/M then L audited: 14 scoped matches, 1 user exclusion, 33 concrete blockers; UI/native gates remain
+R5 01:08UTC 50efc6d | done: all 48 rows reconciled, named ownership/native/hardware blockers | next: Lead status checkpoint and listed handoffs
 READY dd39be4 F13 verified by Lead on a7d1526 (signed debug, M4): full-file EN/DE speech; weak filler recall measured; F14 owned by render
 READY 9b0cadc capture LOCAL implementation backlog empty; consumer wiring and native acceptance remain external
 READY 9b0cadc CAP-2/M3 camera sample failure hardening; 136 capture tests + Rust + signed build pass; native gates remain
@@ -19,130 +20,156 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 ## R5 parity
 
-Audit baseline **c6ae74a**, same as main, 2026-10-17. `git merge main` denied
-writing ORIG_HEAD; no integration is missing. Round5 supersedes the prior freeze
-and its Next list. Behaviour sources: supplied reference-spec A2–A6, CAP1–7 gap
-list, website recording text and Pickwhattosh screenshot; no reference assets/code
-copied. The rows below describe the baseline before R5 changes. UI-only controls
-are explicitly assigned to UI, not claimed as capture-owned parity work.
+Current audit **50efc6d** (Lead checkpoint, parent/main **10aaca6**),
+2026-10-17 01:08UTC. This table replaces the pre-R5 baseline; evidence refers to
+this checkout, not unintegrated changes in another team's worktree. `git rebase
+main` reports up to date; attempted metadata cleanup still logs sandbox lock errors.
+Behaviour sources: supplied reference-spec A2–A6, CAP1–7 gap list, website recording
+text and Pickwhattosh screenshot; no reference code/assets copied.
 
-| ID | Reference behaviour/value | Yapcam now (file:line) | Audit |
-|---|---|---|---|
-| A2 Display | Display list, native resolution, refresh FPS; single display auto-selected | YapcamCapture.swift:54 discovers native scale/pixels; no refresh metadata. CaptureSelfTest.swift:26 auto-selects | missing refresh metadata; picker/card selection UI-owned |
-| A2 Window | Native window capture, own/system windows filtered | CaptureThumbnails.swift:76 exposes all SC windows; CaptureGeometry.swift:126 excludes own recording target | mismatch picker own/system candidates |
-| A2 Window bounds | Follow moves/resizes, refresh bounds before start; closed source errors | CaptureGeometry.swift:126 snapshots at each start/resume; RecordingSession.swift:351 checks disappearance; encoded surface fixed, events remap | match capture; native resize follow already QA verified |
-| A2 Window prep | Raise target before starting | SourceOverlay.swift:100 raises only via context menu | missing automatic prep; AX permission must remain optional for ordinary capture |
-| A2 Window context | Raise/ignore/reset/area/display/apps submenu | SourceOverlay.swift:241 UI actions; capture accepts each target | match capture API; UI audits exact menu order |
-| A2 Exact size | Resize real window via AX; report failure rather than just change capture crop | SourceOverlay.swift:91 writes AX size but does not read back actual; ambiguous first bounds match | mismatch; add tested capture API with exact-size confirmation |
-| A2 Presets | 16:9 1280x720/1920x1080/2560x1440; 4:3 640x480…1600x1200; 9:16 720x1280…1440x2560; 16:10 640x400…2560x1600; square640…1600; custom/saved; only fitting sizes | SourceOverlay.swift:22 generates aspect-fit sizes rather than a canonical list | mismatch UI-owned; capture API will expose fitting exact sizes; intermediate reference lists are inferred |
-| A2 Area | Minimum150x150; no clipping beyond selected display | CaptureGeometry.swift:39 checks containment, permits2x2 | mismatch backend min; enforce150 logical points consistently with UI |
-| A2 Area controls | Position/size; Any/16:9/4:3/1:1/3:4/9:16/custom ratio>=1; 1/10 nudges, Cmd resize, Esc, saved dimensions | CaptureGeometry.swift:39 uses display-local points; UI AreaSelector owns editing | match capture math; UI-owned values/order/remembered-area audit |
-| A2 Device / continuity | USB60fps, frames, camera permission, experimental; continuity flag | DeviceScreenCapture.swift / DeviceScreenDiscovery.swift exist | out-of-scope by R5 user decision (device/iPhone/frames); do not expand |
-| A2 Camera-only | No separate source; editor fullscreen-camera layout | CaptureTarget in YapcamCapture.swift:96 has no camera-only case | match |
-| A2 Picker keys | 1/2/3 display/window/area | UI source overlays | out-of-scope for capture ownership; UI |
-| A3 Camera devices | Native devices + default flag; off allowed; resolution720/1080/2160 default1080 | YapcamCapture.swift:82 / CameraResolution.swift:3 / RecordingOptions:127 | match policy, simulated tests; untested (no camera) |
-| A3 Camera preview | Floating square default, hide toggle | UI CameraPreview / settings | out-of-scope for capture ownership; preview shape/UI |
-| A3 Mic | Request when needed, enumerate, off, live level | CapturePermissions in YapcamCapture.swift:174; AuxiliaryCapture.swift:28; SegmentWriter.swift:180 | match code/injected samples; untested (no microphone) |
-| A3 System audio / CAP1 | Off default; all apps; selected bundle-ID checklist; independent of picture | SystemAudioSelection.swift:11, RecordingOptions:122, CaptureSessionServices.swift:56 | match unit tested; actual selected-app isolation needs host acceptance |
-| A3 System gate | Modern SCK, macOS13+ audio | Package.swift minimum15; CaptureSessionServices.swift:56 SCK audio | match supported platform; no decorative legacy engine |
-| A3 Preflight / CAP6 | Muted camera confirmation; disappeared device; closed-lid built-in mic; missing permission | CapturePreflight.swift:33 issues; UI Preflight + RecordingController call before start | match injected cases; no camera/mic/laptop hardware |
-| A3 Resize preflight | Accessibility required for modifying windows | CapturePreflight.swift:23 | match check; exact resize implementation missing in capture |
-| A4 Icons | Off default; exclude desktop icon surfaces without changing Finder prefs | RecordingOptions:124; CaptureFilterPolicy.swift:13,19 | match; ordinary Finder windows retained |
-| A4 Dock/highlight | Hide Dock on; dim outside area on | UI settings/area overlay | out-of-scope for capture ownership; UI |
-| A4 Notes | Off; speed0…25, opacity0.4…1, font12…32; excluded | CaptureFilterPolicy.swift:13 excludes whole own app, including new overlays | match capture exclusion; controls/defaults UI |
-| A4 After/countdown | Quick widget on; None/3/5/10 defaultNone | UI settings/countdown | out-of-scope for capture ownership; UI |
-| A4 Engine | Auto/modern/legacy reference menu | SCK only, macOS15 baseline | mismatch UI/Lead decision; legacy not implemented, cannot offer fake selector |
-| A4 FPS / CAP4 | No picker; follow chosen display refresh, window initial display; device60 | RecordingOptions:123 fixed60; CaptureGeometry.swift:94 rejects except30/60 | mismatch; implement automatic default, retain explicit30/60 as compatibility extras |
-| A4 Input | Mouse and keys on; cursor rendered in editor | InputEvents.swift:81 tap; RecordingOptions:123 keys off | mismatch default; UI permission gate must still apply |
-| A4 Screen encoding | HEVC quality0.85, keyframes2x refresh | SegmentWriter.swift:260 HEVC +2s duration, no numeric quality/frame-count interval | mismatch; VideoToolbox compression dictionary policy + encoder test |
-| A4 Camera encoding / CAP2 | HEVC quality0.6, max-resolution cap | SegmentWriter.swift:260 HEVC, no quality; CameraResolution.swift:3 caps | mismatch quality; cap matches injected formats |
-| A4 Own windows | Exclude app windows throughout recording | CaptureFilterPolicy.swift:13; CaptureGeometry.swift:126 | match (prior native QA); new surfaces covered by app exclusion |
-| A5 Start gating | Valid source/area, permissions before capture | RecordingSession.swift:44; CaptureGeometry.swift:39 | match permissions; minimum-area gap above |
-| A5 Countdown | Ring/continue/skip/cancel, no wait whenNone | UI countdown; session starts after UI completes | match capture sequencing; UI visuals/interactions audited by UI |
-| A5 Begin/end sound / CAP7 | Own sound at0.33 before capture; audio-input start wait<=540ms; end on stop | UI StartSound.swift:14 and RecordingController.swift:280 | gain/limit match; mismatch: UI waits even without any audio inputs. UI-owned conditional wait; not heard live; own audio excluded from system track |
-| A5 Badge | Dot during recording | UI AppDelegate/dock | out-of-scope for capture ownership |
-| A6 Widget | 48pt nonactivating/excluded, saved position, defaulton | CaptureExclusions / CaptureFilterPolicy exclude app | match capture exclusion; layout/settings UI |
-| A6 Timer/pause | Total active elapsed across pause; resume toggles | RecordingSession.swift:74,103,305; segment timeline | match unit/native QA |
-| A6 Restart/cancel | Confirm then restart or delete package; shortcuts | RecordingSession.swift:148 cancel serializes/deletes; UI recreates session | match capture; prompts/hotkeys UI |
-| A6 Busy | Disable actions during work, spinner after3s | CaptureOperationGate.swift / RecordingSession.swift:24 | match serialization; spinner UI |
-| A6 Markers / CAP3 | Active-only source-time timestamp, pauses removed, durable | RecordingSession.swift:88; InputEvents.swift:154 marker fsync | match injected journal/recovery; UI/core/editor integrated |
-| A6 Low disk | Automatically stop and explain | RecordingSession.swift:322 health check; PackageIO.requireSpace 1GB | match injected failure paths |
-| A6 Errors/recovery | Retain readable take, offer recovery if finalize fails | RecordingSession.swift:365; RecordingRecovery.swift:33; package lease | match unit paths; no blanket guarantee of zero lost tail |
-| Website crash safety | About2s media fragments, recover after sudden process/power loss | SegmentWriter.swift:239 2s fragments +keyframes; LongSessionTests.swift:177 simulated100 trials; NativeFragmentTests.swift:69 hour gated | missing real subprocess SIGKILL regression; implement actual native fixture + recovery/decoding, no app launch |
+Priority follows the capture gap list: **no H capture rows**; M window/area/input
+and CAP1/2/3 first, then L defaults/recording controls/crash acceptance. `match`
+means the scoped implementation/evidence in the row, not unperformed live testing.
+`BLOCKED` names the missing hardware or a concrete request to the owning team in
+that row. Cross-team presentation is not mislabeled product out-of-scope. Only the
+explicit user exclusions below are out-of-scope. UI requests are delivered through
+this status file, as required by TEAMS ownership.
 
-### R5 work order and assumptions
+| Priority | ID | Reference behaviour/value | Yapcam now (file:line) | Current audit / concrete blocker |
+|---|---|---|---|---|
+| M | A2 Display | Display list, native W×H and refresh FPS; single display auto-selects | YapcamCapture.swift:7,61 supplies refresh/scale/pixels; UI SourceOverlay.swift:227 still displays settings.maxFPS | BLOCKED — UI R5-CAP-UI1: show DisplaySource.refreshRate, retain single-display auto-selection and verify direct display menu/overlays. Capture metadata and refresh policy unit-tested. |
+| M | A2 Window filtering | Exclude own/system surfaces from window picker | YapcamCapture.swift:81 filters SC candidates via CaptureWindowControl.swift:149; UI SourceOverlay.swift:34 builds a separate CG list | BLOCKED — UI R5-CAP-UI2: intersect CG hit-test rows with CaptureSources.windows IDs so UI cannot bypass the tested own/system filter; keep normal Finder documents. |
+| M | A2 Window bounds | Follow moves/resizes, refresh before start; closed source errors | CaptureGeometry.swift:79,116 refreshes SC bounds; RecordingSession.swift:328 checks source; SegmentWriter.swift:122 remaps events | match capture implementation; injected geometry/source-loss tests and earlier native window-move QA. Encoded surface stays fixed for a take; point rect remains separate. |
+| M | A2/A5 Window prep | Raise target before start, then refresh bounds | CaptureGeometry.swift:83 best-effort authorized raise before rediscovery; CaptureWindowControl.swift:29 | BLOCKED — Lead R5-CAP-HOST2: native AX raise/readback acceptance through the signed UI. Injected window-selection/resize checks pass; no GUI interaction attempted from sandbox. Ordinary capture does not require AX. |
+| M | A2 Window context | Raise/ignore/reset/adjust-to-area/apps→windows/entire-display actions | UI SourceOverlay.swift:236 owns menu; CaptureTarget supports display/window/area | BLOCKED — UI R5-CAP-UI2: verify all actions and reference menu order; use CaptureWindowControl.raise for real-window actions. Capture target conversion/math is implemented. |
+| M | A2 Exact size | Resize real window via AX and confirm actual size | CaptureWindowControl.swift:25 returns actual CGRect; typed permission/ambiguity/clamp errors; UI SourceOverlay.swift:175 still calls WindowAX.resize returning Bool | BLOCKED — UI R5-CAP-UI3: replace bool-only AX path with awaited CaptureWindowControl.resize and display typed errors/actual bounds. Lead R5-CAP-HOST2 runs live AX check. Delayed/clamped/ambiguous/denied unit cases pass. |
+| M | A2 Size presets | 16:9 1280×720/1920×1080/2560×1440; 4:3 640×480…1600×1200; 9:16 720×1280…1440×2560; 16:10 640×400…2560×1600; square640…1600; fitting only, custom/save/delete | CaptureWindowSizes.swift:11 exact fitting groups; UI SourceOverlay.swift:168 still aspect-fits | BLOCKED — UI R5-CAP-UI3: consume exact preset provider plus saved/custom UI. QA R5-CAP-QA1: confirm intermediate reference sizes/group mapping; supplied spec only gives endpoints for several groups. Current intermediate choices are assumptions, not certified parity. |
+| M | A2 Area geometry | Minimum150×150; stay within selected display | CaptureGeometry.swift:37 enforces minimum/containment and even encoded dimensions | match injected scale1/2 and negative-origin multi-display math. Assumption: overlay dimensions are logical points; encoded pixels use display scale. Real Retina/second-display acceptance remains untested (no hardware). |
+| M | A2 Area controls | Position/Size; Any,16:9,4:3,1:1,3:4,9:16,custom x:y≥1; arrows1, Shift10, Cmd resize, Cmd+Shift resize10; Esc; saved/remembered area | UI AreaSelector.swift:68,266 owns editing; current keyboard uses Shift resize and Option10 | BLOCKED — UI R5-CAP-UI4: align modifier map to reference, ratio list/order/minimum and saved/remembered-area controls; capture accepts display-local point rects and validates them. |
+| M | A2 Camera-only | No separate camera-only capture source; fullscreen-camera is editor layout | YapcamCapture.swift:110 CaptureTarget has display/window/area/device only | match capture API; fullscreen-camera output belongs to editor. |
+| M | A3 Camera devices / CAP2 | Off/native devices/default flag; max720/1080/2160, default1080; largest native size within cap, no upscale | YapcamCapture.swift:96,137; CameraResolution.swift:3,28 selects actual supported format/rate | BLOCKED — untested (no camera hardware). Discovery/default/cap/no-device/device-loss paths are implemented and injected tests pass; live format negotiation is not claimed. |
+| M | A3 Camera menu | Device/default list, Max resolution submenu720p/1080p/4K, hide preview, off | UI CameraResolutionInfo.swift:58 and toolbar own presentation; capture exposes devices/cap | BLOCKED — UI R5-CAP-UI5: verify complete camera menu grouping/order/off/default indication and selected resolution forwarding. No camera hardware for a live menu/device check. |
+| M | A3 Microphone | Permission when needed; native devices/off; live level | YapcamCapture.swift:96,189; AuxiliaryCapture.swift:28; SegmentWriter.swift:218 meters samples | BLOCKED — untested (no microphone hardware). Permission/no-device/loss/meter routing have injected tests; UI R5-CAP-UI5 owns on-demand permission/off presentation. |
+| M | A3 Audio selection / CAP1 | All apps / selected bundle-ID checklist / off; independent of picture | SystemAudioSelection.swift:11; CaptureSessionServices.swift:56 separate audio stream; UI RecordingController.swift:227 forwards selection | BLOCKED — Lead R5-CAP-HOST3: record two distinguishable app audio sources and confirm selected/unselected isolation, including selected apps outside recorded window. Policy/routing tests pass; audible native isolation is unmeasured. |
+| M | A3 Audio default / CAP1 | System audio off for new preferences | YapcamCapture.swift:136 default false; UI AppSettings.swift:158 still defaults true | BLOCKED — UI R5-CAP-UI1: default systemAudio false when key absent; preserve explicit saved choices. Capture default already matches. |
+| M | A3 System gate | Audio requires modern ScreenCaptureKit and macOS13+ | Package.swift macOS15 minimum; CaptureSessionServices.swift:56 creates SCK audio stream | match supported platform; every supported host has modern engine/audio availability. Legacy selector decision is separately blocked below. |
+| M | A6 Markers / CAP3 | Active-only source timestamp, pauses removed, durable before acknowledgement | RecordingSession.swift:89; InputEvents.swift:157; RecordingRecovery.swift:106 | match injected lifecycle/journal/recovery tests; marker independent of key-recording permission, preserved only within recovered media range. Hotkey/widget presentation is a separate UI row. |
+| L | A2 Device / CAP5 / continuity | USB device60fps, experimental/permission state, continuity/device-frame flag | DeviceScreenCapture.swift / DeviceScreenDiscovery.swift retained from earlier work | out-of-scope — explicit R5 COMMON user decision excludes iPhone/device source and frames; no new work. Existing API retained, real USB remains untested (no hardware). |
+| L | A2 Picker keys | 1/2/3 display/window/area; Esc clears mode then closes | UI SourceOverlay.swift:332 and AppSettings.swift:18 own picker state | BLOCKED — UI R5-CAP-UI4: verify source mode keys and two-stage Escape. No capture API work required. |
+| L | A3 Camera preview | Floating preview, default square, hide toggle | UI CameraResolutionInfo.swift:58 and preview controller own view/settings; own app excluded | BLOCKED — UI R5-CAP-UI5: implement/verify square default and hide behavior; untested live (no camera hardware). |
+| L | A3 Preflight / CAP6 | Muted-camera confirmation, disappeared devices, closed-lid built-in mic warning, permissions/settings path | CapturePreflight.swift:18,33 supplies issues; UI Recording/Preflight.swift:42 resolves choices | BLOCKED — untested (no camera/mic/laptop hardware). All injected issue/continuation cases pass; UI R5-CAP-UI5 verifies prompts before countdown/start cue. |
+| L | A3 Resize preflight / CAP6 | AX permission required only for actual window resize | CapturePreflight.swift:23; CaptureWindowControl.swift:34 enforces permission | BLOCKED — UI R5-CAP-UI3: call windowResizeIssue before resize and offer settings; ordinary capture must not demand AX. Denied-permission injection passes. |
+| L | A4 Icons | Hide desktop icons off by default; filter capture, no Finder preference changes | YapcamCapture.swift:138; CaptureFilterPolicy.swift:14,19 retains ordinary Finder windows | match filter/default unit tests and prior native exclusion QA; no Finder preference changes/restoration needed. |
+| L | A4 Dock/highlight | Hide Dock icon on; dim unrecorded area on | UI AppSettings.swift:177,181 and AreaOutline.swift own behavior | BLOCKED — UI R5-CAP-UI6: verify hide-Dock default/recording lifecycle and dim-outside default; these controls do not belong in capture engine. |
+| L | A4 Notes exclusion | Notes/teleprompter invisible in recording | CaptureFilterPolicy.swift:14 and CaptureGeometry.swift:107 exclude entire own app | match capture policy; newly created own overlays remain excluded, not just the initial window list. |
+| L | A4 Notes controls | Off; speed0…25, opacity0.4…1, font12…32; Cmd+Alt+/ | UI Toolbar/NotesWindow.swift owns controls and bounds | BLOCKED — UI R5-CAP-UI6: verify notes defaults/ranges/shortcut and section order. Capture exclusion implemented in previous row. |
+| L | A4 After recording | Quick widget on by default; settings command Cmd+, | UI AppSettings.swift:187 defaults showQuickExportWidget false | BLOCKED — UI R5-CAP-UI6: set new-preference quick-widget default on and verify after-recording section/Settings action; cloud account gating remains out-of-scope. |
+| L | A4 Countdown values | None/3/5/10, default None | UI AppSettings.swift:170; SourceOverlay.swift:136 | match stored allowed values/default in current source. Countdown interaction/visual acceptance is separately assigned below. |
+| L | A4 Engine | Auto modern / force modern / force legacy | CaptureSessionServices.swift:42 supports ScreenCaptureKit; macOS15 baseline | BLOCKED — named Lead + UI request R5-CAP-DEC1: decide explicit legacy-engine exclusion for supported macOS15+ or commission real legacy implementation; do not present unsupported selectable engine modes. No silent claim of reference parity. |
+| L | A4 FPS / CAP4 | No FPS picker; initial display refresh for display/window/area; device60 | CaptureFrameRate.swift:11; CaptureGeometry.swift:128; RecordingSession.swift:115 persists initial cap; UI AppSettings.swift:173 still60 | BLOCKED — UI R5-CAP-UI1: new-preference cap0, forward automatic unchanged, remove FPS picker from reference controls (SourceOverlay.swift:135 / SettingsWindow.swift:63); explicit saved30/60 may remain Advanced extras. Capture24…240Hz and resume policy tests pass; >60Hz live untested (no hardware). |
+| L | A4 Input | Mouse/keyboard on; cursor re-rendered by editor | YapcamCapture.swift:137 default keys true; RecordingSession.swift:229 permission gate; CaptureGeometry.swift:133 cursor false; UI AppSettings.swift:172 keys default false | BLOCKED — UI R5-CAP-UI1: keys on only when preference absent, keep explicit false and granted Input Monitoring gate. Capture default/denied-permission tests pass; cursor exclusion/rerender policy retained. |
+| L | A4 Screen encoding / CAP4 | HEVC quality0.85; keyframe interval2× refresh (2s) | SegmentWriter.swift:284 requests quality/expectedFPS/keyframes; :315 native fragments; canApply validates requested settings | BLOCKED — Lead R5-CAP-HOST1: native writer/decoder gate, command below. Sandbox encoder returns -12903; requested dictionary tests pass but effective HEVC quality acceptance is not verified. |
+| L | A4 Camera encoding / CAP2 | HEVC quality0.6; resolution cap | SegmentWriter.swift:284 requests0.6 camera quality and30/60fps; CameraResolution.swift:28 caps actual formats | BLOCKED — Lead R5-CAP-HOST1 checks synthetic camera encoder track; real camera acceptance untested (no hardware). Requested quality values are tested, not certified encoder behavior. |
+| L | A4 Own windows | Exclude app windows throughout recording | CaptureFilterPolicy.swift:14; CaptureGeometry.swift:107; CaptureExclusions in YapcamCapture.swift:265 | match capture policy and prior native toolbar exclusion QA. No reference assets or sounds introduced. |
+| L | A4 Unsupported appearance controls | No Do Not Disturb / hide notch / hide menu bar controls | RecordingOptions in YapcamCapture.swift:122 exposes none of these controls | match capture API; any own optional extras remain after reference sections, per Lead decision. |
+| L | A5 Start gating | Valid source/area≥150×150 and permissions before recording | RecordingSession.swift:39,46; CaptureGeometry.swift:37,79 | match injected start/permission/disappearance/area tests; no package or active stream created for invalid preflight conditions. |
+| L | A5 Countdown interaction | None immediate; ring/remaining seconds; Enter skip; cancel returns picker | UI RecordingController.swift:282 starts capture after countdown/cue | BLOCKED — UI R5-CAP-UI6: verify ring/seconds/continue/skip/cancel and immediate None behavior. Capture only starts when UI calls start; sequencing tests pass. |
+| L | A5 Sounds / CAP7 | Own begin cue0.33 before capture; ≤540ms wait only with audio inputs; end cue on stop | UI StartSound.swift:13; RecordingController.swift:289 awaits unconditionally when enabled; CaptureSessionServices.swift:59 excludes own audio | BLOCKED — UI R5-CAP-UI7: await gate only for mic/system audio, play without video-start delay otherwise; retain0.33/540ms and stop cue. Audible playback untested; capture excludes own process audio. |
+| L | A5 Dock badge | Recording dot badge | UI AppDelegate.swift owns app activation/Dock state | BLOCKED — UI R5-CAP-UI6: verify recording badge lifecycle; no capture-layer presentation work. |
+| L | A6 Widget | 48pt, nonactivating, excluded, avoids captured bounds, saved position, default on; Cmd+Alt+' | UI AppSettings.swift:184 default on; CaptureFilterPolicy.swift:14 excludes own app | BLOCKED — UI R5-CAP-UI8: verify height/nonfocus/avoidance/position persistence/shortcut. Capture exclusion matches and requires no extra window registration race. |
+| L | A6 Timer/pause | Total active elapsed survives pause/resume; stop finishes take | RecordingSession.swift:76,103,135,309; UI formats elapsed | match capture active-time/segment tests and prior native pause QA. UI R5-CAP-UI8 must verify timer formats0:00→00:00→0:00:00→00:00:00. |
+| L | A6 Restart/cancel | Confirm then restart or delete/reopen picker; rebindable shortcuts | RecordingSession.swift:152 serializes cancel/deletes; UI RecordingController.swift recreates session | BLOCKED — UI R5-CAP-UI8: verify prompts and Cmd+Alt+Backspace restart/cancel bindings. Capture deletion/serialization unit tests pass. |
+| L | A6 Busy | Disable actions during work; spinner after3s | CaptureOperationGate.swift serializes operations; UI RecordingController.swift owns busy feedback | BLOCKED — UI R5-CAP-UI8: verify disabled controls and3s spinner; capture nonoverlap/coordinator tests pass. |
+| L | A6 Marker shortcut | Cmd+Alt+Ctrl+F; action only while recording | RecordingSession.swift:89 rejects inactive state; UI owns shortcut/widget button | BLOCKED — UI R5-CAP-UI8: verify hotkey/button forwarding and inactive-state disablement. Capture timestamp/durability is the matched M row above. |
+| L | A6 Tray / activation | Menubar stop icon/action while active; dock activation asks finish; recording/project drop actions | UI AppDelegate.swift / Support/MainMenu.swift own tray/activation/import dispatch | BLOCKED — UI R5-CAP-UI8: verify stop/activation prompt and supported Yapcam project/preset drops; proprietary reference file import is a Lead scope decision, not implicitly claimed. |
+| L | A6 Low disk | Auto-stop with explanation | RecordingSession.swift:328 health check; PackageIO.requireSpace1GB; injected low-disk lifecycle tests | match capture failure behavior; UI presents returned warning/error. No disk-filling live experiment performed. |
+| L | A6 Errors/recovery | Finalize/recover retained footage; recover-now option when finish fails | RecordingSession.swift:371; RecordingRecovery.swift:28,106; RecordingPackageLease.swift:5 | match capture injected failure/recovery paths and real-file SIGKILL gate. UI R5-CAP-UI8 verifies recover-now presentation; uncommitted tail can be lost. |
+| L | Website crash safety | About2s disk saves, readable recovery after abrupt loss | SegmentWriter.swift:64,315; CaptureDiskCheckpoint.swift:19; InputEvents.swift:171; Tools/run_crash_recovery.zsh | BLOCKED — Lead R5-CAP-HOST1: native HEVC/static fragment kill/recover gate. Three real CPU H.264 producer SIGKILLs pass (4/6/8s recovered, ≤0.700s tail loss); hour simulation/100 trials pass. Physical power failure not tested; no zero-loss/power-loss guarantee. |
 
-M: exact-size AX API (failure/readback and injected tests), own/system picker filtering,
-minimum-area guard. L: display-following FPS and refreshed display metadata, quality
-0.85/0.6 +2xfps encoding, keys default on. Then real SIGKILL fragmented fixture
-verification and complete build/tests. No new camera/mic hardware claims. Keep old
-explicit30/60 call sites working; UI must switch to automatic for ordinary recording.
-Window sizes/area geometry use logical points; encoded pixel size remains even,
-with the original point rect separate (F8/F9 invariants). A completed fragment is
-not a guarantee of power-loss durability for the last in-flight samples. No legacy
-engine, cloud, device-frame or iPhone scope added.
+### R5 priority closure and assumptions
 
-### R5 Requests
+This reconciliation changes **only this status file**. Whitespace/diff checks pass;
+product sources/tests remain exactly50efc6d. `git add docs/status/capture.md` was
+denied creating index.lock; Lead must checkpoint this documentation. The167 capture tests,113 Rust tests
+and signed debug app results below were already collected; no new live/full-suite
+pass claimed and no app launched.
 
-- **UI:** audit all A2–A6 picker/widget/settings rows above, including canonical
-  resize preset values rather than aspect-fit-only values and system/own windows.
-  Capture will publish an exact-size AX API and automatic FPS support here; switch
-  normal capture to display-following and show display refresh in the card. Keep
-  explicit30/60 only as an extra after reference controls. Default key recording on,
-  but gate actual tap capture on input permission. UI owns camera previews/start
-  sounds/countdown/Dock/notes; existing StartSound policy already matches0.33/540ms.
-- **Lead:** Git metadata writes still denied; checkpoint owned R5 packages and
-  status. Capture source starts at mainc6ae74a. Request another-family review of
-  new critical media/recovery code before integration per TEAMS rule10.
-- **UI API now available:** `DisplaySource.refreshRate: Double`; ordinary
-  `RecordingOptions.maxFPS = 0` means follow initial source display, and is the
-  new default. Explicit30/60 callers still work. A real resolved positive rate is
-  stored in session.json and retained across pause/resume (window display changes
-  do not change the take's frame-rate cap). UI currently passes its stored60, so
-  change new ordinary recordings/settings defaults to0 and remove the FPS picker
-  from reference sections; explicit rate caps can remain an Advanced extra.
-  `recordKeystrokes` defaults true; session still gates capture on granted Input
-  Monitoring, and explicit false persisted preferences are preserved.
-- **UI exact-size API now available:** `try await CaptureWindowControl.resize(windowID:to:)`
-  returns actual CGRect or throws a typed clamp/permission/ambiguity error.
-  `CaptureWindowSizePreset.fitting(in: display.frame.size)` gives exact logical
-  sizes, grouped16:9,4:3,9:16,16:10,1:1; append saved/custom controls as UI owns
-  persistence. `CaptureWindowControl.raise(windowID:)` uses public AX.
-- **UI CAP7 detail:** StartSound gain0.33/540ms race is correct, but the current
-  RecordingController unconditionally awaits the gate whenever sounds are on.
-  Reference waits only when audio inputs are recorded. For parity, await the gate
-  for selected microphone/system audio; otherwise start the cue without delaying
-  video capture. No capture-layer sound code or copied reference sound introduced.
-- **Lead native gate (no app launch needed):**
-  `zsh Tests/YapcamCaptureTests/Tools/run_crash_recovery.zsh` from capture worktree.
-  The fresh signed CLI creates synthetic64x64 screen/camera tracks, waits for
-  completed native fragments, SIGKILLs only its own child at three seeded points
-  (including a static screen), then recovers and actually decodes both tracks.
-  It requires at most one2s fragment of missing tail, contiguous origin/source time,
-  retained durable marker and unchanged original media bytes. It lists/removes
-  its own temporary fixture/build tree via traps. No QA app lock/app launch/TCC
-  needed. Sandbox probe hit native encoder failure (-12903), not a test pass;
-  capture will report strict native results separately from injected unit results.
-- **Software fixture gate passed:** same command with `--software-fixture`
-  CPU-encodes H.264 test fixtures using installed FFmpeg, SIGKILLs its own producer
-  and invokes the production `RecordingSession.recover` from the freshly signed
-  capture CLI. Three trials recover4/6/8s (120/180/240 decoded frames),2/3/4 complete
-  fragments, with missing tails0.467/0.367/0.700s. Original media unchanged; stale
-  event removed and retained-range marker preserved; monotonic packets and<=2.05s
-  keyframe gaps checked. **Actual real-file SIGKILL/recovery, not the production
-  AVAssetWriter/HEVC encoder test and not a physical power-loss test.** FFmpeg is
-  existing test tooling, no new bundled runtime dependency. All own media/build
-  temp directories listed/deleted. Log `/tmp/yapcam-capture-r5-software-crash.log`.
-- **Lead process cleanup:** obsolete synchronous-checkpoint test run's SwiftPM PID
-  **25886** belongs to capture (`r5-final-tests.log`, started by capture), still holds
-  this worktree's SwiftPM lock. SIGINT of that owned PID was denied by sandbox;
-  no app/other-team process was touched. A second capture-only test command waits
-  behind it (`r5-checkpoint-tests.log`). Please stop those capture test processes
-  outside sandbox when convenient. Current validation uses a fresh standalone
-  capture module/test binary and an isolated canonical build scratch directory,
-  with cleanup traps, so no stale object results or lock bypass are involved.
+- **M: 17 rows — 5 match, 0 out-of-scope, 12 concrete blockers; zero unassigned mismatch/missing rows.**
+- **L: 31 rows — 9 match, 1 out-of-scope, 21 concrete blockers; zero unassigned mismatch/missing rows.**
 
-### R5 M package (commit-ready; Lead checkpoint)
+H/M reconciliation completed before the L pass; L pass also completed. No remaining
+capture-owned code change can resolve the listed UI ownership/native-service or
+hardware blockers. READY is a review/integration handoff with those open gates,
+not full live/reference certification. No new scope/defaults introduced by this
+reconciliation. Window/area sizes are logical points; encoded pixels remain even
+and source point rect is separate (F8/F9). Exact intermediate preset lists still
+need QA evidence; no guessed list is marked verified. Capture's old explicit30/60
+values remain compatible extras after reference controls.
+
+### R5 Requests (current; IDs used in rows)
+
+- **UI R5-CAP-UI1:** adopt new automatic cap0, show display refresh, default new key
+  recording on (permission gated) and system audio off, preserve explicit saved
+  choices. Remove FPS selectors from reference controls; explicit caps may remain
+  Advanced extras. API: `DisplaySource.refreshRate`, `RecordingOptions.maxFPS = 0`,
+  `recordKeystrokes = true`. Manifest max_fps stays resolved positive and fixed
+  across pause/resume.
+- **UI R5-CAP-UI2:** apply capture's filtered window IDs to the separate CG picker
+  and reconcile complete context actions/order; retain normal Finder documents.
+- **UI R5-CAP-UI3:** use `try await CaptureWindowControl.resize(windowID:to:) -> CGRect`,
+  typed actual-size/ambiguity/permission errors, `CaptureWindowControl.raise`,
+  `CaptureWindowSizePreset.fitting(in:)`; use resize preflight/settings path.
+  Replace old first-bounds-match bool AX writes and aspect-fit preset labels.
+- **UI R5-CAP-UI4:** area modifier map is arrows1/Shift10/Cmd-resize/Cmd+Shift10;
+  verify ratio/custom/saved/remembered area and picker1/2/3/Escape behavior.
+- **UI R5-CAP-UI5:** camera/mic menu order/default/off/preview and preflight prompts;
+  device code/injections pass, physical camera/mic/laptop checks remain no-hardware.
+- **UI R5-CAP-UI6:** recording gear defaults/order, Dock/highlight/notes controls,
+  after-recording quick-widget default on, countdown behavior and Dock badge.
+- **UI R5-CAP-UI7:** own sound0.33/540ms policy already exists; await only when
+  mic/system audio records, otherwise play without delaying video start.
+- **UI R5-CAP-UI8:** widget48pt/nonfocus/avoidance/saved position, elapsed formatting,
+  busy spinner3s, restart/cancel/marker shortcuts, tray/activation/recovery UI.
+- **QA R5-CAP-QA1:** confirm full intermediate window-size lists/group mapping
+  (supplied reference spec explicitly says partly inferred). Known16:9 values and
+  other groups' endpoints/fitting behavior implemented; exact intermediate parity
+  remains blocked on this request.
+- **Lead + UI R5-CAP-DEC1:** explicit decision on legacy-engine exclusion or real
+  implementation; SCK-only macOS15+ is the actual supported engine. Also decide
+  proprietary reference-format drop/import scope; own format drop remains UI.
+- **Lead R5-CAP-HOST1 — native encoder/crash gate, no app launch needed:** from
+  capture checkout run `zsh Tests/YapcamCaptureTests/Tools/run_crash_recovery.zsh`.
+  Fresh signed CLI injects64×64 screen/camera frames, waits for native fragments,
+  SIGKILLs only its own child at three seeded points (including static-screen
+  heartbeat), recovers and decodes both tracks. Requires ≤2.1s lost tail, contiguous
+  source time, retained marker and unchanged original media bytes. Own temp tree
+  listed/deleted by trap. Sandbox encoder fails **-12903**, not a pass. Requests
+  HEVC0.85/0.6 and2xfps/2s keys; no claim that requesting quality proves support.
+  Physical power-loss durability is not measured by a process-kill fixture.
+- **Lead R5-CAP-HOST2:** after UI adopts exact-size API, native AX raise/resize a
+  known resizable window, check requested/actual bounds and app-clamped error.
+  Already-granted signed app permissions are not reset. Respect QA `.app-lock`,
+  user's existing instances and LaunchServices launch rule; no live action here.
+- **Lead R5-CAP-HOST3:** selected-app audio isolation with two native sound sources;
+  confirm unselected source excluded even when its window is the picture source.
+- **Lead:** checkpoint this status reconciliation; capture code already committed
+  by Lead in50efc6d. Document public additions/defaults in SWIFT_API; arrange
+  other-family review of critical writer/recovery changes per TEAMS rule10, and
+  full native Swift suite (six E2E Metal-unavailable failures in sandbox).
+- **Lead process cleanup:** capture-owned obsolete SwiftPM PID25886 and the second
+  capture test waiting on its lock (`r5-checkpoint-tests.log`) were reported
+  previously; sandbox denied SIGINT of own PID. No app/other-team process touched.
+  Fresh validation used isolated capture test/build roots with cleanup traps.
+
+**Available sandbox gate:** same native script with `--software-fixture` passed
+three CPU H.264 SIGKILL/production-recovery/decode trials:4/6/8s,120/180/240 frames,
+2/3/4 complete fragments, missing tails0.467/0.367/0.700s. Original media hashes
+unchanged, stale events trimmed, retained marker preserved, monotonic PTS and
+≤2.05s keyframe gaps. This is actual real-file recovery, **not native HEVC writer
+acceptance**. Installed FFmpeg is test tooling, no bundled dependency. All owned
+fixture/build roots listed/deleted. Log `/tmp/yapcam-capture-r5-software-crash.log`.
+
+### R5 M package (historical validation; now checkpointed in50efc6d)
 
 Baseline c6ae74a + owned changes, **debug**, M4 macOS26.3 sandbox. Full capture
 **157 tests /6 suites pass, 19.036s** (native Speech/media opt-ins still disabled);
@@ -171,11 +198,12 @@ launched. Logs `/tmp/yapcam-capture-r5-{m-tests,m-app,rust}.log`.
 
 ### R5 final implementation and verification (00:42UTC)
 
-**Code ready for Lead checkpoint/integration.** HEAD **c6ae74a** + owned pending
-R5 files, **debug**, Mac mini M4 / arm64 macOS26.3, Swift6.3.3. Main advanced to
-**10aaca6** during work (editor/QA changes); metadata writes are still denied, so
-Lead must merge/rebase this package. No capture-owned baseline difference between
-HEAD and main. Only capture source/tests/status changed; no app/icon/assets or
+**Code checkpointed by Lead as50efc6d**, parent/main10aaca6. Evidence below
+was collected before that checkpoint on c6ae74a + the same owned R5 sources,
+**debug**, Mac mini M4 / arm64 macOS26.3, Swift6.3.3. Main advanced to
+**10aaca6** during validation (editor/QA changes); Lead included it as the checkpoint
+parent. Current main is an ancestor of50efc6d; no rebase is outstanding.
+Only capture source/tests/status changed; no app/icon/assets or
 other teams' source modified. No Yapcam app launched or user instance signalled.
 
 Final gates on unchanged product sources:
@@ -228,9 +256,8 @@ schema: session.max_fps remains a **resolved positive integer**, logical point r
 and even encoded pixel size remain distinct. Lead update SWIFT_API defaults and
 DisplaySource/window-control additions; QA update CAP4 from this scoped evidence.
 
-No independently actionable capture mismatch remains without a consumer/native
-gate. Stop after this READY handoff; no other features or earlier-round leftovers
-started. All unverified live camera/mic/Retina/second-display/device checks remain
+The current row-level audit above supersedes the old baseline/result table.
+No other features or earlier-round leftovers started. All unverified live camera/mic/Retina/second-display/device checks remain
 **untested (no hardware)**.
 
 ## RC0.9.0 freeze handoff (2026-10-16)
@@ -1397,15 +1424,16 @@ Optional UTF-8 recording/transcript.json, with no change to required session key
   or the remaining window/area/pause acceptance.
 
 ## Next
-R5 implementation ready; stop pending Lead checkpoint/integration and the R5
-Requests above (UI consumers, native HEVC/AX gates, full native Swift suite, stale
-capture test-process cleanup). No new features or superseded round leftovers.
-Earlier RC freeze/Next entries are historical; R5 is the current assignment.
+R5 H/M then L audit completed against50efc6d. Every row is match, explicitly
+user-excluded, or names its missing hardware/owning-team request. Await row-level
+UI adoption, native HEVC/AX/audio gates, exact-list QA evidence and Lead engine
+decision; next capture code work is any resulting concrete defect. Lead checkpoint
+this documentation update. Earlier RC/Next entries are historical.
 
 ## External handoffs / Lead requests
-1. Lead: checkpoint ALL pending R5 owned source/tests/status together, then
-   integrate/rebase onto main (10aaca6 at final audit). Worktree HEADc6ae74a;
-   metadata writes remain denied. See current R5 Requests/gates above.
+1. Lead: R5 source/tests checkpoint50efc6d received (main10aaca6 is its parent).
+   Checkpoint the current parity/status reconciliation; metadata writes remain
+   denied. See current row-level R5 Requests/gates above.
    Prior F14/RC handoffs are checkpointed. Historical consumer requests follow.
    UI reports isolation fixed; consume the capture
    audio/camera/preflight APIs and forward marker actions to RecordingSession.addMarker. Core's exact
