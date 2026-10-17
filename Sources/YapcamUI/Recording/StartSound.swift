@@ -114,11 +114,24 @@ final class ChimePlayer: CuePlayer, @unchecked Sendable {
         let player = try AVAudioPlayer(data: ChimeSynth.wav(cue))
         player.volume = gain
         guard player.prepareToPlay(), player.play() else { throw ChimeError.cannotStart }
+        // When the caller's time limit cancels us mid-cue, the player must outlive its pending "finished playing"
+        // callback: releasing it while it plays crashed in -[AVAudioPlayer finishedPlaying:] (soak, 2026-10-17).
+        defer { ChimePlayer.release(player) }
         // Poll for completion; the caller's time limit bounds this.
         while player.isPlaying {
             try await Task.sleep(for: .milliseconds(10))
         }
     }
+    /// Stops the player on the main thread and keeps it alive a little longer, so no queued callback hits a freed player.
+    static func release(_ player: AVAudioPlayer) {
+        let box = PlayerBox(player)
+        DispatchQueue.main.async {
+            if box.player.isPlaying { box.player.stop() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withExtendedLifetime(box) {} }
+        }
+    }
+    /// Hands the player to the main queue; after `play` returns nothing else touches it.
+    private final class PlayerBox: @unchecked Sendable { let player: AVAudioPlayer; init(_ p: AVAudioPlayer) { player = p } }
     enum ChimeError: LocalizedError {
         case cannotStart
         var errorDescription: String? { "the sound could not start (no output device?)" }
