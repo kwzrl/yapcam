@@ -191,17 +191,15 @@ struct QuickExportSettings: View {
     }
 }
 
-/// The Shortcuts tab: Recording (rebindable, global) and Editing (the editor's fixed keys, shown for reference).
+/// The Shortcuts tab: Recording (global) and Editing (the editor's single keys, via EditorKeyBindings); both rebindable.
 struct ShortcutSettings: View {
     enum Group: String, CaseIterable, Identifiable { case recording = "Recording", editing = "Editing"; var id: String { rawValue } }
     @EnvironmentObject var s: AppSettings
     @ObservedObject private var hotkeys = HotkeyManager.shared
     @State private var group = Group.recording
 
-    static let editingKeys: [(String, String)] = [
-        ("Cut slice at current time", "C"), ("Remove slice before previous cut", "X"),
-        ("Play or increase speed", "L"), ("Play backward or increase speed", "J"), ("Stop and reset speed", "K"),
-    ]
+    @State private var editingRefresh = 0
+    @State private var editingRefused: String?
 
     var body: some View {
         let conflicts = HotkeyManager.conflicts(in: s)
@@ -214,9 +212,26 @@ struct ShortcutSettings: View {
                 Button("Restore defaults") { s.resetShortcuts() }
             } else {
                 Section("Editor keys") {
-                    ForEach(Self.editingKeys, id: \.0) { LabeledContent($0.0, value: $0.1) }
+                    ForEach(EditorKeyBindings.actions) { a in
+                        LabeledContent(a.title) {
+                            HStack(spacing: 8) {
+                                SingleKeyRecorder(key: Binding(
+                                    get: { EditorKeyBindings.shared.key(for: a.id) },
+                                    set: { k in
+                                        editingRefused = EditingKeyRules.setKey(k, for: a.id) ? nil : "“\(String(k).uppercased())” is already used or reserved."
+                                        editingRefresh += 1
+                                    }), refresh: editingRefresh)
+                                Button { _ = EditingKeyRules.setKey(nil, for: a.id); editingRefresh += 1 } label: { Image(systemName: "arrow.counterclockwise") }
+                                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("Back to \(String(a.defaultKey).uppercased())")
+                                    .accessibilityLabel("Reset \(a.title) key").disabled(EditorKeyBindings.shared.key(for: a.id) == a.defaultKey)
+                            }
+                        }
+                    }
                 }
-                Text("The editor's keys are fixed for now. They work while an editor window is in front.").font(.caption).foregroundStyle(.secondary)
+                if let editingRefused { Label(editingRefused, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange) }
+                Button("Restore defaults") { EditorKeyBindings.shared.resetAll(); editingRefused = nil; editingRefresh += 1 }
+                    .disabled(!EditorKeyBindings.shared.isCustomized)
+                Text("Single keys, active while an editor window is in front.").font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped)
         .onChange(of: s.shortcuts) { _, _ in hotkeys.rebind() }
@@ -280,6 +295,43 @@ enum LoginItem {
 }
 
 /// Click, then press the new combination. Esc cancels.
+/// Pure rules for the Editing tab, so they can be tested without UI.
+enum EditingKeyRules {
+    /// The editor key a key-down stands for: one printable character, no ⌘/⌃/⌥.
+    static func character(chars: String?, modifiers: NSEvent.ModifierFlags) -> Character? {
+        guard modifiers.intersection([.command, .control, .option]).isEmpty, let c = chars, c.count == 1 else { return nil }
+        return c.first
+    }
+    @discardableResult static func setKey(_ k: Character?, for id: String, in b: EditorKeyBindings = .shared) -> Bool { b.setKey(k, for: id) }
+}
+
+/// Click, then press one key to rebind an editor action (Esc cancels).
+struct SingleKeyRecorder: View {
+    @Binding var key: Character
+    var refresh = 0
+    @State private var recording = false
+    @State private var monitor: Any?
+    var body: some View {
+        Button(recording ? "Press a key…" : String(key).uppercased()) { recording ? stop() : start() }
+            .frame(minWidth: 80).onDisappear { stop() }.id(refresh)
+            .accessibilityLabel("Editor key").accessibilityValue(String(key).uppercased())
+            .accessibilityHint("Activate, then press the new key")
+    }
+    private func start() {
+        recording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            if e.keyCode == 53 { stop(); return nil }
+            if let c = EditingKeyRules.character(chars: e.charactersIgnoringModifiers, modifiers: e.modifierFlags) { key = c; stop() } else { NSSound.beep() }
+            return nil
+        }
+    }
+    private func stop() {
+        recording = false
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+}
+
 struct ShortcutRecorder: View {
     @Binding var combo: KeyCombo
     @State private var recording = false

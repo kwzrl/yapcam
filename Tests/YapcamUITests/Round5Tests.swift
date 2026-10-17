@@ -267,8 +267,20 @@ import Testing
         #expect(!QuickExport.quickExportSettings(base: gif, variableFrameRate: true).variableFrameRate)
     }
 
-    @Test func editingShortcutsMatchTheEditor() {
-        #expect(ShortcutSettings.editingKeys.map(\.1) == ["C", "X", "L", "J", "K"])
+    @Test func editingKeysAreRebindableThroughEditorBindings() {
+        let b = EditorKeyBindings(defaults: UserDefaults(suiteName: "ek-\(UUID())")!)
+        #expect(EditorKeyBindings.actions.map(\.defaultKey).starts(with: ["c", "x"]))
+        #expect(EditingKeyRules.setKey("g", for: "split", in: b))
+        #expect(b.key(for: "split") == "g")
+        #expect(!EditingKeyRules.setKey("x", for: "split", in: b))          // used by another action
+        #expect(!EditingKeyRules.setKey("5", for: "split", in: b))          // reserved
+        #expect(EditingKeyRules.setKey(nil, for: "split", in: b))
+        #expect(b.key(for: "split") == "c")
+    }
+    @Test func recorderAcceptsOnlyPlainSingleKeys() {
+        #expect(EditingKeyRules.character(chars: "g", modifiers: []) == "g")
+        #expect(EditingKeyRules.character(chars: "g", modifiers: .command) == nil)
+        #expect(EditingKeyRules.character(chars: "gh", modifiers: []) == nil)
     }
 }
 
