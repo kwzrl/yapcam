@@ -280,14 +280,17 @@ import YapcamCore
         m.lastError = nil
         m.set("cursor.size_points", number: 15); #expect(m.lastError != nil && m.number("cursor.size_points") == 128)     // below 16 px too
         m.lastError = nil
-        for k in ["always_default", "rotate_on_move", "remove_shakes", "optimize_types"] {
-            #expect(!m.bool("cursor." + k)); m.set("cursor." + k, bool: true); #expect(m.bool("cursor." + k), "\(k)")
-        }
+        // Reference defaults for new projects (spec 5.2): always-default arrow off; tilt-on-move, shake removal and
+        // cursor-type optimisation on. Core's defaults moved in round 5, so each switch is flipped from whatever it starts at.
+        let toggles = ["always_default", "rotate_on_move", "remove_shakes", "optimize_types"]
+        #expect(!m.bool("cursor.always_default"))
+        var flipped: [String: Bool] = [:]
+        for k in toggles { let was = m.bool("cursor." + k); flipped[k] = !was; m.set("cursor." + k, bool: !was); #expect(m.bool("cursor." + k) == !was, "\(k)") }
         #expect(m.lastError == nil, "\(m.lastError ?? "")")
         m.saveNow(); m.close()
         let again = try EditorDocument(package: d, presets: EditorStorage.makeIsolated().store).model
         #expect(again.number("cursor.size_points") == 128)
-        for k in ["always_default", "rotate_on_move", "remove_shakes", "optimize_types"] { #expect(again.bool("cursor." + k), "\(k) after reopen") }
+        for k in toggles { #expect(again.bool("cursor." + k) == flipped[k], "\(k) after reopen") }
         again.close()
     }
 
