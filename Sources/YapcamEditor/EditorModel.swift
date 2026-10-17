@@ -81,6 +81,8 @@ public final class EditorModel: ObservableObject {
         defaults.set(Array(favoriteWallpapers).sorted(), forKey: "editor.favoriteWallpapers")
     }
     public var timelineViewportWidth: Double = 900
+    /// The timeline's scroll view (set by the view), for zoom anchoring.
+    var timelineScroller: (any TimelineScroller)?
     /// Set once the timeline view has fitted the project to its real width.
     var timelineFitted = false
     /// Raised by the toolbar-less "Move to Trash" command; the editor shows its confirmation.
@@ -636,7 +638,7 @@ public final class EditorModel: ObservableObject {
     // MARK: timeline zoom
 
     /// Native horizontal scrolling owns the offset, so the model only changes the scale.
-    public func zoomTimeline(by factor: Double, anchorX: Double = 0) {
+    func setTimelineScale(by factor: Double) {
         // The visible window stays between 2 s and min(project length, 10 min).
         let maxPPS = timelineViewportWidth / 2
         let minPPS = timelineViewportWidth / max(min(Double(durationNs) / 1e9, 600), 2)

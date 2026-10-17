@@ -154,6 +154,7 @@ struct TimelineView: View {
         .contentShape(Rectangle())
         .gesture(timelineDrag(g))
         .overlay(TimelineContextMenuHost { contextMenu(at: $0) })
+        .background(TimelineScrollHost(model: model))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Timeline")
     }
