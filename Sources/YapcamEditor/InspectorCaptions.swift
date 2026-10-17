@@ -90,10 +90,13 @@ private struct TranscriptEditRows: View {
     let wordCount: Int
     var body: some View {
         let pauses = model.pauseCuts(), fillers = model.fillerWordCount
-        Button { model.bottomPanel = .transcript } label: { Label("Show transcript", systemImage: "text.quote") }
-            .buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
-            .disabled(model.bottomPanel == .transcript)
-            .help("Show the transcript under the preview; select words and delete them to cut the video")
+        // The transcript text lives in the bottom panel; this opens it (and, once open, goes back to the timeline).
+        let showing = model.bottomPanel == .transcript
+        Button { model.bottomPanel = showing ? .timeline : .transcript } label: {
+            Label(showing ? "Show timeline" : "Show transcript", systemImage: showing ? "timeline.selection" : "text.quote")
+        }
+        .buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
+        .help(showing ? "Show the timeline again in the bottom panel" : "Show the transcript under the preview; select words and delete them to cut the video")
         InspectorNote("Select words in the transcript and delete them to cut the video.")
         InspectorInfo("Words", "\(wordCount)")
         InspectorAction("Remove \(fillers) filler word\(fillers == 1 ? "" : "s")", symbol: "wand.and.stars") { model.removeFillerWords() }
