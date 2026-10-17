@@ -3,16 +3,18 @@ import SwiftUI
 
 enum ToolbarPopover: Hashable { case audio, microphone, camera, afterRecording, recents }
 
-
+/// The recording picker: one horizontal bar (close, sources, devices, recents + gear) that turns into the
+/// recording widget while a take runs. Starting happens on the source cards, not on the bar.
 struct ToolbarView: View {
     @ObservedObject var layout: ToolbarLayoutModel
     @EnvironmentObject var rec: RecordingController
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var perms: PermissionsModel
+    @ObservedObject private var picker = PickerState.shared
     @State private var open: ToolbarPopover?
 
     var body: some View {
-        VStack(spacing: 0) {
+        HStack(spacing: 0) {
             Grabber(onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil)
             Group {
                 switch rec.phase {
@@ -22,10 +24,9 @@ struct ToolbarView: View {
                 case .recording, .paused: recordingControls
                 }
             }
-            .padding(.horizontal, 7)
-            .padding(.bottom, 8)
+            .padding(.trailing, 8)
         }
-        .frame(width: 62)
+        .frame(height: rec.phase == .recording || rec.phase == .paused ? 48 : 62)
         .panelSurface(cornerRadius: 18)
         .padding(2)
         .accessibilityElement(children: .contain)
@@ -44,140 +45,78 @@ struct ToolbarView: View {
         }
     }
 
-    private var edge: Edge { layout.onLeftHalf ? .trailing : .leading }
+    private var edge: Edge { layout.inLowerHalf ? .top : .bottom }
 
-    // MARK: Idle: source, devices, folder/settings, record
+    // MARK: Idle: sources, devices, recents + gear
 
     private var idleControls: some View {
-        VStack(spacing: 3) {
+        HStack(spacing: 3) {
             ForEach(SourceMode.toolbarModes) { sourceButton($0) }
 
-            Divider().padding(.vertical, 3)
+            Divider().frame(height: 34).padding(.horizontal, 3)
 
-            deviceToggle(symbolOn: "video.fill", symbolOff: "video.slash", label: "Camera", isOn: camOn, help: camOn ? "Camera on" : "Camera off",
-                         toggle: toggleCamera, menu: .camera)
+            deviceButton(symbol: camLabelOn ? "video.fill" : "video.slash", label: DeviceLabels.camera(name: cameraName), isOn: camOn, help: "Camera", menu: .camera)
                 .popover(isPresented: binding(.camera), arrowEdge: edge) { CameraPopover().environmentObject(settings).environmentObject(perms) }
-            deviceToggle(symbolOn: "mic.fill", symbolOff: "mic.slash", label: "Mic", isOn: micOn, help: micOn ? "Microphone on" : "Microphone off",
-                         toggle: toggleMicrophone, menu: .microphone)
+            deviceButton(symbol: micOn ? "mic.fill" : "mic.slash", label: DeviceLabels.microphone(name: microphoneName), isOn: micOn, help: "Microphone", menu: .microphone)
                 .popover(isPresented: binding(.microphone), arrowEdge: edge) { MicrophonePopover().environmentObject(settings).environmentObject(perms) }
-            deviceToggle(symbolOn: "speaker.wave.2.fill", symbolOff: "speaker.slash", label: "System", isOn: settings.systemAudio,
-                         help: settings.systemAudio ? "System audio on" : "System audio off",
-                         toggle: { settings.systemAudio.toggle() }, menu: .audio)
+            deviceButton(symbol: settings.systemAudio ? "speaker.wave.2.fill" : "speaker.slash",
+                         label: settings.systemAudioChoice.buttonLabel(appCount: settings.systemAudioApps.count), isOn: settings.systemAudio,
+                         help: "System audio", menu: .audio)
                 .popover(isPresented: binding(.audio), arrowEdge: edge) { SystemAudioPopover().environmentObject(settings) }
 
-            Divider().padding(.vertical, 3)
+            Divider().frame(height: 34).padding(.horizontal, 3)
 
-            ToolbarButton(symbol: "folder", label: "Recent", help: "Recent recordings", active: open == .recents) { toggle(.recents) }
+            ToolbarButton(symbol: "folder", label: "Recent", help: "Recent projects", active: open == .recents || settings.showRecentsWithPicker) { toggle(.recents) }
                 .popover(isPresented: binding(.recents), arrowEdge: edge) { RecentsPopover(dismiss: { open = nil }) }
             settingsMenu
-
-            RecordButton(recording: false, large: true, action: rec.toggleStartStop)
-                .help("\(settings.afterRecording.recordLabel) (\(settings.startStopShortcut.display))")
-                .overlay(alignment: .topTrailing) {
-                    Button { toggle(.afterRecording) } label: {
-                        Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).frame(width: 16, height: 16).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).help("After recording…").accessibilityLabel("After recording options")
-                }
-                .popover(isPresented: binding(.afterRecording), arrowEdge: edge) { AfterRecordingPopover().environmentObject(settings) }
-                .padding(.top, 2)
         }
+        .onChange(of: open) { _, new in if new == .recents { settings.showRecentsWithPicker = true } else if settings.showRecentsWithPicker, new == nil { settings.showRecentsWithPicker = false } }
+        .onAppear { if settings.showRecentsWithPicker { open = .recents } }
     }
 
-    /// Display / Window / Area: one click picks the source and shows its overlay with **Start recording**.
+    /// Display / Window / Area: one click selects the mode and shows its overlay with **Start recording**.
     private func sourceButton(_ mode: SourceMode) -> some View {
-        ToolbarButton(symbol: mode.symbol, label: mode.title, help: sourceHelp(mode), active: settings.sourceMode == mode) {
+        ToolbarButton(symbol: mode.symbol, label: mode.title, help: sourceHelp(mode), active: picker.openMode == mode) {
             open = nil
-            settings.sourceMode = mode
-            switch mode {
-            case .display: SourceOverlay.shared.show(.display)
-            case .window: SourceOverlay.shared.show(.window)
-            case .area: AreaPicker.begin()
-            case .device: break
-            }
+            if picker.openMode == mode { SourcePicker.escape(); return }
+            SourcePicker.open(mode)
+        }
+        .contextMenu { if mode == .display { displayMenu } }
+        .accessibilityHint(mode == .display ? "Right-click lists the displays" : "")
+    }
+
+    /// Right-click on Display: pick one display directly.
+    @ViewBuilder private var displayMenu: some View {
+        ForEach(NSScreen.screens.compactMap { s in s.displayID.flatMap { id in Displays.info(for: id) } }, id: \.id) { d in
+            Button("\(d.name) – \(Int(d.pixelSize.width))×\(Int(d.pixelSize.height))") { SourcePicker.open(.display, display: d.id) }
         }
     }
 
     private func sourceHelp(_ mode: SourceMode) -> String {
         switch mode {
-        case .display: return "Record a display: shows the display with a Start recording button"
-        case .window: return "Record one window: point at it, then Start recording"
-        case .area: return settings.areaRect == nil ? "Record an area: drag a rectangle, then Start recording" : "Record an area (adjust the rectangle, then Start recording)"
+        case .display: return "Record a display (1): shows the display with a Start recording button"
+        case .window: return "Record one window (2): point at it, then Start recording"
+        case .area: return settings.areaRect == nil ? "Record an area (3): drag a rectangle, then Start recording" : "Record an area (3): adjust the rectangle, then Start recording"
         case .device: return "Record an iPhone or iPad connected by USB"
         }
     }
 
-    /// A toggle with a small chevron that opens the device menu in a side popover.
-    private func deviceToggle(symbolOn: String, symbolOff: String, label: String, isOn: Bool, help: String,
-                              toggle: @escaping () -> Void, menu: ToolbarPopover) -> some View {
-        ToolbarButton(symbol: isOn ? symbolOn : symbolOff, label: label, help: help, active: isOn, action: toggle)
-            .overlay(alignment: .topTrailing) {
-                Button { self.toggle(menu) } label: {
-                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
-                        .frame(width: 16, height: 16).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).foregroundStyle(.secondary)
-                .help("\(label) options")
-                .accessibilityLabel("\(label) options")
-            }
+    /// A device button: icon + state text; a click opens the device menu.
+    private func deviceButton(symbol: String, label: String, isOn: Bool, help: String, menu: ToolbarPopover) -> some View {
+        ToolbarButton(symbol: symbol, label: label, help: help, active: isOn, width: 78) { toggle(menu) }
+            .accessibilityLabel(help).accessibilityValue(label)
     }
 
-    private func toggleCamera() {
-        DeviceModel.shared.reload()
-        if perms.state(.camera) != .granted || DeviceModel.shared.cameras.isEmpty { toggle(.camera); return }
-        if settings.cameraID != nil { settings.lastCameraID = settings.cameraID; settings.cameraID = nil }
-        else {
-            let remembered = DeviceModel.shared.isAvailable(camera: settings.lastCameraID) ? settings.lastCameraID : nil
-            settings.cameraID = remembered ?? DeviceModel.shared.cameras.first?.id
-        }
-    }
+    private var cameraName: String? { settings.cameraID.flatMap { id in camOn ? DeviceModel.shared.cameras.first { $0.id == id }?.name : nil } }
+    private var microphoneName: String? { settings.microphoneID.flatMap { id in micOn ? DeviceModel.shared.microphones.first { $0.id == id }?.name : nil } }
+    private var camLabelOn: Bool { camOn }
 
-    private func toggleMicrophone() {
-        DeviceModel.shared.reload()
-        if perms.state(.microphone) != .granted || DeviceModel.shared.microphones.isEmpty { toggle(.microphone); return }
-        if settings.microphoneID != nil { settings.lastMicrophoneID = settings.microphoneID; settings.microphoneID = nil }
-        else {
-            let remembered = DeviceModel.shared.isAvailable(microphone: settings.lastMicrophoneID) ? settings.lastMicrophoneID : nil
-            settings.microphoneID = remembered ?? DeviceModel.shared.microphones.first?.id
-        }
-    }
-
-    /// A normal toolbar button that pops up the settings menu below it (an AppKit menu: it keeps the
+    /// A normal toolbar button that pops up the settings menu (an AppKit menu: it keeps the
     /// icon-over-label look that SwiftUI's `Menu` flattens into a row).
     private var settingsMenu: some View {
-        ToolbarButton(symbol: "gearshape", label: "Settings", help: "Settings and more", active: false) {
-            let menu = NSMenu()
-            func add(_ title: String, _ action: @escaping () -> Void) {
-                let item = ClosureMenuItem(title: title, handler: action); menu.addItem(item)
-            }
-            func check(_ title: String, _ on: Bool, _ toggle: @escaping () -> Void) {
-                let item = ClosureMenuItem(title: title, handler: toggle); item.state = on ? .on : .off; menu.addItem(item)
-            }
-            func header(_ title: String) { let h = NSMenuItem(title: title, action: nil, keyEquivalent: ""); h.isEnabled = false; menu.addItem(h) }
-            header("While recording")
-            check("Hide Desktop Icons", settings.hideDesktopIcons) { settings.hideDesktopIcons.toggle() }
-            check("Highlight Recorded Area", settings.highlightRecordedArea) { settings.highlightRecordedArea.toggle() }
-            add("Speaker Notes…") { NotesWindow.shared.show() }
-            menu.addItem(.separator())
-            header("After recording")
-            check("Open Quick Export Widget", settings.showQuickExportWidget) { settings.showQuickExportWidget.toggle() }
-            menu.addItem(.separator())
-            let countdown = NSMenu()
-            for (label, n) in [("None", 0), ("3 seconds", 3), ("5 seconds", 5), ("10 seconds", 10)] {
-                let item = ClosureMenuItem(title: label) { settings.countdown = n }
-                item.state = settings.countdown == n ? .on : .off
-                countdown.addItem(item)
-            }
-            let cd = NSMenuItem(title: "Countdown", action: nil, keyEquivalent: ""); cd.submenu = countdown; menu.addItem(cd)
-            menu.addItem(.separator())
-            add("Settings…") { SettingsWindow.shared.show() }
-            add("Recordings…") { RecentProjectsWindow.shared.show() }
-            add("Permissions…") { OnboardingWindow.shared.show(reason: nil, all: true) }
-            menu.addItem(.separator())
-            add("Hide Toolbar") { ToolbarPanelController.shared.hide() }
-            add("Quit Yapcam") { NSApp.terminate(nil) }
+        ToolbarButton(symbol: "gearshape", label: "Settings", help: "Recording options and more", active: false) {
             if let view = ToolbarPanelController.shared.panel.contentView, let event = NSApp.currentEvent {
-                NSMenu.popUpContextMenu(menu, with: event, for: view)
+                NSMenu.popUpContextMenu(GearMenu.build(settings: settings), with: event, for: view)
             }
         }
     }
@@ -188,58 +127,65 @@ struct ToolbarView: View {
     // MARK: Countdown / busy
 
     private func countdownControls(_ n: Int) -> some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 10) {
             Text("\(n)").font(.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit())
-                .frame(height: 40)
+                .frame(width: 44)
                 .accessibilityLabel("Recording starts in \(n) seconds")
             ToolbarButton(symbol: "xmark", label: "Cancel", help: "Cancel countdown", active: false, action: rec.cancelCountdown)
         }
     }
 
     private var busyControls: some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            if rec.workingLong { Text("Working…").font(.system(size: 9.5)).foregroundStyle(.secondary) }
+            if rec.workingLong { Text("Working…").font(.system(size: 11)).foregroundStyle(.secondary) }
         }
-        .frame(width: 48, height: 90)
+        .frame(minWidth: 90, minHeight: 44)
         .accessibilityLabel(rec.phase == .finishing ? "Saving recording" : "Starting recording")
     }
 
-    // MARK: Recording
+    // MARK: Recording widget (48 pt tall)
 
     private var recordingControls: some View {
         let paused = rec.phase == .paused
-        return VStack(spacing: 4) {
-            HStack(spacing: 5) {
-                Circle().fill(paused ? Color.secondary : Color.red).frame(width: 7, height: 7)
-                    .opacity(paused ? 1 : 0.9).accessibilityHidden(true)
-            }.padding(.top, 2)
-            Text(timeString(rec.elapsed))
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(paused ? .secondary : .primary)
-                .frame(height: 18)
-                .accessibilityLabel(paused ? "Recording paused" : "Recording time")
-                .accessibilityValue(Announcer.timeDescription(rec.elapsed))
+        return HStack(spacing: 6) {
+            Button(action: rec.toggleStartStop) {
+                HStack(spacing: 7) {
+                    Image(systemName: "stop.circle.fill").font(.system(size: 22)).foregroundStyle(.red)
+                    Text(RecordingTimeFormat.string(rec.elapsed))
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .foregroundStyle(paused ? .secondary : .primary)
+                        .accessibilityLabel(paused ? "Recording paused" : "Recording time")
+                        .accessibilityValue(Announcer.timeDescription(rec.elapsed))
+                }
+                .padding(.horizontal, 6).frame(height: 36).contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .help("Stop recording (\(settings.startStopShortcut.display))")
+            .accessibilityLabel("Stop recording")
+            .accessibilityHint("Stops and saves the recording")
             if !rec.warnings.isEmpty || rec.lowDisk {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                     .help((rec.warnings + (rec.lowDisk ? ["Low disk space: recording may stop soon."] : [])).joined(separator: "\n"))
             }
-            Divider().padding(.vertical, 2)
-            ToolbarButton(symbol: paused ? "play.fill" : "pause.fill", label: paused ? "Resume" : "Pause",
-                          help: "\(paused ? "Resume" : "Pause") (\(settings.pauseShortcut.display))", active: false, action: rec.togglePause)
-            RecordButton(recording: true, action: rec.toggleStartStop)
-                .help("Stop recording (\(settings.startStopShortcut.display))")
-            ToolbarButton(symbol: "flag", label: "Marker", help: "Add a marker here (\(settings.combo(for: .marker)?.display ?? ""))", active: false,
-                          enabled: !paused, action: rec.addMarker)
-            ToolbarButton(symbol: "arrow.counterclockwise", label: "Restart", help: "Discard this take and start over (asks first)", active: false, action: rec.confirmRestart)
-            ToolbarButton(symbol: "trash", label: "Cancel", help: "Cancel and delete the recording (asks first)", active: false, action: rec.confirmCancel)
+            Divider().frame(height: 22)
+            iconButton(paused ? "play.circle" : "pause.circle", label: paused ? "Resume" : "Pause",
+                       help: "\(paused ? "Resume" : "Pause") (\(settings.pauseShortcut.display))", action: rec.togglePause)
+            iconButton("arrow.counterclockwise", label: "Restart", help: "Discard this take and start over (asks first)", action: rec.confirmRestart)
+            iconButton("flag", label: "Add marker", help: "Add a marker here (\(settings.combo(for: .marker)?.display ?? ""))", enabled: !paused, action: rec.addMarker)
+            iconButton("trash", label: "Cancel recording", help: "Cancel and delete the recording (asks first)", action: rec.confirmCancel)
+            if rec.workingLong { Text("Working…").font(.system(size: 11)).foregroundStyle(.secondary) }
         }
+        .padding(.leading, 4)
     }
 
-    private func timeString(_ t: TimeInterval) -> String {
-        let s = Int(t)
-        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
-                         : String(format: "%02d:%02d", s / 60, s % 60)
+    private func iconButton(_ symbol: String, label: String, help: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 18)).frame(width: 32, height: 32).contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .disabled(!enabled).opacity(enabled ? 1 : 0.35)
+        .help(help).accessibilityLabel(label)
     }
 
     private func toggle(_ p: ToolbarPopover) { open = (open == p) ? nil : p }
@@ -253,31 +199,26 @@ struct ToolbarView: View {
 private struct Grabber: View {
     var onClose: (() -> Void)?
     var body: some View {
-        ZStack {
-            VStack(spacing: 3) {
+        VStack(spacing: 4) {
+            if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
+                        .frame(width: 22, height: 22).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .help("Close (Esc)")
+                .accessibilityLabel("Close toolbar")
+            }
+            HStack(spacing: 3) {
                 ForEach(0..<2, id: \.self) { _ in
-                    HStack(spacing: 3) { ForEach(0..<3, id: \.self) { _ in Circle().frame(width: 3, height: 3) } }
+                    VStack(spacing: 3) { ForEach(0..<3, id: \.self) { _ in Circle().frame(width: 3, height: 3) } }
                 }
             }
             .foregroundStyle(.tertiary)
             .help("Drag to move")
             .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
-            HStack {
-                if let onClose {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                            .frame(width: 20, height: 20).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("Hide toolbar (bring it back from the menu bar item or the Dock)")
-                    .accessibilityLabel("Close toolbar")
-                }
-                Spacer()
-            }
-            .padding(.leading, 4)
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 24)
+        .frame(width: 30).frame(maxHeight: .infinity)
         .contentShape(Rectangle())
     }
 }
@@ -288,6 +229,7 @@ struct ToolbarButton: View {
     var help: String = ""
     var active: Bool
     var enabled: Bool = true
+    var width: CGFloat = 48
     let action: () -> Void
     @State private var hover = false
     @Environment(\.contrastOpacity) private var contrast
@@ -296,9 +238,9 @@ struct ToolbarButton: View {
         Button(action: action) {
             VStack(spacing: 2) {
                 Image(systemName: symbol).font(.system(size: 17, weight: .regular)).frame(height: 20)
-                Text(label).font(.system(size: 9.5)).lineLimit(1)
+                Text(label).font(.system(size: 9.5)).lineLimit(1).truncationMode(.tail)
             }
-            .frame(width: 48, height: 44)
+            .frame(width: width, height: 44)
             .foregroundStyle(active ? Color.accentColor : Color.primary)
             .opacity(enabled ? 1 : 0.35)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -318,33 +260,6 @@ struct ToolbarButton: View {
 private struct PressableStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.opacity(configuration.isPressed ? 0.6 : 1)
-    }
-}
-
-struct RecordButton: View {
-    let recording: Bool
-    var large = false
-    let action: () -> Void
-    @State private var hover = false
-
-    var body: some View {
-        let ring: CGFloat = large ? 48 : 40, dot: CGFloat = large ? 34 : 28, stop: CGFloat = large ? 20 : 16
-        Button(action: action) {
-            ZStack {
-                Circle().strokeBorder(Color.primary.opacity(0.35), lineWidth: 2).frame(width: ring, height: ring).accessibilityHidden(true)
-                if recording {
-                    RoundedRectangle(cornerRadius: 3).fill(Color.red).frame(width: stop, height: stop)
-                } else {
-                    Circle().fill(Color.red.opacity(hover ? 1 : 0.9)).frame(width: dot, height: dot)
-                }
-            }
-            .frame(width: 54, height: large ? 56 : 48)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressableStyle())
-        .onHover { hover = $0 }
-        .accessibilityLabel(recording ? "Stop recording" : "Start recording")
-        .accessibilityHint(recording ? "Stops and saves the recording" : "Starts recording after the countdown")
     }
 }
 

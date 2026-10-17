@@ -18,6 +18,12 @@ import AppKit
             i.target = target
             return i
         }
+        func afterRecordingItem() -> NSMenuItem {
+            let host = NSMenuItem(title: "After Recording", action: nil, keyEquivalent: "")
+            let m = AfterRecordingMenu.populated(); m.delegate = AfterRecordingMenu.mainMenuDelegate
+            host.submenu = m
+            return host
+        }
         func add(_ title: String, _ items: [NSMenuItem]) {
             let m = NSMenu(title: title)
             items.forEach(m.addItem)
@@ -70,6 +76,7 @@ import AppKit
             item("Restart Recording…", #selector(AppDelegate.restartRecording)),
             item("Cancel Recording…", #selector(AppDelegate.cancelRecording)),
             .separator(),
+            afterRecordingItem(),
             shortcutItem("Speaker Notes…", #selector(AppDelegate.showNotes), .toggleNotes),
             item("Show Toolbar", #selector(AppDelegate.toggleToolbar)),
             .separator(),

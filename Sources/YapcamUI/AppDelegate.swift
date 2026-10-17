@@ -77,7 +77,8 @@ import YapcamEditor
         }
 
         let settings = AppSettings.shared
-        NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
+        NSApp.setActivationPolicy(settings.activationPolicy)
+        phaseObserver = RecordingController.shared.$phase.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] _ in self?.applyLiveSettings() }
         NSApp.mainMenu = MainMenu.build(target: self)
         applyMenuBarItem()
         bindShortcuts()
@@ -198,7 +199,7 @@ import YapcamEditor
             bindShortcuts()
             NSApp.mainMenu = MainMenu.build(target: self)      // menu shortcuts follow the settings
         }
-        let wanted: NSApplication.ActivationPolicy = s.showInDock ? .regular : .accessory
+        let wanted = s.activationPolicy
         if NSApp.activationPolicy() != wanted { NSApp.setActivationPolicy(wanted) }
         applyMenuBarItem()
     }
@@ -220,6 +221,7 @@ import YapcamEditor
     }
 
     private var trayObserver: AnyCancellable?
+    private var phaseObserver: AnyCancellable?
 
     /// While recording the menu bar icon becomes a stop button; idle it is the app glyph with its menu.
     private func observeRecordingForTray() {

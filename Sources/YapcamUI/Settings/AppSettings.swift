@@ -116,6 +116,12 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var openEditorAfterRecording: Bool { didSet { d.set(openEditorAfterRecording, forKey: "openEditor") } }
     @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "playSounds") } }
     @Published var hideDesktopIcons: Bool { didSet { d.set(hideDesktopIcons, forKey: "hideDesktopIcons") } }
+    /// While a recording runs the Dock icon is hidden (reference "Hide Dock Icon", default on). The menu bar item stays.
+    @Published var hideDockWhileRecording: Bool { didSet { d.set(hideDockWhileRecording, forKey: "hideDockWhileRecording") } }
+    /// The recents list stays open next to the picker (reference: openRecentProjectsWithRecordingPicker, off).
+    @Published var showRecentsWithPicker: Bool { didSet { d.set(showRecentsWithPicker, forKey: "showRecentsWithPicker") } }
+    /// Camera preview in the picker's camera menu ("Hide camera preview").
+    @Published var hideCameraPreview: Bool { didSet { d.set(hideCameraPreview, forKey: "hideCameraPreview") } }
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
     @Published var showMenuBarItem: Bool { didSet { d.set(showMenuBarItem, forKey: "showMenuBarItem") } }
     @Published var storageDirectory: URL { didSet { d.set(storageDirectory.path, forKey: "storageDirectory") } }
@@ -176,6 +182,9 @@ struct KeyCombo: Codable, Equatable, Hashable {
         openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
         playSounds = d.object(forKey: "playSounds") as? Bool ?? true
         hideDesktopIcons = d.object(forKey: "hideDesktopIcons") as? Bool ?? false
+        hideDockWhileRecording = d.object(forKey: "hideDockWhileRecording") as? Bool ?? true
+        showRecentsWithPicker = d.object(forKey: "showRecentsWithPicker") as? Bool ?? false
+        hideCameraPreview = d.object(forKey: "hideCameraPreview") as? Bool ?? false
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
         storageDirectory = d.string(forKey: "storageDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) } ?? Self.defaultStorage
@@ -203,4 +212,17 @@ struct KeyCombo: Codable, Equatable, Hashable {
 
     var startStopShortcut: KeyCombo { combo(for: .startStop) ?? .none }
     var pauseShortcut: KeyCombo { combo(for: .pauseResume) ?? .none }
+}
+
+extension AppSettings {
+    /// The activation policy the app should have: a hidden Dock icon stays hidden; with the Dock icon shown it
+    /// goes away while a recording runs when `hideDockWhileRecording` is on.
+    static func activationPolicy(showInDock: Bool, hideWhileRecording: Bool, recording: Bool) -> NSApplication.ActivationPolicy {
+        guard showInDock else { return .accessory }
+        return recording && hideWhileRecording ? .accessory : .regular
+    }
+    var activationPolicy: NSApplication.ActivationPolicy {
+        let phase = RecordingController.shared.phase
+        return Self.activationPolicy(showInDock: showInDock, hideWhileRecording: hideDockWhileRecording, recording: phase == .recording || phase == .paused)
+    }
 }

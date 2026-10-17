@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Foundation
 import Testing
 @testable import YapcamUI
@@ -75,5 +76,129 @@ import Testing
         let s = AppSettings(store: suite)
         s.savedAreaSizes = ["1280x720"]
         #expect(AppSettings(store: suite).savedAreaSizes == ["1280x720"])
+    }
+}
+
+@Suite struct Round5WindowTests {
+    @Test func presetGroupsKeepTheReferenceOrder() {
+        #expect(WindowAX.sizeGroups.map(\.name) == ["16:9", "4:3", "9:16", "16:10", "Square"])
+        #expect(WindowAX.sizeGroups[0].sizes.first == CGSize(width: 1280, height: 720))
+        #expect(WindowAX.sizeGroups[0].sizes.last == CGSize(width: 2560, height: 1440))
+    }
+
+    @Test func onlySizesThatFitTheDisplayAreOffered() {
+        let small = WindowAX.groups(fitting: CGSize(width: 1440, height: 900))
+        #expect(small.flatMap(\.sizes).allSatisfy { $0.width <= 1440 && $0.height <= 900 })
+        #expect(small.first { $0.name == "16:9" }?.sizes == [CGSize(width: 1280, height: 720)])
+        #expect(!small.contains { $0.name == "9:16" && $0.sizes.contains(CGSize(width: 1440, height: 2560)) })
+        #expect(WindowAX.groups(fitting: CGSize(width: 300, height: 300)).isEmpty)
+    }
+
+    @Test func everyPresetIsAValidWindowSize() {
+        for g in WindowAX.sizeGroups { for s in g.sizes { #expect(WindowAX.parseSize(WindowAX.label(s)) == s) } }
+    }
+
+    @Test func ratioGroupsReallyHaveTheirRatio() {
+        let want: [String: CGFloat] = ["16:9": 16.0 / 9, "4:3": 4.0 / 3, "9:16": 9.0 / 16, "16:10": 1.6, "Square": 1]
+        for g in WindowAX.sizeGroups { for s in g.sizes { #expect(abs(s.width / s.height - want[g.name]!) < 0.01, "\(g.name) \(s)") } }
+    }
+}
+
+@Suite struct Round5PrompterTests {
+    @Test func rangesMatchTheReference() {
+        #expect(PrompterRanges.speed == 0...25 && PrompterRanges.opacity == 0.4...1 && PrompterRanges.font == 12...32)
+        #expect(PrompterRanges.font.contains(PrompterRanges.fontDefault))
+    }
+    @Test func oldSavedFontSizesAreClamped() {
+        #expect(PrompterRanges.clampedFont(64) == 32 && PrompterRanges.clampedFont(8) == 12 && PrompterRanges.clampedFont(20) == 20)
+    }
+}
+
+@MainActor @Suite struct Round5DockTests {
+    @Test func dockIconHidesWhileRecordingOnlyWhenAsked() {
+        typealias S = AppSettings
+        #expect(S.activationPolicy(showInDock: true, hideWhileRecording: true, recording: true) == .accessory)
+        #expect(S.activationPolicy(showInDock: true, hideWhileRecording: true, recording: false) == .regular)
+        #expect(S.activationPolicy(showInDock: true, hideWhileRecording: false, recording: true) == .regular)
+        #expect(S.activationPolicy(showInDock: false, hideWhileRecording: false, recording: false) == .accessory)
+        #expect(S.activationPolicy(showInDock: false, hideWhileRecording: true, recording: true) == .accessory)
+    }
+    @Test func hideDockWhileRecordingDefaultsOnAndPersists() {
+        let suite = UserDefaults(suiteName: "mov.yapcam.Yapcam.r5-\(UUID().uuidString)")!
+        let s = AppSettings(store: suite)
+        #expect(s.hideDockWhileRecording)
+        s.hideDockWhileRecording = false
+        #expect(!AppSettings(store: suite).hideDockWhileRecording)
+    }
+}
+
+@Suite struct Round5BarTests {
+    @Test func timerGrowsWithTheRecording() {
+        #expect(RecordingTimeFormat.string(0) == "0:00")
+        #expect(RecordingTimeFormat.string(65) == "1:05")
+        #expect(RecordingTimeFormat.string(599) == "9:59")
+        #expect(RecordingTimeFormat.string(600) == "10:00")
+        #expect(RecordingTimeFormat.string(3599) == "59:59")
+        #expect(RecordingTimeFormat.string(3600) == "1:00:00")
+        #expect(RecordingTimeFormat.string(10 * 3600 + 5) == "10:00:05")
+        #expect(RecordingTimeFormat.string(-3) == "0:00")
+    }
+
+    @Test func deviceAndSystemAudioLabels() {
+        #expect(DeviceLabels.camera(name: nil) == "No camera" && DeviceLabels.camera(name: "FaceTime HD") == "FaceTime HD")
+        #expect(DeviceLabels.microphone(name: nil) == "No microphone")
+        #expect(DeviceLabels.menuName("Studio Mic", isDefault: true) == "Studio Mic (default)")
+        #expect(DeviceLabels.menuName("Studio Mic", isDefault: false) == "Studio Mic")
+        #expect(SystemAudioChoice.all.buttonLabel(appCount: 0) == "Record system audio")
+        #expect(SystemAudioChoice.selected.buttonLabel(appCount: 3) == "Sound from 3 apps")
+        #expect(SystemAudioChoice.selected.buttonLabel(appCount: 1) == "Sound from 1 app")
+        #expect(SystemAudioChoice.off.buttonLabel(appCount: 0) == "No system audio")
+        #expect(SystemAudioChoice.allCases == [.all, .selected, .off])
+        #expect(SystemAudioChoice.off.title == "Don't record system audio")
+    }
+
+    @Test func digitKeysPickTheSourceUnlessTyping() {
+        #expect(OverlayKeys.action(keyCode: 18, typing: false) == .mode(.display))
+        #expect(OverlayKeys.action(keyCode: 19, typing: false) == .mode(.window))
+        #expect(OverlayKeys.action(keyCode: 20, typing: false) == .mode(.area))
+        #expect(OverlayKeys.action(keyCode: 18, typing: true) == .pass)
+        #expect(OverlayKeys.action(keyCode: 18, typing: false, plain: false) == .pass)
+        #expect(OverlayKeys.action(keyCode: 21, typing: false) == .pass)
+    }
+
+    @Test func horizontalBarStartsBottomCenterAndKeepsItsCenterWhenResized() {
+        let s = ScreenInfo(id: 1, frame: CGRect(x: 0, y: 0, width: 1600, height: 1000), visibleFrame: CGRect(x: 0, y: 70, width: 1600, height: 900))
+        let size = CGSize(width: 560, height: 66)
+        let o = ToolbarGeometry.origin(size: size, on: s, saved: nil)
+        #expect(o.x == (1600 - 560) / 2 && o.y < 200)
+        let f = CGRect(origin: o, size: size)
+        let r = ToolbarGeometry.resized(f, to: CGSize(width: 300, height: 52))
+        #expect(r.midX == f.midX && r.midY == f.midY)
+        #expect(ToolbarGeometry.inLowerHalf(frame: f, of: s))
+        #expect(!ToolbarGeometry.inLowerHalf(frame: f.offsetBy(dx: 0, dy: 800), of: s))
+    }
+}
+
+@MainActor @Suite struct Round5BarRenderTests {
+    private func render(_ phase: RecordingPhase?, name: String) throws -> CGSize {
+        let layout = ToolbarLayoutModel()
+        let view = ToolbarView(layout: layout)
+            .environmentObject(RecordingController.shared)
+            .environmentObject(AppSettings(store: UserDefaults(suiteName: "mov.yapcam.Yapcam.r5-\(UUID().uuidString)")!))
+            .environmentObject(PermissionsModel.shared)
+        let host = NSHostingView(rootView: view)
+        let size = host.fittingSize
+        host.frame = CGRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        if let dir = ProcessInfo.processInfo.environment["YAPCAM_SNAPSHOT_DIR"], let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try rep.representation(using: .png, properties: [:])?.write(to: URL(filePath: dir).appending(path: "\(name).png"))
+        }
+        return size
+    }
+
+    @Test func idleBarIsAHorizontalStrip() throws {
+        let size = try render(nil, name: "bar-idle")
+        #expect(size.width > size.height * 4 && size.width < 900, "\(size)")
     }
 }

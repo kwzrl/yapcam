@@ -31,7 +31,8 @@ import SwiftUI
         OverlayKeys.takeKeyboard(w)
         w.makeFirstResponder(view)
         // Return starts (unless a number field is being edited), Esc cancels: whatever has focus.
-        keyMonitor = OverlayKeys.install(window: w, start: { [weak view] in view?.confirm() }, cancel: { [weak view] in view?.onFinish?(nil) })
+        keyMonitor = OverlayKeys.install(window: w, start: { [weak view] in view?.confirm() }, cancel: { [weak view] in view?.onFinish?(nil) },
+                                         mode: { SourcePicker.open($0) })
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.end(nil) }
         }
@@ -46,6 +47,7 @@ import SwiftUI
         w.orderOut(nil)
         window = nil
         let cb = done; done = nil
+        if PickerState.shared.openMode == .area { PickerState.shared.openMode = nil }
         cb?(rect)
     }
 }

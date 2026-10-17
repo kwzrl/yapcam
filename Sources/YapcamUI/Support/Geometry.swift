@@ -36,14 +36,18 @@ enum ToolbarGeometry {
         return screens.first
     }
 
-    /// Where a toolbar of `size` goes on `screen`: the saved spot, else right edge, vertically centered.
+    /// Where a toolbar of `size` goes on `screen`: the saved spot, else bottom center (horizontal bar) or right edge.
     static func origin(size: CGSize, on screen: ScreenInfo, saved: Fraction?) -> CGPoint {
         let raw: CGPoint
         if let saved {
             raw = CGPoint(x: screen.frame.minX + saved.x * screen.frame.width,
                           y: screen.frame.minY + saved.y * screen.frame.height - size.height)
         } else {
-            raw = CGPoint(x: screen.visibleFrame.maxX - size.width - defaultInset, y: screen.visibleFrame.midY - size.height / 2)
+            if size.width > size.height {      // horizontal bar: bottom center, above the Dock
+                raw = CGPoint(x: screen.visibleFrame.midX - size.width / 2, y: screen.visibleFrame.minY + defaultInset * 2)
+            } else {
+                raw = CGPoint(x: screen.visibleFrame.maxX - size.width - defaultInset, y: screen.visibleFrame.midY - size.height / 2)
+            }
         }
         return clamp(CGRect(origin: raw, size: size), to: screen.visibleFrame).origin
     }
@@ -69,6 +73,14 @@ enum ToolbarGeometry {
 
     /// Popovers open toward the display's center: right of the toolbar when it sits on the left half.
     static func onLeftHalf(frame: CGRect, of screen: ScreenInfo) -> Bool { frame.midX < screen.frame.midX }
+
+    /// The horizontal bar's popovers open upward when it sits in the lower half of the display, else downward.
+    static func inLowerHalf(frame: CGRect, of screen: ScreenInfo) -> Bool { frame.midY < screen.frame.midY }
+
+    /// New frame after the bar's content changed size (idle ↔ recording): the center stays where it was.
+    static func resized(_ frame: CGRect, to size: CGSize) -> CGRect {
+        CGRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height)
+    }
 }
 
 /// Coordinate rules for the area overlay. Saved areas are display-local points with a top-left

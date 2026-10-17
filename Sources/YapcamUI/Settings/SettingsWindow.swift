@@ -196,7 +196,7 @@ struct AdvancedSettings: View {
     var body: some View {
         Form {
             Button("Reset toolbar position") {
-                for key in AppDefaults.store.dictionaryRepresentation().keys where key.hasPrefix("toolbarPos.") {
+                for key in AppDefaults.store.dictionaryRepresentation().keys where key.hasPrefix(ToolbarPanelController.positionKeyPrefix) {
                     AppDefaults.store.removeObject(forKey: key)
                 }
                 ToolbarPanelController.shared.hide(); ToolbarPanelController.shared.show()

@@ -56,6 +56,26 @@ enum WindowAX {
         }
     }
 
+    /// Exact window sizes for "resize the window you record" (own list, grouped like the reference: ratio → sizes).
+    struct SizeGroup: Identifiable, Equatable { let name: String; let sizes: [CGSize]; var id: String { name } }
+    static let sizeGroups: [SizeGroup] = [
+        .init(name: "16:9", sizes: [(1280, 720), (1920, 1080), (2560, 1440)].map { CGSize(width: $0.0, height: $0.1) }),
+        .init(name: "4:3", sizes: [(640, 480), (800, 600), (1024, 768), (1280, 960), (1600, 1200)].map { CGSize(width: $0.0, height: $0.1) }),
+        .init(name: "9:16", sizes: [(720, 1280), (1080, 1920), (1440, 2560)].map { CGSize(width: $0.0, height: $0.1) }),
+        .init(name: "16:10", sizes: [(640, 400), (1280, 800), (1920, 1200), (2560, 1600)].map { CGSize(width: $0.0, height: $0.1) }),
+        .init(name: "Square", sizes: [640, 800, 1024, 1200, 1600].map { CGSize(width: $0, height: $0) }),
+    ]
+
+    /// The groups with only the sizes that fit `limit` (the display in points); empty groups drop out.
+    static func groups(fitting limit: CGSize) -> [SizeGroup] {
+        sizeGroups.compactMap { g in
+            let fit = g.sizes.filter { $0.width <= limit.width && $0.height <= limit.height }
+            return fit.isEmpty ? nil : SizeGroup(name: g.name, sizes: fit)
+        }
+    }
+
+    static func label(_ s: CGSize) -> String { "\(Int(s.width)) × \(Int(s.height))" }
+
     /// "1280x720", "1280 × 720" or "1280,720" → a size within 150…8192 per side; nil when it isn't two numbers.
     static func parseSize(_ text: String) -> CGSize? {
         let parts = text.lowercased().replacingOccurrences(of: "×", with: "x").replacingOccurrences(of: ",", with: "x")
@@ -132,8 +152,8 @@ struct SourceCard: View {
                 .buttonStyle(.plain).keyboardShortcut(.defaultAction)
                 .accessibilityLabel("Start recording")
                 Menu {
-                    Picker("Frame rate", selection: $settings.maxFPS) { Text("60 fps").tag(60); Text("30 fps").tag(30) }
-                    Picker("Countdown", selection: $settings.countdown) { Text("No countdown").tag(0); Text("3 seconds").tag(3); Text("5 seconds").tag(5); Text("10 seconds").tag(10) }
+                    Picker("After recording", selection: $settings.afterRecording) { ForEach(AfterRecording.allCases) { Text($0.title).tag($0) } }
+                    Picker("Countdown", selection: $settings.countdown) { ForEach(GearMenu.countdownChoices, id: \.1) { Text($0.0).tag($0.1) } }
                     Picker("System audio", selection: $settings.systemAudioChoice) { ForEach(SystemAudioChoice.allCases) { Text($0.title).tag($0) } }
                 } label: {
                     Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
@@ -158,6 +178,8 @@ struct SourceCard: View {
     let kind: Kind
     @Published var activeDisplayID: UInt32 = 0
     @Published var hover: WindowRow?
+    /// A display chosen from the Display button's context menu: its card stays put instead of following the pointer.
+    var pinnedDisplay: UInt32?
     @Published var notice: String?
     /// Windows the user chose to ignore for this overlay session (they are skipped when pointing).
     @Published var ignored: Set<UInt32> = []
@@ -194,6 +216,18 @@ struct SourceCard: View {
         list.removeAll { $0 == t }; list.insert(t, at: 0)
         AppSettings.shared.savedWindowSizes = Array(list.prefix(8))
     }
+
+    struct AppWindows: Identifiable { let app: String; let rows: [WindowRow]; var id: String { app } }
+    /// Recordable windows grouped by app (own windows, system layers and ignored windows left out).
+    func windowsByApp() -> [AppWindows] {
+        let own = ProcessInfo.processInfo.processIdentifier
+        let rows = WindowHit.onScreenRows().filter { $0.layer == 0 && $0.pid != own && !ignored.contains($0.id) && $0.bounds.width >= 80 && $0.bounds.height >= 60 }
+        return Dictionary(grouping: rows, by: \.app).map { AppWindows(app: $0.key, rows: $0.value) }.sorted { $0.app.localizedCaseInsensitiveCompare($1.app) == .orderedAscending }
+    }
+
+    /// Chooses a window from the menu: it stays highlighted until the pointer moves.
+    @Published var pinned: (row: WindowRow, at: CGPoint)?
+    func select(_ w: WindowRow) { pinned = (w, NSEvent.mouseLocation); hover = w }
 
     func ignore(_ w: WindowRow) { ignored.insert(w.id); hover = nil }
 
@@ -238,17 +272,27 @@ extension WindowOverlayRoot {
     @ViewBuilder func windowMenu(_ w: WindowRow) -> some View {
         Menu {
             Menu("Resize window") {
-                ForEach(WindowAX.Preset.allCases) { p in
-                    Button(p.rawValue) { model.resize(w, to: p, in: screenFrame.size) }
+                ForEach(WindowAX.groups(fitting: screenFrame.size)) { g in
+                    Menu(g.name) {
+                        ForEach(g.sizes, id: \.self) { size in Button(WindowAX.label(size)) { model.resize(w, toSize: size) } }
+                    }
                 }
                 Divider()
-                Button("Set size…") { model.promptSize(w) }
+                Button("Custom…") { model.promptSize(w) }
                 Button("Save current size") { model.saveSize(of: w) }
-                ForEach(AppSettings.shared.savedWindowSizes, id: \.self) { t in
-                    Button(t) { if let size = WindowAX.parseSize(t) { model.resize(w, toSize: size) } }
+                let saved = AppSettings.shared.savedWindowSizes
+                ForEach(saved, id: \.self) { t in
+                    Button(t.replacingOccurrences(of: "x", with: " × ")) { if let size = WindowAX.parseSize(t) { model.resize(w, toSize: size) } }
                 }
+                if !saved.isEmpty { Divider(); Button("Delete saved sizes") { AppSettings.shared.savedWindowSizes = [] } }
             }
             Button("Ignore this window") { model.ignore(w) }
+            if !model.ignored.isEmpty { Button("Reset ignored windows") { model.ignored = [] } }
+            Menu("Select window") {
+                ForEach(model.windowsByApp()) { g in
+                    Menu(g.app) { ForEach(g.rows, id: \.id) { r in Button(r.title.isEmpty ? g.app : r.title) { model.select(r) } } }
+                }
+            }
             Button("Bring to front") { WindowAX.raise(pid: w.pid, bounds: w.bounds) }
             Button("Adjust as area") { model.adjustAsArea(w, screenFrame: screenFrame, primaryMaxY: primaryMaxY) }
             Button("Record entire display") { model.recordDisplay(containing: w) }
@@ -339,7 +383,7 @@ private final class OverlayWindow: NSWindow {
     var isActive: Bool { !windows.isEmpty }
     private var primaryMaxY: CGFloat { NSScreen.screens.first?.frame.maxY ?? 0 }
 
-    func show(_ kind: SourceOverlayModel.Kind) {
+    func show(_ kind: SourceOverlayModel.Kind, pinnedDisplay: UInt32? = nil) {
         hide(restoreFocus: false)
         AreaSelector.shared.end(nil, restoreFocus: false)
         let m = SourceOverlayModel(kind: kind)
@@ -348,6 +392,8 @@ private final class OverlayWindow: NSWindow {
             self?.hide(restoreFocus: false); AreaPicker.begin(onDisplay: displayID)
         }
         m.onRecordDisplay = { [weak self] id in self?.startDisplay(id) }
+        m.pinnedDisplay = pinnedDisplay
+        if let pinnedDisplay { m.activeDisplayID = pinnedDisplay }
         model = m
         let settings = AppSettings.shared
         for screen in NSScreen.screens {
@@ -369,7 +415,8 @@ private final class OverlayWindow: NSWindow {
         }
         let key = windows.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? windows.first
         OverlayKeys.takeKeyboard(key)
-        keyMonitor = OverlayKeys.install(window: key, start: { [weak self] in self?.startForTesting() }, cancel: { [weak self] in self?.hide() })
+        keyMonitor = OverlayKeys.install(window: key, start: { [weak self] in self?.startForTesting() }, cancel: { [weak self] in self?.hide() },
+                                         mode: { SourcePicker.open($0) })
         // Display plugged/unplugged or rearranged: the windows would be on stale frames, so start over.
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.hide() }
@@ -386,15 +433,20 @@ private final class OverlayWindow: NSWindow {
         for w in windows { RecordingController.shared.engine.unregisterExcluded(w); w.orderOut(nil) }
         windows = []
         model = nil
+        if PickerState.shared.openMode == .display || PickerState.shared.openMode == .window { PickerState.shared.openMode = nil }
     }
 
     /// Follow the pointer: the card moves to the display under it; the highlight to the window under it.
     private func track() {
         guard let m = model else { return }
         let p = NSEvent.mouseLocation
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(p) }), let id = screen.displayID, m.activeDisplayID != id { m.activeDisplayID = id }
+        if m.pinnedDisplay == nil, let screen = NSScreen.screens.first(where: { $0.frame.contains(p) }), let id = screen.displayID, m.activeDisplayID != id { m.activeDisplayID = id }
         if m.kind == .window {
             let cg = OverlayGeometry.cgPoint(fromAppKit: p, primaryMaxY: primaryMaxY)
+            if let pin = m.pinned {
+                if hypot(p.x - pin.at.x, p.y - pin.at.y) < 6 { return }
+                m.pinned = nil
+            }
             let hit = WindowHit.pick(from: WindowHit.onScreenRows(), at: cg, excludingPID: ProcessInfo.processInfo.processIdentifier, ignoring: m.ignored)
             if hit != m.hover { m.hover = hit }
         }
