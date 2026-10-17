@@ -78,7 +78,7 @@ enum MockGradients {
 
 // MARK: - Column
 
-/// Icon rail on the left of the panel, the section (or the selected element) beside it.
+/// Docked at the right edge, full height: the icon rail, a hairline, the section (or the selected element).
 struct InspectorColumn: View {
     @Bindable var mock: EditorMock
     static let railWidth: CGFloat = Yap.Grid.bar
@@ -94,7 +94,7 @@ struct InspectorColumn: View {
             .id(mock.selection == .none ? AnyHashable(mock.tab) : AnyHashable(mock.selection))
         }
         .frame(maxHeight: .infinity)
-        .columnPanel()
+        .background(Yap.dock)
     }
 
     private var rail: some View {

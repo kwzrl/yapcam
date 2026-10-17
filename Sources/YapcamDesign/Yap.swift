@@ -34,6 +34,9 @@ public enum Yap {
     /// Ground of opaque windows (editor) and the dark end of the glass tint.
     public static let ground = Color(red: 0.075, green: 0.072, blue: 0.07)
     public static let nsGround = NSColor(srgbRed: 0.075, green: 0.072, blue: 0.07, alpha: 1)
+    /// Docked columns of a document window (inspector, chat, timeline, title row): a hint above the ground, so the
+    /// stage in the middle reads as the darkest, calmest place. Separated from it by a plain hairline only.
+    public static let dock = Color(red: 0.1, green: 0.097, blue: 0.094)
 
     public enum Radius {
         public static let control: CGFloat = 10

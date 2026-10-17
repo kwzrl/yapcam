@@ -317,7 +317,8 @@ public struct DisclosureSection<Content: View>: View {
 
 // MARK: - Inspector rows
 
-/// A parameter: label on the left, its value in yellow on the right, the pill slider below.
+/// A parameter in one calm row: label left, the pill slider and its value in yellow right, in fixed columns so the
+/// sliders of a section line up. When the label is too long for the row, the slider moves under it.
 public struct ValueSlider: View {
     let title: String
     let value: String
@@ -328,19 +329,27 @@ public struct ValueSlider: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
-                Spacer()
-                Text(value).technical()
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                label.fixedSize()
+                Spacer(minLength: 0)
+                slider.frame(width: 96)
+                readout.frame(width: 44, alignment: .trailing)
             }
-            PillSlider(value: $amount, trackHeight: 18)
-                .accessibilityLabel(title)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack { label; Spacer(); readout }
+                slider
+            }
         }
+        .frame(minHeight: 26)
     }
+
+    private var label: some View { Text(title).font(Yap.Font.body).foregroundStyle(Yap.label).lineLimit(1) }
+    private var readout: some View { Text(value).technical().lineLimit(1) }
+    private var slider: some View { PillSlider(value: $amount, trackHeight: 16).accessibilityLabel(title) }
 }
 
-/// A parameter with a few choices: label above, a segment switch below.
+/// A parameter with a few choices: label left, segment switch right; below the label when the row is too narrow.
 public struct ValueChoice<ID: Hashable>: View {
     let title: String
     let items: [(id: ID, title: String)]
@@ -351,11 +360,21 @@ public struct ValueChoice<ID: Hashable>: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
-            SegmentSwitch(items, selection: $selection, height: 26)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                label.fixedSize()
+                Spacer(minLength: 0)
+                segments.fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                label
+                segments
+            }
         }
     }
+
+    private var label: some View { Text(title).font(Yap.Font.body).foregroundStyle(Yap.label).lineLimit(1) }
+    private var segments: some View { SegmentSwitch(items, selection: $selection, height: 26) }
 }
 
 /// A row in a list (chat changes, results): icon, title, a value in yellow, platter on hover.

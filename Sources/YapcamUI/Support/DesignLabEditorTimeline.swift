@@ -7,40 +7,40 @@ import YapcamDesign
 // track with its waveform, the zoom track, then only the lanes that hold something, each with a quiet name.
 // Colours stay ours: yellow for timecodes, content colours on the items, white for the playhead.
 
+/// Docked at the bottom, from the left window edge to the inspector: a head row (transport left, over the track
+/// names; the Timeline / Transcript switch right), then the ruler and the tracks, or the transcript.
 struct TimelineArea: View {
     @Bindable var mock: EditorMock
 
     var body: some View {
         VStack(spacing: 0) {
+            head
             Group {
                 if mock.lower == .timeline { TimelineTracks(mock: mock) } else { TranscriptView(mock: mock) }
             }
             .frame(height: TimelineMetrics.tracksHeight(lanes: mock.lanes.count))
-            Hairline(axis: .horizontal)
-            bottomBar
         }
+        .background(Yap.dock)
     }
 
-    private var bottomBar: some View {
-        ZStack {
-            HStack {
-                SegmentSwitch([(EditorMock.Lower.timeline, "Timeline"), (.transcript, "Transcript")], selection: $mock.lower)
-                Spacer()
-                if mock.lower == .transcript && !mock.selectedWords.isEmpty {
-                    Button("Cut \(mock.selectedWords.count) words") { mock.cutSelection() }
-                        .buttonStyle(CapsuleButtonStyle(.secondary, height: 26))
-                }
-            }
+    private var head: some View {
+        HStack(spacing: 10) {
             transport
+            Spacer()
+            if mock.lower == .transcript && !mock.selectedWords.isEmpty {
+                Button("Cut \(mock.selectedWords.count) words") { mock.cutSelection() }
+                    .buttonStyle(CapsuleButtonStyle(.secondary, height: 26))
+            }
+            SegmentSwitch([(EditorMock.Lower.timeline, "Timeline"), (.transcript, "Transcript")], selection: $mock.lower)
         }
-        .padding(.horizontal, 8)
-        .frame(height: TimelineMetrics.barHeight)
+        .padding(.leading, 10).padding(.trailing, 8)
+        .frame(height: TimelineMetrics.headHeight)
     }
 
     private var transport: some View {
         HStack(spacing: 10) {
             Button { mock.playing.toggle() } label: { Image(systemName: mock.playing ? "pause.fill" : "play.fill") }
-                .buttonStyle(CircleButtonStyle(size: 30))
+                .buttonStyle(CircleButtonStyle(size: 28))
                 .accessibilityLabel(mock.playing ? "Pause" : "Play")
             HStack(spacing: 4) {
                 Text(EditorMock.timecode(mock.time, fraction: true)).technical()
@@ -58,7 +58,7 @@ enum TimelineMetrics {
     static let lane: CGFloat = 28
     static let gap: CGFloat = 6
     static let names: CGFloat = 64
-    static let barHeight: CGFloat = 44
+    static let headHeight: CGFloat = 40
 
     static func tracksHeight(lanes: Int) -> CGFloat {
         ruler + gap + clip + gap + zoom + gap + CGFloat(lanes) * (lane + gap) + 8

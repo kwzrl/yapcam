@@ -5,6 +5,10 @@ import YapcamDesign
 // The design lab's "Editor" page: the agentic editor as a mock-up (no engine, no project).
 // The agent adds to the editor, it replaces nothing: today's full inspector with its icon rail stays
 // (DesignLabEditorInspector.swift), the timeline lies on the window ground (DesignLabEditorTimeline.swift).
+// Docked like a professional editor: one title row across the window, the chat (agent on) and the inspector as
+// columns flush with the window edges, the timeline docked at the bottom from the left edge to the inspector, all
+// on the dock tone and separated by hairlines only. The stage in the middle is the calm, darkest place; glass only
+// for what really floats (the blocks bar, the floating chat of variant B).
 // Agent and building blocks are opt-in: off, there is no chat column, no suggestion and no blocks bar.
 // Variants differ only in the open questions: chat always open (A) or auto-collapse on narrow windows (B).
 
@@ -353,7 +357,6 @@ struct DesignLabEditorPage: View {
 
 struct EditorMockView: View {
     @Bindable var mock: EditorMock
-    static let gutter = Yap.Grid.inset
     static let chatWidth: CGFloat = 300
     static let inspectorWidth: CGFloat = InspectorColumn.railWidth + 300
 
@@ -362,9 +365,23 @@ struct EditorMockView: View {
             let narrow = mock.variant == .auto && geo.size.width < EditorMock.autoCollapseWidth
             VStack(spacing: 0) {
                 EditorTopBar(mock: mock, narrow: narrow)
-                content(narrow: narrow)
-                    .padding([.horizontal, .bottom], Self.gutter)
-                    .overlay(alignment: .topLeading) { overlayChat(narrow: narrow) }
+                Hairline(axis: .horizontal)
+                HStack(spacing: 0) {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            if mock.agentOn && !narrow && mock.chatOpen {
+                                ChatColumn(mock: mock).frame(width: Self.chatWidth)
+                                Hairline()
+                            }
+                            PreviewArea(mock: mock)
+                                .overlay(alignment: .topLeading) { overlayChat(narrow: narrow) }
+                        }
+                        Hairline(axis: .horizontal)
+                        TimelineArea(mock: mock)
+                    }
+                    Hairline()
+                    InspectorColumn(mock: mock).frame(width: Self.inspectorWidth)
+                }
             }
         }
         .background(Yap.ground)
@@ -373,25 +390,12 @@ struct EditorMockView: View {
         .onChange(of: mock.chatOverlay) { _, open in if open { mock.unread = false } }
     }
 
-    private func content(narrow: Bool) -> some View {
-        HStack(spacing: Self.gutter) {
-            if mock.agentOn && !narrow && mock.chatOpen { ChatColumn(mock: mock).frame(width: Self.chatWidth) }
-            VStack(spacing: 0) {
-                PreviewArea(mock: mock)
-                TimelineArea(mock: mock)
-            }
-            InspectorColumn(mock: mock).frame(width: Self.inspectorWidth)
-        }
-    }
-
-    /// Variant B on a narrow window: the chat floats over the preview instead of taking its width.
+    /// Variant B on a narrow window: the chat floats over the stage instead of taking its width.
     @ViewBuilder private func overlayChat(narrow: Bool) -> some View {
         if mock.agentOn && narrow && mock.chatOverlay {
-            let timeline = TimelineMetrics.tracksHeight(lanes: mock.lanes.count) + TimelineMetrics.barHeight
             ChatColumn(mock: mock, floating: true)
                 .frame(width: Self.chatWidth)
-                .padding(.leading, Self.gutter * 2).padding(.top, Self.gutter)
-                .padding(.bottom, timeline + Self.gutter)
+                .padding(12)
                 .transition(.move(edge: .leading).combined(with: .opacity))
         }
     }
@@ -427,8 +431,12 @@ private struct EditorTopBar: View {
             Button("Export") {}.buttonStyle(CapsuleButtonStyle(.primary, height: 30)).padding(.leading, 10)
         }
         .padding(.horizontal, 12)
-        .frame(height: Yap.Grid.bar)
+        .frame(height: Self.height)
+        .background(Yap.dock)
     }
+
+    /// The unified title bar's height, so the window buttons sit centred in this row.
+    static let height: CGFloat = 52
 
     private var chatShown: Bool { mock.agentOn && (narrow ? mock.chatOverlay : mock.chatOpen) }
 
@@ -456,7 +464,7 @@ private struct ChatColumn: View {
             if mock.agent == .on { connected } else { ChatEmptyState(mock: mock) }
         }
         .frame(maxHeight: .infinity)
-        .columnPanel(floating: floating)
+        .background { if floating { GlassSurface(radius: Yap.Grid.barRadius, behindWindow: false, lift: 0.04) } else { Yap.dock } }
     }
 
     private var connected: some View {
@@ -599,25 +607,30 @@ private struct ChatEmptyState: View {
 
 // MARK: - Preview
 
+/// The stage: the preview large and centred with air around it; the blocks bar floats just under it.
 private struct PreviewArea: View {
     @Bindable var mock: EditorMock
+    static let air: CGFloat = 32
+    static let barRoom: CGFloat = Yap.Grid.bar + 14
+
     var body: some View {
         GeometryReader { geo in
             let stage = fit(geo.size)
-            PreviewStage(mock: mock, size: stage)
-                .frame(width: stage.width, height: stage.height)
-                .overlay(alignment: .bottom) {
-                    if mock.motion { BlocksBar(mock: mock).padding(.bottom, 14).transition(.opacity.combined(with: .scale(scale: 0.96))) }
-                }
-                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+            VStack(spacing: 14) {
+                PreviewStage(mock: mock, size: stage)
+                    .frame(width: stage.width, height: stage.height)
+                if mock.motion { BlocksBar(mock: mock).transition(.opacity.combined(with: .scale(scale: 0.96))) }
+            }
+            .position(x: geo.size.width / 2, y: geo.size.height / 2)
         }
         .background(Color.black.opacity(0.001).onTapGesture { mock.selection = .none })
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// 16:9 inside the room, with a little air around it.
+    /// 16:9 inside the room, with air around it and room for the blocks bar when it shows.
     private func fit(_ room: CGSize) -> CGSize {
-        let w = max(room.width - 24, 10), h = max(room.height - 24, 10)
+        let w = max(room.width - 2 * Self.air, 10)
+        let h = max(room.height - 2 * Self.air - (mock.motion ? Self.barRoom : 0), 10)
         return w / h > 16 / 9 ? CGSize(width: h * 16 / 9, height: h) : CGSize(width: w, height: w * 9 / 16)
     }
 }
