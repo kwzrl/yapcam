@@ -89,6 +89,7 @@ import YapcamEditor
         PresetsFolder.apply(AppSettings.shared.presetsDirectory)
         EditorHooks.install(AppSettings.shared)
         EditorWindows.appearance = AppSettings.shared.editorAppearance
+        EditorWindows.hardwareEncodingEnabled = { AppSettings.hardwareEncodingEnabledInStore() }   // Settings → Advanced reaches editor exports
         AreaOutline.shared.start()
         offerRecovery()
         if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {
