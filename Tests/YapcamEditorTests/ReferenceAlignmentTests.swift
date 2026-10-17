@@ -831,3 +831,15 @@ import YapcamCore
         }
     }
 }
+
+@MainActor @Suite struct ExportDialogParityTests {      // S-03
+    @Test func commandReturnCopiesWhateverTheTarget() async {
+        let e = ExportModel(engine: FakeExporter()); e.target = .file
+        e.copyToClipboard(); #expect(e.runningTarget == .clipboard)
+        await e.waitUntilFinished()
+    }
+    @Test func everyCompressionHasADescription() {
+        for p in CompressionPreset.allCases { #expect(p.longHint.count > 10) }
+        #expect(Set(CompressionPreset.allCases.map(\.longHint)).count == 4)
+    }
+}
