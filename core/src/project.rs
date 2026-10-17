@@ -142,6 +142,10 @@ pub fn decode_project(bytes: &[u8]) -> Result<ProjectData> {
         crate::model::migrate_cursor(cursor, true);
     }
     let mut p: ProjectData = serde_json::from_value(raw)?;
+    // Validate caller-controlled timeline arithmetic before derived indexes or
+    // speech ranges evaluate it. In particular, a zero/non-finite clip speed
+    // must be an ordinary decode error rather than a rational divide-by-zero.
+    validate_data(&p)?;
     crate::speech_activity::refresh(&mut p)?;
     validate_data(&p)?;
     Ok(p)
@@ -169,10 +173,14 @@ pub fn validate_session(s: &Session) -> Result<()> {
         return Err(Error::new(2, "Invalid optional track format"));
     }
     for (i, seg) in s.segments.iter().enumerate() {
-        if seg.index != i as u32 || seg.src_start_ns != end || seg.duration_ns <= 0 {
+        if seg.index != i as u32
+            || seg.src_start_ns != end
+            || seg.duration_ns <= 0
+            || !seg.files.contains_key("screen")
+        {
             return Err(Error::new(
                 2,
-                "Segments must be contiguous, ordered, and positive",
+                "Segments must be contiguous, ordered, positive, and contain screen media",
             ));
         }
         end = end
@@ -686,6 +694,9 @@ impl Project {
         Ok(p)
     }
     fn load(package: &Path, mut data: ProjectData, session: Session) -> Result<Self> {
+        // `open` validates decoded JSON, while `create` constructs data from the
+        // recording manifest. Keep both entry paths behind the same invariant.
+        validate_data(&data)?;
         crate::microphone::validate(&data, &session)?;
         let end = session
             .segments

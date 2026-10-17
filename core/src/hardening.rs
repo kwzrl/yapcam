@@ -394,6 +394,149 @@ fn frozen_schema_corpus_migrates_without_losing_original_fields() {
     }
 }
 
+fn assert_project_decode_error(label: &str, bytes: &[u8]) {
+    match std::panic::catch_unwind(|| crate::project::decode_project(bytes)) {
+        Ok(Err(_)) => {}
+        Ok(Ok(_)) => panic!("Malformed project decoded successfully: {label}"),
+        Err(_) => panic!("Malformed project panicked while decoding: {label}"),
+    }
+}
+
+fn assert_project_open_error(label: &str, bytes: &[u8]) {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join("project.json"), bytes).unwrap();
+    let _ = std::fs::remove_file(fixture.0.join("project.json.prev"));
+    let _ = std::fs::remove_dir_all(fixture.0.join("autosave"));
+    match std::panic::catch_unwind(|| Project::open(&fixture.0)) {
+        Ok(Err(_)) => {}
+        Ok(Ok(_)) => panic!("Malformed project opened successfully: {label}"),
+        Err(_) => panic!("Malformed project panicked while opening: {label}"),
+    }
+    let path = CString::new(fixture.0.to_str().unwrap()).unwrap();
+    let mut handle = std::ptr::null_mut();
+    let status = unsafe { yc_project_open(path.as_ptr(), &mut handle) };
+    if !handle.is_null() {
+        unsafe { yc_project_free(handle) };
+    }
+    assert_ne!(
+        status, 0,
+        "Malformed project crossed the FFI boundary: {label}"
+    );
+    assert_ne!(status, 99, "Malformed project caused an FFI panic: {label}");
+}
+
+fn assert_session_create_error(label: &str, session: &serde_json::Value) {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.0.join("recording/session.json"),
+        serde_json::to_vec(session).unwrap(),
+    )
+    .unwrap();
+    match std::panic::catch_unwind(|| Project::create(&fixture.0)) {
+        Ok(Err(_)) => {}
+        Ok(Ok(_)) => panic!("Malformed session created successfully: {label}"),
+        Err(_) => panic!("Malformed session panicked while creating: {label}"),
+    }
+    let path = CString::new(fixture.0.to_str().unwrap()).unwrap();
+    let mut handle = std::ptr::null_mut();
+    let status = unsafe { yc_project_create(path.as_ptr(), &mut handle) };
+    if !handle.is_null() {
+        unsafe { yc_project_free(handle) };
+    }
+    assert_ne!(
+        status, 0,
+        "Malformed session crossed the FFI boundary: {label}"
+    );
+    assert_ne!(status, 99, "Malformed session caused an FFI panic: {label}");
+}
+
+#[test]
+fn adversarial_project_and_session_loads_error_without_panicking() {
+    use serde_json::json;
+
+    let fixture = Fixture::new();
+    let project = Project::create(&fixture.0).unwrap();
+    let canonical = serde_json::to_vec(&project.data).unwrap();
+
+    // Reproducible fuzz corpus: every sample is syntactically truncated or has
+    // invalid UTF-8 injected at a seeded byte offset, never merely a valid edit.
+    let mut seed = 0x60ad_f00d_cafe_beef;
+    for i in 0..64 {
+        let cut = (rng(&mut seed) as usize) % canonical.len();
+        assert_project_decode_error(&format!("truncated-{i}-at-{cut}"), &canonical[..cut]);
+        let mut garbled = canonical.clone();
+        let offset = (rng(&mut seed) as usize) % garbled.len();
+        garbled[offset] = 0xff;
+        assert_project_decode_error(&format!("garbled-{i}-at-{offset}"), &garbled);
+    }
+    for (label, bytes) in [
+        ("invalid-utf8", vec![0xff, 0xfe]),
+        ("unclosed-object", br#"{"schema_version":1"#.to_vec()),
+        ("non-object", b"[]".to_vec()),
+        (
+            "overflow-number",
+            br#"{"schema_version":1,"timeline":1e999}"#.to_vec(),
+        ),
+    ] {
+        assert_project_decode_error(label, &bytes);
+        assert_project_open_error(label, &bytes);
+    }
+
+    let base = serde_json::to_value(&project.data).unwrap();
+    let mut missing_timeline = base.clone();
+    missing_timeline.as_object_mut().unwrap().remove("timeline");
+    let mut negative_time = base.clone();
+    negative_time["timeline"]["clips"][0]["src_start_ns"] = (-1).into();
+    let mut huge_time = base.clone();
+    huge_time["timeline"]["clips"][0]["src_end_ns"] = i64::MAX.into();
+    let mut zero_speed_with_speech = base.clone();
+    zero_speed_with_speech["timeline"]["clips"][0]["speed"] = 0.into();
+    zero_speed_with_speech["camera"]["speech_activity"] = json!({
+        "source":"vad","coverage_start_ns":0,"coverage_end_ns":3_000_000_000_i64,
+        "ranges":[]
+    });
+    for (label, value) in [
+        ("missing-timeline", missing_timeline),
+        ("negative-clip-time", negative_time),
+        ("huge-clip-time", huge_time),
+        ("zero-speed-speech-refresh", zero_speed_with_speech),
+    ] {
+        let bytes = serde_json::to_vec(&value).unwrap();
+        assert_project_decode_error(label, &bytes);
+        assert_project_open_error(label, &bytes);
+    }
+
+    let session_path = fixture.0.join("recording/session.json");
+    let session: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(session_path).unwrap()).unwrap();
+    let mut missing_tracks = session.clone();
+    missing_tracks.as_object_mut().unwrap().remove("tracks");
+    let mut missing_screen_track = session.clone();
+    missing_screen_track["tracks"]
+        .as_object_mut()
+        .unwrap()
+        .remove("screen");
+    let mut missing_screen_media = session.clone();
+    missing_screen_media["segments"][0]["files"]
+        .as_object_mut()
+        .unwrap()
+        .remove("screen");
+    let mut negative_segment = session.clone();
+    negative_segment["segments"][0]["duration_ns"] = (-1).into();
+    let mut huge_segment = session.clone();
+    huge_segment["segments"].as_array_mut().unwrap().truncate(1);
+    huge_segment["segments"][0]["duration_ns"] = i64::MAX.into();
+    for (label, value) in [
+        ("missing-tracks", missing_tracks),
+        ("missing-screen-track", missing_screen_track),
+        ("missing-screen-media", missing_screen_media),
+        ("negative-segment-time", negative_segment),
+        ("huge-segment-time", huge_segment),
+    ] {
+        assert_session_create_error(label, &value);
+    }
+}
+
 fn ffi_json(handle: *mut YcProject) -> serde_json::Value {
     let mut text = std::ptr::null_mut();
     assert_eq!(unsafe { yc_project_to_json(handle, &mut text) }, 0);

@@ -1,3 +1,50 @@
+READY R6 11ce970 + Lead checkpoint needed | Core load hardening rejects pre-validation timeline arithmetic, missing required screen media, and malformed/negative/huge project/session clocks without panic | Rust135 PASS/1 intentional ignore; adversarial load corpus PASS; fmt + strict Clippy PASS
+
+
+## Round 6 — Rust crash/load hardening (06:32 UTC)
+
+Completed both Core rows from `round6/tasks.md`. Base is main/Lead checkpoint
+`11ce970`; Lead must checkpoint the three owned modified paths because this
+sandbox cannot write Git metadata. No UI feedback arrived during this work, and
+no other team's source or status was edited.
+
+The load audit found and fixed one real panic path. `decode_project` previously
+refreshed speech-derived silence ranges before validating caller-controlled
+clips; a zero-speed clip could therefore reach rational timeline division and
+panic. Project data is now validated before derived evaluation and again after
+refresh. The common `Project::load` path also validates factory-created data, so
+an `i64::MAX` recording duration cannot bypass the project invariant. Session
+validation now rejects a segment missing its required screen-media entry.
+
+Crash-class audit disposition:
+
+| Class | Result |
+|---|---|
+| `unwrap` / `expect` | The unsafe load-time speech mapping case was fixed. Remaining production uses are dominated by values just produced as typed JSON, an immediately preceding `Some`/nonempty check, or indices returned by successful lookup; malformed persisted/input JSON is rejected before those invariants are published. No production `expect` remains. |
+| Indexing / slicing | Fixed-size schema arrays are deserialized at their declared lengths. Vector indices come from `enumerate`, bounded `partition_point`/`checked_sub`, or successful position lookup; correlated session/event/input vectors are built together after session validation. |
+| Casts / clock math | Narrow render casts consume finite bounded settings/geometry. Collection-index casts are bounded by in-memory collection size. Timeline integer results use checked, saturating, clamped or rational arithmetic; overflowed project/session durations now return errors on both create and open. |
+| Division / zero length | Constant denominators and validated positive geometry/rates are safe; an empty edited timeline remains supported. Invalid zero/non-finite clip speeds are now rejected before any rational denominator is constructed. |
+| Explicit panic sites | Production has one `unreachable!` after an exhaustive verb guard in the private collection dispatcher. Other `panic!` sites are test-only injection/assertion paths. No production `fatalError`, `precondition`, `try!`, `as!`, `todo!`, or `unimplemented!` analogue was found. |
+| FFI boundary | All 20 exported `extern "C"` functions enter `guarded`/`boundary`; the source/header/export-set regression injects a panic into every export and verifies its fallback/status. Error reporting is separately caught, so Rust unwinding does not cross C. |
+| Async/re-entrancy/teardown | Core has no Combine, Swift actor/UI modal, notification, or AVFoundation callback surface. RwLock/Mutex poisoning and staged journal-write races already return explicit errors and remain covered by concurrency regressions. |
+
+The new deterministic load corpus exercises 64 truncated and 64 invalid-byte
+project documents plus invalid UTF-8, unclosed/non-object/overflow JSON, missing
+project fields, negative/huge clip clocks, the former zero-speed+speech crash,
+missing track metadata, missing per-segment screen media, and negative/huge
+segment clocks. Selected cases run through `decode_project`, `Project::open` or
+`Project::create`, and `yc_project_open`/`yc_project_create`; every malformed case
+must return an error, must leave the output handle null, and must never report
+the FFI panic status.
+
+Verification: `cargo test` **135 PASS / 1 intentional long benchmark ignored**;
+focused adversarial load regression **1 PASS**; existing 10,000-command FFI fuzz
+and all-export panic injection PASS; `cargo fmt --check` and `cargo clippy
+--all-targets -- -D warnings` PASS. The additional audit lint run enabled
+unwrap/expect, indexing/slicing, truncation/sign/precision-cast and integer-
+division families over the production library; dispositions are recorded above.
+
+
 READY RV f81e8a4 + Lead checkpoint needed | R5 finding 3 Core fixed: privacy_mask is limited to blur/fully opaque sensitive-data covers; highlight/spotlight have distinct published purposes | Rust134 PASS/1 intentional ignore; Core renderer contract3 PASS; fmt + strict Clippy PASS
 
 
