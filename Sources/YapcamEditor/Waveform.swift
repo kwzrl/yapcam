@@ -88,6 +88,7 @@ struct WaveformLayer: View {
     let geometry: TimelineGeometry
     let width: CGFloat, height: CGFloat
     var smooth = false
+    var color = Color.black.opacity(0.3)
     var body: some View {
         Canvas { ctx, size in
             guard !points.isEmpty else { return }
@@ -114,7 +115,7 @@ struct WaveformLayer: View {
                 let h = max(CGFloat(pow(a, 0.5)) * (size.height - 10) / 2, 0.5)
                 path.addRoundedRect(in: CGRect(x: CGFloat(c) * step, y: mid - h, width: max(step - 0.8, 0.8), height: h * 2), cornerSize: CGSize(width: 0.5, height: 0.5))
             }
-            ctx.fill(path, with: .color(Color.primary.opacity(0.4)))     // light on dark chips, dark on light ones
+            ctx.fill(path, with: .color(color))     // dark on the yellow clips
         }
         .frame(width: width, height: height).allowsHitTesting(false).accessibilityHidden(true)
     }
