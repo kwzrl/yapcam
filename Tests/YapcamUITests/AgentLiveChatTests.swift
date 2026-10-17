@@ -5,7 +5,7 @@ import YapcamEditor
 @testable import YapcamUI
 
 /// Live, opt-in: real Claude Code through the chat runner and the in-app MCP server, on a COPY of a recording.
-/// `YAPCAM_LIVE_CHAT=/tmp/copy.yapcam [YAPCAM_LIVE_PORT=7791] swift test --filter AgentLiveChatTests`
+/// `YAPCAM_LIVE_CHAT=/tmp/copy.yapcam [YAPCAM_LIVE_PORT=7780] swift test --filter AgentLiveChatTests`
 /// The port and token live in the volatile argument domain, so nothing is written to preferences.
 @MainActor @Suite(.serialized) struct AgentLiveChatTests {
     nonisolated static let package = ProcessInfo.processInfo.environment["YAPCAM_LIVE_CHAT"]
@@ -14,7 +14,7 @@ import YapcamEditor
     func secondPromptRefersToTheFirst() async throws {
         _ = NSApplication.shared
         let package = URL(fileURLWithPath: try #require(Self.package))
-        let port = Int(ProcessInfo.processInfo.environment["YAPCAM_LIVE_PORT"] ?? "") ?? 7791
+        let port = Int(ProcessInfo.processInfo.environment["YAPCAM_LIVE_PORT"] ?? "") ?? 7780
         UserDefaults.standard.setVolatileDomain(["agent.mcp.port": port, "agent.mcp.token": UUID().uuidString + UUID().uuidString], forName: UserDefaults.argumentDomain)
         AgentServer.startServer()
         EditorWindows.open(package: package)
