@@ -70,6 +70,11 @@ import YapcamEditor
             return
         }
 
+        if let i = args.firstIndex(of: "--design-lab-snapshot"), args.indices.contains(i + 1) {
+            DesignLab.snapshot(into: URL(filePath: args[i + 1], directoryHint: .isDirectory)); return
+        }
+        if args.contains("--design-lab") { DesignLab.show(); return }
+
         if let i = args.firstIndex(of: "--snapshot-ui"), args.indices.contains(i + 1) {
             let dir = URL(filePath: args[i + 1], directoryHint: .isDirectory)
             Task { await UISnapshot.run(into: dir) }
