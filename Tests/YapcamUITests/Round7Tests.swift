@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 import YapcamCore
 import YapcamEditor
 @testable import YapcamUI
@@ -220,5 +221,22 @@ import YapcamEditor
         // with no editor in front the editor items are greyed out
         let d = AppDelegate()
         #expect(exp?.items.first.map { d.validateMenuItem($0) } == (EditorBridge.keyEditor() != nil))
+    }
+
+    // S-11
+    @Test func presetFileTypeIsDeclaredAndAcceptedByThePanels() throws {
+        let ext = try #require(UTType(filenameExtension: "yapcampreset"))
+        #expect(PresetFileType.openTypes.contains { ext.conforms(to: $0) })
+        #expect(PresetFileType.isPreset(URL(fileURLWithPath: "/tmp/fixture/A.yapcampreset")) && !PresetFileType.isPreset(URL(fileURLWithPath: "/tmp/fixture/A.mov")))
+        let plist = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appending(path: "Resources/Info.plist")
+        let info = try #require(NSDictionary(contentsOf: plist) as? [String: Any])
+        let exported = (info["UTExportedTypeDeclarations"] as? [[String: Any]]) ?? []
+        let preset = exported.first { $0["UTTypeIdentifier"] as? String == "mov.yapcam.preset" }
+        #expect(preset != nil && (preset?["UTTypeConformsTo"] as? [String])?.contains("public.json") == true)
+        let docs = (info["CFBundleDocumentTypes"] as? [[String: Any]]) ?? []
+        #expect(docs.contains { ($0["LSItemContentTypes"] as? [String])?.contains("mov.yapcam.preset") == true })
+        let menu = MainMenu.build(target: AppDelegate())
+        let file = menu.items.first { $0.submenu?.title == "File" }?.submenu
+        #expect(file?.items.contains { $0.title == "Import Preset…" } == true)
     }
 }

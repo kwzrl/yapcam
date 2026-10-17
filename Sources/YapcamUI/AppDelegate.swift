@@ -115,7 +115,7 @@ import YapcamEditor
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for u in urls { ProjectActions.open(u) }
+        for u in urls { if PresetFileType.isPreset(u) { PresetFileType.importPreset(u) } else { ProjectActions.open(u) } }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -310,6 +310,12 @@ import YapcamEditor
     }
     @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { FinderReveal.show(u) } }
     @objc func showRecordings() { RecentProjectsWindow.shared.show() }
+    @objc func importPreset() {
+        let p = NSOpenPanel(); p.allowedContentTypes = PresetFileType.openTypes; p.allowsOtherFileTypes = true
+        p.message = "Choose a Yapcam preset file"
+        guard p.runModal() == .OK, let url = p.url else { return }
+        PresetFileType.importPreset(url)
+    }
     @objc func importVideo() { ProjectActions.importVideo() }
     @objc func exportDiagnostics() { ProjectActions.exportDiagnostics() }
     @objc func editUndo() {

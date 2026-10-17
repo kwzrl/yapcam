@@ -54,6 +54,7 @@ import AppKit
             item("Open Recording…", #selector(AppDelegate.openProject), "o"),
             openRecentItem(),
             item("Import Video…", #selector(AppDelegate.importVideo), "i"),
+            item("Import Preset…", #selector(AppDelegate.importPreset)),
             item("Recover Recording…", #selector(AppDelegate.recoverRecording)),
             item("Recordings…", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
