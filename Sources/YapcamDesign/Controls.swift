@@ -3,7 +3,8 @@ import SwiftUI
 // MARK: - Selection
 
 /// Selected = a slightly brighter surface; hovered = half of that. No border, no colour.
-public struct Platter: ViewModifier {
+/// (Older, static fill for rows and menus; slots in bars use the animated `Platter` in Slots.swift.)
+public struct PlatterFill: ViewModifier {
     var selected: Bool
     var hover: Bool
     var radius: CGFloat
@@ -15,7 +16,7 @@ public struct Platter: ViewModifier {
 
 public extension View {
     func platter(selected: Bool, hover: Bool = false, radius: CGFloat = Yap.Radius.card) -> some View {
-        modifier(Platter(selected: selected, hover: hover, radius: radius))
+        modifier(PlatterFill(selected: selected, hover: hover, radius: radius))
     }
 }
 

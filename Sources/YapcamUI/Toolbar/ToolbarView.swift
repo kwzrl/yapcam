@@ -25,8 +25,8 @@ struct ToolbarView: View {
         let layout = vertical ? AnyLayout(VStackLayout(spacing: spacing)) : AnyLayout(HStackLayout(spacing: spacing))
         return layout { content() }
     }
-    static let radius: CGFloat = 16
-    static let thickness: CGFloat = 54
+    static let radius = Yap.Grid.barRadius
+    static let thickness = Yap.Grid.bar
     private var separator: some View {
         Hairline(axis: vertical ? .horizontal : .vertical)
             .frame(width: vertical ? 30 : nil, height: vertical ? nil : 30)
@@ -218,7 +218,7 @@ struct ToolbarView: View {
                 }
                 .padding(.horizontal, 6).frame(height: 36).contentShape(Rectangle())
             }
-            .buttonStyle(PressableStyle())
+            .buttonStyle(PressStyle())
             .help("Stop recording (\(settings.startStopShortcut.display))")
             .accessibilityLabel("Stop recording")
             .accessibilityHint("Stops and saves the recording")
@@ -289,12 +289,12 @@ private struct CloseButton: View {
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(Color.white))
                 .scaleEffect(hover ? 1.1 : 1)
-                .animation(hover ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: hover)
+                .animation(Yap.Motion.hover(hover), value: hover)
                 .frame(width: ToolbarButton.size, height: ToolbarButton.size)
                 .background(Platter(active: false, hover: hover))
                 .contentShape(Rectangle())
         }
-        .buttonStyle(PressableStyle())
+        .buttonStyle(PressStyle())
         .onHover { hover = $0 }
         .help("Close (Esc)").accessibilityLabel("Close toolbar")
     }
@@ -312,103 +312,20 @@ private struct RecordButton: View {
         Button(action: action) {
             Circle().fill(Yap.record).frame(width: 20, height: 20)
                 .scaleEffect(hover ? 1.12 : 1)
-                .animation(hover ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: hover)
+                .animation(Yap.Motion.hover(hover), value: hover)
                 .frame(width: ToolbarView.thickness, height: ToolbarView.thickness)
                 .background(Platter(active: false, hover: hover).padding(6))
                 .panelSurface(cornerRadius: ToolbarView.radius, sheen: true)
                 .contentShape(shape)
         }
-        .buttonStyle(PressableStyle())
+        .buttonStyle(PressStyle())
         .onHover { hover = $0 }
         .help(help).accessibilityLabel("Start recording")
     }
 }
 
-/// Hover/selection platter behind a slot: comes in fast and grows from 90 %, leaves softly.
-private struct Platter: View {
-    var active: Bool
-    var hover: Bool
-    @Environment(\.contrastOpacity) private var contrast
-
-    var body: some View {
-        let on = active || hover
-        RoundedRectangle(cornerRadius: Yap.Radius.control, style: .continuous)
-            .fill(Color.white.opacity(active ? (contrast.increased ? 0.36 : 0.24) : (contrast.increased ? 0.16 : 0.08)))
-            .opacity(on ? 1 : 0)
-            .scaleEffect(on ? 1 : 0.9)
-            .animation(on ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: on)
-            .animation(.snappy(duration: 0.18), value: active)
-    }
-}
-
-struct ToolbarButton: View {
-    static let size: CGFloat = 42
-    let symbol: String
-    let label: String
-    var help: String = ""
-    /// Selected (open source, open menu): a brighter platter and full white. No colour.
-    var active: Bool
-    /// Off state of a device (no camera, mic muted): dimmed, never a colour.
-    var dim: Bool = false
-    var enabled: Bool = true
-    /// Icon only (vertical bar); the label stays in the tooltip and for VoiceOver.
-    var compact = false
-    /// A picture in place of the symbol (the Edit button shows the latest recording).
-    var image: NSImage?
-    let action: () -> Void
-    @State private var hover = false
-
-    var body: some View {
-        Button(action: action) {
-            content
-                .foregroundStyle(active || hover ? Yap.title : (dim ? Yap.caption : Yap.label))
-                .opacity(enabled ? 1 : 0.35)
-                .background(Platter(active: active, hover: hover && enabled))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(PressableStyle())
-        .disabled(!enabled)
-        .onHover { hover = $0 }
-        .help(help.isEmpty ? label : help)
-        .accessibilityLabel(label)
-        .accessibilityHint(help == label ? "" : help)
-        .accessibilityAddTraits(active ? .isSelected : [])
-    }
-
-    @ViewBuilder private var content: some View {
-        if compact {
-            glyph(17).frame(width: Self.size, height: Self.size)
-        } else {
-            VStack(spacing: 3) {
-                glyph(16).frame(height: 19)
-                Text(label).font(.system(size: 10, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
-                    .frame(maxWidth: 104)
-            }
-            .padding(.horizontal, 12)
-            .frame(minWidth: Self.size, minHeight: Self.size, maxHeight: Self.size)
-        }
-    }
-
-    @ViewBuilder private func glyph(_ size: CGFloat) -> some View {
-        if let image {
-            let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
-            Image(nsImage: image).resizable().scaledToFill()
-                .frame(width: 30, height: 19).clipShape(shape)
-                .overlay(shape.strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5))
-        } else {
-            Image(systemName: symbol).font(.system(size: size, weight: .regular))
-        }
-    }
-}
-
-private struct PressableStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1)
-            .opacity(configuration.isPressed ? 0.8 : 1)
-            .animation(.snappy(duration: 0.12), value: configuration.isPressed)
-    }
-}
+/// The toolbar's slots are the kit's (`SlotButton`, `Platter`, `PressStyle` in YapcamDesign/Slots.swift).
+typealias ToolbarButton = SlotButton
 
 /// NSMenuItem that runs a closure (target/action without a separate controller).
 final class ClosureMenuItem: NSMenuItem {
