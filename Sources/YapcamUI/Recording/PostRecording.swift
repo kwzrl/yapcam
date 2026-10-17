@@ -1,4 +1,5 @@
 import AppKit
+@preconcurrency import UserNotifications
 import UniformTypeIdentifiers
 import AVFoundation
 import SwiftUI
@@ -67,8 +68,43 @@ import YapcamRender
     static let shared = QuickExport()
     enum Action { case copy, save }
     enum State: Equatable { case idle, working(Double), done(String), failed(String) }
-    @Published private(set) var state: State = .idle
+    @Published private(set) var state: State = .idle {
+        didSet { Self.updateDock(state) }
+    }
+    /// The finished file (the saved copy, or the cached render for Copy): the widget's "Show in Finder".
+    @Published private(set) var lastOutput: URL?
+    @Published private(set) var startedAt: Date?
     private var running = false
+    private var cancelFlag = CancelFlag()
+
+    /// Asks the running export to stop (the widget confirms first).
+    func cancel() { cancelFlag.set() }
+    var isRunning: Bool { running }
+
+    /// "42%" on the Dock icon while exporting; nil otherwise (a recording keeps its own ● badge).
+    nonisolated static func dockBadge(for progress: Double?) -> String? { progress.map { "\(Int(min(max($0, 0), 1) * 100))%" } }
+    private static func updateDock(_ s: State) {
+        guard RecordingController.shared.phase != .recording, RecordingController.shared.phase != .paused else { return }
+        if case .working(let p) = s { NSApp?.dockTile.badgeLabel = dockBadge(for: p) } else { NSApp?.dockTile.badgeLabel = nil }
+    }
+
+    /// "about 20 s left" from elapsed time and progress; nil until there is enough progress to estimate.
+    nonisolated static func remainingText(elapsed: TimeInterval, progress: Double) -> String? {
+        guard progress >= 0.03, progress < 1, elapsed > 1 else { return nil }
+        let left = Int((elapsed / progress * (1 - progress)).rounded())
+        return left < 60 ? "about \(max(left, 1)) s left" : "about \((left + 59) / 60) min left"
+    }
+
+    /// Completion notice (the system banner when allowed; the widget always shows it too). Overridden in tests.
+    nonisolated(unsafe) static var notify: (String, String) -> Void = { title, body in
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert]) { granted, _ in
+            guard granted else { return }          // denied: the widget and Dock badge still show the result
+            let c = UNMutableNotificationContent(); c.title = title; c.body = body
+            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+        }
+    }
     /// Self-tests save here instead of showing the save panel (a panel would block a headless run).
     nonisolated(unsafe) static var testSaveURL: URL?
 
@@ -98,23 +134,27 @@ import YapcamRender
         guard !running else { return }
         running = true; defer { running = false }
         state = .working(0)
+        cancelFlag = CancelFlag(); startedAt = Date(); lastOutput = nil
         let name = package.deletingPathExtension().lastPathComponent
         Self.pruneCache()
         let started = Date()
         Probe.log("quick-export start \(action) package=\(name)")
         QuickExportWidget.shared.showProgress()
         do {
-            let out = try await Self.runGuarded(package: package, name: name)
+            let out = try await Self.runGuarded(package: package, name: name, cancel: cancelFlag)
             Probe.log("quick-export rendered \(out.lastPathComponent) in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
             switch action {
             case .copy:
                 let pb = NSPasteboard.general
                 pb.clearContents()
                 pb.writeObjects([out as NSURL])
+                lastOutput = out
                 state = .done("Copied \(out.lastPathComponent) to the clipboard")
+                Self.notify("Copied to the clipboard", out.lastPathComponent)
             case .save:
                 if let dest = Self.testSaveURL {
                     try Self.replaceFile(at: dest, with: out)
+                    lastOutput = dest
                     state = .done("Saved \(dest.lastPathComponent)")
                 } else {
                     let panel = NSSavePanel()
@@ -123,14 +163,17 @@ import YapcamRender
                     panel.allowedContentTypes = [UTType(filenameExtension: out.pathExtension) ?? .mpeg4Movie]
                     if panel.runModal() == .OK, let dest = panel.url {
                         try Self.replaceFile(at: dest, with: out)
+                        lastOutput = dest
                         state = .done("Saved \(dest.lastPathComponent)")
-                        NSWorkspace.shared.activateFileViewerSelecting([dest])
+                        Self.notify("Export saved", dest.lastPathComponent)
+                        if AppSettings.shared.actionAfterQuickExport == .revealInFinder { NSWorkspace.shared.activateFileViewerSelecting([dest]) }
                     } else { state = .idle }
                 }
             }
             Probe.log("quick-export done \(action): \(state)")
         } catch {
             let message = (error as? QuickExportError)?.message ?? UserMessage.describe(error)
+            if case QuickExportError.cancelled = error { state = .idle; QuickExportWidget.shared.refresh(); return }
             state = .failed(message)
             Probe.log("quick-export FAILED \(action): \(error)")
             RecordingController.shared.alert = AppAlert(title: "Export failed", message: message)
@@ -166,8 +209,10 @@ import YapcamRender
 
     enum QuickExportError: Error {
         case stalled(Int)
+        case cancelled
         var message: String {
             switch self {
+            case .cancelled: return "Export cancelled."
             case .stalled(let s): return "The export stopped making progress for \(s) seconds and was cancelled. The recording is safe: open it in the editor and export from there."
             }
         }
@@ -193,7 +238,7 @@ import YapcamRender
 
     /// The export runs off the main thread and races a watchdog, so neither a slow encoder nor a hung one can
     /// freeze the app or leave the widget "working" forever.
-    private static func runGuarded(package: URL, name: String) async throws -> URL {
+    private static func runGuarded(package: URL, name: String, cancel: CancelFlag) async throws -> URL {
         let dir = cacheDirectory
         // A new file per run: a cancelled worker that is still writing can never collide with the next export.
         let runDir = dir.appending(path: UUID().uuidString.prefix(8).description, directoryHint: .isDirectory)
@@ -220,8 +265,15 @@ import YapcamRender
             }
             Task.detached {
                 while true {
-                    try? await Task.sleep(for: .seconds(2))
+                    try? await Task.sleep(for: .milliseconds(500))
                     if once.isFinished { return }
+                    if cancel.isSet {
+                        work.cancel()
+                        once.resume(.failure(QuickExportError.cancelled))
+                        _ = await work.value
+                        try? FileManager.default.removeItem(at: runDir)
+                        return
+                    }
                     let idle = Date().timeIntervalSince(tracker.lastChange)
                     if isStalled(idleFor: idle, hasProgress: tracker.hasProgress) {
                         let limit = Int(tracker.hasProgress ? stallLimit : setupLimit)
@@ -348,17 +400,42 @@ struct QuickExportWidgetView: View {
 
     @ViewBuilder private var status: some View {
         switch export.state {
-        case .working(let p): ProgressView(value: p).controlSize(.small).frame(maxWidth: 160)
-        case .done(let m): Label(m, systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green).lineLimit(1)
+        case .working(let p):
+            HStack(spacing: 6) {
+                ProgressView(value: p).controlSize(.small).frame(maxWidth: 110)
+                Text(QuickExport.remainingText(elapsed: Date().timeIntervalSince(export.startedAt ?? Date()), progress: p) ?? "\(Int(p * 100))%")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Button("Stop") { confirmStop() }.buttonStyle(.link).font(.caption)
+            }
+        case .done(let m):
+            HStack(spacing: 6) {
+                Label(m, systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green).lineLimit(1)
+                if let u = export.lastOutput { Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([u]) }.buttonStyle(.link).font(.caption) }
+            }
         case .failed(let m): Label(m, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange).lineLimit(2)
         case .idle: EmptyView()
         }
+    }
+
+    private func confirmStop() {
+        let a = NSAlert()
+        a.messageText = "Stop exporting?"
+        a.informativeText = "The recording stays as it is. You can export again any time."
+        a.addButton(withTitle: "Keep Exporting"); a.addButton(withTitle: "Stop Export")
+        if a.runModal() == .alertSecondButtonReturn { export.cancel() }
     }
 
     private func run(_ a: QuickExport.Action) {
         guard let p = model.package else { return }
         Task { await QuickExport.shared.export(p, action: a) }
     }
+}
+
+/// Set from the main actor when the user stops an export; read by the watchdog.
+final class CancelFlag: @unchecked Sendable {
+    private let lock = NSLock(); private var value = false
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    func set() { lock.lock(); value = true; lock.unlock() }
 }
 
 /// Remembers the last progress value and when it changed; logs every 10 %.

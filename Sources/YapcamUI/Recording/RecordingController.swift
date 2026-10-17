@@ -275,6 +275,8 @@ enum RecordingPhase: Equatable {
 
     // MARK: Session
 
+    nonisolated static func shouldAwaitStartSound(_ o: UIRecordingOptions) -> Bool { o.microphoneID != nil || o.systemAudio }
+
     func startSession(_ options: UIRecordingOptions) {
         phase = .starting
         // Order: countdown (if any) → start sound (≤ 540 ms) → capture. The sound is finished or
@@ -286,7 +288,12 @@ enum RecordingPhase: Equatable {
         session = s
         elapsed = 0
         startTask = Task {
-            if playSound { await StartSoundGate.run(player: player) }
+            if playSound {
+                // Only a take with microphone or system audio waits for the cue (≤ 540 ms) so it cannot leak in;
+                // a silent take starts at once and the cue plays alongside.
+                if Self.shouldAwaitStartSound(options) { await StartSoundGate.run(player: player) }
+                else { Task { await StartSoundGate.run(player: player) } }
+            }
             do {
                 try await s.start()
                 phase = .recording

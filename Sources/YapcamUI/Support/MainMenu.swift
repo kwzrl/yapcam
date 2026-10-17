@@ -52,8 +52,10 @@ import AppKit
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
             .separator(),
             item("Save As…", #selector(AppDelegate.saveProjectAs), "s", mods: [.command, .shift]),
+            item("Rename Project…", #selector(AppDelegate.renameProject)),
             item("Show Project in Finder", #selector(AppDelegate.showProjectInFinder)),
             item("Copy and Zip Project", #selector(AppDelegate.copyAndZipProject)),
+            item("Move to Trash…", #selector(AppDelegate.moveProjectToTrash)),
             .separator(),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: nil),
         ])

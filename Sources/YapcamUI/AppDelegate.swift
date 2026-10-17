@@ -88,6 +88,7 @@ import YapcamEditor
         installTranscriber()
         PresetsFolder.apply(AppSettings.shared.presetsDirectory)
         EditorHooks.install(AppSettings.shared)
+        EditorWindows.appearance = AppSettings.shared.editorAppearance
         AreaOutline.shared.start()
         offerRecovery()
         if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {
@@ -249,6 +250,16 @@ import YapcamEditor
     @objc func recoverRecording() { RecoveryFlow.run(silentWhenNone: false) }
     @objc func saveProjectAs() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.saveAs(u) } }
     @objc func copyAndZipProject() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.copyAndZip(u) } }
+    @objc func moveProjectToTrash() { _ = EditorWindows.requestTrashOfKeyEditor() }
+    @objc func renameProject() {
+        guard let u = EditorBridge.keyDocument()?.project.packageURL else { return }
+        let name = u.deletingPathExtension().lastPathComponent
+        guard let typed = Prompt.text(title: "Rename Project", message: "New name for “\(name)”", initial: name) else { return }
+        do {
+            let dest = try ProjectActions.rename(u, to: typed)      // closes (and so saves) the editor first
+            if dest != u { RecordingController.shared.engine.openEditor(package: dest) }
+        } catch { RecordingController.shared.alert = AppAlert(title: "Could not rename", error: error) }
+    }
     @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { NSWorkspace.shared.activateFileViewerSelecting([u]) } }
     @objc func showRecordings() { RecentProjectsWindow.shared.show() }
     @objc func importVideo() { ProjectActions.importVideo() }
@@ -275,7 +286,7 @@ extension AppDelegate: NSMenuItemValidation {
             item.title = r.isRecording || r.phase == .countdown(0) ? "Stop Recording" : "Start Recording"
             if case .countdown = r.phase { item.title = "Cancel Countdown" }
             return r.phase != .starting && r.phase != .finishing
-        case #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder): return EditorBridge.keyDocument() != nil
+        case #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
         case #selector(addMarker): return r.phase == .recording
         case #selector(restartRecording), #selector(cancelRecording): return r.isRecording
         case #selector(togglePause):

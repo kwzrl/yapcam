@@ -1,4 +1,33 @@
-READY R5 195d560 | every H/M row in ## R5 parity is match, out-of-scope or has a named blocker (capture: desktop icons; editor: editing keys, crop; render/editor: HW accel toggle; hardware/permissions untested); L rows done (looping preview, mic level, widget avoids area) | swift test --filter YapcamUITests 178 green; not run live (user instance running)
+READY R5b 90dc414 | all incoming requests done or blocked-with-reason (see ## R5 incoming requests): capture UI1-8, render U01/U02, editor trash/rename/appearance, partial-transcript notice | swift test --filter YapcamUITests 186 green; not run live
+READY R5 195d560 | every H/M row in ## R5 incoming requests (round 5b, read from main a96173e status files)
+| id | from | request | state |
+|---|---|---|---|
+| R5-CAP-UI1 | capture | automatic fps cap 0, show display refresh, keys default on, system audio off, no FPS selector in reference controls | done: AppSettings.cap (auto default; explicit 30/60 only in Settings → Advanced), card shows "W×H • N FPS"; resolvable |
+| R5-CAP-UI2 | capture | window picker uses capture's filtered window ids, context actions/order | done: WindowHit.pick(allowed:) fed by CaptureSources.load (refreshed every 2 s); resolvable |
+| R5-CAP-UI3 | capture | CaptureWindowControl.resize/raise, typed errors, CaptureWindowSizePreset.fitting, resize preflight | done: model.resize uses CapturePreflight.windowResizeIssue + await CaptureWindowControl.resize (actual size reported), menu groups from CaptureWindowSizePreset, old AX/aspect-fit code removed; resolvable. Live check: blocker missing Accessibility on the test Mac (R5-CAP-HOST2 is Lead's) |
+| R5-CAP-UI4 | capture | area arrows 1/⇧10/⌘ resize/⌘⇧10, ratio/custom/saved, picker 1/2/3/Esc | done (R5), unit-tested; resolvable |
+| R5-CAP-UI5 | capture | camera/mic menu order/default/off/preview, preflight prompts | done (R5 + GAP-CAP-6); hardware: blocker no camera/mic |
+| R5-CAP-UI6 | capture | gear defaults/order, Dock/highlight/notes, quick widget default on, countdown, Dock badge | done (R5); live verification not possible while the user's instance runs |
+| R5-CAP-UI7 | capture | await start cue only when mic/system audio records | done: RecordingController.shouldAwaitStartSound + 2 tests; resolvable |
+| R5-CAP-UI8 | capture | widget 48 pt, avoidance, saved position, timer format, 3 s spinner, restart/cancel/marker keys, tray, recovery | done (R5) except live checks; resolvable |
+| R5-CAP-DEC1 | Lead+ui | legacy engine excluded | done: read-only "ScreenCaptureKit (the only engine)" in gear Advanced and Experimental; resolvable |
+| capture: surface RecordingTranscript.warnings | capture/Lead | tell the user about partial transcripts | done: TranscriptionWiring.partialNotice → alert "Captions may be incomplete"; resolvable |
+| capture: NSSpeechRecognitionUsageDescription | capture/Lead | Info.plist key | already in Resources/Info.plist; resolvable |
+| R5-U01 | render | quick export defaults 720p/60/social/H.264 remembered; summary; widget preview; showwidget true; alwaysSave off, mute off, afterexport no-op | done: default = ExportSettings(); stored + separate from the editor dialog context; summary line; looping preview; showwidget on; after-export action (do nothing / show in Finder) is real. NOT done, reason: "Always save project" and "Mute widget preview" would be inert (every recording is already a saved package; the preview movie has no audio) - not added so there are no fake controls |
+| R5-U02 | render/editor | clipboard/export started+completed notification, Finder action, remaining time, stop confirmation, Dock progress | done: Dock % badge, "about N s left", Stop with confirmation (real cancel), Show in Finder, system notification when allowed (denial handled: widget still shows result); unit-tested helpers; not live |
+| editor: Move to Trash… | editor | File > Move to Trash… → requestTrashOfKeyEditor | done (File menu, disabled without an editor); resolvable |
+| editor: title rename | editor | rename from the editor | done: File → Rename Project… (closes/saves, renames, reopens); resolvable |
+| editor: appearance | editor | Settings → Editing control for EditorWindows.appearance | done (persisted, applied at launch); resolvable |
+| editor: quick export remember(in: .quick) | editor | separate quick settings context | resolved by design: ui quick export uses its own stored ExportSettings (never the dialog's), not ExportModel; resolvable |
+| editor: USER_GUIDE Editing basics | editor | seven sections, top bar | already current + File menu / appearance lines added |
+| editor: --editor-selftest on new window | editor | confirm when lock is free | blocked: user's Yapcam instance (no lock) is running |
+| qa: after-recording hook | qa | launch flag | exists: --after-recording with --ui-record-selftest (AppDelegate.swift:49) |
+| qa: B.order Experimental vs Storage | qa | tab order | moot: Storage tab removed in R5 |
+| core CORE-R5-E*, render R5-E01..E04 | editor | | not addressed to ui |
+| render R5-L01, R5-L02 | Lead+ui | combined decoder switch, FFmpeg audio exporter | blocked on Lead decisions (no inert controls) |
+| capture R5-CAP-QA1, HOST1, HOST2 | qa/Lead | | not addressed to ui |
+
+## R5 parity is match, out-of-scope or has a named blocker (capture: desktop icons; editor: editing keys, crop; render/editor: HW accel toggle; hardware/permissions untested); L rows done (looping preview, mic level, widget avoids area) | swift test --filter YapcamUITests 178 green; not run live (user instance running)
 READY R5 b54cb45 | picker bar + widget + gear menu + settings tabs + projects + quick export settings per Screen Studio parity (see ## R5 parity; open items and requests listed there) | swift test -j 6 green (XCTest 256, 0 failures; Swift Testing all passed); not run live (user instance running)
 READY R4 8a64f9c | item 1 autosave + VFR toggles wired to EditorWindows.autosaveEnabled / variableFrameRate (merged team/editor 848d0a6); item 3 nothing open in ui paths; item 2 F16 re-run NOT done (see below) | swift test 603 green x2
 R4 item 2 (F16 re-run): not run. Reason: a Yapcam instance (pid 9035, started 22:41, from the main checkout build, no app lock) was running the whole time; rule says never launch next to a running instance and never kill one I did not start. Needs a free app slot: `round3-wrapup.sh f11-display-repeat` style, 3 batches x 5.

@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import SwiftUI
+import YapcamEditor
 import YapcamRender
 
 @MainActor final class SettingsWindow {
@@ -123,6 +124,7 @@ struct EditingSettings: View {
             Text(s.autosaveEnabled ? "Edits are saved 30 seconds after your last change. Closing a project window and quitting always save."
                                    : "Edits are saved only when you close the project window or quit. A crash can lose changes since then.")
                 .font(.caption).foregroundStyle(.secondary)
+            Picker("Editor appearance", selection: $s.editorAppearance) { ForEach(EditorAppearance.allCases, id: \.self) { Text($0.label).tag($0) } }
             LabeledContent("Save presets in") {
                 VStack(alignment: .trailing) {
                     Text((PresetsFolder.effective(s.presetsDirectory).path(percentEncoded: false) as NSString).abbreviatingWithTildeInPath).lineLimit(1).truncationMode(.middle)
@@ -170,6 +172,7 @@ struct QuickExportSettings: View {
             Toggle("Show quick export widget after recording", isOn: $s.showQuickExportWidget)
             Text("The widget offers Copy, Save and Edit instead of opening the editor right away. Quick export uses the settings above; Copy and Save in the widget, the Record menu and the shortcuts all use them.")
                 .font(.caption).foregroundStyle(.secondary)
+            Picker("After a quick export", selection: $s.actionAfterQuickExport) { ForEach(ActionAfterQuickExport.allCases) { Text($0.title).tag($0) } }
             Picker("After recording", selection: $s.afterRecording) { ForEach(AfterRecording.allCases) { Text($0.title).tag($0) } }
         }.formStyle(.grouped)
     }
@@ -239,8 +242,8 @@ struct AdvancedSettings: View {
     @EnvironmentObject var s: AppSettings
     var body: some View {
         Form {
-            Picker("Frame rate", selection: $s.maxFPS) { Text("30 fps").tag(30); Text("60 fps").tag(60) }
-            Text("Recording follows your display; this only caps the rate. 60 is right for almost everyone.").font(.caption).foregroundStyle(.secondary)
+            Picker("Frame rate", selection: $s.maxFPS) { Text("Automatic (display rate)").tag(0); Text("Up to 30 fps").tag(30); Text("Up to 60 fps").tag(60) }
+            Text("Automatic follows your display's refresh rate. A cap is only for slower Macs or smaller files.").font(.caption).foregroundStyle(.secondary)
             Toggle("Hide desktop icons while recording", isOn: $s.hideDesktopIcons)
             Text("Restarts Finder briefly. Icons are restored when recording ends, and on the next launch if Yapcam quit unexpectedly.")
                 .font(.caption).foregroundStyle(.secondary)
