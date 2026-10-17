@@ -1,3 +1,4 @@
+READY R5b 90dc414 | all incoming requests done or blocked-with-reason (see ## R5 incoming requests): capture UI1-8, render U01/U02, editor trash/rename/appearance, partial-transcript notice | swift test --filter YapcamUITests 186 green; not run live
 READY R5 195d560 | every H/M row in ## R5 incoming requests (round 5b, read from main a96173e status files)
 | id | from | request | state |
 |---|---|---|---|
