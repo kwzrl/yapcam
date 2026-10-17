@@ -85,6 +85,7 @@ import YapcamEditor
 
     func openEditor(package: URL) {
         RecentDocuments.noteOpened(package)
+        FirstCloseGuard.shared.willOpen(package)
         EditorWindows.open(package: package)
         EditorBridge.bringEditorsToFront()
     }

@@ -121,6 +121,9 @@ struct EditingSettings: View {
             Toggle("Use last project settings as default for new recordings", isOn: $s.reuseLastProjectSettings)
             Text("A preset marked as default always wins. Without one, On starts new projects from the look of the most recently edited project; Off (or no earlier project) uses the standard look.")
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle("Ask to keep a new recording when its editor closes right away", isOn: $s.askKeepOnFirstClose)
+            Text("If you close a brand-new recording within 10 seconds, Yapcam asks whether to keep it or move it to the Trash.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Use autosave (every 30 s)", isOn: $s.autosaveEnabled)
             Text(s.autosaveEnabled ? "Edits are saved 30 seconds after your last change. Closing a project window and quitting always save."
                                    : "Edits are saved only when you close the project window or quit. A crash can lose changes since then.")

@@ -380,4 +380,14 @@ import YapcamEditor
         }
         #expect(SystemInfo.current().memoryGB > 0)
     }
+
+    // S-EDT-76
+    @Test func keepQuestionOnlyForFreshRecordingsClosedQuickly() {
+        typealias G = FirstCloseGuard
+        #expect(G.shouldAsk(enabled: true, wasFresh: true, openFor: 4))
+        #expect(!G.shouldAsk(enabled: false, wasFresh: true, openFor: 4))       // off by default
+        #expect(!G.shouldAsk(enabled: true, wasFresh: false, openFor: 4))       // an older project
+        #expect(!G.shouldAsk(enabled: true, wasFresh: true, openFor: 11))
+        #expect(!AppSettings(store: UserDefaults(suiteName: "r7first-\(UUID())")!).askKeepOnFirstClose)
+    }
 }

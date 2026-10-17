@@ -159,6 +159,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var editorAppearance: EditorAppearance { didSet { d.set(editorAppearance.rawValue, forKey: "editorAppearance"); EditorWindows.appearance = editorAppearance } }
     /// Quick export widget: keep the project after Copy / Save without asking (off: closing the widget asks Keep or Trash).
     @Published var alwaysKeepProjectAfterQuickExport: Bool { didSet { d.set(alwaysKeepProjectAfterQuickExport, forKey: "alwaysKeepProjectAfterQuickExport") } }
+    /// Editing: ask "Keep recording?" when a fresh recording's editor closes within seconds (off: always keep, like before).
+    @Published var askKeepOnFirstClose: Bool { didSet { d.set(askKeepOnFirstClose, forKey: "askKeepOnFirstClose") } }
     @Published var actionAfterQuickExport: ActionAfterQuickExport { didSet { d.set(actionAfterQuickExport.rawValue, forKey: "actionAfterQuickExport") } }
     @Published var showRecordingWidget: Bool { didSet { d.set(showRecordingWidget, forKey: "showRecordingWidget") } }
     @Published var createAutoZooms: Bool { didSet { d.set(createAutoZooms, forKey: "createAutoZooms") } }
@@ -234,6 +236,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
             .map { $0.closestValidPreset(for: .file) } ?? AppSettings.defaultQuickExport
         editorAppearance = EditorAppearance(rawValue: d.string(forKey: "editorAppearance") ?? "") ?? .dark
         alwaysKeepProjectAfterQuickExport = d.object(forKey: "alwaysKeepProjectAfterQuickExport") as? Bool ?? false
+        askKeepOnFirstClose = d.object(forKey: "askKeepOnFirstClose") as? Bool ?? false
         actionAfterQuickExport = ActionAfterQuickExport(rawValue: d.string(forKey: "actionAfterQuickExport") ?? "") ?? .nothing
         showRecordingWidget = store.object(forKey: "showRecordingWidget") as? Bool ?? true
         createAutoZooms = store.object(forKey: "createAutoZooms") as? Bool ?? true
@@ -290,7 +293,7 @@ extension AppSettings {
         hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview
         showInDock = f.showInDock; showMenuBarItem = f.showMenuBarItem
         shortcuts = f.shortcuts; highlightRecordedArea = f.highlightRecordedArea; savedWindowSizes = f.savedWindowSizes; savedAreaSizes = f.savedAreaSizes
-        editorAppearance = f.editorAppearance; actionAfterQuickExport = f.actionAfterQuickExport; alwaysKeepProjectAfterQuickExport = f.alwaysKeepProjectAfterQuickExport; quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms
+        editorAppearance = f.editorAppearance; actionAfterQuickExport = f.actionAfterQuickExport; alwaysKeepProjectAfterQuickExport = f.alwaysKeepProjectAfterQuickExport; askKeepOnFirstClose = f.askKeepOnFirstClose; quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms
         afterRecording = f.afterRecording; showQuickExportWidget = f.showQuickExportWidget
     }
 }
