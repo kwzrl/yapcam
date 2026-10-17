@@ -26,15 +26,6 @@ including `yapcam-core` itself).
 | unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 | build-time only | not shipped; Unicode-3.0 data licence only matters if tables are distributed |
 | yapcam-core | 0.1.0 | Apache-2.0 | ours | – |
 
-`tools/yapcam-mcp` (stdio MCP wrapper around the same core, not part of the app bundle, `publish = false`):
-direct dependencies `serde_json` and `yapcam-core`; its `Cargo.lock` lists the same 12 third-party crates and
-versions as `core/Cargo.lock` (checked by diffing the `name` lines on main 00b7e27; only `yapcam-mcp` itself is extra),
-so the table above covers it. No new licences.
-
-Not bundled, not distributed: the in-app agent starts the user's own `claude` command-line tool (Claude Code) when the
-user opens the chat; Yapcam ships no model, SDK or credentials. `tools/eval` (QA only, not shipped) uses Python 3 with
-Pillow (HPND licence) and macOS `say`; golden packages are generated locally and are not in the repo.
-
 All licenses are permissive and compatible with Apache-2.0. No copyleft, no network/telemetry
 components. Action for release: ship the MIT/Apache texts for crates that end up in the
 binary (serde, serde_core, serde_json, itoa, zmij, memchr) in an acknowledgements file
