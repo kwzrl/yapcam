@@ -11,7 +11,10 @@ READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 
-## R5 parity matrix (qa, 2026-10-17 ~02:20, main 10aaca6 + round 4)
+## R5 parity matrix
+
+REQUEST ui: Tests/YapcamUITests/Round5Tests.swift:314-316 uses fake `/Users/a/...` paths; privacy-scan flags them (false positive). Use `/tmp/fixture/...` style paths so the scan stays clean.
+ (qa, 2026-10-17 ~02:20, main 10aaca6 + round 4)
 Source: reference-spec.md (A1-A9, B, 2a, 5, 3, 4) + website features.txt. One row per reference item; owner = team that must fill/close it.
 States: **match** = Yapcam value/behaviour found equal in code (evidence in last column; still not user-verified), **mismatch** = found different, **missing** = not found, **unaudited (owner)** = qa could not decide from code alone, owner audits in its own "## R5 parity", **out of scope** = cloud/device frames/iPhone/updater.
 Own artwork/names are allowed to differ (wallpapers, cursor sets, sounds, preset names); structure, ranges, defaults and option lists must match.
