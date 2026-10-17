@@ -34,6 +34,16 @@ enum AppPermission: String, CaseIterable, Identifiable {
         case .inputMonitoring: "keyboard"
         }
     }
+    /// Service name for `tccutil`.
+    var tccService: String {
+        switch self {
+        case .screen: "ScreenCapture"
+        case .microphone: "Microphone"
+        case .camera: "Camera"
+        case .accessibility: "Accessibility"
+        case .inputMonitoring: "ListenEvent"
+        }
+    }
     /// Required permissions block recording; optional ones only block their feature.
     var isRequired: Bool { self == .screen }
     var settingsURL: URL {
@@ -106,4 +116,25 @@ enum AppPermissionState { case granted, denied, notDetermined }
     }
 
     func open(_ p: AppPermission) { NSWorkspace.shared.open(p.settingsURL) }
+
+    /// Removes Yapcam's entry for this permission (`tccutil reset`), for when System Settings shows it on but
+    /// macOS no longer matches it to this build. The next request asks again.
+    func reset(_ p: AppPermission) {
+        let task = Process()
+        task.executableURL = URL(filePath: "/usr/bin/tccutil")
+        task.arguments = ["reset", p.tccService, Bundle.main.bundleIdentifier ?? "mov.yapcam.Yapcam"]
+        try? task.run()
+        task.waitUntilExit()
+        AppDefaults.store.set(false, forKey: requestedKey(p))
+        refresh()
+    }
+
+    /// Quits and opens Yapcam again: screen recording access only applies to a fresh process.
+    func relaunch() {
+        let task = Process()
+        task.executableURL = URL(filePath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.6; /usr/bin/open -n \"$0\"", Bundle.main.bundlePath]
+        try? task.run()
+        NSApp.terminate(nil)
+    }
 }
