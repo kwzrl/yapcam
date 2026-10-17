@@ -6,7 +6,8 @@ Hard rules. Break one only when the user asks for it, and say so.
 
 - Open tight: the first frame is at most 0.1 s before the first word. No "okay so", no mouse wiggle, no setup.
 - 0.3–0.5 s between sentences. Pauses longer than 1.2 s are dead air: tighten them, unless the screen is showing
-  a result the viewer needs to read (a page loading in is NOT that; the loaded page is).
+  activity or a result the viewer needs to read. `tighten_pauses` keeps gaps/tails with recorded typing, clicks
+  or scrolls; `check` calls these `activity_pause` (info). Review loading visually; events cannot prove inactivity.
 - Never cut inside a word. Cut on word boundaries; keep 0.3–0.5 s of breathing room around a cut.
 - Never cut away a click or the frame where its result appears, unless the whole step goes.
 - Tail ≤ 0.8 s after the last word, or after the last visible result if the video ends on the screen.
@@ -23,12 +24,14 @@ Hard rules. Break one only when the user asks for it, and say so.
 - Lead 0.3–0.5 s: the zoom is in place before the click lands.
 - Hold until the result is readable (typically 1.5–3 s), then release. A zoom is 1–8 s long.
 - A click that navigates (new page, modal, the view changes) ends the zoom on its button: the zoomed frame would
-  sit on empty space of the next page. `grab` 0.3 s after the click to see if the view changed. If it did, start
-  the zoom earlier (lead 0.8–1 s) and end it at the change so it still lasts ≥ 1 s, or skip the click and zoom on
-  the result of the new page instead. Never shrink a zoom below 1 s to dodge the change.
+  sit on empty space of the next page. `moments` exposes event-based `view_change_s`; `zoom_on_click` ends
+  0.05 s before it and extends the lead to keep ≥ 1 s. `start_s`/`end_s` override timing in seconds within these
+  safety bounds. Verify with `grab`: metadata can miss changes. If there is not 1 s of room, zoom on the result.
+- Keep nearby context visible with `include:[click_index,{x,y,w,h}]` (normalized source rectangles). The tool
+  fits the union at 1.3–2× or refuses if it cannot fit; verify the field/result/toast in `capture`.
 - Never stack or overlap zooms. Leave at least ~0.5 s at 1× between two zooms, or chain them as one zoom that pans.
 - At most about one zoom per 8–10 s of video. A zoom that is everywhere means nothing.
-- No zoom during fast typing (the frame jitters with the caret). Zoom on the result of the typing instead.
+- No zoom during fast typing (the frame jitters with the caret). Zoom on the result of the typing instead; `check` flags `zoom_during_typing`.
 - Never zoom past the end of the video or across a cut that changes the scene.
 - Entrances and exits are eased and short (< 600 ms).
 

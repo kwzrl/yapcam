@@ -1,12 +1,12 @@
 Start with moments, then choose intention tools before low-level apply/batch. These MCP tools use CURRENT TIMELINE SECONDS (floats), with zero-based indices from the latest moments response:
 
-moments {}: merged speech, clicks (capture-point positions/app/window), keys, typing, zooms and cuts.
-check {}: structural and craft issues with fix hints; run after each stage and also capture/filmstrip to verify the picture.
+moments {}: merged speech, clicks (capture-point positions/app/window/URL and next event-based view_change_s, null if unknown), view_changes rows, shortcuts, printable typing text including short runs, zooms and cuts.
+check {}: includes zoom_during_typing warnings and activity_pause info; structural and craft issues with fix hints; run after each stage and also capture/filmstrip to verify the picture.
 cut_words {"from_word_index":3,"to_word_index":4}: inclusive words, timed boundaries and breathing room.
-tighten_pauses {"max_gap_s":0.5,"keep_s":0.35}: shorten transcript gaps, keep 0.3–0.5 s; trim tail to at most 0.8 s. Optional from_s/to_s limit the edit. Gaps are candidates, not proven acoustic silence.
+tighten_pauses {"max_gap_s":0.5,"keep_s":0.35}: shorten transcript gaps, keep 0.3–0.5 s; skip gaps/tails with typing, clicks or scrolls (activity_pauses_kept), otherwise trim tail to at most 0.8 s. Optional from_s/to_s limit the edit. Gaps are candidates, not proven acoustic silence.
 remove_fillers {"words":["um","uh"]}: exact fillers only; preserves meaningful like/so/also by default.
 trim_start_to_first_word {"lead_s":0.1}: align opening to first speech with a small lead.
-zoom_on_click {"click_index":0,"scale":1.8,"lead_s":0.4,"hold_s":1.6}: eased, clamped, non-overlapping click focus, maximum six per minute. Existing zoom at click is refused; adjust it with apply/update_zoom.
+zoom_on_click {"click_index":0,"scale":1.8,"lead_s":0.4,"hold_s":1.6}: eased, clamped, non-overlapping click focus, maximum six per minute. Ends 0.05 s before the next known view change and extends lead to keep ≥1 s; never crosses the prior view change. Optional start_s/end_s override timing in seconds within safety bounds. Optional include:[1,{"x":0.2,"y":0.3,"w":0.4,"h":0.2}] fits union of clicks/normalized source rectangles at 1.3–2× or refuses if impossible. Existing zoom at click is refused; adjust it with apply/update_zoom.
 
 Each intention edit is ONE undo step, including all its cuts. No-op calls do not create history. Each returns a human summary, changed, and affected ranges in seconds. Word tools require actual word timing; title cards are not speech. Re-read moments after cuts/speeds because indices and timeline positions change. Add captions last through apply/add_caption below.
 
