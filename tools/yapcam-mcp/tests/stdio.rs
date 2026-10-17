@@ -138,13 +138,22 @@ fn end_to_end_backup_atomic_batch_and_history() {
     let original = fs::read(f.0.join("project.json")).unwrap();
     let mut c = Client::new(&f.0);
     c.init();
-    assert_eq!(
-        c.rpc("tools/list", json!({}))["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .len(),
-        9
-    );
+    let catalog = c.rpc("tools/list", json!({}));
+    let tools = catalog["result"]["tools"].as_array().unwrap();
+    for name in [
+        "read_project",
+        "apply",
+        "batch",
+        "moments",
+        "check",
+        "cut_words",
+        "tighten_pauses",
+        "remove_fillers",
+        "trim_start_to_first_word",
+        "zoom_on_click",
+    ] {
+        assert!(tools.iter().any(|t| t["name"] == name), "Missing {name}");
+    }
     assert_eq!(
         c.ok("read_transcript", json!({}))["words"]
             .as_array()
@@ -311,4 +320,41 @@ fn live_project_transcript_read_never_writes_or_changes_history() {
     assert_eq!(tree(&fixture.0), disk);
     assert_eq!(serde_json::to_value(&project.data).unwrap(), state);
     assert_eq!(project.undo.len(), depth);
+}
+
+#[test]
+fn craft_tools_use_seconds_and_one_undo_per_call() {
+    let f = Fixture::new();
+    fs::write(
+        f.0.join("recording/transcript.json"),
+        transcript().to_string(),
+    )
+    .unwrap();
+    let mut c = Client::new(&f.0);
+    c.init();
+    let before = c.ok("read_project", json!({}));
+    let moments = c.ok("moments", json!({}));
+    assert_eq!(moments["duration_s"], 5.0);
+    assert!(moments["moments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["kind"] == "click"));
+    assert!(c.ok("check", json!({}))["issues"].is_array());
+    for (name, args) in [
+        ("tighten_pauses", json!({})),
+        ("remove_fillers", json!({})),
+        ("cut_words", json!({"from_word_index":1,"to_word_index":1})),
+        ("trim_start_to_first_word", json!({"lead_s":0})),
+        ("zoom_on_click", json!({"click_index":0})),
+    ] {
+        let result = c.ok(name, args);
+        assert_eq!(result["changed"], true, "{name}: {result}");
+        assert!(result["message"].is_string());
+        assert_eq!(c.ok("project_summary", json!({}))["undo_steps"], 1);
+        assert_ne!(c.ok("read_project", json!({})), before);
+        c.ok("undo", json!({}));
+        assert_eq!(c.ok("read_project", json!({})), before);
+    }
+    assert!(!f.0.join("autosave/project.json").exists());
 }

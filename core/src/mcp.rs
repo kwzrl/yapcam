@@ -12,7 +12,7 @@ pub struct Server<'a> {
     pub initialized: bool,
 }
 impl Server<'_> {
-    fn transcript(&self, source: &str) -> Result<Value> {
+    pub(crate) fn transcript(&self, source: &str) -> Result<Value> {
         let captions = &self.project.data.canvas.captions;
         if source == "captions" || (source == "auto" && !captions.is_empty()) {
             let words: Vec<Value> = captions.iter().flat_map(|c| {
@@ -65,6 +65,7 @@ impl Server<'_> {
             return Err(bad("Unknown argument; consult tool inputSchema"));
         }
         match name {
+            "moments" | "check" | "cut_words" | "tighten_pauses" | "remove_fillers" | "trim_start_to_first_word" | "zoom_on_click" => self.craft(name, a),
             "read_project" => {
                 let data = self.project.query(&json!({"q":"project"}))?;
                 match a.get("section") { None => Ok(data), Some(Value::String(s)) => data.get(s).cloned().ok_or_else(|| bad("Unknown top-level section")), _ => Err(bad("section must be a string")) }
@@ -198,7 +199,7 @@ pub fn catalog() -> Vec<Value> {
     let mut events = range;
     events["type"] = json!({"type":"string","enum":["all","click","key"]});
     let command = format!(
-        "Apply one existing core command; returns ChangeSet. Uses the project persistence policy. {}",
+        "Fallback for operations without a dedicated intention tool (style, captions, existing zoom updates). Prefer moments, cut_words, tighten_pauses, remove_fillers, trim_start_to_first_word and zoom_on_click. Apply one existing core command; returns ChangeSet. Uses the project persistence policy. {}",
         include_str!("commands.md")
     );
     let specs = vec![
@@ -212,7 +213,7 @@ pub fn catalog() -> Vec<Value> {
         ("redo","Redo one in-memory edit/batch. New edits clear redo. Save separately to persist.".into(),json!({}),vec![]),
         ("save","Persist current project atomically via core. First save preserves existing project.json as project.json.pre-mcp without overwriting an existing backup. A capture without project.json has nothing to back up. Core also maintains .prev and clears autosave journal. With stdio, close the editor before use.".into(),json!({}),vec![]),
     ];
-    specs.into_iter().map(|(name,desc,props,required)| json!({"name":name,"description":desc,"inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name.starts_with("read_") || name == "project_summary","openWorldHint":false}})).collect()
+    crate::mcp_craft::catalog().into_iter().chain(specs.into_iter().map(|(name,desc,props,required)| json!({"name":name,"description":desc,"inputSchema":{"type":"object","properties":props,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name.starts_with("read_") || name == "project_summary","openWorldHint":false}}))).collect()
 }
 
 #[cfg(test)]

@@ -100,3 +100,5 @@ mod privacy;
 mod renderer_contract_tests;
 
 pub mod mcp;
+
+mod mcp_craft;
