@@ -843,3 +843,17 @@ import YapcamCore
         #expect(Set(CompressionPreset.allCases.map(\.longHint)).count == 4)
     }
 }
+
+@MainActor @Suite struct PresetCreateTests {      // S-10
+    @Test func existingNameIsNotOverwrittenWithoutConfirmation() throws {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = EditorModel(project: FakeProject(), player: FakePlayer()); m.presetStore = iso.store; m.defaults = iso.defaults
+        #expect(m.createPreset(named: "  ") == .invalid)
+        #expect(m.createPreset(named: "Demo") == .created)
+        let url = iso.store.url("Demo")
+        try Data("old".utf8).write(to: url)
+        let result = m.createPreset(named: "Demo"), after = try Data(contentsOf: url)
+        #expect(result == .needsReplace && after == Data("old".utf8))
+        #expect(m.createPreset(named: "Demo", replace: true) == .created)
+    }
+}
