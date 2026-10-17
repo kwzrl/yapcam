@@ -10,14 +10,24 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 
 cd "$ROOT"
 "$ROOT/scripts/build-core.sh"
-swift build -c "$CONFIG" --product Yapcam
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/Yapcam"
+BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+BIN="$BIN_DIR/Yapcam"
+# SwiftPM does not track the external Rust archive as a link input.
+RUST_LIB="$ROOT/core/target/release/libyapcam_core.a"
+# Tests link the same archive, even when the app has not been built yet.
+for LINKED_PRODUCT in "$BIN" "$BIN_DIR/YapcamPackageTests.xctest/Contents/MacOS/YapcamPackageTests"; do
+  if [[ -f "$LINKED_PRODUCT" && "$RUST_LIB" -nt "$LINKED_PRODUCT" ]]; then
+    rm "$LINKED_PRODUCT"
+  fi
+done
+swift build -j 2 -c "$CONFIG" --product Yapcam
 
 APP="$ROOT/build/Yapcam.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Yapcam"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+xcrun actool "$ROOT/Resources/Accent.xcassets" --compile "$APP/Contents/Resources" --platform macosx --minimum-deployment-target 15.0
 # Third-party notices travel with the app (Help menu and About open this file). Plain text so any viewer shows it.
 cp "$ROOT/docs/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt"
 test -s "$APP/Contents/Resources/THIRD_PARTY_NOTICES.txt" || { echo "build-app: THIRD_PARTY_NOTICES missing from bundle" >&2; exit 1; }

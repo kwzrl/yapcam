@@ -1,5 +1,6 @@
 import SwiftUI
 import YapcamCore
+import YapcamDesign
 
 /// "Camera layout": Overlay / Cutout / Split with their own controls, plus hiding the camera during silence.
 struct CameraLayoutSettings: View {
@@ -8,67 +9,52 @@ struct CameraLayoutSettings: View {
     private let p = "camera.layout_settings."
 
     var body: some View {
-        Section("Camera") {
+        InspectorGroup("Camera", first: true) {
             ToggleRow(model: model, title: "Show camera", path: "camera.visible", defaultValue: true)
-            LabeledPills("Layout", selection: Binding(get: { mode }, set: { model.setCameraLayoutMode($0) }), options: [("Overlay", "overlay"), ("Cutout", "cutout"), ("Split", "split")])
+            ChoiceRow("Layout", selection: Binding(get: { mode }, set: { model.setCameraLayoutMode($0) }),
+                      options: [("Overlay", "overlay"), ("Cutout", "cutout"), ("Split", "split")])
         }
         switch mode {
-        case "cutout": cutout
-        case "split": split
-        default: overlay
+        case "cutout": InspectorGroup("Cutout") { cutout }
+        case "split": InspectorGroup("Split") { split }
+        default: InspectorGroup("Overlay") { overlay }
         }
-        if mode != "split" {
-            Section {
-                ToggleRow(model: model, title: "Avoid empty area", path: "canvas.avoid_empty_zoom_area")
-                Text("Keeps a zoom from showing empty background around the screen.").font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        Section("Silence") {
-            Toggle("Hide the camera during silence", isOn: Binding(get: { model.bool("camera.hide_during_silence") }, set: { model.setHideDuringSilence($0) }))
-            if model.bool("camera.hide_during_silence") {
-                DurationRow(model: model, title: "After silence of", path: "camera.min_silence_ns", default: 5_000_000_000, range: 2...15)
-                switch model.silenceRangesState {
-                case .working: HStack { ProgressView().controlSize(.small); Text("Analyzing the microphone…") }
-                case .failed(let m): Text(m).font(.caption).foregroundStyle(.red)
-                case .idle: Text("\(model.cameraSilenceCount) silent stretch\(model.cameraSilenceCount == 1 ? "" : "es") found.").font(.caption).foregroundStyle(.secondary)
-                }
-                Button("Analyze again") { model.refreshCameraSilence() }
-            }
-        }
+        InspectorGroup("Silence") { CameraSilenceRows(model: model) }
     }
 
     @ViewBuilder private var overlay: some View {
-        Section("Overlay") {
-            CameraPositionRow(model: model)
-            Picker("Aspect", selection: Binding(get: { aspectKey }, set: { setAspect($0) })) {
-                Text("Same as the camera").tag("none"); Text("16:9").tag("16:9"); Text("4:3").tag("4:3"); Text("1:1").tag("1:1"); Text("3:4").tag("3:4"); Text("9:16").tag("9:16")
-            }
-            NumberRow(model: model, title: "Size", path: "camera.size", range: 0.1...0.75, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.22)
-            Toggle("Make smaller during zoom", isOn: Binding(get: { model.number("camera.zoom_scale", default: 1) < 0.999 },
-                                                              set: { model.set("camera.zoom_scale", number: $0 ? 0.6 : 1) }))
-            if model.number("camera.zoom_scale", default: 1) < 0.999 {
-                NumberRow(model: model, title: "Size while zoomed", path: "camera.zoom_scale", range: 0.25...0.8, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.6)
-            }
+        CameraPositionRow(model: model)
+        ChoiceRow("Aspect", selection: Binding(get: { aspectKey }, set: { setAspect($0) }),
+                  options: [("Same as the camera", "none"), ("16:9", "16:9"), ("4:3", "4:3"), ("1:1", "1:1"), ("3:4", "3:4"), ("9:16", "9:16")], forceMenu: true)
+        NumberRow(model: model, title: "Size", path: "camera.size", range: 0.1...0.75, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.22)
+        SwitchRow("Make smaller during zoom", isOn: Binding(get: { model.number("camera.zoom_scale", default: 1) < 0.999 },
+                                                            set: { model.set("camera.zoom_scale", number: $0 ? 0.6 : 1) }))
+        if model.number("camera.zoom_scale", default: 1) < 0.999 {
+            NumberRow(model: model, title: "Size while zoomed", path: "camera.zoom_scale", range: 0.25...0.8, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.6)
         }
+        avoidEmpty
     }
 
     @ViewBuilder private var cutout: some View {
-        Section("Cutout") {
-            LabeledPills("Position", selection: Binding(get: { cutoutPosition }, set: { model.set(p + "cutout_position", .array([.number($0), .number(1)])) }), options: [("Left", 0.0), ("Center", 0.5), ("Right", 1.0)])
-            NumberRow(model: model, title: "Size", path: p + "cutout_size", range: 0.2...1, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.5)
-            NumberRow(model: model, title: "Edge softness", path: p + "edge_softness", range: 0...1, defaultValue: 0.2)
-            NumberRow(model: model, title: "Edge inset", path: p + "edge_inset", range: 0...8, unit: "px", format: "%.0f", defaultValue: 0)
-        }
+        ChoiceRow("Position", selection: Binding(get: { cutoutPosition }, set: { model.set(p + "cutout_position", .array([.number($0), .number(1)])) }),
+                  options: [("Left", 0.0), ("Center", 0.5), ("Right", 1.0)])
+        NumberRow(model: model, title: "Size", path: p + "cutout_size", range: 0.2...1, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.5)
+        NumberRow(model: model, title: "Edge softness", path: p + "edge_softness", range: 0...1, defaultValue: 0.2)
+        NumberRow(model: model, title: "Edge inset", path: p + "edge_inset", range: 0...8, unit: "px", format: "%.0f", defaultValue: 0)
+        avoidEmpty
     }
 
     @ViewBuilder private var split: some View {
-        Section("Split") {
-            LabeledPills("Ratio", selection: Binding(get: { ratioKey }, set: { setRatio($0) }), options: [("Auto", "auto"), ("½", "half"), ("⅔", "twoThirds")])
-            LabeledPills("Direction", selection: Binding(get: { model.string(p + "split_direction", default: "auto") }, set: { model.set(p + "split_direction", string: $0) }),
-                         options: [("Auto", "auto"), ("Horizontal", "horizontal"), ("Vertical", "vertical")])
-            ToggleRow(model: model, title: "Flip sides", path: p + "split_flip")
-            ToggleRow(model: model, title: "Padded", path: p + "split_padded")
-        }
+        ChoiceRow("Ratio", selection: Binding(get: { ratioKey }, set: { setRatio($0) }), options: [("Auto", "auto"), ("½", "half"), ("⅔", "twoThirds")])
+        ChoiceRow("Direction", selection: Binding(get: { model.string(p + "split_direction", default: "auto") }, set: { model.set(p + "split_direction", string: $0) }),
+                  options: [("Auto", "auto"), ("Horizontal", "horizontal"), ("Vertical", "vertical")])
+        ToggleRow(model: model, title: "Flip sides", path: p + "split_flip")
+        ToggleRow(model: model, title: "Padded", path: p + "split_padded")
+    }
+
+    @ViewBuilder private var avoidEmpty: some View {
+        ToggleRow(model: model, title: "Avoid empty area", path: "canvas.avoid_empty_zoom_area")
+        InspectorNote("Keeps a zoom from showing empty background around the screen.")
     }
 
     // MARK: stored values ↔ menu keys
@@ -88,6 +74,23 @@ struct CameraLayoutSettings: View {
     private var cutoutPosition: Double {
         let c = model.numbers(p + "cutout_position"); let x = c.first ?? 1
         return [0.0, 0.5, 1.0].min { abs($0 - x) < abs($1 - x) } ?? 1
+    }
+}
+
+/// Hiding the camera while nobody speaks: the switch, the minimum silence, and the analysis behind it.
+private struct CameraSilenceRows: View {
+    @ObservedObject var model: EditorModel
+    var body: some View {
+        SwitchRow("Hide the camera during silence", isOn: Binding(get: { model.bool("camera.hide_during_silence") }, set: { model.setHideDuringSilence($0) }))
+        if model.bool("camera.hide_during_silence") {
+            DurationRow(model: model, title: "After silence of", path: "camera.min_silence_ns", default: 5_000_000_000, range: 2...15)
+            switch model.silenceRangesState {
+            case .working: InspectorBusy("Analyzing the microphone…")
+            case .failed(let m): InspectorNote(m, symbol: "exclamationmark.triangle")
+            case .idle: InspectorInfo("Silent stretches", "\(model.cameraSilenceCount)")
+            }
+            InspectorAction("Analyze again", symbol: "arrow.clockwise") { model.refreshCameraSilence() }
+        }
     }
 }
 
@@ -129,39 +132,33 @@ struct LayoutOwnSettings: View {
     let layout: LayoutSegment
     private func num(_ k: String, _ d: Double) -> Double { if case .number(let v)? = layout.settings?[k] { v } else { d } }
     private func flag(_ k: String) -> Bool { if case .bool(let v)? = layout.settings?[k] { v } else { false } }
-    @State private var drag: [String: Double] = [:]        // local values while a slider is held; one commit on release
     private func slider(_ title: String, _ key: String, _ range: ClosedRange<Double>, _ d: Double, pct: Bool = false, unit: String = "") -> some View {
-        SliderRow(title) {
-            HStack {
-                Slider(value: Binding(get: { drag[key] ?? num(key, d) }, set: { drag[key] = $0 }), in: range) { editing in
-                    if !editing, let v = drag.removeValue(forKey: key) { model.setLayoutSetting(id: layout.id, key: key, .number(v)) }
-                }.accessibilityLabel(title)
-                let v = drag[key] ?? num(key, d)
-                Text(pct ? "\(Int((v * 100).rounded())) %" : String(format: unit.isEmpty ? "%.2f" : "%.0f", v) + (unit.isEmpty ? "" : " \(unit)")).sliderValueLabel()
-                Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)
-            }
-        }
+        CommitSlider(title: title, range: range, get: { num(key, d) }, commit: { model.setLayoutSetting(id: layout.id, key: key, .number($0)) },
+                     text: { v in pct ? "\(Int((v * 100).rounded())) %" : String(format: unit.isEmpty ? "%.2f" : "%.0f", v) + (unit.isEmpty ? "" : " \(unit)") })
     }
     var body: some View {
-        Toggle("Own settings for this section", isOn: Binding(get: { layout.settings != nil }, set: { model.setLayoutOwnSettings(id: layout.id, $0) }))
+        SwitchRow("Own settings for this section", isOn: Binding(get: { layout.settings != nil }, set: { model.setLayoutOwnSettings(id: layout.id, $0) }))
         if layout.settings != nil {
             switch layout.mode {
             case "cutout":
                 slider("Size", "cutout_size", 0.2...1, 0.5, pct: true)
                 slider("Edge softness", "edge_softness", 0...1, 0.2)
                 slider("Edge inset", "edge_inset", 0...8, 0, unit: "px")
-            case "split":
-                LabeledPills("Ratio", selection: Binding(get: { ratioKey }, set: { k in
-                    model.setLayoutSetting(id: layout.id, key: "split_ratio", k == "auto" ? .null : .number(k == "half" ? 0.5 : 2.0 / 3)) }), options: [("Auto", "auto"), ("½", "half"), ("⅔", "twoThirds")])
-                LabeledPills("Direction", selection: Binding(get: { if case .string(let s)? = layout.settings?["split_direction"] { s } else { "auto" } },
-                                                              set: { model.setLayoutSetting(id: layout.id, key: "split_direction", .string($0)) }),
-                             options: [("Auto", "auto"), ("Horizontal", "horizontal"), ("Vertical", "vertical")])
-                Toggle("Flip sides", isOn: Binding(get: { flag("split_flip") }, set: { model.setLayoutSetting(id: layout.id, key: "split_flip", .bool($0)) }))
-                Toggle("Padded", isOn: Binding(get: { flag("split_padded") }, set: { model.setLayoutSetting(id: layout.id, key: "split_padded", .bool($0)) }))
+            case "split": splitRows
             default:
-                Text("Overlay position and size use the camera settings.").font(.caption).foregroundStyle(.secondary)
+                InspectorNote("Overlay position and size use the camera settings.")
             }
         }
+    }
+    @ViewBuilder private var splitRows: some View {
+        ChoiceRow("Ratio", selection: Binding(get: { ratioKey }, set: { k in
+            model.setLayoutSetting(id: layout.id, key: "split_ratio", k == "auto" ? .null : .number(k == "half" ? 0.5 : 2.0 / 3)) }),
+                  options: [("Auto", "auto"), ("½", "half"), ("⅔", "twoThirds")])
+        ChoiceRow("Direction", selection: Binding(get: { if case .string(let s)? = layout.settings?["split_direction"] { s } else { "auto" } },
+                                                  set: { model.setLayoutSetting(id: layout.id, key: "split_direction", .string($0)) }),
+                  options: [("Auto", "auto"), ("Horizontal", "horizontal"), ("Vertical", "vertical")])
+        SwitchRow("Flip sides", isOn: Binding(get: { flag("split_flip") }, set: { model.setLayoutSetting(id: layout.id, key: "split_flip", .bool($0)) }))
+        SwitchRow("Padded", isOn: Binding(get: { flag("split_padded") }, set: { model.setLayoutSetting(id: layout.id, key: "split_padded", .bool($0)) }))
     }
     private var ratioKey: String {
         guard case .number(let v)? = layout.settings?["split_ratio"] else { return "auto" }

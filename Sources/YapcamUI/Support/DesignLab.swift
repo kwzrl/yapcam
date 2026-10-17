@@ -26,7 +26,7 @@ import YapcamDesign
                 try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 try? rep.representation(using: .png, properties: [:])?.write(to: dir.appending(path: "design-lab.png"))
             }
-            NSApp.terminate(nil)
+            Task { await DesignLabEditor.snapshot(into: dir); NSApp.terminate(nil) }
         }
     }
 
@@ -66,13 +66,17 @@ private struct DesignLabView: View {
         }
         .padding(36)
         .onExitCommand(perform: close)
+        // The Editor page is its own window (a real editor window at editor size); it hands the page back.
+        .onChange(of: page) { old, new in
+            if new == "editor" { page = old; EditorLabWindow.show { page = $0 } }
+        }
     }
 
     private var pageSwitch: some View {
-        OptionRow(["toolbars", "kit"], selection: $page) { id, on in
-            Text(id == "kit" ? "Kit" : "Toolbars").font(Yap.Font.label).foregroundStyle(on ? Yap.title : Yap.caption)
+        OptionRow(["toolbars", "kit", "editor"], selection: $page) { id, on in
+            Text(id.capitalized).font(Yap.Font.label).foregroundStyle(on ? Yap.title : Yap.caption)
         }
-        .frame(width: 220)
+        .frame(width: 300)
         .padding(4)
         .glassPanel(radius: Yap.Radius.card + 4)
     }
@@ -314,7 +318,8 @@ private struct OrbitBar: View {
                 OrbitCell(symbol: d.line, label: d.title, labels: labels, rounded: rounded, dim: !d.on) {}
             }
             separator
-            OrbitCell(symbol: "folder", label: "Recent", labels: labels, rounded: rounded) {}
+            OrbitCell(symbol: "film", label: "Edit", labels: labels, rounded: rounded) {}
+            OrbitCell(symbol: "folder", label: "Library", labels: labels, rounded: rounded) {}
             OrbitCell(symbol: "gearshape", label: "Settings", labels: labels, rounded: rounded) {}
         }
         .padding(.horizontal, Self.inset)

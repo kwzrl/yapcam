@@ -547,6 +547,22 @@ mod tests {
             probe!(yc_project_save, yc_project_save(p, path.as_ptr()), 99);
             probe!(yc_project_to_json, yc_project_to_json(p, &mut text), 99);
             probe!(yc_project_clone, yc_project_clone(p, &mut copy), 99);
+            probe!(
+                yc_mcp_handle,
+                yc_mcp_handle(p, command.as_ptr(), &mut text),
+                99
+            );
+            probe!(yc_mcp_catalog, yc_mcp_catalog(&mut text), 99);
+            probe!(
+                yc_agent_doc,
+                yc_agent_doc(c"playbook".as_ptr(), &mut text),
+                99
+            );
+            probe!(
+                yc_agent_docs_rpc,
+                yc_agent_docs_rpc(command.as_ptr(), &mut text),
+                99
+            );
             probe!(yc_apply, yc_apply(p, command.as_ptr(), &mut text), 99);
             probe!(yc_undo, yc_undo(p, &mut did), 99);
             probe!(yc_redo, yc_redo(p, &mut did), 99);
@@ -839,4 +855,83 @@ mod tests {
         assert_eq!(unsafe { yc_frame_at(&h, 0, &mut f) }, 0);
         assert_eq!(unsafe { yc_can_undo(&h) }, 0);
     }
+}
+
+/// Dispatch one MCP request against the live project. Transport owns initialization state.
+/// # Safety
+/// Same pointer and ownership requirements as yc_apply. Free output with yc_string_free.
+#[no_mangle]
+pub unsafe extern "C" fn yc_mcp_handle(
+    p: *mut YcProject,
+    request: *const c_char,
+    out: *mut *mut c_char,
+) -> i32 {
+    boundary(|| {
+        output(out, std::ptr::null_mut())?;
+        let request = serde_json::from_str(utf8(request)?).unwrap_or(serde_json::Value::Null);
+        let h = handle(p)?;
+        let _writer = h
+            .writer
+            .lock()
+            .map_err(|_| Error::new(99, "Poisoned writer"))?;
+        let mut project = h
+            .inner
+            .write()
+            .map_err(|_| Error::new(99, "Poisoned project"))?;
+        let response = crate::mcp::Server {
+            project: &mut project,
+            initialized: true,
+        }
+        .rpc(request);
+        json_output(out, &response)
+    })
+}
+
+/// # Safety
+/// Output must be writable; free the returned string with yc_string_free.
+#[no_mangle]
+pub unsafe extern "C" fn yc_mcp_catalog(out: *mut *mut c_char) -> i32 {
+    boundary(|| {
+        output(out, std::ptr::null_mut())?;
+        json_output(out, &crate::mcp::catalog())
+    })
+}
+
+/// One agent doc by name (`playbook`, `yapcam://craft`, `examples/tighten`, `chat`, `instructions`, `app_instructions`)
+/// as markdown text. Unknown names return status 1.
+/// # Safety
+/// `name` must be a valid C string; free the output with yc_string_free.
+#[no_mangle]
+pub unsafe extern "C" fn yc_agent_doc(name: *const c_char, out: *mut *mut c_char) -> i32 {
+    boundary(|| {
+        output(out, std::ptr::null_mut())?;
+        let name = utf8(name)?;
+        let text = if name == "app_instructions" {
+            format!(
+                "{}\n{}",
+                crate::agent_docs::INSTRUCTIONS,
+                crate::agent_docs::APP_INSTRUCTIONS
+            )
+        } else {
+            crate::agent_docs::doc(name)
+                .ok_or_else(|| Error::new(1, "Unknown agent doc"))?
+                .to_string()
+        };
+        let s = CString::new(text).map_err(|_| Error::new(99, "Invalid doc string"))?;
+        out.write(s.into_raw());
+        Ok(())
+    })
+}
+
+/// Answer an MCP resources/* or prompts/* request (the agent docs). Writes the JSON-RPC response, or `null` when
+/// the method is not one of those.
+/// # Safety
+/// `request` must be a valid C string; free the output with yc_string_free.
+#[no_mangle]
+pub unsafe extern "C" fn yc_agent_docs_rpc(request: *const c_char, out: *mut *mut c_char) -> i32 {
+    boundary(|| {
+        output(out, std::ptr::null_mut())?;
+        let request = serde_json::from_str(utf8(request)?).unwrap_or(serde_json::Value::Null);
+        json_output(out, &crate::agent_docs::rpc(&request))
+    })
 }

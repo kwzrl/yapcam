@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 
 // MARK: - Selection
 
 /// Selected = a slightly brighter surface; hovered = half of that. No border, no colour.
-public struct Platter: ViewModifier {
+/// (Older, static fill for rows and menus; slots in bars use the animated `Platter` in Slots.swift.)
+public struct PlatterFill: ViewModifier {
     var selected: Bool
     var hover: Bool
     var radius: CGFloat
@@ -15,7 +17,7 @@ public struct Platter: ViewModifier {
 
 public extension View {
     func platter(selected: Bool, hover: Bool = false, radius: CGFloat = Yap.Radius.card) -> some View {
-        modifier(Platter(selected: selected, hover: hover, radius: radius))
+        modifier(PlatterFill(selected: selected, hover: hover, radius: radius))
     }
 }
 
@@ -168,10 +170,12 @@ public struct OptionRow<ID: Hashable, Cell: View>: View {
 /// The plainest separator: one physical pixel of light, no groove, no fade.
 public struct Hairline: View {
     var axis: Axis
+    var opacity: Double
     @Environment(\.displayScale) private var scale
-    public init(axis: Axis = .vertical) { self.axis = axis }
+    /// 16 % white on glass; docked columns of opaque windows use `Yap.dockHairline`.
+    public init(axis: Axis = .vertical, opacity: Double = 0.16) { self.axis = axis; self.opacity = opacity }
     public var body: some View {
-        Color.white.opacity(0.16)
+        Color.white.opacity(opacity)
             .frame(width: axis == .vertical ? 1 / scale : nil, height: axis == .vertical ? nil : 1 / scale)
     }
 }
@@ -240,4 +244,305 @@ public struct GlassMenu<ID: Hashable>: View {
             .padding(6)
         }
     }
+}
+
+// MARK: - Field
+
+/// Text input recessed into the glass like the slider groove; an optional trailing control sits inside.
+public struct RecessedField<Trailing: View>: View {
+    let prompt: String
+    @Binding var text: String
+    var height: CGFloat
+    let trailing: Trailing
+
+    public init(_ prompt: String, text: Binding<String>, height: CGFloat = 36, @ViewBuilder trailing: () -> Trailing) {
+        self.prompt = prompt; _text = text; self.height = height; self.trailing = trailing()
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain).font(Yap.Font.body).foregroundStyle(Yap.label)
+            trailing
+        }
+        .padding(.leading, 14).padding(.trailing, 4)
+        .frame(height: height)
+        .background(RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(Yap.recess))
+    }
+}
+
+public extension RecessedField where Trailing == EmptyView {
+    init(_ prompt: String, text: Binding<String>, height: CGFloat = 36) {
+        self.init(prompt, text: text, height: height) { EmptyView() }
+    }
+}
+
+// MARK: - Disclosure
+
+/// A section that shows its basics in one line (title, value in yellow) and opens for the fine-tuning.
+public struct DisclosureSection<Content: View>: View {
+    let title: String
+    var value: String
+    @Binding var open: Bool
+    let content: Content
+    @State private var hover = false
+
+    public init(_ title: String, value: String = "", open: Binding<Bool>, @ViewBuilder content: () -> Content) {
+        self.title = title; self.value = value; _open = open; self.content = content()
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { withAnimation(Yap.Motion.select) { open.toggle() } } label: { header }
+                .buttonStyle(PressStyle())
+                .onHover { hover = $0 }
+                .accessibilityLabel(title).accessibilityValue(value)
+                .accessibilityHint(open ? "Collapses the section" : "Shows the settings")
+            if open { content.padding(.horizontal, 8).padding(.bottom, 6) }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(title).font(Yap.Font.label).foregroundStyle(hover ? Yap.title : Yap.label)
+            Spacer(minLength: 8)
+            if !value.isEmpty { Text(value).technical().lineLimit(1) }
+            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(hover ? Yap.title : Yap.faint)
+                .rotationEffect(.degrees(open ? 90 : 0))
+        }
+        .padding(.horizontal, 8).frame(height: 32)
+        .background(Platter(active: false, hover: hover, radius: Yap.Radius.control))
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Inspector rows
+
+/// A parameter in one calm row: label left, the pill slider and its value in yellow right, in fixed columns so the
+/// sliders of a section line up. When the label is too long for the row, the slider moves under it.
+public struct ValueSlider: View {
+    let title: String
+    let value: String
+    @Binding var amount: Double
+
+    public init(_ title: String, value: String, amount: Binding<Double>) {
+        self.title = title; self.value = value; _amount = amount
+    }
+
+    public var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                label.fixedSize()
+                Spacer(minLength: 0)
+                slider.frame(width: 96)
+                readout.frame(width: 44, alignment: .trailing)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack { label; Spacer(); readout }
+                slider
+            }
+        }
+        .frame(minHeight: 26)
+    }
+
+    private var label: some View { Text(title).font(Yap.Font.body).foregroundStyle(Yap.label).lineLimit(1) }
+    private var readout: some View { Text(value).technical().lineLimit(1) }
+    private var slider: some View { PillSlider(value: $amount, trackHeight: 16).accessibilityLabel(title) }
+}
+
+/// A parameter with a few choices: label left, segment switch right; below the label when the row is too narrow.
+public struct ValueChoice<ID: Hashable>: View {
+    let title: String
+    let items: [(id: ID, title: String)]
+    @Binding var selection: ID
+
+    public init(_ title: String, items: [(id: ID, title: String)], selection: Binding<ID>) {
+        self.title = title; self.items = items; _selection = selection
+    }
+
+    public var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                label.fixedSize()
+                Spacer(minLength: 0)
+                segments.fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                label
+                segments
+            }
+        }
+    }
+
+    private var label: some View { Text(title).font(Yap.Font.body).foregroundStyle(Yap.label).lineLimit(1) }
+    private var segments: some View { SegmentSwitch(items, selection: $selection, height: 26) }
+}
+
+/// A row in a list (chat changes, results): icon, title, a value in yellow, platter on hover.
+public struct ValueRow: View {
+    let symbol: String
+    let title: String
+    let value: String
+    var help: String
+    let action: () -> Void
+    @State private var hover = false
+
+    public init(symbol: String, title: String, value: String, help: String = "", action: @escaping () -> Void) {
+        self.symbol = symbol; self.title = title; self.value = value; self.help = help; self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(hover ? Yap.title : Yap.caption).frame(width: 18)
+                Text(title).font(Yap.Font.body).foregroundStyle(hover ? Yap.title : Yap.label).lineLimit(1)
+                Spacer(minLength: 6)
+                Text(value).technical()
+            }
+            .padding(.horizontal, 8).frame(height: 30)
+            .background(Platter(active: false, hover: hover, radius: Yap.Radius.control))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .onHover { hover = $0 }
+        .help(help)
+        .accessibilityLabel(title).accessibilityValue(value)
+    }
+}
+
+// MARK: - Switch
+
+/// On/off as a groove with a white knob, like the pill slider: off = recessed and dim, on = lit.
+public struct PillSwitch: View {
+    @Binding var isOn: Bool
+    public init(isOn: Binding<Bool>) { _isOn = isOn }
+
+    public var body: some View {
+        Button { isOn.toggle() } label: {
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule().fill(isOn ? Color.white.opacity(0.32) : Yap.recess)
+                    .overlay(Capsule().strokeBorder(LinearGradient(colors: [.black.opacity(isOn ? 0.15 : 0.5), .white.opacity(0.06)],
+                                                                   startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                Circle().fill(Color.white.opacity(isOn ? 1 : 0.7))
+                    .frame(width: 14, height: 14).padding(3)
+                    .shadow(color: .white.opacity(isOn ? 0.35 : 0), radius: 6)
+            }
+            .frame(width: 36, height: 20)
+            .animation(Yap.Motion.select, value: isOn)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
+    }
+}
+
+/// A setting that is on or off: label left, switch right; the whole row toggles.
+public struct SwitchRow: View {
+    let title: String
+    @Binding var isOn: Bool
+    public init(_ title: String, isOn: Binding<Bool>) { self.title = title; _isOn = isOn }
+
+    public var body: some View {
+        HStack {
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
+            Spacer(minLength: 8)
+            PillSwitch(isOn: $isOn).accessibilityLabel(title)
+        }
+        .frame(minHeight: 26)
+        .contentShape(Rectangle())
+        .onTapGesture { isOn.toggle() }
+    }
+}
+
+// MARK: - Choice menu
+
+/// A setting with more choices than fit a segment switch: label left, the current choice and a chevron right;
+/// a click opens the system menu.
+public struct ChoiceMenuRow: View {
+    let title: String
+    let options: [String]
+    @Binding var selection: String
+    @State private var hover = false
+
+    public init(_ title: String, options: [String], selection: Binding<String>) {
+        self.title = title; self.options = options; _selection = selection
+    }
+
+    public var body: some View {
+        HStack {
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
+            Spacer(minLength: 8)
+            Menu {
+                ForEach(options, id: \.self) { o in
+                    Button { selection = o } label: { if o == selection { Label(o, systemImage: "checkmark") } else { Text(o) } }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(selection).font(Yap.Font.body)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
+                }
+                .foregroundStyle(hover ? Yap.title : Yap.label)
+                .padding(.horizontal, 10).frame(height: 26)
+                .background(Platter(active: false, hover: hover, radius: 8))
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .onHover { hover = $0 }
+            .accessibilityLabel(title).accessibilityValue(selection)
+        }
+    }
+}
+
+// MARK: - Colour
+
+/// A colour setting: label left, the hex value in yellow and a swatch right; a click opens the colour panel.
+public struct ColorSwatchRow: View {
+    let title: String
+    @Binding var color: Color
+    @State private var hover = false
+
+    public init(_ title: String, color: Binding<Color>) { self.title = title; _color = color }
+
+    public var body: some View {
+        HStack(spacing: 8) {
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
+            Spacer(minLength: 8)
+            Text(Self.hex(color)).technical()
+            Button { ColorPanelBridge.shared.open(color: NSColor(color)) { color = Color(nsColor: $0) } } label: {
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(color)
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.white.opacity(hover ? 0.6 : 0.25), lineWidth: 1))
+                    .frame(width: 26, height: 22)
+            }
+            .buttonStyle(PressStyle())
+            .onHover { hover = $0 }
+            .accessibilityLabel("\(title) colour")
+        }
+        .frame(minHeight: 26)
+    }
+
+    static func hex(_ c: Color) -> String {
+        let n = NSColor(c).usingColorSpace(.sRGB) ?? .black
+        return String(format: "#%02X%02X%02X", Int(n.redComponent * 255), Int(n.greenComponent * 255), Int(n.blueComponent * 255))
+    }
+}
+
+/// Routes the shared colour panel to whichever swatch opened it last.
+@MainActor final class ColorPanelBridge: NSObject {
+    static let shared = ColorPanelBridge()
+    private var onChange: ((NSColor) -> Void)?
+
+    func open(color: NSColor, onChange: @escaping (NSColor) -> Void) {
+        self.onChange = nil
+        let panel = NSColorPanel.shared
+        panel.color = color
+        panel.showsAlpha = false
+        panel.setTarget(self)
+        panel.setAction(#selector(changed(_:)))
+        self.onChange = onChange
+        panel.orderFront(nil)
+    }
+
+    @objc private func changed(_ panel: NSColorPanel) { onChange?(panel.color) }
 }

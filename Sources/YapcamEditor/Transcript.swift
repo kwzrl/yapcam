@@ -127,7 +127,7 @@ struct TranscriptPanel: View {
     private func row(_ w: TextItem) -> some View {
         HStack(spacing: 6) {
             Button { if selected.contains(w.id) { selected.remove(w.id) } else { selected.insert(w.id) }; model.seek(toNs: w.startNs) } label: {
-                Image(systemName: selected.contains(w.id) ? "checkmark.square.fill" : "square").foregroundStyle(selected.contains(w.id) ? Color.accentColor : .secondary)
+                Image(systemName: selected.contains(w.id) ? "checkmark.square.fill" : "square").foregroundStyle(selected.contains(w.id) ? Color.white : .secondary)
             }.buttonStyle(.plain).accessibilityLabel(selected.contains(w.id) ? "Deselect word" : "Select word")
             Text(formatTimecode(w.startNs)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
             if editing == w.id {

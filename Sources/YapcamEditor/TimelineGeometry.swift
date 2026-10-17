@@ -52,3 +52,16 @@ public func formatTimecode(_ ns: Int64, showFraction: Bool = true) -> String {
     if showFraction { out += String(format: ".%02d", frac) }
     return neg ? "-" + out : out
 }
+
+/// The playhead is one physical pixel wide and sits exactly on the pixel grid, so it stays sharp at every zoom and
+/// scale (a 1-pt line at a fractional x smears over two device pixels). Pure, for tests.
+public enum PixelGrid {
+    /// Width of one device pixel in points (0.5 on Retina). A missing or broken scale counts as 1.
+    public static func pixel(scale: Double) -> Double { scale.isFinite && scale > 0 ? 1 / scale : 1 }
+    /// Left edge (points) of the device pixel that contains `x`: the line covers [edge, edge + pixel).
+    public static func lineEdge(_ x: Double, scale: Double) -> Double {
+        let s = scale.isFinite && scale > 0 ? scale : 1
+        guard x.isFinite else { return 0 }
+        return (x * s + 1e-9).rounded(.down) / s
+    }
+}

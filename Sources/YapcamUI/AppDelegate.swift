@@ -90,6 +90,7 @@ import YapcamEditor
         bindShortcuts()
 
         ToolbarPanelController.shared.show()
+        ToolbarEditorCoordinator.shared.start()
         DesktopIcons.restoreIfNeeded()
         installTranscriber()
         PresetsFolder.apply(AppSettings.shared.presetsDirectory)
@@ -235,7 +236,7 @@ import YapcamEditor
 
     @objc func toggleRecording() { RecordingController.shared.toggleStartStop() }
     @objc func togglePause() { RecordingController.shared.togglePause() }
-    @objc func toggleToolbar() { ToolbarPanelController.shared.toggle() }
+    @objc func toggleToolbar() { ToolbarEditorCoordinator.shared.userToggled(); ToolbarPanelController.shared.toggle() }
     @objc func addMarker() { RecordingController.shared.addMarker() }
     @objc func restartRecording() { RecordingController.shared.confirmRestart() }
     @objc func cancelRecording() { RecordingController.shared.confirmCancel() }

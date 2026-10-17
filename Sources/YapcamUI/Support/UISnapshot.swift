@@ -1,3 +1,4 @@
+import YapcamEditor
 import AppKit
 import SwiftUI
 
@@ -52,6 +53,7 @@ import SwiftUI
             // Each view is built right before it is written, so per-view state (source mode…) holds.
             for (title, make) in extraViews() { write(make(), "\(title)-\(name)", dir, size: nil, dark: name == "dark") }
         }
+        try? await EditorShellSnapshot.render(into: dir.appending(path: "editor"))
         NSApp.appearance = nil
         AreaSelector.shared.cancelForTesting()
     }

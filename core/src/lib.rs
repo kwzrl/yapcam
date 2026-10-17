@@ -98,3 +98,8 @@ mod privacy;
 
 #[cfg(test)]
 mod renderer_contract_tests;
+
+pub mod agent_docs;
+pub mod mcp;
+
+mod mcp_craft;

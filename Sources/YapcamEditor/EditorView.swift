@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import YapcamDesign
 
 /// Editor window content. The preview surface is injected so the module can be built and
 /// previewed against fakes; `EditorDocument` passes `PreviewView(player:)`.
@@ -10,6 +12,12 @@ public struct EditorContent<Preview: View>: View {
     let packageURL: URL?
     let initialSection: InspectorSection
     @State private var showExport = false
+    /// The docked chat column is open (wide window, agent on).
+    @State private var chatOpen = true
+    /// The chat floats over the stage (narrow window, agent on).
+    @State private var chatFloating = false
+    /// Current width of the editor (decides docked or floating chat when the agent is switched on).
+    @State private var width: CGFloat = 0
 
     public init(model: EditorModel, export: ExportModel, title: String = "Recording", packageURL: URL? = nil,
                 initialSection: InspectorSection = .background, @ViewBuilder preview: () -> Preview) {
@@ -17,29 +25,47 @@ public struct EditorContent<Preview: View>: View {
         self.initialSection = initialSection; self.preview = preview()
     }
 
+    /// Below this width the chat would float over the stage (lab variant B). 0 = always docked on the left:
+    /// a floating chat covered the preview and play button (Kilian, 2026-10-17).
+    static var autoCollapseWidth: CGFloat { 0 }
+    static var inspectorWidth: CGFloat { 354 }
+
     public var body: some View {
         GeometryReader { geo in
+            let narrow = geo.size.width < Self.autoCollapseWidth
             VStack(spacing: 0) {
-                EditorTopBar(model: model, title: title, packageURL: packageURL, showExport: $showExport, exportRunning: export.isRunning)
+                EditorTitleRow(model: model, title: title, packageURL: packageURL, showExport: $showExport,
+                               exportRunning: export.isRunning, chatShown: chatShown(narrow: narrow)) { toggleAgent(narrow: narrow) }
+                DockSeparator(axis: .horizontal)
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
-                        PreviewControlsBar(model: model)
                         HStack(spacing: 0) {
-                            PreviewLeftRail(model: model)
-                            previewArea
+                            if model.agentEnabled && !narrow && chatOpen {
+                                ChatColumn(model: model).frame(width: ChatColumn.width)
+                                    .transition(.move(edge: .leading).combined(with: .opacity))
+                                DockSeparator()
+                            }
+                            stage
+                                .overlay(alignment: .topLeading) { floatingChat(narrow: narrow) }
                         }
+                        DockSeparator(axis: .horizontal)
+                        BottomPanelView(model: model, topHairline: false)
+                            .frame(height: BottomPanelView.preferredHeight(model: model, windowHeight: geo.size.height))
                     }
-                    InspectorView(model: model, initialSection: initialSection).frame(width: 450)
+                    DockSeparator()
+                    InspectorView(model: model, initialSection: initialSection)
+                        .frame(width: Self.inspectorWidth)
+                        .frame(maxHeight: .infinity)
+                        .background(Yap.dock)
                 }
-                .frame(maxHeight: .infinity)
-                TransportBar(model: model)
-                Divider()
-                TimelineView(model: model)
-                    .frame(height: timelineHeight(windowHeight: geo.size.height))
             }
         }
+        .ignoresSafeArea()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .frame(minWidth: 1000, minHeight: 640)
-        .background(EditorTheme.stage)
+        .background(Yap.ground)
+        .background(EditorWindowChrome())
+        .yapWindow()
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(phases: .down) { press in handleKey(press) }
@@ -50,36 +76,87 @@ public struct EditorContent<Preview: View>: View {
         } message: { Text(model.lastError ?? "") }
         .focusedSceneValue(\.editorModel, model)
         .onChange(of: model.selection) { _, new in if new != .none { model.announce(model.describe(new)) } }
-        .onAppear { model.showExportPickerHandler = { showExport = true }; if model.exportModel == nil { model.exportModel = export }; model.exportTitle = title }
+        .onChange(of: model.agentEnabled) { _, on in agentSwitched(on) }
+        .onAppear { model.showExportPickerHandler = { showExport = true }; if model.exportModel == nil { model.exportModel = export }; model.exportTitle = title
+            if model.agentEnabled { agentSwitched(true) } }
         .onDisappear { model.saveNow() }
     }
 
-    /// Compact timeline: about a quarter of the window, never taller than its content needs.
-    private func timelineHeight(windowHeight: CGFloat) -> CGFloat {
-        let content = TimelineLayout(lanes: model.visibleLanes).totalHeight + 18
-        return min(max(content, 150), max(windowHeight * 0.30, 190))
+    // MARK: agent and chat
+
+    private func chatShown(narrow: Bool) -> Bool { model.agentEnabled && (narrow ? chatFloating : chatOpen) }
+
+    /// Off: switches the agent on (chat and blocks bar). On: shows or hides the chat, floating on a narrow window.
+    private func toggleAgent(narrow: Bool) {
+        if !model.agentEnabled { model.agentEnabled = true }
+        else if narrow { chatFloating.toggle() }
+        else { chatOpen.toggle() }
+    }
+
+    /// The agent comes with its chat and the blocks bar; switched off, both go.
+    private func agentSwitched(_ on: Bool) {
+        chatOpen = on
+        chatFloating = on && width > 0 && width < Self.autoCollapseWidth
+        model.blocksBarVisible = on
+    }
+
+    /// Variant B on a narrow window: the chat floats over the stage instead of taking its width.
+    @ViewBuilder private func floatingChat(narrow: Bool) -> some View {
+        if model.agentEnabled && narrow && chatFloating {
+            ChatColumn(model: model, floating: true)
+                .frame(width: ChatColumn.width)
+                .padding(12).padding(.top, StageControls.height - 12)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+        }
+    }
+
+    // MARK: stage
+
+    /// Air around the preview on the stage.
+    static var air: CGFloat { 32 }
+
+    /// The stage: quiet controls on top, the preview large and centred with air around it, the blocks bar just under it.
+    private var stage: some View {
+        VStack(spacing: 0) {
+            StageControls(model: model)
+            GeometryReader { geo in
+                let showBar = model.blocksBarVisible
+                let size = Self.fit(aspect: model.previewAspect, in: geo.size, reserve: showBar ? Yap.Grid.bar + 14 : 0)
+                VStack(spacing: 14) {
+                    previewArea.frame(width: size.width, height: size.height)
+                    if showBar { BlocksBar(model: model).transition(.opacity.combined(with: .scale(scale: 0.96))) }
+                }
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+            }
+            .padding(.bottom, StageControls.height / 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Yap.ground.onTapGesture { model.selection = .none })
+        .clipped()
+    }
+
+    /// The largest size of `aspect` inside `room` minus the air (and the room `reserve` keeps below it).
+    static func fit(aspect: Double, in room: CGSize, reserve: CGFloat = 0) -> CGSize {
+        let a = aspect > 0 && aspect.isFinite ? CGFloat(aspect) : 16 / 9
+        let w = max(room.width - 2 * air, 10), h = max(room.height - air - reserve, 10)
+        return w / h > a ? CGSize(width: h * a, height: h) : CGSize(width: w, height: w / a)
     }
 
     private var previewArea: some View {
         ZStack {
-            Color.clear
             if model.clips.isEmpty || model.durationNs <= 0 {
-                Text("Nothing to preview yet").font(.callout).foregroundStyle(.secondary)
+                Text("Nothing to preview yet").font(Yap.Font.body).foregroundStyle(Yap.caption)
             }
             preview
-                .aspectRatio(model.previewAspect, contentMode: .fit)
                 .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model, playhead: model.playhead) } }
                 .overlay { rectEditor }
                 .scaleEffect(model.previewZoom)
                 .offset(model.previewPan)
-                .padding(12)
                 // ⌥-drag pans a magnified preview; plain drags belong to the focus/box editors.
                 .simultaneousGesture(DragGesture().onChanged { v in
                     if model.previewZoom > 1, NSEvent.modifierFlags.contains(.option) { model.previewPan = v.translation }
                 })
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
     }
 
     /// Box editor over the preview for the selected highlight or text item (not for music/captions lists).
@@ -98,6 +175,8 @@ public struct EditorContent<Preview: View>: View {
     }
 
     private func handleKey(_ p: KeyPress) -> KeyPress.Result {
+        // While a text field edits (chat input, captions, text items, transcript), every key belongs to the field.
+        if NSApp.keyWindow?.firstResponder is NSText { return .ignored }
         var mods = ShortcutModifiers()
         if p.modifiers.contains(.command) { mods.insert(.command) }
         if p.modifiers.contains(.shift) { mods.insert(.shift) }
@@ -162,7 +241,7 @@ struct FocusPickerOverlay: View {
                 Color.clear
                 if let z = model.selectedZoom {
                     // Marker shows the stored focus in the same (uncropped) preview space as the click mapping.
-                    Circle().strokeBorder(Color.orange, lineWidth: 2).background(Circle().fill(Color.orange.opacity(0.25)))
+                    Circle().strokeBorder(Yap.zoom, lineWidth: 2).background(Circle().fill(Yap.zoom.opacity(0.25)))
                         .frame(width: 22, height: 22)
                         .position(markerPosition(z, in: geo.size))
                 }
@@ -222,10 +301,10 @@ struct RectEditOverlay: View {
         if let c = current(), let g = model.project.frameGeometry(atNs: model.playheadNs) {
             let frame = pixelFrame(c.rect, space: c.space, g, size)
             Rectangle().strokeBorder(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
-                .background(Color.accentColor.opacity(0.08))
+                .background(Color.white.opacity(0.08))
                 .frame(width: frame.width, height: frame.height).offset(x: frame.minX, y: frame.minY)
             ForEach(0..<4, id: \.self) { i in
-                Circle().fill(Color.white).overlay(Circle().stroke(Color.accentColor, lineWidth: 2)).frame(width: 12, height: 12)
+                Circle().fill(Color.white).overlay(Circle().stroke(Color.black.opacity(0.5), lineWidth: 1)).frame(width: 12, height: 12)
                     .position(x: i % 2 == 0 ? frame.minX : frame.maxX, y: i < 2 ? frame.minY : frame.maxY)
             }
         }

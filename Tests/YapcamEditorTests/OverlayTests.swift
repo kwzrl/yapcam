@@ -497,9 +497,10 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         window.contentView = host; window.orderBack(nil); defer { window.orderOut(nil) }
         try await Task.sleep(for: .milliseconds(400))
         #expect(m.timelineFitted)
-        // Fitted content (+40 pt margin the view adds) equals the viewport, so nothing scrolls sideways.
+        // Fitted content (+40 pt margin the view adds) equals the viewport (the width beside the track names), so nothing scrolls sideways.
         let content = m.geometry.contentWidth(durationNs: m.durationNs) + 40
-        #expect(abs(content - 1000) < 20, "content \(content)")
+        let viewport = 1000 - Double(TimelineView.namesWidth)
+        #expect(abs(content - viewport) < 20, "content \(content)")
         let before = m.geometry.pixelsPerSecond
         try await Task.sleep(for: .milliseconds(200))
         #expect(m.geometry.pixelsPerSecond == before)            // fitted once, not on every layout pass

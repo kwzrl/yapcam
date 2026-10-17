@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import YapcamCore
 
-/// Editor appearance: dark by default, like the reference editor; ui offers it in Settings (Editing).
+/// Legacy preference values retained for compatibility. Editor windows always use dark Aqua.
 public enum EditorAppearance: String, CaseIterable, Sendable {
     case dark, light, system
     public var label: String { switch self { case .dark: "Dark"; case .light: "Light"; case .system: "Match system" } }
@@ -15,9 +15,19 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
     /// Applied to editor windows when they open and live to the open ones when changed (`applyAppearance()`).
     nonisolated(unsafe) public static var appearance: EditorAppearance = .dark { didSet { onMain { applyAppearance() } } }
     /// Re-applies `appearance` to every open editor window.
-    public static func applyAppearance() { controllers.values.forEach { $0.window?.appearance = appearance.nsAppearance } }
+    public static func applyAppearance() { controllers.values.forEach { $0.window?.appearance = NSAppearance(named: .darkAqua) } }
 
-    private static var controllers: [String: EditorWindowController] = [:]
+    private static var controllers: [String: EditorWindowController] = [:] {
+        didSet { if controllers.count != oldValue.count { NotificationCenter.default.post(name: openCountDidChange, object: nil, userInfo: ["count": controllers.count]) } }
+    }
+    /// Posted on the main actor when an editor window opens or closes; `userInfo["count"]` is how many are open now.
+    /// The app hides its floating recording toolbar while editors are open.
+    public static let openCountDidChange = Notification.Name("YapcamEditorWindowsOpenCountDidChange")
+    public static var openCount: Int { controllers.count }
+    public static var openDocuments: [EditorDocument] { controllers.values.map(\.editorDocument) }
+    public static var frontDocument: EditorDocument? {
+        NSApp.orderedWindows.compactMap { window in controllers.values.first { $0.window === window }?.editorDocument }.first
+    }
     /// Set by the app (it links YapcamCapture): runs on-device transcription for a package and returns the
     /// RecordingTranscript JSON (also written to recording/transcript.json). Nil → captions can only use an existing transcript.
     nonisolated(unsafe) public static var transcriber: (@Sendable (URL) async throws -> Data)?
@@ -99,6 +109,7 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         let controller = EditorWindowController(document: doc) { controllers[key] = nil }
         controllers[key] = controller
         controller.showWindow(nil)
+        (NSClassFromString("YapcamAgentServer") as? AgentServerStarting.Type)?.startServer()
         NSApp.activate()
     }
 }
@@ -112,19 +123,20 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = document.title
-        window.appearance = EditorWindows.appearance.nsAppearance
+        window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = NSHostingView(rootView: EditorView(document: document))
         window.setFrameAutosaveName("YapcamEditor")
         window.center()
         super.init(window: window)
         window.delegate = self
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak document] _ in
-            onMain { document?.model.saveNow() }
+            onMain { document?.agentRunner.cancel(); document?.model.saveNow() }
         }
     }
     required init?(coder: NSCoder) { nil }
 
     func windowWillClose(_ notification: Notification) {
+        editorDocument.agentRunner.cancel()
         editorDocument.model.close()      // saves, cancels background work, makes the stale model inert
         editorDocument.player.pause()
         onClose()
@@ -208,3 +220,5 @@ extension EditorWindows {
         return target
     }
 }
+
+@MainActor public protocol AgentServerStarting { static func startServer() }

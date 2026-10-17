@@ -130,7 +130,7 @@ public final class CoreEditingProject: EditingProject {
     private var editCount = 0
     /// One cold-path read per change: the project JSON already contains clips and zooms, so the former
     /// separate `clips`/`zooms` queries (about 14 ms extra at 500 clips/200 zooms) are not needed.
-    private func refresh() {
+    func refresh() {
         clicksStale = true
         guard let data = try? project.toJSON(), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             clips = []; zooms = []; settings = .null; return
