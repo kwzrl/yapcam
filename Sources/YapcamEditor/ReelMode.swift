@@ -11,5 +11,7 @@ public enum ReelMode: String, CaseIterable, Sendable, Identifiable {
 
 extension EditorModel {
     public var reelMode: ReelMode { previewOptions.reel }
+    /// Reel guides only mean something on a portrait canvas (9:16, 4:5); landscape and square hide the control.
+    public var reelPreviewAvailable: Bool { previewAspect < 1 }
     public func setReelMode(_ m: ReelMode) { var o = previewOptions; o.reel = m; setPreviewOptions(o) }
 }

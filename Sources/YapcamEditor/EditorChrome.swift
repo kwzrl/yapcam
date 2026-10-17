@@ -210,12 +210,12 @@ struct PreviewControlsBar: View {
                 }
             } label: { Label(aspectTitle, systemImage: "rectangle.dashed") }
                 .menuStyle(.borderlessButton).fixedSize().help("Aspect ratio of the output")
-            Menu {
+            if model.reelPreviewAvailable { Menu {
                 ForEach(ReelMode.allCases) { m in
                     Button { model.setReelMode(m) } label: { if model.reelMode == m { Label(m.label, systemImage: "checkmark") } else { Text(m.label) } }
                 }
             } label: { Label(model.reelMode == .off ? "Reel preview" : model.reelMode.label, systemImage: "iphone") }
-                .menuStyle(.borderlessButton).fixedSize().help("Show a platform's safe areas over the preview (preview only, not exported)")
+                .menuStyle(.borderlessButton).fixedSize().help("Show a platform's safe areas over the preview (preview only, not exported)") }
             Button { showCrop = true } label: { Label("Crop", systemImage: "crop") }
                 .popover(isPresented: $showCrop) { Form { CropSection(model: model) }.formStyle(.grouped).frame(width: 300, height: 300) }
                 .help("Crop the recording")

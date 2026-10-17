@@ -19,7 +19,8 @@ public struct ReelSafeAreaLayout: Equatable, Sendable {
 
     public init?(mode: ReelPreviewMode, bounds: CGRect) {
         guard mode != .off, [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy(\.isFinite),
-              bounds.size.width > 0, bounds.size.height > 0 else { return nil }
+              bounds.size.width > 0, bounds.size.height > 0,
+              bounds.size.height > bounds.size.width else { return nil }   // reels are portrait: no guides over 16:9 or square
         let top: CGFloat = mode == .instagram ? 0.10 : 0.12
         let bottom: CGFloat = mode == .instagram ? 0.22 : 0.24
         let right: CGFloat = mode == .instagram ? 0.16 : 0.18

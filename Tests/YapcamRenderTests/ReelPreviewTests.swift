@@ -21,7 +21,7 @@ final class ReelPreviewTests: XCTestCase {
             XCTAssertEqual(shifted.safeRect.height,layout.safeRect.height/2)
         }
         XCTAssertNotEqual(ReelSafeAreaLayout(mode: .instagram,bounds: base),ReelSafeAreaLayout(mode: .tiktok,bounds: base))
-        for bounds in [CGRect.zero,CGRect(x: 0,y: 0,width: -1,height: 100),CGRect(x: 0,y: 0,width: CGFloat.infinity,height: 100)] {
+        for bounds in [CGRect(x: 0,y: 0,width: 1920,height: 1080),CGRect(x: 0,y: 0,width: 1080,height: 1080),CGRect.zero,CGRect(x: 0,y: 0,width: -1,height: 100),CGRect(x: 0,y: 0,width: CGFloat.infinity,height: 100)] {
             XCTAssertNil(ReelSafeAreaLayout(mode: .instagram,bounds: bounds))
         }
     }
