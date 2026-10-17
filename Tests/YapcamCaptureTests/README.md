@@ -1,5 +1,24 @@
 # Capture validation
 
+Focus metadata is sampled at 4 Hz during each Mac recording segment, with an
+immediate initial lookup. `focus` events include `app_bundle_id`, `app_name`,
+`window_id`, `window_title`, and capture-local `window_rect` when available.
+The frontmost application's first visible normal-layer WindowServer window is
+the focus proxy; no Accessibility access is used. Window titles can be redacted
+without Screen Recording permission. Browser page titles use the window title;
+URLs are not queried. Changes shorter than 250 ms can be missed.
+
+```sh
+swift test -j 2 --filter FocusEventsTests
+zsh Tests/YapcamCaptureTests/Tools/run_focus_poller.zsh
+```
+
+The five-second harness prints actual focus JSONL through the production poller
+and event writer. It does not record pixels, activate windows, start an input tap,
+or request permissions. Only its temporary event directory is removed. The unit
+tests inject window dictionaries and cover identity/title changes, missing
+metadata, background backpressure, late-result rejection, and journal mapping.
+
 `YapcamCaptureTests` is registered on main. No permissions are requested by the
 default tests. Simulated routing tests use test-only media sinks; the production
 writer always uses AVAssetWriter, and encoding remains a separate real-media gate.

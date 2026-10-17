@@ -13,9 +13,16 @@ struct CaptureEvent: Codable, Equatable, Sendable {
     var key: String? = nil
     var modifiers: [String]? = nil
     var markerID: String? = nil
+    var appBundleID: String? = nil
+    var appName: String? = nil
+    var windowID: UInt32? = nil
+    var windowTitle: String? = nil
+    var windowRect: [Double]? = nil
     enum CodingKeys: String, CodingKey {
         case t, type, x, y, button, dx, dy, id, key, modifiers
         case markerID = "marker_id"
+        case appBundleID = "app_bundle_id", appName = "app_name"
+        case windowID = "window_id", windowTitle = "window_title", windowRect = "window_rect"
     }
 }
 
@@ -62,6 +69,7 @@ struct InputEventSnapshot: Sendable {
     private var source: CFRunLoopSource?
     private var monitor: Any?
     private var timer: Timer?
+    private var focusPoller: FocusEventPoller?
     private var lastTime: Int64 = 0
     private let diskCheckpoint: CaptureDiskCheckpoint
     private var cursorIDs: [String: Int] = [:]
@@ -94,6 +102,11 @@ struct InputEventSnapshot: Sendable {
     }
 
     private func startMonitoring() {
+        let focusPoller = FocusEventPoller { [weak self] snapshot, hostNs in
+            self?.recordFocus(snapshot, hostNs: hostNs)
+        }
+        self.focusPoller = focusPoller
+        focusPoller.start()
         var types: [CGEventType] = [.mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                                     .otherMouseDown, .otherMouseUp, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel]
         if keys { types.append(.keyDown) }
@@ -171,6 +184,22 @@ struct InputEventSnapshot: Sendable {
     }
 
     private func relative(_ host: Int64) -> Int64 { max(lastTime, max(0, host - hostStartNs)) }
+
+    /// Focus uses the same segment clock and content coordinates as input. A late
+    /// background observation cannot reorder the journal or write after stop.
+    func recordFocus(_ snapshot: FocusWindowSnapshot, hostNs: Int64) {
+        guard file != nil else { return }
+        var rect: [Double]?
+        if let global = snapshot.windowRect {
+            let origin = mapping.local(global.origin)
+            let end = mapping.local(CGPoint(x: global.maxX, y: global.maxY))
+            let values = [origin.x, origin.y, end.x - origin.x, end.y - origin.y].map(Double.init)
+            if values.allSatisfy(\.isFinite), values[2] > 0, values[3] > 0 { rect = values }
+        }
+        emit(CaptureEvent(t: relative(hostNs), type: "focus", appBundleID: snapshot.app.bundleID,
+            appName: snapshot.app.name, windowID: snapshot.windowID,
+            windowTitle: snapshot.windowTitle, windowRect: rect))
+    }
 
     /// Explicit markers are independent of keystroke recording and input permission.
     /// Synchronize before acknowledging the action so crash recovery retains it.
@@ -272,6 +301,7 @@ struct InputEventSnapshot: Sendable {
     }
 
     func stop() throws {
+        focusPoller?.stop(); focusPoller = nil
         timer?.invalidate(); timer = nil
         if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
