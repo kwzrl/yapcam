@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import ScreenCaptureKit
+import VideoToolbox
 
 enum AuxiliaryTrack: String, Sendable { case camera, microphone = "mic" }
 
@@ -24,10 +25,14 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     private var accepting = true
     private var unavailableTracks: Set<String> = []
     private var lastScreenNs: Int64?
+    private var lastScreenSample: CMSampleBuffer?
+    private var heartbeat: DispatchSourceTimer?
     private var nextScreenNs: Int64?
     private var screenStartNs: Int64?
     private var startedTracks: Set<String> = []
     private var endHostNs: Int64?
+    private let stopLock = NSLock()
+    private var requestedEndNs: Int64?
     private var audioFormats: [String: AudioMetadata] = [:]
     var onWarning: (@Sendable (String) -> Void)?
     var onFailure: (@Sendable (CaptureError) -> Void)?
@@ -37,12 +42,46 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     var onAudioFormat: (@Sendable (String, AudioMetadata) -> Void)?
 
     init(directory: URL, hostStartNs: Int64, maxFPS: Int,
-         makeTrack: @escaping TrackFactory = { try MediaTrackWriter(url: $0, key: $1, first: $2) }) {
+         keepsStaticScreenAlive: Bool = false,
+         makeTrack: TrackFactory? = nil) {
         self.directory = directory; self.hostStartNs = hostStartNs; self.maxFPS = maxFPS
-        self.makeTrack = makeTrack
+        self.makeTrack = makeTrack ?? { try MediaTrackWriter(url: $0, key: $1, first: $2, maxFPS: maxFPS) }
+        super.init()
+        if keepsStaticScreenAlive {
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + 1, repeating: 1)
+            timer.setEventHandler { [weak self] in self?.appendStaticScreen(atHostNs: CaptureClock.now) }
+            heartbeat = timer
+            timer.resume()
+        }
+    }
+
+    deinit { heartbeat?.cancel() }
+
+    /// A static ScreenCaptureKit source can stop delivering complete images.
+    /// Retiming the last image once a second lets the encoder close its 2s
+    /// fragments even then. No extra screen grab, cursor, or new device access.
+    func appendStaticScreen(atHostNs host: Int64) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        guard accepting, failure == nil, let lastScreenNs, host - lastScreenNs >= 1_000_000_000,
+              let sample = lastScreenSample else { return }
+        var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: CMTimeScale(maxFPS)),
+            presentationTimeStamp: CMTime(value: host, timescale: 1_000_000_000), decodeTimeStamp: .invalid)
+        var copy: CMSampleBuffer?
+        let status = CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault, sampleBuffer: sample,
+            sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleBufferOut: &copy)
+        guard status == noErr, let copy else {
+            failure = .writerFailed("Cannot checkpoint the static screen (\(status))")
+            if let failure { onFailure?(failure) }
+            return
+        }
+        append(copy, track: "screen")
     }
 
     func end(at hostNs: Int64) {
+        // Publish before queued callbacks can run. A heartbeat already ahead of
+        // the end block must not append a frame stamped after the user's stop.
+        stopLock.withLock { requestedEndNs = hostNs }
         queue.async { self.endHostNs = hostNs }
     }
 
@@ -119,7 +158,8 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         guard accepting, failure == nil, !unavailableTracks.contains(key) else { return }
         let pts = sample.presentationTimeStamp
         let ns = CaptureClock.nanoseconds(pts)
-        guard pts.isNumeric, ns >= hostStartNs, endHostNs == nil || ns < endHostNs! else { return }
+        let end = stopLock.withLock { requestedEndNs }
+        guard pts.isNumeric, ns >= hostStartNs, end == nil || ns < end! else { return }
         // Drop audio/device preroll instead of giving the source timeline a blank
         // screen lead-in. Every retained track starts at/after the first screen PTS.
         guard key == "screen" || (screenStartNs != nil && ns >= screenStartNs!) else { return }
@@ -147,6 +187,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                     screenStartNs = track.firstNs
                 }
                 lastScreenNs = ns
+                lastScreenSample = sample
                 nextScreenNs = max((nextScreenNs ?? ns) + interval, ns + interval)
             }
             if startedTracks.insert(key).inserted, let origin = screenStartNs {
@@ -204,6 +245,8 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         await withCheckedContinuation { continuation in
             queue.async {
                 self.accepting = false
+                self.heartbeat?.cancel(); self.heartbeat = nil
+                self.lastScreenSample = nil
                 let tracks = self.tracks
                 let initialFailure = self.failure
                 let origin = self.screenStartNs
@@ -237,6 +280,21 @@ enum CaptureMediaPolicy {
     static let fragmentDurationNs: Int64 = 2_000_000_000
     static var fragmentInterval: CMTime { CMTime(value: fragmentDurationNs, timescale: 1_000_000_000) }
     static var keyFrameIntervalSeconds: Double { Double(fragmentDurationNs) / 1_000_000_000 }
+
+    static func videoSettings(width: Int, height: Int, key: String, maxFPS: Int) -> [String: Any] {
+        let fps = key == "camera" ? (maxFPS >= 60 ? 60 : 30) : maxFPS
+        // The AVFoundation and VideoToolbox quality constants alias the same key.
+        // Request the reference values explicitly; the native encoder must accept
+        // these settings (unit dictionaries alone cannot establish codec support).
+        return [AVVideoCodecKey: AVVideoCodecType.hevc,
+                AVVideoWidthKey: width, AVVideoHeightKey: height,
+                AVVideoCompressionPropertiesKey: [
+                    kVTCompressionPropertyKey_Quality as String: key == "camera" ? 0.6 : 0.85,
+                    AVVideoAllowFrameReorderingKey: false,
+                    AVVideoExpectedSourceFrameRateKey: fps,
+                    AVVideoMaxKeyFrameIntervalKey: fps * 2,
+                    AVVideoMaxKeyFrameIntervalDurationKey: keyFrameIntervalSeconds]]
+    }
 }
 
 final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
@@ -246,10 +304,12 @@ final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
     private let input: AVAssetWriterInput
     private var lastPTS: CMTime?
     private var appended = false
+    private let diskCheckpoint: CaptureDiskCheckpoint
 
-    init(url: URL, key: String, first sample: CMSampleBuffer) throws {
+    init(url: URL, key: String, first sample: CMSampleBuffer, maxFPS: Int = 60) throws {
         self.url = url
         firstNs = CaptureClock.nanoseconds(sample.presentationTimeStamp)
+        diskCheckpoint = CaptureDiskCheckpoint(url: url, originNs: firstNs)
         let video = key == "screen" || key == "camera"
         writer = try AVAssetWriter(outputURL: url, fileType: video ? .mov : .m4a)
         writer.movieFragmentInterval = CaptureMediaPolicy.fragmentInterval
@@ -257,16 +317,16 @@ final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
         var settings: [String: Any]
         if video {
             let dimensions = CMVideoFormatDescriptionGetDimensions(format)
-            settings = [AVVideoCodecKey: AVVideoCodecType.hevc,
-                        AVVideoWidthKey: Int(dimensions.width), AVVideoHeightKey: Int(dimensions.height),
-                        AVVideoCompressionPropertiesKey: [AVVideoAllowFrameReorderingKey: false,
-                            AVVideoMaxKeyFrameIntervalDurationKey: CaptureMediaPolicy.keyFrameIntervalSeconds]]
+            settings = CaptureMediaPolicy.videoSettings(width: Int(dimensions.width), height: Int(dimensions.height), key: key, maxFPS: maxFPS)
         } else {
             guard let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee else {
                 throw CaptureError.writerFailed("Missing audio format")
             }
             settings = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: asbd.mSampleRate,
                         AVNumberOfChannelsKey: Int(asbd.mChannelsPerFrame), AVEncoderBitRateKey: 192_000]
+        }
+        guard writer.canApply(outputSettings: settings, forMediaType: video ? .video : .audio) else {
+            throw CaptureError.writerFailed("The native encoder does not support the requested \(key) settings")
         }
         input = AVAssetWriterInput(mediaType: video ? .video : .audio, outputSettings: settings, sourceFormatHint: format)
         input.expectsMediaDataInRealTime = true
@@ -286,6 +346,10 @@ final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
         guard input.append(sample) else { throw writer.error ?? CaptureError.writerFailed("Cannot append media sample") }
         lastPTS = sample.presentationTimeStamp
         appended = true
+        let ns = CaptureClock.nanoseconds(sample.presentationTimeStamp)
+        // AVAssetWriter closes fragments; commit already-written bytes off the
+        // sample queue. The in-flight fragment is still an acknowledged loss limit.
+        try diskCheckpoint.request(atHostNs: ns)
         return true
     }
 
@@ -302,5 +366,6 @@ final class MediaTrackWriter: CaptureTrackSink, @unchecked Sendable {
         guard writer.status == .completed else {
             throw writer.error ?? CaptureError.writerFailed("Media writer did not finish")
         }
+        try diskCheckpoint.finish()
     }
 }

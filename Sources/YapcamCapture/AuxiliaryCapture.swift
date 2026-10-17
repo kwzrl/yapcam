@@ -8,6 +8,8 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private let control = DispatchQueue(label: "mov.yapcam.capture.devices")
     private let writer: SegmentWriter
     private let fps: Int
+    typealias FindDevice = @Sendable (String, AVMediaType) throws -> AVCaptureDevice
+    private let findDevice: FindDevice
     private var sessions: [AVCaptureSession] = [] // control queue only
     private var observers: [NSObjectProtocol] = []
     private let sessionLock = NSLock()
@@ -15,7 +17,16 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private var cameraSizes: [ObjectIdentifier: [Int]] = [:] // sessionLock
     var onWarning: (@Sendable (String) -> Void)?
 
-    init(writer: SegmentWriter, fps: Int) { self.writer = writer; self.fps = fps }
+    init(writer: SegmentWriter, fps: Int, findDevice: @escaping FindDevice = { id, media in
+        guard AVCaptureDevice.authorizationStatus(for: media) == .authorized else {
+            throw CaptureError.permissionDenied(media == .video ? .camera : .microphone)
+        }
+        let types: [AVCaptureDevice.DeviceType] = media == .video
+            ? [.builtInWideAngleCamera, .external, .continuityCamera] : [.microphone, .external]
+        guard let device = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: media, position: .unspecified)
+            .devices.first(where: { $0.uniqueID == id }), device.isConnected else { throw CaptureError.deviceLost(id) }
+        return device
+    }) { self.writer = writer; self.fps = fps; self.findDevice = findDevice }
 
     struct Metadata: Sendable { var mic: AudioMetadata?; var camera: CameraMetadata? }
 
@@ -26,14 +37,8 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                 for (id, media) in [(microphoneID, AVMediaType.audio), (cameraID, AVMediaType.video)] {
                     guard let id else { continue }
                     do {
+                        let device = try self.findDevice(id, media)
                         let session = AVCaptureSession()
-                        let types: [AVCaptureDevice.DeviceType] = media == .video
-                            ? [.builtInWideAngleCamera, .external, .continuityCamera] : [.microphone, .external]
-                        guard AVCaptureDevice.authorizationStatus(for: media) == .authorized else {
-                            throw CaptureError.permissionDenied(media == .video ? .camera : .microphone)
-                        }
-                        guard let device = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: media, position: .unspecified)
-                            .devices.first(where: { $0.uniqueID == id }), device.isConnected else { throw CaptureError.deviceLost(id) }
                         session.beginConfiguration()
                         var committed = false
                         defer { if !committed { session.commitConfiguration() } }

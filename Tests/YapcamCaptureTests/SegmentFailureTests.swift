@@ -8,6 +8,7 @@ private final class TestCaptureSink: CaptureTrackSink, @unchecked Sendable {
     private let initialNs: Int64
     private let lock = NSLock()
     private var times: [Int64] = []
+    private var pixelValues: [UInt] = []
     private var stopNs: Int64?
     private let failAppend: Bool
     private let failFinish: Bool
@@ -22,6 +23,7 @@ private final class TestCaptureSink: CaptureTrackSink, @unchecked Sendable {
         return lock.withLock {
             if rejectNext { rejectNext = false; return false }
             times.append(CaptureClock.nanoseconds(sample.presentationTimeStamp))
+            if let pixel = sample.imageBuffer { pixelValues.append(UInt(bitPattern: Unmanaged.passUnretained(pixel).toOpaque())) }
             return true
         }
     }
@@ -30,6 +32,7 @@ private final class TestCaptureSink: CaptureTrackSink, @unchecked Sendable {
         if failFinish { throw CaptureError.writerFailed("Simulated writer finalization failure") }
     }
     var sampleTimes: [Int64] { lock.withLock { times } }
+    var pixelIDs: [UInt] { lock.withLock { pixelValues } }
     var finishedAt: Int64? { lock.withLock { stopNs } }
 }
 
@@ -101,7 +104,53 @@ private final class TestCaptureSink: CaptureTrackSink, @unchecked Sendable {
     #expect(result.starts["screen"] == 0)
 }
 
-@Test(arguments: [30, 60]) func nominalDisplayCadenceToleratesFasterClockAndJitter(fps: Int) async throws {
+@Test func staticScreenCheckpointsKeepLastPixelsAndDoNotCreatePrerollOrPastStopFrames() async throws {
+    let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let observer = TestWriterObserver()
+    let host: Int64 = 3_000_000_000
+    let writer = SegmentWriter(directory: dir, hostStartNs: host, maxFPS: 60) { url, key, first in
+        let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
+        observer.sink(key, sink); return sink
+    }
+    await withCheckedContinuation { continuation in
+        writer.queue.async { writer.appendStaticScreen(atHostNs: host); continuation.resume() }
+    }
+    #expect(observer.sinks.isEmpty)
+    let samples = try InjectedCaptureSamples()
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        writer.queue.async {
+            do { writer.append(try samples.video(at: host), track: "screen"); continuation.resume() }
+            catch { continuation.resume(throwing: error) }
+        }
+    }
+    await withCheckedContinuation { continuation in
+        writer.queue.async {
+            writer.appendStaticScreen(atHostNs: host + 500_000_000) // too early
+            writer.appendStaticScreen(atHostNs: host + 1_000_000_000)
+            writer.appendStaticScreen(atHostNs: host + 2_000_000_000)
+            continuation.resume()
+        }
+    }
+    // Queue a callback before end's queue block, then request stop while it is
+    // suspended. The callback's timestamp is outside the take even though it runs first.
+    let release = DispatchSemaphore(value: 0)
+    await withCheckedContinuation { continuation in
+        writer.queue.async {
+            continuation.resume(); release.wait()
+            writer.appendStaticScreen(atHostNs: host + 3_000_000_000)
+        }
+    }
+    defer { release.signal() }
+    writer.end(at: host + 3_000_000_000)
+    release.signal()
+    let result = await writer.finish()
+    #expect(result.error == nil && result.hostStartNs == host)
+    #expect(observer.sinks["screen"]?.sampleTimes == [host, host + 1_000_000_000, host + 2_000_000_000])
+    let pixels = try #require(observer.sinks["screen"]?.pixelIDs)
+    #expect(pixels.count == 3 && Set(pixels).count == 1)
+}
+
+@Test(arguments: [30, 60, 120, 144]) func nominalDisplayCadenceToleratesFasterClockAndJitter(fps: Int) async throws {
     let dir = try directory(); defer { try? FileManager.default.removeItem(at: dir) }
     let observer = TestWriterObserver()
     let host: Int64 = 3_000_000_000
@@ -109,7 +158,7 @@ private final class TestCaptureSink: CaptureTrackSink, @unchecked Sendable {
         let sink = TestCaptureSink(url: url, firstNs: CaptureClock.nanoseconds(first.presentationTimeStamp))
         observer.sink(key, sink); return sink
     }
-    let step: Int64 = fps == 60 ? 16_666_000 : 33_332_000
+    let step = Int64(1_000_000_000 / Double(fps)) - 1_000
     for index in 0..<600 {
         let jitter: Int64 = index % 2 == 0 ? 0 : 1_000
         try await enqueue(writer, key: "screen", ns: host + Int64(index) * step + jitter)

@@ -12,6 +12,7 @@ extension SCStream: CaptureSessionStream {}
 @MainActor struct CaptureSessionPlan {
     let source: SourceMetadata
     let geometry: CaptureGeometry
+    var maxFPS: Int = 60
     let makeStream: (SegmentWriter, [Int]) throws -> any CaptureSessionStream
 }
 
@@ -34,18 +35,16 @@ extension SCStream: CaptureSessionStream {}
                     if case .applications = options.systemAudioSelection {
                         throw CaptureError.writerFailed("Application audio selection applies to Mac sources. Choose all audio or off for a USB device.")
                     }
-                    guard options.maxFPS == 30 || options.maxFPS == 60 else {
-                        throw CaptureError.writerFailed("Frame rate must be 30 or 60")
-                    }
+                    let fps = try CaptureFrameRatePolicy.resolve(maxFPS: options.maxFPS, refreshRate: 60)
                     let device = try DeviceScreenDiscovery.require(id, devices: DeviceScreenDiscovery.load())
                     let geometry = try device.geometry()
                     let source = try device.source()
-                    return CaptureSessionPlan(source: source, geometry: geometry) { writer, pixels in
+                    return CaptureSessionPlan(source: source, geometry: geometry, maxFPS: fps) { writer, pixels in
                         DeviceScreenStream(id: id, audio: options.systemAudio, pixels: pixels, writer: writer)
                     }
                 }
                 let resolved = try await ResolvedCapture.resolve(options)
-                return CaptureSessionPlan(source: resolved.source, geometry: resolved.geometry) { writer, pixels in
+                return CaptureSessionPlan(source: resolved.source, geometry: resolved.geometry, maxFPS: resolved.maxFPS) { writer, pixels in
                     resolved.configuration.width = pixels[0]
                     resolved.configuration.height = pixels[1]
                     let stream = SCStream(filter: resolved.filter, configuration: resolved.configuration, delegate: writer)
@@ -64,7 +63,7 @@ extension SCStream: CaptureSessionStream {}
                     }
                     return CaptureStreamGroup(video: stream, audio: audio)
                 }
-            }, makeWriter: { SegmentWriter(directory: $0, hostStartNs: $1, maxFPS: $2) },
+            }, makeWriter: { SegmentWriter(directory: $0, hostStartNs: $1, maxFPS: $2, keepsStaticScreenAlive: true) },
             startEvents: { try $0.start() })
     }
 }

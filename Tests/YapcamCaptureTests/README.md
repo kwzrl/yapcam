@@ -640,3 +640,51 @@ elsewhere are separate candidates (German `um halb zehn` is not a filler). In
 addition to SNR/SI-SDR/LUFS/clipping, the report measures noise RMS in the final
 second only when the clean stem proves silence. Positive reduction means less
 noise; negative means more. None of these metrics certify absence of audible pumping.
+# Round 5 capture parity and crash safety
+
+`RecordingOptions.maxFPS` defaults to **0 = follow the initial display refresh**.
+Explicit positive caps (including older30/60 callers) still work. The manifest
+stores a resolved positive nominal rate; it stays fixed through pause/resume.
+`DisplaySource.refreshRate` exposes the display mode rate, with maximum display FPS
+as the fallback for dynamic/unknown modes. `recordKeystrokes` now defaults true,
+but the session enables key capture only when Input Monitoring is granted;
+explicit false saved options remain false. System audio still defaults off.
+
+`CaptureWindowControl.resize(windowID:to:)` modifies the real window with public
+Accessibility APIs and returns refreshed **logical point** bounds. Permission,
+ambiguous target, nonresizable window and app-clamped size are explicit errors.
+`CaptureWindowSizePreset.fitting(in:)` lists exact sizes that fit, without scaling
+the advertised size. Live resizing needs an authorized GUI host; injected tests
+cover app refusal/readback and negative display coordinates.
+
+The writer requests HEVC quality0.85 for screen and0.6 for camera, frame interval
+2×fps plus2s duration, fragmented output about2s. Live writers retain one last
+screen image and retime it at1Hz when there are no new complete screen frames, so
+a static source can also close fragments. Background disk checkpoints are coalesced
+to one pending flush; markers flush before acknowledgment and stop waits for a
+final flush. Sudden loss can discard the in-flight fragment. This does not certify
+power-failure behaviour on every filesystem/storage device.
+
+All capture unit tests, built fresh without using a locked SwiftPM directory:
+
+```sh
+zsh Tests/YapcamCaptureTests/Tools/run_capture_tests.zsh
+```
+
+Strict **native encoder/decoder + SIGKILL** regression, no app/window/TCC access:
+
+```sh
+zsh Tests/YapcamCaptureTests/Tools/run_crash_recovery.zsh
+```
+
+The signed standalone CLI writes injected64x64 screen and camera samples into real
+fragmented HEVC MOVs, waits for complete fragments, kills **only its own child PID**
+with signal9 at three seeded media times (one static-source case), recovers the
+unfinalized package, checks at most2.1s of missing tail, reads actual decoded images
+with monotonic timestamps, validates source origin/events/marker and media integrity.
+It never finalizes the killed writer. Native failure is a failure, never a portable
+pass/skip. No physical camera or microphone is used. All own fixture/build temp
+directories are listed and deleted by cleanup traps. No media is committed.
+Sandboxed native encoder failure (-12903) requires this command to run outside
+the sandbox; unit tests do not establish native HEVC quality acceptance or crash
+recovery. `CAPTURE_SIGKILL_PASS` lines are the required native evidence.

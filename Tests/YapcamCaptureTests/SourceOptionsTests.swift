@@ -23,7 +23,7 @@ import Testing
     #expect(!decodedOld.hideDesktopIcons)
     #expect(decodedOld.captureNotifications)
     #expect(decodedOld.excludeYapcamWindows)
-    #expect(!decodedOld.recordKeystrokes)
+    #expect(decodedOld.recordKeystrokes)
 }
 
 @Test func desktopIconFilterKeepsFinderFoldersAndExcludesOnlyRequestedApps() {
