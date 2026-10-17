@@ -105,15 +105,12 @@ struct EditorTopBar: View {
     let title: String
     let packageURL: URL?
     @Binding var showExport: Bool
-    @State private var confirmTrash = false
     @State private var presetNames: [String] = []
 
     var body: some View {
         HStack(spacing: EditorMetrics.m) {
             Button { if let packageURL { NSWorkspace.shared.activateFileViewerSelecting([packageURL]) } } label: { Image(systemName: "folder") }
                 .help("Show in Finder").accessibilityLabel("Show in Finder").disabled(packageURL == nil)
-            Button { confirmTrash = true } label: { Image(systemName: "trash") }
-                .help("Move this recording to the Trash").accessibilityLabel("Move recording to Trash").disabled(packageURL == nil)
             Spacer()
             Text(title).font(.headline).lineLimit(1).truncationMode(.middle)
             if case .failed = model.saveState { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help("Couldn't save the project") }
@@ -147,14 +144,16 @@ struct EditorTopBar: View {
                 .menuStyle(.borderlessButton).fixedSize()
                 .onAppear { presetNames = model.presetStore.names() }
                 .help("Apply or save a look")
-            Button { showExport = true } label: { Text("Export").fontWeight(.semibold).padding(.horizontal, 10) }
-                .buttonStyle(.borderedProminent).controlSize(.regular)
-                .help("Export the video").accessibilityLabel("Export")
+            // Filled with the accent colour in every window state (the system prominent style turns grey in inactive windows).
+            Button("Export") { showExport = true }
+            .buttonStyle(PrimaryButtonStyle())
+            .keyboardShortcut("e", modifiers: [.command])
+            .help("Export the video (⌘E)").accessibilityLabel("Export")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.s)
         .background(Color(nsColor: .windowBackgroundColor))
-        .confirmationDialog("Move “\(title)” to the Trash?", isPresented: $confirmTrash, titleVisibility: .visible) {
+        .confirmationDialog("Move “\(title)” to the Trash?", isPresented: $model.trashRequested, titleVisibility: .visible) {
             Button("Move to Trash", role: .destructive) {
                 guard let url = packageURL else { return }
                 // Close the window first (it saves), then trash, so nothing is written into a moved package.

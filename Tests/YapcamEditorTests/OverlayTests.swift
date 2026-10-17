@@ -1,3 +1,5 @@
+import SwiftUI
+import AppKit
 import Testing
 import Foundation
 import CoreGraphics
@@ -440,5 +442,44 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
     }
     private struct NullEngine: ExportEngine {
         func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL { request.destination }
+    }
+}
+
+@MainActor @Suite struct PolishRound2Tests {
+    @Test func rulerLabelsAreWholeSecondsUnlessTheStepNeedsAFraction() {
+        #expect(Ruler.label(1, step: 1) == "0:01")
+        #expect(Ruler.label(65, step: 5) == "1:05")
+        #expect(Ruler.label(1.5, step: 0.5) == "0:01.5")
+        #expect(Ruler.label(0, step: 0.5) == "0:00.0")
+        #expect(Ruler.label(1.25, step: 0.05) == "0:01.25")
+        // The default step choice never needs more than one decimal at a normal zoom.
+        let g = TimelineGeometry(pixelsPerSecond: 200)
+        #expect(Ruler.label(2.5, step: g.rulerStepSeconds()) == "0:02.5")
+    }
+
+    @Test func trashIsACommandNotAToolbarButton() {
+        let m = EditorModel(project: FakeProject(durationNs: 5_000_000_000), player: FakePlayer())
+        #expect(!m.trashRequested)
+        let cmd = m.paletteCommands.first { $0.title == "Move recording to Trash…" }
+        #expect(cmd != nil)
+        cmd?.run()
+        #expect(m.trashRequested)
+        #expect(!EditorWindows.requestTrashOfKeyEditor())        // no editor window is open in tests
+    }
+
+    @Test func timelineFitsTheViewportOnceWithoutAHorizontalScrollbar() async throws {
+        let m = EditorModel(project: FakeProject(durationNs: 10_000_000_000), player: FakePlayer())
+        let view = TimelineView(model: m).frame(width: 1000, height: 260)
+        let host = NSHostingView(rootView: view)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 260), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host; window.orderBack(nil); defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(m.timelineFitted)
+        // Fitted content (+40 pt margin the view adds) equals the viewport, so nothing scrolls sideways.
+        let content = m.geometry.contentWidth(durationNs: m.durationNs) + 40
+        #expect(abs(content - 1000) < 20, "content \(content)")
+        let before = m.geometry.pixelsPerSecond
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(m.geometry.pixelsPerSecond == before)            // fitted once, not on every layout pass
     }
 }

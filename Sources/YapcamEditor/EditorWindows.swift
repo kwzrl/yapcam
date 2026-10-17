@@ -54,6 +54,18 @@ import YapcamCore
         guard let c = controllers[package.standardizedFileURL.path] else { return false }
         c.window?.close(); return true
     }
+    /// Asks the editor showing `package` to confirm moving the recording to the Trash (File menu item of the app).
+    @discardableResult
+    public static func requestTrash(package: URL) -> Bool {
+        guard let c = controllers[package.standardizedFileURL.path] else { return false }
+        c.editorDocument.model.trashRequested = true; return true
+    }
+    /// Same for the editor window that is currently key. Returns false when none is.
+    @discardableResult
+    public static func requestTrashOfKeyEditor() -> Bool {
+        guard let c = controllers.values.first(where: { $0.window?.isKeyWindow == true }) else { return false }
+        c.editorDocument.model.trashRequested = true; return true
+    }
     public static func isOpen(package: URL) -> Bool { controllers[package.standardizedFileURL.path] != nil }
 
     /// Flushes pending edits in every open editor (call from applicationWillTerminate).

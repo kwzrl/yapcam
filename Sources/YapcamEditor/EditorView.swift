@@ -66,7 +66,10 @@ public struct EditorContent<Preview: View>: View {
 
     private var previewArea: some View {
         ZStack {
-            Color(nsColor: .underPageBackgroundColor)
+            Color(nsColor: .previewSurround)
+            if model.clips.isEmpty || model.durationNs <= 0 {
+                Text("Nothing to preview yet").font(.callout).foregroundStyle(.secondary)
+            }
             preview
                 .aspectRatio(model.previewAspect, contentMode: .fit)
                 .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model, playhead: model.playhead) } }

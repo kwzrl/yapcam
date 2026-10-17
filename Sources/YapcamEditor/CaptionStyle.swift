@@ -66,7 +66,7 @@ struct CaptionStyleControls: View {
     @State private var size = 0.07
     var body: some View {
         let look = model.captionLook
-        LabeledContent("Size") {
+        SliderRow("Size") {
             HStack {
                 Slider(value: $size, in: CaptionLook.sizeRange) { e in if !e { var l = look; l.size = size; model.setCaptionLook(l) } }
                     .accessibilityLabel("Caption size").accessibilityValue(String(format: "%.1f percent of the height", size * 100))

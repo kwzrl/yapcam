@@ -26,7 +26,7 @@ struct BackgroundPanel: View {
             Picker("Background type", selection: Binding(get: { effectiveMode }, set: { newMode in choose(newMode) })) {
                 ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
             }
-            .pickerStyle(.segmented).labelsHidden().accessibilityLabel("Background type")
+            .pickerStyle(.segmented).labelsHidden().controlSize(.small).accessibilityLabel("Background type")
             switch effectiveMode {
             case .wallpaper: WallpaperBrowser(model: model)
             case .gradient:
