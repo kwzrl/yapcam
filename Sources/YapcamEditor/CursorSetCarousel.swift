@@ -1,4 +1,5 @@
 import SwiftUI
+import YapcamDesign
 import YapcamCore
 import YapcamRender
 
@@ -41,54 +42,45 @@ extension EditorModel {
     }
 }
 
-/// Per-type artwork variants (e.g. arrow / pen tip) of the chosen set, each with a small preview.
+/// Per-type artwork variants (e.g. arrow / pen tip) of the chosen set.
 struct CursorVariantPicker: View {
     @ObservedObject var model: EditorModel
     var body: some View {
-        let recorded = model.selectedCursorSetID() == "original"
-        DisclosureGroup("Cursor type variants") {
-            if recorded {
-                Text("The recorded cursor keeps its captured artwork; variants apply to the authored sets and Touch.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            ForEach(VectorCursorStyle.allCases, id: \.shapeID) { style in
-                let names = VectorCursorLibrary.variants(for: style)
-                Picker(names.first?.name ?? style.shapeID, selection: Binding(get: { model.cursorVariant(style) },
-                                                                              set: { model.setCursorVariant(style, $0) })) {
-                    ForEach(names) { Text($0.name).tag($0.id) }
-                }
-                .pickerStyle(.segmented).accessibilityLabel("\(names.first?.name ?? style.shapeID) variant")
-            }
+        Text("Cursor type variants").font(Yap.Font.caption).foregroundStyle(Yap.caption)
+        if model.selectedCursorSetID() == "original" {
+            InspectorNote("The recorded cursor keeps its captured artwork; variants apply to the authored sets and Touch.")
+        }
+        ForEach(VectorCursorStyle.allCases, id: \.shapeID) { style in
+            let names = VectorCursorLibrary.variants(for: style)
+            ChoiceRow(names.first?.name ?? style.shapeID,
+                      selection: Binding(get: { model.cursorVariant(style) }, set: { model.setCursorVariant(style, $0) }),
+                      options: names.map { ($0.name, $0.id) })
+                .accessibilityLabel("\(names.first?.name ?? style.shapeID) variant")
         }
     }
 }
 
-/// Horizontal carousel of the cursor sets with render's thumbnails.
+/// Horizontal carousel of the cursor sets with render's thumbnails; the chosen one on the bright platter.
 struct CursorSetCarousel: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         let selected = model.selectedCursorSetID()
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Cursor set")
-            ScrollView(.horizontal, showsIndicators: true) {
-                HStack(spacing: 8) {
-                    ForEach(model.cursorSetChoices()) { choice in
-                        let on = choice.id == selected
-                        Button { model.chooseCursorSet(choice) } label: {
-                            VStack(spacing: 4) {
-                                CursorThumbnail(setID: choice.id)
-                                Text(choice.descriptor.name).font(.caption).lineLimit(1)
-                            }
-                            .padding(4)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: on ? 2 : 1))
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(model.cursorSetChoices()) { choice in
+                    InspectorTile(selected: choice.id == selected, label: "\(choice.descriptor.name) cursor set") {
+                        model.chooseCursorSet(choice)
+                    } content: {
+                        VStack(spacing: 4) {
+                            CursorThumbnail(setID: choice.id)
+                            Text(choice.descriptor.name).font(Yap.Font.caption).lineLimit(1)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(choice.descriptor.name) cursor set")
-                        .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
                     }
-                }.padding(2)
+                    .frame(width: 92)
+                }
             }
         }
+        .padding(.horizontal, -2)
     }
 }
 
@@ -100,10 +92,10 @@ private struct CursorThumbnail: View {
             if let image = Self.image(setID) {
                 Image(decorative: image, scale: 2).resizable().aspectRatio(contentMode: .fit)
             } else {
-                Color.secondary.opacity(0.2)
+                Color.white.opacity(0.06)
             }
         }
-        .frame(width: 80, height: 50).clipShape(RoundedRectangle(cornerRadius: 5))
+        .frame(width: 80, height: 50).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
     @MainActor static func image(_ id: String) -> CGImage? {
         if let c = cache[id] { return c }
