@@ -342,28 +342,28 @@ only; capture-side A/V sync on a real recording stays open (TCC).
 ## R. Round 5 parity gaps (main abe4e6a; found by the qa parity matrix in docs/status/qa.md)
 | ID | Area | Reference behavior | Team | Yapcam behavior | Status | Evidence |
 |---|---|---|---|---|---|---|
-| R5-01 | Recording | Esc clears the selected mode, Esc again closes the picker | ui | Esc cancels the picker (SourceOverlay.swift:360); two-stage not implemented/verified | partial | Matrix A1.5; code reading, not run live |
-| R5-02 | Recording | Hide Desktop Icons while recording | ui+capture | setting stored (AppSettings.swift:127), no capture-side effect | partial | Matrix A4.1, W4; code reading, not run live |
+| R5-01 | Recording | Esc clears the selected mode, Esc again closes the picker | ui | Esc cancels the picker (SourceOverlay.swift:360); two-stage not implemented/verified | integrated | Matrix A1.5 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-02 | Recording | Hide Desktop Icons while recording | ui+capture | setting stored (AppSettings.swift:127), no capture-side effect | integrated | Matrix A4.1 (closed in wave 3, code/test evidence in docs/status/qa.md), W4; code reading, not run live |
 | R5-03 | Settings | Editing shortcuts rebindable | ui+editor | Editing list read-only (SettingsWindow.swift:194) | partial | Matrix B.Shortcuts; code reading, not run live |
 | R5-04 | Settings | Disable hardware acceleration | ui+render | toggle stored (SettingsWindow.swift:247) but not read by any encoder/decoder; blocked on Lead decision R5-L01 | partial | Matrix B.Advanced; code reading, not run live |
-| R5-05 | Editor | Project title rename in editor top bar | editor+ui | rename only in Projects window | partial | Matrix E1.1; code reading, not run live |
-| R5-06 | Editor | Per-range layouts incl. fullscreen camera / hide camera | core+editor | layout enabled flag landed (model.rs:336); fullscreen/screen-only types not found | partial | Matrix E6.6; code reading, not run live |
-| R5-07 | Editor | Caption defaults size 0.05, growth expanding | core | new-project defaults growth full, 36 px (model.rs:529,532) | partial | Matrix E8.2; code reading, not run live |
-| R5-08 | Editor | Focused spring 250/40/2.25 | core | new-project spring 125/12/1.5 (model.rs:701) | partial | Matrix E11.1; code reading, not run live |
-| R5-09 | Editor | Highlight mask default dim 0.5 | core | dim_opacity 0.4 (model.rs:202,429) | partial | Matrix E13.3; code reading, not run live |
-| R5-10 | Timeline | C, X, Backspace, V, S, Cmd+C/X/V full set | editor | split/ripple/merge chords partly done (TimelineCommands.swift:56) | partial | Matrix P4; code reading, not run live |
-| R5-11 | Export | Separate remembered store for quick export | ui+render | remember(in: .quick) not called; only .dialog (EditorDocument.swift:41) | partial | Matrix X5; code reading, not run live |
+| R5-05 | Editor | Project title rename in editor top bar | editor+ui | rename only in Projects window | integrated | Matrix E1.1 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-06 | Editor | Per-range layouts incl. fullscreen camera / hide camera | core+editor | layout enabled flag landed (model.rs:336); fullscreen/screen-only types not found | integrated | Matrix E6.6 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-07 | Editor | Caption defaults size 0.05, growth expanding | core | new-project defaults growth full, 36 px (model.rs:529,532) | integrated | Matrix E8.2 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-08 | Editor | Focused spring 250/40/2.25 | core | new-project spring 125/12/1.5 (model.rs:701) | integrated | Matrix E11.1 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-09 | Editor | Highlight mask default dim 0.5 | core | dim_opacity 0.4 (model.rs:202,429) | integrated | Matrix E13.3 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-10 | Timeline | C, X, Backspace, V, S, Cmd+C/X/V full set | editor | split/ripple/merge chords partly done (TimelineCommands.swift:56) | integrated | Matrix P4 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-11 | Export | Separate remembered store for quick export | ui+render | remember(in: .quick) not called; only .dialog (EditorDocument.swift:41) | integrated | Matrix X5 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
 
-Parity matrix on abe4e6a (135 rows, match = equal in code, not user-verified): 117 match; 6 out of scope; 12 gaps listed above (W4 shares R5-02). Per area match/total: Recording flow 39/44, Settings 7/9, Editor 44/50, Project/timeline 5/6, Export 8/10, Project handling 6/6, Website 8/10.
+Parity matrix on abe4e6a (135 rows, match = equal in code, not user-verified): 127 match; 6 out of scope; 2 gaps open (B.Shortcuts, B.Advanced); wave 3 closed the other rows (W4 shares R5-02). Per area match/total: Recording flow 41/44, Settings 7/9, Editor 49/50, Project/timeline 6/6, Export 9/10, Project handling 6/6, Website 9/10 (to be recounted after Lead's next integration).
 
 ## Status counts (round-5 update, main abe4e6a; section R rows added as partial; others as in round 4 (main c6ae74a);  rows other than the six listed in TEST_REPORT "Round 4" are as audited on 63e239b; 176 rows incl. section J)
 | Status | Rows |
 |---|---:|
 | verified live (programmatic, signed app) | 21 |
 | verified (named test / native measurement) | 29 |
-| integrated | 70 |
+| integrated | 79 |
 | implemented | 33 |
-| partial | 18 |
+| partial | 9 |
 | limited (no hardware) | 10 |
 | excluded by user | 6 |
 | extra | 8 (section M list; their technical status is counted above) |
