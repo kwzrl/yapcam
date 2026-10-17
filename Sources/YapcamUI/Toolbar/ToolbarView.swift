@@ -31,11 +31,9 @@ struct ToolbarView: View {
     var body: some View {
         let recording = rec.phase == .recording || rec.phase == .paused
         // The vertical widget needs room for the elapsed time across.
-        let thickness: CGFloat = recording ? (vertical ? 64 : 48) : 62
+        let thickness: CGFloat = recording ? (vertical ? 64 : 48) : 58
         line(0) {
-            Grabber(vertical: vertical,
-                    onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil,
-                    onRotate: { layout.vertical.toggle() })
+            Grabber(vertical: vertical, onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil)
             Group {
                 switch rec.phase {
                 case .idle: idleControls
@@ -46,8 +44,8 @@ struct ToolbarView: View {
             }
             .padding(vertical ? .bottom : .trailing, 8)
         }
-        .frame(width: vertical ? max(thickness, 96) : nil, height: vertical ? nil : thickness)
-        .panelSurface(cornerRadius: rec.phase == .recording || rec.phase == .paused ? 24 : 26)
+        .frame(width: vertical ? max(thickness, 86) : nil, height: vertical ? nil : thickness)
+        .panelSurface(cornerRadius: rec.phase == .recording || rec.phase == .paused ? 24 : 22)
         .padding(2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Yapcam recording toolbar")
@@ -92,7 +90,7 @@ struct ToolbarView: View {
                     RecoveryFlow.run(silentWhenNone: false); recovery.refresh()
                 }
             }
-            ToolbarButton(symbol: "folder", label: "Recent", help: "Recent projects", active: open == .recents || settings.showRecentsWithPicker) { toggle(.recents) }
+            ToolbarButton(symbol: "folder", label: "Recent", help: "Recent projects", active: open == .recents || settings.showRecentsWithPicker, style: .iconOnly) { toggle(.recents) }
                 .popover(isPresented: binding(.recents), arrowEdge: edge) { RecentsPopover(dismiss: { open = nil }) }
             settingsMenu
         }
@@ -132,7 +130,8 @@ struct ToolbarView: View {
 
     /// A device button: icon + state text; a click opens the device menu.
     private func deviceButton(symbol: String, label: String, isOn: Bool, help: String, menu: ToolbarPopover) -> some View {
-        ToolbarButton(symbol: symbol, label: label, help: help, active: open == menu, dim: !isOn, width: 88) { toggle(menu) }
+        ToolbarButton(symbol: symbol, label: label, help: help, active: open == menu, dim: !isOn, width: vertical ? 74 : nil,
+                      style: vertical ? .stacked : .inline) { toggle(menu) }
             .accessibilityLabel(help).accessibilityValue(label)
     }
 
@@ -143,7 +142,7 @@ struct ToolbarView: View {
     /// A normal toolbar button that pops up the settings menu (an AppKit menu: it keeps the
     /// icon-over-label look that SwiftUI's `Menu` flattens into a row).
     private var settingsMenu: some View {
-        ToolbarButton(symbol: "gearshape", label: "Settings", help: "Recording options and more", active: false) {
+        ToolbarButton(symbol: "gearshape", label: "Settings", help: "Recording options and more", active: false, style: .menu) {
             if let view = ToolbarPanelController.shared.panel.contentView, let event = NSApp.currentEvent {
                 NSMenu.popUpContextMenu(GearMenu.build(settings: settings), with: event, for: view)
             }
@@ -227,79 +226,51 @@ struct ToolbarView: View {
 
 // MARK: - Components
 
-/// Bar handle: close (idle only), rotate between horizontal and vertical, and the drag grip.
-/// Same icon size as the toolbar buttons, side by side in both orientations.
+/// Close button at the start of the bar (idle only), like Screen Studio: a white circle. The bar itself is the drag handle.
 private struct Grabber: View {
     var vertical: Bool
     var onClose: (() -> Void)?
-    var onRotate: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
+        Group {
             if let onClose {
-                HandleButton(symbol: "xmark", help: "Close (Esc)", label: "Close toolbar", action: onClose)
+                Button(action: onClose) { Image(systemName: "xmark") }
+                    .buttonStyle(CircleButtonStyle(active: true, size: 22))
+                    .help("Close (Esc)").accessibilityLabel("Close toolbar")
+                    .frame(width: 40, height: 40)
+            } else {
+                Color.clear.frame(width: vertical ? 1 : 10, height: vertical ? 10 : 1)
             }
-            HandleButton(symbol: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2",
-                         help: vertical ? "Make the toolbar horizontal" : "Make the toolbar vertical",
-                         label: vertical ? "Make toolbar horizontal" : "Make toolbar vertical", action: onRotate)
-            Grid(horizontalSpacing: 4, verticalSpacing: 4) {
-                ForEach(0..<3, id: \.self) { _ in GridRow { ForEach(0..<2, id: \.self) { _ in Circle().frame(width: 3.5, height: 3.5) } } }
-            }
-                .foregroundStyle(Yap.caption)
-                .frame(width: 30, height: 44)
-                .contentShape(Rectangle())
-                .help("Drag to move")
-                .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
         }
         .padding(vertical ? .top : .leading, 6)
     }
 }
 
-private struct HandleButton: View {
-    let symbol: String, help: String, label: String
-    let action: () -> Void
-    @State private var hover = false
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 15, weight: .medium))
-                .foregroundStyle(hover ? Yap.title : Yap.caption)
-                .frame(width: 30, height: 44)
-                .background(RoundedRectangle(cornerRadius: Yap.concentric(26, inset: 9), style: .continuous)
-                    .fill(Color.white.opacity(hover ? 0.05 : 0)))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).onHover { hover = $0 }
-        .help(help).accessibilityLabel(label)
-    }
-}
-
 struct ToolbarButton: View {
+    enum Style { case stacked, inline, iconOnly, menu }
     let symbol: String
     let label: String
     var help: String = ""
     /// Selected (open source, open menu): a brighter platter and full white. No colour.
     var active: Bool
-    /// Off state of a device (no camera, mic muted): dimmed label, never a colour.
+    /// Off state of a device (no camera, mic muted): dimmed, never a colour.
     var dim: Bool = false
     var enabled: Bool = true
-    var width: CGFloat = 52
+    /// Fixed width for stacked buttons; nil = fit the content.
+    var width: CGFloat? = 46
+    var style: Style = .stacked
     let action: () -> Void
     @State private var hover = false
     @Environment(\.contrastOpacity) private var contrast
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(height: 20)
-                Text(label).font(.system(size: 10, weight: .medium)).lineLimit(1).truncationMode(.tail)
-            }
-            .frame(width: width, height: 44)
-            .foregroundStyle(active ? Yap.title : (dim ? Yap.caption : Yap.label))
-            .opacity(enabled ? 1 : 0.35)
-            // Concentric with the bar: 26 pt corner, buttons inset 9 pt.
-            .background(RoundedRectangle(cornerRadius: Yap.concentric(26, inset: 9), style: .continuous)
-                .fill(Color.white.opacity(active ? (contrast.increased ? 0.22 : 0.10) : (hover ? (contrast.increased ? 0.14 : 0.05) : 0))))
-            .contentShape(Rectangle())
+            content
+                .foregroundStyle(active ? Yap.title : (dim ? Yap.caption : Yap.label))
+                .opacity(enabled ? 1 : 0.35)
+                .background(RoundedRectangle(cornerRadius: Yap.Radius.control, style: .continuous)
+                    .fill(Color.white.opacity(active ? (contrast.increased ? 0.22 : 0.10) : (hover ? (contrast.increased ? 0.14 : 0.05) : 0))))
+                .contentShape(Rectangle())
         }
         .buttonStyle(PressableStyle())
         .disabled(!enabled)
@@ -308,6 +279,31 @@ struct ToolbarButton: View {
         .accessibilityLabel(label)
         .accessibilityHint(help == label ? "" : help)
         .accessibilityAddTraits(active ? .isSelected : [])
+    }
+
+    @ViewBuilder private var content: some View {
+        switch style {
+        case .stacked:
+            VStack(spacing: 3) {
+                Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(height: 20)
+                Text(label).font(.system(size: 9.5, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
+            }
+            .frame(width: width, height: 42)
+        case .inline:
+            HStack(spacing: 7) {
+                Image(systemName: symbol).font(.system(size: 14, weight: .medium))
+                Text(label).font(.system(size: 12, weight: .medium)).lineLimit(1)
+            }
+            .padding(.horizontal, 10).frame(height: 34)
+        case .iconOnly:
+            Image(systemName: symbol).font(.system(size: 16, weight: .medium)).frame(width: 38, height: 34)
+        case .menu:
+            HStack(spacing: 3) {
+                Image(systemName: symbol).font(.system(size: 16, weight: .medium))
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+            }
+            .frame(width: 46, height: 34)
+        }
     }
 }
 

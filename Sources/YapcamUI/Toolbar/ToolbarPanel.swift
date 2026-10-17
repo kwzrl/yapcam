@@ -84,6 +84,9 @@ import SwiftUI
     }
 
     func hide() { panel.orderOut(nil); CameraPreviewPanel.shared.update() }
+    var isVertical: Bool { layout.vertical }
+    func toggleVertical() { layout.vertical.toggle() }
+
     /// Snapshot harness: flip orientation without touching the saved preference.
     func debugSetVertical(_ v: Bool) {
         let saved = AppDefaults.store.bool(forKey: "toolbarVertical")
