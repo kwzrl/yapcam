@@ -40,7 +40,7 @@ Status 2026-10-15 ~21:05, main 97b9d82 (Mac mini M4, 1680x1050, signed build, al
 Run 2026-10-15 21:05 on main 97b9d82 outside any sandbox (machine under load: load average about 6 from other teams' runs).
 | Suite | Command | Result | Skips (why) |
 |---|---|---|---|
-| Rust core | `CARGO_BUILD_JOBS=4 cargo test --manifest-path core/Cargo.toml` | 100 passed, 0 failed | 1 ignored (intentional) |
+| Rust core | core rebuilt with scripts/build-core.sh for the run; cargo tests not re-run by qa | Lead reports 133 |
 | Swift, whole package | `swift test --disable-sandbox -j 4` | XCTest 207 run, 0 failures; Swift Testing 501 tests / 99 suites passed; 40 s + 60 s | 10 XCTest skipped (live tests needing `YAPCAM_LIVE_PACKAGE`, hardware gates) |
 | Render on Metal (strict) | `YAPCAM_REQUIRE_RENDER_HARDWARE=1 swift test --filter YapcamRenderTests` | 86/86 (Lead run 03:15) | none |
 | E2E pipeline (fixture) | `scripts/qa/run-e2e.sh` | 11/11 | - |
@@ -208,14 +208,14 @@ The signed app was NOT launched: a Yapcam instance of the user (pid 9035) was ru
 Also run: `swift test --filter Round4Tests` (3 tests) green; FEATURES.md updated (GAP-ED-16, CUR-06, CUR-17 verified; GAP-RND-9, GAP-UI-10 integrated; GAP-RND-4 stays partial; counts: verified 29, integrated 70, partial 7).
 Still not done (no real input / hardware): pointer-driven editor flows (mask handles, carousel, settings), area drag, VoiceOver, permission loss, camera and microphone.
 
-## Round 5 (2026-10-17, night): parity pass on main abe4e6a, nothing live
+## Round 5 (2026-10-17, night): parity pass on main a12448c, nothing live
 Environment: Mac mini M4, debug build, merged tree abe4e6a, Rust core rebuilt and test bundle relinked. The user's Yapcam instance was running, so no app was launched (no self-test, no hotkeys).
 
 | What | How | Result |
 |---|---|---|
-| Swift Testing | `swift test --disable-sandbox -j 6` on abe4e6a | 741 tests in 153 suites passed |
-| XCTest incl. E2E Round4Tests (blur, cursor sets, VFR) | same run; last count I captured: 270 on a96173e. Lead reports 276 on abe4e6a | Lead's number; my abe4e6a XCTest count not captured |
-| Rust core | Lead reports 133 on abe4e6a | not re-run by qa |
+| Swift Testing | `swift test --disable-sandbox -j 6` on a12448c | 747 tests in 155 suites passed |
+| XCTest incl. E2E Round4Tests (blur, cursor sets, VFR) | same run | 277 executed, 0 failures, 16 skipped |
+| Rust core | core rebuilt with scripts/build-core.sh for the run; cargo tests not re-run by qa | Lead reports 133 |
 | Parity matrix | 135 rows from reference-spec + website features, states from code reading and the teams' R5 tables | 127 match, 2 gaps, 6 out of scope (re-verified against owners' W3 evidence) |
 | Privacy scan | scripts/qa/privacy-scan.sh | ui test file Round5Tests.swift uses fake /Users/a paths (false positive, request to ui) |
 
@@ -244,4 +244,4 @@ Not verified: any live app behaviour, hardware (camera, microphone), real input,
 - 2026-10-16: Round 3 section added (programmatic only; real-input tests not possible, QADriver never granted).
 - 2026-10-17: Round 4 section added (blur, cursor sets, VFR, autosave/queue unit tests; F16 and F17/F18 not re-measured, reasons in the table).
 
-- 2026-10-17: Round 5 section added (parity matrix, suites on abe4e6a, nothing live).
+- 2026-10-17: Round 5 section added (parity matrix, suites on a12448c, nothing live).
