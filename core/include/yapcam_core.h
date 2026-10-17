@@ -130,6 +130,10 @@ void yc_project_free(YcProject *p);
 // Apply an edit command (docs/FORMATS.md). out_json receives {"changed":[…]}; may be NULL.
 YcStatus yc_mcp_catalog(char **out_json);
 YcStatus yc_mcp_handle(YcProject *p, const char *request, char **out_json);
+// Agent handbook shipped with this core: a doc by name ("playbook", "craft", "examples/tighten", "chat",
+// "app_instructions"; 1 = unknown) and MCP resources/* + prompts/* answers (out_json "null" for other methods).
+YcStatus yc_agent_doc(const char *name, char **out_text);
+YcStatus yc_agent_docs_rpc(const char *request, char **out_json);
 YcStatus yc_apply(YcProject *p, const char *command_json, char **out_json);
 YcStatus yc_undo(YcProject *p, uint8_t *did_undo);
 YcStatus yc_redo(YcProject *p, uint8_t *did_redo);

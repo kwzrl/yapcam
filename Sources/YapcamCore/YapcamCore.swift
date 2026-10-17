@@ -111,6 +111,16 @@ public final class Project: @unchecked Sendable {
         return changes
     }
     public static func mcpCatalog() throws -> Data { try stringResult { yc_mcp_catalog($0) } }
+    /// The agent handbook compiled into the core: "playbook", "craft", "tools", "examples/<name>", "chat"
+    /// (system prompt template with `{document}`), "app_instructions". Nil for unknown names.
+    public static func agentDoc(_ name: String) -> String? {
+        (try? name.withCString { n in try stringResult { yc_agent_doc(n, $0) } }).map { String(decoding: $0, as: UTF8.self) }
+    }
+    /// MCP resources/* and prompts/* response for the agent docs; nil for other methods.
+    public static func agentDocsRPC(_ request: Data) throws -> Data? {
+        let result = try String(decoding: request, as: UTF8.self).withCString { c in try stringResult { yc_agent_docs_rpc(c, $0) } }
+        return result == Data("null".utf8) ? nil : result
+    }
 
     /// Shared dispatcher serialized with editor mutations.
     public func mcp(_ request: Data) throws -> Data {

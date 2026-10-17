@@ -135,10 +135,12 @@ impl Server<'_> {
                     return Some(error(-32602, "Invalid initialize params"));
                 }
                 self.initialized = true;
-                json!({"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"yapcam-mcp","version":env!("CARGO_PKG_VERSION")},"instructions":"Edits target this project. Save to persist. Use the stdio transport only on CLOSED projects. All edit times are current timeline integer nanoseconds. Read tool descriptions before editing."})
+                let instructions = format!("{}\nThis stdio server edits a CLOSED package: never use it on a project open in Yapcam. Edits persist only with `save`; save once the user's request is done.", crate::agent_docs::INSTRUCTIONS);
+                json!({"protocolVersion":"2025-06-18","capabilities":crate::agent_docs::capabilities(),"serverInfo":{"name":"yapcam-mcp","version":env!("CARGO_PKG_VERSION")},"instructions":instructions})
             }
             "ping" => json!({}),
             _ if !self.initialized => return Some(error(-32000, "Initialize first")),
+            m if crate::agent_docs::handles(m) => return crate::agent_docs::rpc(&request),
             "tools/list" => json!({"tools":catalog()}),
             "tools/call" => {
                 let Some(name) = p["name"].as_str() else {
