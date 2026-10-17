@@ -329,9 +329,9 @@ import Testing
 
 @MainActor @Suite struct Round5WidgetTests {
     @Test func summaryDescribesTheStoredSettings() {
-        #expect(QuickExport.summary(AppSettings.defaultQuickExport) == "1080p MP4 · 30 fps · Social · with audio")
+        #expect(QuickExport.summary(AppSettings.defaultQuickExport) == "1080p MP4 · 30 fps · \(ExportSettings.Compression.social.title) · with audio")
         var e = AppSettings.defaultQuickExport; e.outputHeight = 2160; e.fps = 60; e.compression = .studio; e.includeAudio = false
-        #expect(QuickExport.summary(e) == "4K MP4 · 60 fps · Studio · no audio")
+        #expect(QuickExport.summary(e) == "4K MP4 · 60 fps · \(ExportSettings.Compression.studio.title) · no audio")
         var g = AppSettings.defaultQuickExport; g.format = .gif; g.outputHeight = 480; g.fps = 15
         #expect(QuickExport.summary(g) == "480p GIF · 15 fps")
     }
