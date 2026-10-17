@@ -9,6 +9,158 @@ READY 930128d qa: scripted input + auto-zoom verified live F9 window packages
 READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs Accessibility
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
+R5 03:00 | qa: master parity matrix posted (135 rows: 39 match, 24 mismatch, 1 missing, 6 out of scope, 65 unaudited by qa -> owners) | next: cross-check owners R5 audits, suites on each Lead integration
+
+## R5 parity matrix (qa, 2026-10-17 ~03:00, main 10aaca6 + round 4)
+Source: reference-spec.md (A1-A9, B, 2a, 5, 3, 4) + website features.txt. One row per reference item; owner = team that must fill/close it.
+States: **match** = Yapcam value/behaviour found equal in code (evidence in last column; still not user-verified), **mismatch** = found different, **missing** = not found, **unaudited (owner)** = qa could not decide from code alone, owner audits in its own "## R5 parity", **out of scope** = cloud/device frames/iPhone/updater.
+Own artwork/names are allowed to differ (wallpapers, cursor sets, sounds, preset names); structure, ranges, defaults and option lists must match.
+qa cross-check is a code/grep reading, not a run of the app; unaudited rows are NOT counted as match.
+
+### Requests from qa (mismatches found by cross-check; owner decides, details in table)
+- **core (defaults in core/src/model.rs):** background default 'solid' (ref wallpaper) E4.1; background blur 24 (ref 0) E4.5; padding 48 px, ref 10 % E4.6; screen radius 18 (ref 16) E4.7; shadow style default classic (ref directional) E4.9; click effect default 'ring' (ref none) E5.7; cursor tilt default 1.0/static (ref velocity 0.5), remove_shakes/optimize_types default false (ref on/on) E5.9/E5.10; camera mirrored default true (ref off), overlay size 0.22 / position .82,.78 (ref 0.5 / bottom-right) E6.2/E7.2; caption growth 'full' (ref expanding) and size E8.2; animation springs 250/28/1 (ref 125/12/1.5 migration, presets Focused 250/40/2.25, Smooth 170/50/3) E11.1; mask default kind highlight, dim 0.4 (ref 0.5) E13.3; inset colour white (ref #888888, alpha .25) E4.8. Each needs an existing-project migration decision (do not change saved projects).
+- **editor:** cursor size 16-128 slider (E5.2), wallpaper categories + favourites + hue slider/randomize/preset grid (E4.2/E4.3), avoid-empty-area toggle (E6.5), fullscreen-camera / screen-only per-range layouts (E6.6), Reel mode preview (W3), Settings tab order (ui) B.order.
+- **render:** wallpaper library 12 own presets / 3 categories vs 9 categories + favourites (E4.2); bundled background music tracks by 4 genres (E9.1).
+- **ui:** tab order Experimental before Storage? (B.order); super-resolution default quality vs off (B.Experimental); picker rows A1-A9 unaudited.
+
+| ID | Reference behaviour / value | Owner | State | Yapcam now (qa cross-check) |
+|---|---|---|---|---|
+| A1.1 | Picker bar: source modes Display/Window/Area/Device, input devices camera/mic/system audio, recent-projects + gear buttons, close x at left | ui | unaudited (owner) | RecordingPicker exists (YapcamUI); layout order not compared |
+| A1.2 | Recent projects panel toggled from picker, choice persisted (default off) | ui | unaudited (owner) | FEATURES REC/UI rows; persistence key not checked |
+| A1.3 | Update banner over picker | ui | out of scope | needs updater/cloud: out of scope |
+| A1.4 | Unfinished-recording recovery button in picker + File > Recover recording | ui | unaudited (owner) | AppDelegate.offerRecovery at launch (alert Recover); picker button / File menu entry not found |
+| A1.5 | Esc clears selected mode, Esc again closes picker | ui | mismatch | F16: Esc cancels 15/15 in qa runs; 'clear mode first, then close' two-step not verified |
+| A2.1 | Display mode: auto-select with one display; multi-display overlay with hover highlight; card shows name, WxH, '• N FPS', start button; right-click lists displays | ui | unaudited (owner) | single-display hardware only; card content not compared |
+| A2.2 | Window mode: highlight window under cursor, card with app/title + editable size field + Resize; filters system/own windows; click selected again deselects | ui | unaudited (owner) | window pick Return 3/3 (qa); size field not checked |
+| A2.3 | Window context menu: Bring to front, Ignore this window, Reset ignored windows, Adjust recording area..., Select window submenu, Record entire display | ui | unaudited (owner) | SourceOverlay.swift:251 has Ignore this window; other entries not verified |
+| A2.4 | Window resize presets 16:9/4:3/9:16/16:10/Square/Custom + save/delete sizes (Accessibility resize) | ui | unaudited (owner) | gear menu resize exists? owner to audit |
+| A2.5 | Area mode: 150x150 min with message, drag/resize/move, arrows 1px, Shift 10px, Cmd resize 1px, Cmd+Shift 10px, Esc cancels | ui | unaudited (owner) | GAP-UI-6 partial in FEATURES; drag untestable (no real input) |
+| A2.6 | Area toolbar: Position/Size numeric fields, aspect lock Any/16:9/4:3/1:1/3:4/9:16/custom, save/delete dimensions | ui | unaudited (owner) | GAP-UI-6 custom ratio landed (ui-final); saved dimensions not verified |
+| A2.7 | Device (iOS) source mode | ui | out of scope | device frames / iPhone source: user decision |
+| A2.8 | Quick keys in picker: 1 Display, 2 Window, 3 Area | ui | unaudited (owner) | owner to audit |
+| A3.1 | Camera menu: list (default suffix), Max camera resolution 720p/1080p/4K default 1080p, Hide camera preview, Don't record camera; 'No camera' label | capture+ui | unaudited (owner) | max resolution control landed (ui U2); camera untested (no hardware) |
+| A3.2 | Microphone menu: permission check, list, Don't record microphone, live level meter, 'No microphone' label | capture+ui | unaudited (owner) | untested (no hardware) |
+| A3.3 | System audio menu: all apps / selected apps checklist / off (default off); labels 'Record system audio' / 'Sound from N apps' / 'No system audio' | ui | match | GAP-CAP-1 integrated (picker popover Off/All/Selected + checklist); labels not compared |
+| A3.4 | Pre-flight dialogs: muted camera, vanished device, closed-lid mic, missing permissions + Open System Settings | ui | match | GAP-CAP-6 integrated (CapturePreflight before countdown); untested with real devices |
+| A4.1 | Gear 'While Recording': Hide Desktop Icons (off), Hide Dock Icon (on), Highlight Recorded Area (on), Show Speaker Notes (off, Cmd+Alt+/) | ui | unaudited (owner) | GAP-UI-9 partial; speaker notes not found by qa |
+| A4.2 | Speaker notes/prompter window excluded from recording; prompter speed 0-25, opacity 0.4-1, font 12-32 | ui | unaudited (owner) | TeleprompterController, prompterPlay/toggleNotes hotkeys exist; capture exclusion + ranges not verified |
+| A4.3 | After Recording > Open Quick Share Widget (default on) | ui | match | Settings Quick export tab 'show widget' exists |
+| A4.4 | Recording Countdown submenu None/3/5/10 s, default None | ui | unaudited (owner) | countdown exists (REC); option list/default not compared |
+| A4.5 | Recording Engine submenu: auto / force modern / force legacy | ui | out of scope | read-only capture engine shown (GAP-UI-9); legacy engine not planned |
+| A4.6 | Settings... item Cmd+, | ui | unaudited (owner) | owner to audit |
+| A4.7 | Capture rate follows display refresh; no fps picker | capture | unaudited (owner) | owner to audit |
+| A5.1 | Start: start button per card, area confirm, Enter confirms, gated on valid source and permissions | ui | unaudited (owner) | Return confirm 28/33 programmatic; F16 fix unverified live |
+| A5.2 | Countdown strip 'Get ready' with progress ring, remaining seconds, Continue, Enter skips, close cancels | ui | unaudited (owner) | owner to audit |
+| A5.3 | Window prep: bring to front, refresh bounds, 'Window is not capturable anymore' | ui | unaudited (owner) | owner to audit |
+| A5.4 | Start/stop sounds (start vol 0.33, 540 ms race) | ui | match | start sound landed (R2/R3 user guide); end sound/volume not compared |
+| A5.5 | Dock badge while recording | ui | unaudited (owner) | owner to audit |
+| A6.1 | Recording widget: 48 px panel, not focusable, excluded from capture, avoids recorded bounds, remembers position, Cmd+Alt+' toggles | ui | match | toolbar exclusion verified live (qa B6); position memory not verified |
+| A6.2 | Widget: stop button with timer 0:00 -> 00:00 -> 0:00:00, sums sessions across pause | ui | unaudited (owner) | owner to audit |
+| A6.3 | Pause/Resume Cmd+Alt+P; Restart w/ confirm Cmd+Alt+Backspace; Cancel w/ confirm; marker Cmd+Alt+Ctrl+F | ui | match | hotkey-script pauseResume/restart/marker exercised programmatically |
+| A6.4 | Busy state spinner 'Working...' after 3 s | ui | unaudited (owner) | owner to audit |
+| A6.5 | Tray icon becomes stop circle during recording; tray accepts dropped project/preset files | ui | unaudited (owner) | owner to audit |
+| A6.6 | Dock click while recording asks 'Finish recording?'; low disk auto-stops with message | ui | match | low-disk guard verified (qa Q5: <1 GB, message); dock-click not checked |
+| A6.7 | Crashed capture recovered automatically; 'Recover now' if finalize fails | capture+ui | match | kill -9 recovery + disk-full recovery verified programmatically (qa) |
+| A7.1 | Stop -> project created, default audio preset, auto zooms if enabled (default on), default preset applied | ui+core | match | editor in front after stop 9/9 (qa) |
+| A7.2 | After-recording action: create project / copy / save / (link) | ui | match | --after-recording create|widget|copy|save exists |
+| A7.3 | Quick export widget (bottom-left, preview, Copy, Save..., Edit, mute preview, 'Will export' summary, settings) | ui | unaudited (owner) | widget exists (GAP-UI-4); item list not compared |
+| A7.4 | Autosave 30 s when enabled (default on) | editor+ui | match | qa unit tests + R4; core autosave journal |
+| A8.1 | Global hotkeys defaults: start/stop Cmd+Ctrl+Enter, display Cmd+Alt+3, window Cmd+Alt+4, area Cmd+Alt+5, pause Cmd+Alt+P, restart Cmd+Alt+Backspace, marker Cmd+Alt+Ctrl+F, widget Cmd+Alt+', prompter Cmd+Alt+., notes Cmd+Alt+/ | ui | unaudited (owner) | defaults per FEATURES GAP-UI-1; prompter/notes keys depend on A4.2 |
+| A8.2 | App shortcuts: quick export clipboard Cmd+Alt+C, file Cmd+Alt+S, open last project Cmd+Alt+Z | ui+editor | unaudited (owner) | owner to audit |
+| A8.3 | 'Not able to register' shown when hotkey registration fails | ui | unaudited (owner) | owner to audit |
+| A9.1 | Permissions onboarding: welcome, Screen Recording card, Accessibility card, finish CTA | ui | unaudited (owner) | owner to audit (user guide mentions permissions) |
+| B.General | Settings tab General: Start at login (off); Hide Dock icon (off); Reset preferences | ui | unaudited (owner) | tab exists; per-control audit by ui |
+| B.Recording | Settings tab Recording: Save new projects to; Highlight recorded area (on); Create zooms automatically (on); Show recording widget (on); Maximum camera resolution 720p/1080p/4K (1080) | ui | unaudited (owner) | tab exists; per-control audit by ui |
+| B.Editing | Settings tab Editing: Use last project settings (off); Autosave every 30 s (on); Save presets in | ui | unaudited (owner) | tab exists; per-control audit by ui |
+| B.Quick export | Settings tab Quick export: Quick export settings block; Show widget after recording (on); Always save project when using widget (off); Action after quick export (do-nothing); Mute widget preview (off) | ui | unaudited (owner) | tab exists; per-control audit by ui |
+| B.Shortcuts | Settings tab Shortcuts: Recording list (10 actions) + Editing list (cut c, remove before cut x, play L, back J, stop K); key recorder, clearable | ui | unaudited (owner) | tab exists; per-control audit by ui |
+| B.Experimental | Settings tab Experimental: Masked content shift detection; Unified audio playback; Audio exporter swift/ffmpeg; Screen super resolution off/fast/quality (default quality); Variable framerate (off) | ui | unaudited (owner) | tabs now General, Recording, Editing, Quick export, Shortcuts, Storage, Experimental, Advanced (SettingsWindow.swift:26-35); per-control audit by ui. Super-resolution default in Yapcam: off (see RND-9) vs reference 'quality' |
+| B.Advanced | Settings tab Advanced: Disable HW accel encode/decode (off); Share diagnostics | ui | unaudited (owner) | tab exists; per-control audit by ui |
+| B.order | Tab order: General, Recording, Editing, Quick export, Shortcuts, Experimental, Advanced | ui | mismatch | Yapcam inserts Storage before Experimental and orders Storage, Experimental, Advanced |
+| B2.1 | Persisted prefs: playback quality/energy mode, preview resolution/max height, loop, audio scrubber, waveform toggles, timeline scrollbar | editor | unaudited (owner) | preview options menu persisted (GAP-ED-15); keys not compared |
+| E1.1 | Top bar: command menu (Cmd+K), Undo/Redo, Presets dropdown, Share, Export, project title rename | editor | unaudited (owner) | owner to audit (command palette not found by qa) |
+| E1.2 | Command palette with every editor action, Cmd+K | editor | unaudited (owner) | CommandPalette.swift exists; completeness/shortcut not compared |
+| E1.3 | Presets popover: Create new, Rename, Update to match, Use as default, Remove, badges 'Matches project'/'Default', Recently used | editor | unaudited (owner) | presets UI exists (GAP-UI/ED rows); badge/recent not verified |
+| E1.4 | View toggles: sidebar/timeline/preview, loop, waveform on/off, smooth waveform, scrollbar, reset window positions, Reel preview mode | editor | unaudited (owner) | owner to audit |
+| E2.1 | Output aspect: Auto, Wide 16:9, Square 1:1, Classic 4:3, Vertical 9:16, Tall 3:4, Portrait 4:5 (default Auto) | editor | unaudited (owner) | GAP-UI-6 custom ratio; option list/default Auto not compared |
+| E2.2 | Crop button -> crop window, rect normalized | editor | match | crop sliders exist (Inspector.swift:580); separate crop window not |
+| E2.3 | Preview size 480/720/1080/1440/2160; preview resolution Full/Half/Quarter | editor | unaudited (owner) | PreviewOptionsMenu; values not compared |
+| E2.4 | Playback speed 0.25,0.5,1,2,4,8 | editor | unaudited (owner) | owner to audit |
+| E2.5 | Transport: Space, K, L/J shuttle, arrows, Shift+arrows, Cmd+arrows, Cmd+= / Cmd+- | editor | unaudited (owner) | owner to audit |
+| E2.6 | Export current frame as image | editor | unaudited (owner) | owner to audit |
+| E3.1 | Inspector rail order: General, Cursor, Camera Layout, Camera Style, Captions, Audio, Keyboard Shortcuts, Animations, Device frame, Edit by transcript; Cmd+1..0; Esc back; conditional visibility | editor | unaudited (owner) | Inspector tabs exist (Inspector.swift); order/shortcuts/visibility not compared |
+| E3.2 | Slider widgets: value preview, double-click reset, 8-point position grid, togglable Advanced groups | editor | unaudited (owner) | owner to audit |
+| E4.1 | Background types: Wallpaper (default), Gradient, Color, Image, (Unsplash out of scope) | core+editor | mismatch | core default background kind 'solid'; ref default wallpaper (macOS dark) |
+| E4.2 | Wallpapers: 182 in 9 categories (Favourites + 9), right-click favourite, Pick random | render+editor | mismatch | 12 own presets in 3 categories (gradients, landscapes, geometry); Pick random exists; favourites not found. Count/categories differ by design (own artwork), structure (category list + favourites) missing |
+| E4.3 | Background colour default #4776e6 + randomize; gradient #4776e6->#8e54e9 diagonal; Hue slider 0-360; preset grid 8 columns | core+editor | mismatch | core colours 0.12/0.14/0.18 and 0.24/0.29/0.38 angle 45; hue slider/randomize/preset grid not found |
+| E4.4 | Background image png/jpg/jpeg copied into project | editor | match | importBackgroundImage (Adapters.swift) |
+| E4.5 | Background blur 0-100 px step 0.1, default 0 | core | mismatch | core Background.blur default 24 |
+| E4.6 | Padding slider 0-0.25 (%), default 0.10; Edit layout link when split disables padding | core+editor | mismatch | core padding 48 px default, padding_ratio optional; editor percent via padding_ratio (GAP-ED-11); default 10 % to confirm |
+| E4.7 | Screen rounded corners 0-128 step 1, default 16, snaps 0/12/16/20/26 | core | mismatch | core canvas.radius default 18 |
+| E4.8 | Inset toggle (restores last, else size 4, alpha .25, #888888), size 0.125-24, colour, opacity 0-1, 2D origin pad | core+editor | mismatch | core inset 0 / white colour; origin pad exists (Background.swift:100); ranges not compared |
+| E4.9 | Shadow intensity 0-0.6 default 0.3; style Classic/Directional (default Directional); advanced distance 25 (0-100), angle 45 (0-180), blur 20 (0-30) | core | mismatch | core shadow style default 'classic' (ref default directional); opacity .3, distance 25, angle 45, blur 20 match |
+| E5.1 | Hide cursor toggle (collapses others) | editor | match | 'Show cursor' toggle (inverted label) Inspector.swift:381 |
+| E5.2 | Cursor size slider 16-128, default 48 | core+editor | mismatch | size picker small/regular/large/xl (cursor.logical_size), no 16-128 slider |
+| E5.3 | Cursor style carousel: 22 sets (macos, tahoe, touch, halloween, custom 1-20) + variant sub-carousel, default macos-tahoe | render+editor | mismatch | carousel Original + Touch + 12 own sets, variants per type; default 'Original' (ref default tahoe) |
+| E5.4 | Always use pointer cursor (off) | core+editor | match | 'Always use the default arrow' cursor.always_default |
+| E5.5 | Hide cursor if not moving: 0.5-5.0 s (on->2.0) | core+editor | unaudited (owner) | hide_when_idle + idle_timeout 2 s in core; slider range not verified |
+| E5.6 | Loop cursor position 1.0-4.0 s before end (on->1.0) | core+editor | mismatch | loop_to_start toggle; core loop_duration 0.4 s default; slider not confirmed |
+| E5.7 | Click effect None/Circle/Ripple (default None) | core+editor | mismatch | core click_effect default 'ring' |
+| E5.8 | Click sound None/Magic Mouse/MX Master, volume 0-1 (0.25), preview button, >2x skip warning | render+editor | mismatch | click sound Soft/Crisp (own), gain dB; model names differ by design; volume slider scale/preview not verified |
+| E5.9 | Rotate cursor -180..180, mode Tilt/Follow, tilt amount 0-2 default 0.5 | core+editor | mismatch | modes Fixed/Follow movement; core tilt_amount default 1.0, rotation default static (ref velocity/tilt 0.5) |
+| E5.10 | Advanced: stop movement at end 0-5 s, remove shakes (on, 100-2000 step 20, default 500), optimize cursor changes (on) | core | mismatch | core remove_shakes default false, optimize_types default false (ref on/on); threshold 500 match |
+| E6.1 | Hide camera (H), default layout overlay/split/cutout visual picker | editor | match | CameraLayoutSettings.swift: Overlay/Cutout/Split |
+| E6.2 | Overlay: position 8-point grid (default bottom-right), aspect 16:9/4:3/1:1/3:4/9:16, size 0.1-0.75 (default 0.5), smaller during zoom 0.25-0.8 (0.8) | core+editor | mismatch | core camera size 0.22, position .82/.78; zoom_scale 1.0; grid/aspect list not verified |
+| E6.3 | Cutout: 3-point position, size 0.2-1 (0.5), size during zoom, edge softness 0-1 (0.2), edge inset 0-8 px | core+editor | match | core cutout_size .5, edge_softness .2, edge_inset 0 |
+| E6.4 | Split: ratio Auto/1:1/2:1(2/3), flip, fill Fullscreen/Padded | core+editor | match | split_ratio/flip/padded exist; option list to confirm |
+| E6.5 | Avoid empty area toggle; camera rounded corners 0-0.5 default 0.15; hide during silence 2-15 s (5 s) | core+editor | mismatch | avoid-empty-area not found; corner_ratio optional; silence 5 s matches |
+| E6.6 | Per-range layouts: overlay/split/cutout/fullscreen camera/hide camera; disable/remove/remove all | core+editor | unaudited (owner) | layouts timeline items exist; fullscreen/screen-only types to confirm |
+| E7.1 | Colour grading: 12 built-ins (Studio, Cinema, Film, Golden, Cream, Terra, Moody, Arctic, Neon, Punch, Fade, Mono) + '+' custom preset (warmth, bg pop, contrast, intensity), Load .cube, intensity 0-1, disable | render+editor | unaudited (owner) | look presets + .cube (GAP-ED-8); list/names not compared (names are own); custom-preset modal to confirm |
+| E7.2 | Sharpen 0-1, Crop with reset, Mirror horizontally (off), Face tracking (off) | core+editor | mismatch | mirrored default true in core (ref off) |
+| E8.1 | Transcript method Local/Cloud; language Auto + ~60; keyterms/prompt; generate/regenerate; export transcript; show captions toggle | editor+ui | match | AUD-10 integrated (keyterms + language reach transcription); cloud out of scope; language count to confirm |
+| E8.2 | Caption style: size 0.05 (0.05-0.125), font Sans/Serif/Mono, reveal line/word, growth full/expanding/centered, entrance appear/fade/slide, colour Dark/Light, position bottom/center | core+editor | mismatch | core font_size 36 px, growth default 'full' (ref expanding/left-anchored), colour white on translucent black; Dark/Light switch to confirm |
+| E8.3 | Edit by transcript: delete/restore words, hide, correct, filler removal, tighten pauses | editor | match | EDT-06/07 integrated; filler recall weak (F13) |
+| E9.1 | Background audio: 4 categories x 18 tracks, user library folder, drag-drop, volume 0.05, mute, remove | render+editor | mismatch | no bundled tracks (user imports file); music volume default 0.05 matches; categories missing |
+| E9.2 | Mic mute, mic mode Standard/Noise reduction/Podcast(Beta), mute system audio, mute external, per-clip volumes 0-1 step .01 | editor | match | VoiceCleanupSection presets; clip volumes % step 5 vs ref .01 step |
+| E10.1 | Keyboard shortcuts overlay: show toggle (off), size 0.075-0.25 (0.10), show single keys (off), per-shortcut hide | core+editor | match | key_overlay enabled false, shortcuts_only true default; size/hide per shortcut not verified |
+| E11.1 | Screen animation presets Focused 250/40/2.25, Smooth 170/50/3 + Customize (rigidity 5-600, smoothness 5-200, momentum 0.1-15); cursor presets Smooth/Medium/Rapid/None; motion blur 0-1 (1) | core+editor | mismatch | core spring 250/28/1, motion_blur 0, cursor smoothing 0.15; preset names differ (own); Customize exists (Animations.swift) |
+| E12.1 | Device frame section (148 frames) | render | out of scope | device frames: user decision |
+| E13.1 | Zoom range: Classic/Glass Loupe, Auto/Manual, level 1-4 default 2, keys 1-9/0, instant animation, loupe size 0.25-0.75, start early (350 ms), A/M/D/Cmd+D/Delete/=/-, apply level to all | core+editor | match | zoom inspector exists (Inspector.swift:519), scale default 2, lens 0.35/0.2/0.5 match; key bindings to confirm |
+| E13.2 | Clip: speed list 0.5,0.75,1,1.2,1.4,1.6,1.8,2,3,4,8,16,24; volumes; hide cursor / disable smoothing; split, merge, remove, reset trim, apply speed to all; typing suggestion 1.5-8x (3) | core+editor | match | clip settings & typing suggestion default 3 match; speed list to confirm |
+| E13.3 | Mask: Sensitive Data (blur 32 / cover) or Highlight (opacity 0.1-0.9, default 0.5, apply to all) | core+editor+render | mismatch | blur verified (qa R4); core default kind 'highlight', dim_opacity 0.4 (ref 0.5) |
+| P1 | Project schema/migrations, history 1000 steps/100 ms merge | core | match | coalescedEdit + undo; limits to confirm |
+| P2 | Package layout (project.json, meta, recording/, assets/, QuickLook preview, backup before migration) | core | unaudited (owner) | own .yapcam package; preview/backup not compared (naming differs by design) |
+| P3 | Timeline tracks: clips, zooms, layouts (when >=1), masks (when >=1), shortcuts track; timeline zoom 2 s..10 min | editor | unaudited (owner) | owner to audit |
+| P4 | Shortcuts: C split, X ripple delete, Backspace remove, V mic volume, S speed, Cmd+C/X/V copy paste settings | editor | unaudited (owner) | owner to audit |
+| P5 | Auto-zoom generation: click-30 0ms..+2500, ignore last 1 s, merge gap<=2.5 s | core | unaudited (owner) | auto.rs; constants not compared |
+| P6 | Min durations: slice 100 ms, zoom 100 ms (insert 3 s), layout/mask 500 ms (insert 3 s) | core | match | REGION_MIN/CLIP_MIN in editing.rs; insertion 3 s default matches |
+| X1 | Formats MP4, GIF; fps MP4 60/50/30/25/24/20/10; GIF 50/30/25/20/15/10; heights 720/1080/2160, GIF 480/720/1080 | render | match | ExportOptionSetsTests (qa E2E) assert these lists |
+| X2 | Compression Studio/Social/Web/Web Low (QP 14/24/30/42; factors); Web gates 4K | render | match | ExportSettings.Compression (same numbers); 4K gate supports4K |
+| X3 | Codec H.264/HEVC/Both (-h265 suffix, file target only) | render | match | tests in ExportOptionSetsTests |
+| X4 | GIF high quality toggle, disable loop | render | match | gifHighQuality / gifDisableLoop |
+| X5 | Defaults MP4 60 fps Social 720p H.264; GIF 15 fps Studio 480p; separate stores for dialog and quick | render+editor | unaudited (owner) | defaults match (ExportOptionSets); quick store: remember(.quick) unwired (R4 finding) |
+| X6 | Export window: Format+fps row, resolution+advanced row, target File/Clipboard, primary buttons, Enter/Esc, estimation line (time, size, GIF note) | editor | unaudited (owner) | ExportSheet exists; layout/labels to audit |
+| X7 | File target Save dialog + reveal in Finder; clipboard target copies file, notifications, previous clipboard exports | editor+ui | unaudited (owner) | owner to audit |
+| X8 | Progress: phase label, percent, elapsed/remaining, Stop export confirm, dock progress, queue 'Waiting for previous export' | editor | match | queue status unit tests pass (R4); dock progress not checked |
+| X9 | Quick export shortcuts Cmd+Alt+C / Cmd+Alt+S; Export... Cmd+Shift+E | ui+editor | unaudited (owner) | owner to audit |
+| X10 | Shareable link export | — | out of scope | cloud |
+| H1 | Projects folder default, rename, naming collision ' 2' | ui+core | unaudited (owner) | owner to audit |
+| H2 | Close confirmation Save and close / Close without saving / Cancel (+Delete and close for new) | editor | unaudited (owner) | owner to audit |
+| H3 | Recent projects (cap 100), Projects window with search, thumbnails, context menu, On your Mac scan | ui | unaudited (owner) | owner to audit |
+| H4 | Open project, Open last project, drag/double-click, Create project from video, Save as, Show in Finder, Delete, Extract raw files, Copy and zip project | ui | unaudited (owner) | owner to audit |
+| H5 | Editor presets: .preset packages, Presets folder, default preset, Import preset (File menu) | editor+ui | match | presets UI + exportPreset/importPreset (Adapters.swift) |
+| H6 | Crash recovery of unfinished recordings on next launch | capture+ui | match | qa recover checks pass |
+| W1 | Hide during silence (camera steps aside), face tracking | core+render | match | silence hiding + face framing exist (ED-9/ED-8); hardware untested |
+| W2 | Motion blur, smooth cursor, click effects, edit cursor style, loop cursor, hide idle | core+render | unaudited (owner) | see E5/E11 |
+| W3 | Any aspect ratio: zooms/layouts/captions adapt; Reel mode overlay Off/Instagram/TikTok | editor+render | missing | aspect presets exist (Inspector.swift:106); Reel mode (Instagram/TikTok UI overlay) not found |
+| W4 | Resize recorded window to exact size in one click; hide desktop icons; speaker notes; save to disk every 2 s | ui+capture | unaudited (owner) | see A2.4/A4; disk write cadence unverified |
+| W5 | Edit with transcript; filler words & pauses | editor | match | EDT-06/07 |
+| W6 | Voice: Standard/Noise reduction/Podcast on-device | render+editor | match | F14 objective results (qa FEATURES) |
+| W7 | Style presets saved and shared | editor | match | H5 |
+| W8 | Export up to 4K MP4, GIF; clipboard export; project share | render+editor | match | 4K export 0.98x realtime (F18 open) |
+| W9 | Masks: sensitive data blend + highlight dim | editor+render | match | blur verified (qa R4) |
+| W10 | Cloud: links, shared projects, cloud transcription, AI voiceover, Unsplash, accounts | — | out of scope | out of scope |
+
 # qa status
 
 ## Done (verified)
