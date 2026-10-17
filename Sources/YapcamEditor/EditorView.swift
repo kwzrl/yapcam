@@ -156,6 +156,10 @@ public struct EditorContent<Preview: View>: View {
                 .simultaneousGesture(DragGesture().onChanged { v in
                     if model.previewZoom > 1, NSEvent.modifierFlags.contains(.option) { model.previewPan = v.translation }
                 })
+                .contextMenu {
+                    Button("Copy Current Frame as Image") { model.copyFrameHandler?() }.disabled(model.copyFrameHandler == nil)
+                    Button("Export Current Frame as Image…") { model.exportFrameHandler?() }.disabled(model.exportFrameHandler == nil)
+                }
         }
     }
 

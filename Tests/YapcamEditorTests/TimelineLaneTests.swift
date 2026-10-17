@@ -97,3 +97,16 @@ import Testing
         #expect(TimelineChipText.clipAccessibility(m.clips[0], number: 1, start: "a", end: "b").contains("smooth cursor movement off"))
     }
 }
+
+@MainActor @Suite struct FrameCopyTests {
+    @Test func commandCAlwaysCopiesTheFrameAndSettingsLiveInTheContextMenu() throws {
+        let p = FakeProject(durationNs: 20_000_000_000), m = EditorModel(project: p, player: FakePlayer())
+        var frames = 0; m.copyFrameHandler = { frames += 1 }
+        m.selection = .clip(m.clips[0].id)
+        #expect(m.handleShortcut("c", .command) && frames == 1)                    // a clip is selected: still the frame
+        let e = TimelineMenu.entries(for: .clip(id: m.clips[0].id, atNs: 1_000_000_000), in: m)
+        #expect(e.contains { $0.title == "Copy Settings" })
+        m.apply(.copySettings(.clip(m.clips[0].id))); #expect(m.itemClipboard != nil && frames == 1)
+        #expect(EditorDocument.frameFileName(title: "Demo", atNs: 65_000_000_000) == "Demo 1-05.png")
+    }
+}

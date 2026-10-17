@@ -112,6 +112,8 @@ public final class EditorModel: ObservableObject {
     @Published public var extraZoomSelection: Set<String> = []
     /// Set by the document: renders the current preview frame to the clipboard.
     public var copyFrameHandler: (() -> Void)?
+    /// "Export Current Frame as Image…" (save panel).
+    public var exportFrameHandler: (() -> Void)?
     @Published public var lastError: String?
     @Published public private(set) var silenceState: SilenceState = .idle
     @Published public private(set) var saveState: SaveState = .clean

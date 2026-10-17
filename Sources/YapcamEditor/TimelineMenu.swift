@@ -21,7 +21,7 @@ enum TimelineMenu {
         case removeZoom(id: String), duplicateZoom(id: String), zoomEnabled(id: String, Bool), zoomLevel(id: String, Double)
         case allZoomsEnabled(Bool), restoreAutoZooms, removeAllZooms
         case duplicate(EditorSelection), setEnabled(EditorSelection, Bool), delete(EditorSelection), focusStart(EditorSelection)
-        case pasteSettings, addZoom(atNs: Int64)
+        case copySettings(EditorSelection), pasteSettings, addZoom(atNs: Int64)
     }
 
     struct Entry: Equatable {
@@ -58,6 +58,8 @@ enum TimelineMenu {
         if duplicable { out.append(Entry(title: "Duplicate", action: .duplicate(sel))) }
         if let enabled { out.append(Entry(title: "Disable", action: .setEnabled(sel, !enabled), checked: !enabled)) }
         if focus { out.append(Entry(title: "Focus Timeline on Start", action: .focusStart(sel))) }
+        if case .layout = sel { out.append(Entry(title: "Copy Settings", action: .copySettings(sel))) }
+        if case .highlight = sel { out.append(Entry(title: "Copy Settings", action: .copySettings(sel))) }
         if !out.isEmpty { out.append(.separator) }
         out.append(Entry(title: "Delete", action: .delete(sel), shortcut: "⌫"))
         return out
@@ -71,6 +73,7 @@ enum TimelineMenu {
         return [Entry(title: "Remove", action: .removeZoom(id: id), shortcut: "⌫"),
                 Entry(title: "Duplicate", action: .duplicateZoom(id: id), shortcut: "⌘D"),
                 Entry(title: "Disable", action: .zoomEnabled(id: id, !z.enabled), checked: !z.enabled, shortcut: "D"),
+                Entry(title: "Copy Settings", action: .copySettings(.zoom(id))),
                 Entry(title: "Set Zoom Level", action: nil, children: levels),
                 .separator,
                 Entry(title: "Disable All", action: .allZoomsEnabled(false), enabled: m.zooms.contains { $0.enabled }),
@@ -98,6 +101,7 @@ enum TimelineMenu {
                 Entry(title: "Remove", action: .removeClip(id: id), enabled: m.clips.count > 1, shortcut: "⌫"),
                 .separator,
                 Entry(title: "Split Here", action: .splitClip(id: id, atNs: ns), enabled: m.canSplit(clipID: id, atNs: ns), shortcut: "C"),
+                Entry(title: "Copy Settings", action: .copySettings(.clip(id))),
                 Entry(title: "Reset Trim", action: .resetTrim(id: id), enabled: m.hasTrim(clipID: id)),
                 Entry(title: "Reset All Trims and Cuts", action: .resetAllTrims, enabled: m.hasTrimsOrCuts)]
         if m.hasMouseData {
@@ -234,6 +238,7 @@ extension EditorModel {
             }
         case .delete(let sel): selection = sel; deleteSelection()
         case .focusStart(let sel): if let ns = startNs(of: sel) { selection = sel; seek(toNs: ns) }
+        case .copySettings(let sel): selection = sel; copySelectedSettings()
         case .pasteSettings: pasteSettings()
         case .addZoom(let ns): addZoom(fromNs: ns)
         }

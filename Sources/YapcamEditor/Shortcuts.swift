@@ -22,7 +22,7 @@ extension EditorModel {
             case "s": if mods.contains(.option) { performExport(.saveToFile); return true }; return false
             case "c":
                 if mods.contains(.option) { performExport(.copyToClipboard); return true }
-                if mods.contains(.shift) || !copySelectedSettings() { copyFrameHandler?() }
+                copyFrameHandler?()                  // ⌘C always copies the frame; item settings are copied from the context menus (S-EDT-60)
                 return true
             case "v": return pasteSettings()
             case "x": return cutSelection()

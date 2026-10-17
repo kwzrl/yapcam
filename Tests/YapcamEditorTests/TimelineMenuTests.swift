@@ -35,7 +35,7 @@ import Testing
     @Test func clipMenuHasTheSpecifiedEntriesAndChecks() throws {
         let (m, _) = model(); let id = m.clips[0].id
         let e = TimelineMenu.entries(for: .clip(id: id, atNs: 5 * Self.sec), in: m)
-        #expect(titles(e) == ["Set Speed", "Set Volume", "Microphone Volume", "System Audio Volume", "Remove", "Split Here", "Reset Trim",
+        #expect(titles(e) == ["Set Speed", "Set Volume", "Microphone Volume", "System Audio Volume", "Remove", "Split Here", "Copy Settings", "Reset Trim",
                               "Reset All Trims and Cuts", "Hide Cursor", "Disable Smooth Cursor Movement"])
         let speeds = try #require(find(e, "Set Speed")).children
         #expect(speeds.first { $0.checked }?.title == "1× (normal)")
@@ -88,7 +88,7 @@ import Testing
         m.addZoom(fromNs: Self.sec, toNs: 3 * Self.sec); m.addZoom(fromNs: 5 * Self.sec, toNs: 7 * Self.sec); m.addZoom(fromNs: 9 * Self.sec, toNs: 11 * Self.sec)
         let id = m.zooms[0].id
         var e = TimelineMenu.entries(for: .zoom(id: id), in: m)
-        #expect(titles(e) == ["Remove", "Duplicate", "Disable", "Set Zoom Level", "Disable All", "Enable All", "Restore Automatic Zooms", "Remove All Zooms"])
+        #expect(titles(e) == ["Remove", "Duplicate", "Disable", "Copy Settings", "Set Zoom Level", "Disable All", "Enable All", "Restore Automatic Zooms", "Remove All Zooms"])
         #expect(find(e, "Enable All")?.enabled == false)                                            // nothing disabled yet
         m.apply(.allZoomsEnabled(false)); #expect(m.zooms.allSatisfy { !$0.enabled })
         m.undo(); #expect(m.zooms.allSatisfy { $0.enabled })
@@ -109,7 +109,7 @@ import Testing
         m.seek(toNs: 2 * Self.sec); m.addHighlightAtPlayhead(kind: .blur)
         let hid = try #require(m.highlights.first?.id)
         let e = TimelineMenu.entries(for: .highlight(id: hid), in: m)
-        #expect(titles(e) == ["Duplicate", "Disable", "Focus Timeline on Start", "Delete"])
+        #expect(titles(e) == ["Duplicate", "Disable", "Focus Timeline on Start", "Copy Settings", "Delete"])
         m.apply(.setEnabled(.highlight(hid), false)); #expect(m.highlights[0].enabled == false)
         #expect(find(TimelineMenu.entries(for: .highlight(id: hid), in: m), "Disable")?.checked == true)
         m.apply(.duplicate(.highlight(hid))); #expect(m.highlights.count == 2 && Set(m.highlights.map(\.id)).count == 2)
