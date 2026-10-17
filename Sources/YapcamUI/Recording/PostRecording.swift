@@ -221,17 +221,14 @@ import YapcamRender
     /// The user's quick export settings (Settings → Quick export) plus the experimental variable-frame-rate switch.
     /// "1080p MP4 · 30 fps · Social · with audio": the widget's "Will export" line.
     static func summary(_ e: ExportSettings) -> String {
-        let res = e.outputHeight == 2160 ? "4K" : "\(e.outputHeight)p"
-        var parts = ["\(res) \(e.format == .gif ? "GIF" : e.format.rawValue.uppercased())", "\(e.fps) fps"]
-        if e.format != .gif {
-            if let c = e.compression { parts.append(c.title) }
-            parts.append(e.includeAudio ? "with audio" : "no audio")
-        }
-        return parts.joined(separator: " · ")
+        var parts = [e.summary(for: .file)]
+        if e.format != .gif { parts.append(e.includeAudio ? "with audio" : "no audio") }
+        return parts.joined(separator: " • ")
     }
 
-    static func quickExportSettings(base: ExportSettings = AppSettings.defaultQuickExport, variableFrameRate: Bool) -> ExportSettings {
+    static func quickExportSettings(base: ExportSettings = AppSettings.defaultQuickExport, variableFrameRate: Bool, hardwareEncoding: Bool = true) -> ExportSettings {
         var e = base
+        e.hardwareEncodingEnabled = hardwareEncoding
         e.variableFrameRate = base.format == .gif ? false : variableFrameRate
         return e
     }
@@ -242,7 +239,7 @@ import YapcamRender
         let dir = cacheDirectory
         // A new file per run: a cancelled worker that is still writing can never collide with the next export.
         let runDir = dir.appending(path: UUID().uuidString.prefix(8).description, directoryHint: .isDirectory)
-        let exportSettings = await MainActor.run { quickExportSettings(base: AppSettings.shared.quickExport, variableFrameRate: AppSettings.shared.experimentalVariableFrameRate) }
+        let exportSettings = await MainActor.run { quickExportSettings(base: AppSettings.shared.quickExport, variableFrameRate: AppSettings.shared.experimentalVariableFrameRate, hardwareEncoding: !AppSettings.shared.disableHardwareEncoding) }
         let out = runDir.appending(path: "\(name).\(exportSettings.format.rawValue)")
         let tracker = ProgressTracker()
         let result: Result<URL, Error> = await withCheckedContinuation { continuation in

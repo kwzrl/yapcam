@@ -327,12 +327,29 @@ import Testing
 }
 
 @MainActor @Suite struct Round5WidgetTests {
-    @Test func summaryDescribesTheStoredSettings() {
-        #expect(QuickExport.summary(AppSettings.defaultQuickExport) == "720p MP4 · 60 fps · \(ExportSettings.Compression.social.title) · with audio")
-        var e = AppSettings.defaultQuickExport; e.outputHeight = 2160; e.fps = 60; e.compression = .studio; e.includeAudio = false
-        #expect(QuickExport.summary(e) == "4K MP4 · 60 fps · \(ExportSettings.Compression.studio.title) · no audio")
-        var g = AppSettings.defaultQuickExport; g.format = .gif; g.outputHeight = 480; g.fps = 15
-        #expect(QuickExport.summary(g) == "480p GIF · 15 fps")
+    @Test func summaryUsesRendersSummaryPlusAudio() {
+        let d = AppSettings.defaultQuickExport
+        #expect(QuickExport.summary(d) == d.summary(for: .file) + " • with audio")
+        var e = d; e.includeAudio = false
+        #expect(QuickExport.summary(e) == e.summary(for: .file) + " • no audio")
+        var g = d; g.format = .gif; g.outputHeight = 480; g.fps = 15
+        #expect(QuickExport.summary(g) == g.summary(for: .file))
+    }
+    @Test func hardwareEncodingToggleReachesQuickExport() {
+        let s = AppSettings(store: UserDefaults(suiteName: "hw-\(UUID())")!)
+        #expect(s.disableHardwareEncoding == false)
+        #expect(QuickExport.quickExportSettings(variableFrameRate: false, hardwareEncoding: !s.disableHardwareEncoding).hardwareEncodingEnabled)
+        s.disableHardwareEncoding = true
+        #expect(!QuickExport.quickExportSettings(variableFrameRate: false, hardwareEncoding: !s.disableHardwareEncoding).hardwareEncodingEnabled)
+        s.resetToDefaults()
+        #expect(s.disableHardwareEncoding == false)
+    }
+    @Test func quickExportStoreIsSeparateFromTheEditorDialog() {
+        let suite = UserDefaults(suiteName: "qx-\(UUID())")!
+        let s = AppSettings(store: suite)
+        var e = s.quickExport; e.fps = 30; s.quickExport = e
+        #expect(AppSettings(store: suite).quickExport.fps == 30)
+        #expect(suite.data(forKey: "quickExport.v1") != nil)
     }
     @Test func settingsCanOpenOnATab() {
         SettingsTabs.shared.selection = .quickExport
