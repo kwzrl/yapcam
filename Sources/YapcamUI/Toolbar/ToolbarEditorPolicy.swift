@@ -40,7 +40,9 @@ struct ToolbarEditorPolicy: Equatable {
 
     func start() {
         guard bag.isEmpty else { return }
-        lastCount = EditorWindows.openCount
+        // A document opened at launch (Finder, `open file.yapcam`) gets its editor before the toolbar first shows.
+        lastCount = 0
+        editorsChanged(to: EditorWindows.openCount)
         NotificationCenter.default.publisher(for: EditorWindows.openCountDidChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] note in self?.editorsChanged(to: note.userInfo?["count"] as? Int ?? EditorWindows.openCount) }
