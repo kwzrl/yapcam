@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Renders the docked editor to `<dir>/editor-shell-<state>-<width>.png` (agent off, blocks only, agent on with a
-/// connected agent, agent on without one) at 1280×800 and 1728×1080. With `package` the states use a COPY of that
+/// connected agent, agent on without one, transcript below) at 1280×800 and 1728×1080. With `package` the states use a COPY of that
 /// recording (the original is never touched) and its rendered frame; without, a fake project.
 /// Layout check only: offscreen renders have no live blur. Called by the UI snapshot and the shell tests.
 @MainActor public enum EditorShellSnapshot {
@@ -16,6 +16,7 @@ import SwiftUI
             ("blocks-only", { $0.blocksBarVisible = true }),
             ("agent-on", { sampleChat($0); $0.agentPromptHandler = { _ in } }),
             ("agent-unconnected", { sampleChat($0) }),
+            ("transcript", { $0.bottomPanel = .transcript }),
         ]
         for size in sizes {
             for (name, setup) in states {
