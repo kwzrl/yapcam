@@ -812,3 +812,22 @@ import YapcamCore
         #expect(!m.dropMusic(urls: [URL(fileURLWithPath: "/tmp/notes.txt")]))
     }
 }
+
+@MainActor @Suite struct ShortcutsGuideTests {      // REC B-09
+    @Test func everyRebindableActionIsListedWithItsCurrentKey() {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let b = EditorKeyBindings(defaults: iso.defaults)
+        #expect(b.setKey("q", for: "split"))
+        let entries = ShortcutsGuide.categories(bindings: b).flatMap(\.entries)
+        for a in EditorKeyBindings.actions { #expect(entries.contains { $0.title == a.title && $0.keys == String(b.key(for: a.id)).uppercased() }, "\(a.title)") }
+        #expect(entries.contains { $0.keys == "Q" })
+    }
+    @Test func paletteShortcutsAppearInTheGuide() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        let keys = Set(ShortcutsGuide.categories().flatMap(\.entries).flatMap { $0.keys.components(separatedBy: " / ") })
+        for c in m.paletteCommands where ["⌘D", "⌘K", "⌘Z", "⇧⌘Z", "⌘/", "⌘=", "⌘-"].contains(c.shortcut) {
+            let k = c.shortcut == "⌘-" ? "⌘−" : c.shortcut
+            #expect(keys.contains(k) || keys.contains { $0.contains(k) }, "\(c.title) \(c.shortcut)")
+        }
+    }
+}

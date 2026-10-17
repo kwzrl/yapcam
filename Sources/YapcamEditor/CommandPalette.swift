@@ -47,6 +47,7 @@ extension EditorModel {
             PaletteCommand(title: "Speed up typing", shortcut: "", enabled: true) { [self] in speedUpTyping() },
             PaletteCommand(title: "Find silent parts", shortcut: "", enabled: true) { [self] in findSilences() },
             PaletteCommand(title: "Copy current frame", shortcut: "⇧⌘C", enabled: copyFrameHandler != nil) { [self] in copyFrameHandler?() },
+            PaletteCommand(title: "Keyboard shortcuts", shortcut: "⌘/", enabled: true) { ShortcutsGuide.show() },
             PaletteCommand(title: "Crop recording…", shortcut: "", enabled: true) { [self] in cropRequested = true },
             PaletteCommand(title: "Export current frame as image…", shortcut: "", enabled: canExportFrame) { [self] in exportCurrentFrame() },
             PaletteCommand(title: "Undo", shortcut: "⌘Z", enabled: canUndo) { [self] in undo() },
