@@ -262,4 +262,18 @@ import YapcamEditor
         s.cleanVoiceOnRecord = true; s.resetToDefaults()
         #expect(!s.cleanVoiceOnRecord)
     }
+
+    // B-10
+    @Test func windowMenuGroupsByAppAndFiltersOwnAndTinyWindows() {
+        func row(_ id: UInt32, _ pid: Int32, _ app: String, _ title: String, w: CGFloat = 800, h: CGFloat = 600, layer: Int = 0) -> WindowRow {
+            WindowRow(id: id, pid: pid, layer: layer, app: app, title: title, bounds: CGRect(x: 0, y: 0, width: w, height: h))
+        }
+        let rows = [row(1, 10, "Safari", "Docs"), row(2, 10, "Safari", ""), row(3, 20, "Notes", "Todo"), row(4, 99, "Yapcam", "Own"),
+                    row(5, 30, "Tiny", "x", w: 60, h: 40), row(6, 40, "Menubar", "m", layer: 25), row(7, 50, "Hidden", "h")]
+        let g = WindowMenu.groups(rows: rows, allowed: nil, excludingPID: 99, ignoring: [7])
+        #expect(g.map(\.app) == ["Notes", "Safari"])
+        #expect(g.last?.rows.map(\.id) == [1, 2])
+        #expect(WindowMenu.title(rows[1]) == "Safari" && WindowMenu.title(rows[0]) == "Docs")
+        #expect(WindowMenu.groups(rows: rows, allowed: [3], excludingPID: 99).map(\.app) == ["Notes"])
+    }
 }
