@@ -289,3 +289,26 @@ fn transcript_speed_mapping_and_argument_validation() {
     fs::write(f.0.join("recording/transcript.json"), "{}").unwrap();
     assert_eq!(c.call("read_transcript", json!({}))["isError"], true);
 }
+
+#[test]
+fn live_project_transcript_read_never_writes_or_changes_history() {
+    let fixture = Fixture::new();
+    let mut project = Project::create(&fixture.0).unwrap();
+    project
+        .apply(&json!({"op":"set","path":"autosave","value":true}))
+        .unwrap();
+    fs::write(
+        fixture.0.join("recording/transcript.json"),
+        transcript().to_string(),
+    )
+    .unwrap();
+    let disk = tree(&fixture.0);
+    let state = serde_json::to_value(&project.data).unwrap();
+    let depth = project.undo.len();
+    let response = yapcam_core::mcp::Server { project: &mut project, initialized: true }
+        .rpc(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"read_transcript","arguments":{"source":"recording"}}})).unwrap();
+    assert_eq!(response["result"]["isError"], false);
+    assert_eq!(tree(&fixture.0), disk);
+    assert_eq!(serde_json::to_value(&project.data).unwrap(), state);
+    assert_eq!(project.undo.len(), depth);
+}

@@ -47,7 +47,8 @@ public struct EditorContent<Preview: View>: View {
                                 .overlay(alignment: .topLeading) { floatingChat(narrow: narrow) }
                         }
                         DockSeparator(axis: .horizontal)
-                        bottomPanel(windowHeight: geo.size.height)
+                        BottomPanelView(model: model, topHairline: false)
+                            .frame(height: BottomPanelView.preferredHeight(model: model, windowHeight: geo.size.height))
                     }
                     DockSeparator()
                     InspectorView(model: model, initialSection: initialSection)
@@ -105,34 +106,6 @@ public struct EditorContent<Preview: View>: View {
                 .padding(12).padding(.top, StageControls.height - 12)
                 .transition(.move(edge: .leading).combined(with: .opacity))
         }
-    }
-
-    // MARK: bottom panel
-
-    /// Timeline (with its transport row) or the transcript of the same edit, docked from the left edge to the inspector.
-    @ViewBuilder private func bottomPanel(windowHeight: CGFloat) -> some View {
-        Group {
-            switch model.bottomPanel {
-            case .timeline:
-                VStack(spacing: 0) {
-                    TransportBar(model: model)
-                    DockSeparator(axis: .horizontal)
-                    TimelineView(model: model)
-                        .frame(height: timelineHeight(windowHeight: windowHeight))
-                }
-            case .transcript:
-                TranscriptPanel(model: model)
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .frame(height: timelineHeight(windowHeight: windowHeight) + 40)
-            }
-        }
-        .background(Yap.dock)
-    }
-
-    /// Compact timeline: about a quarter of the window, never taller than its content needs.
-    private func timelineHeight(windowHeight: CGFloat) -> CGFloat {
-        let content = TimelineLayout(lanes: model.visibleLanes).totalHeight + 18
-        return min(max(content, 150), max(windowHeight * 0.30, 190))
     }
 
     // MARK: stage

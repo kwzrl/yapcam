@@ -1,6 +1,22 @@
 import SwiftUI
+import YapcamDesign
 
 enum TimelineLane: CaseIterable { case typing, camera, cursor, highlight, text, caption, music }
+
+extension TimelineLane {
+    /// Quiet name in the track-name column.
+    var title: String {
+        switch self {
+        case .typing: "Typing"
+        case .camera: "Camera"
+        case .cursor: "Cursor"
+        case .highlight: "Regions"
+        case .text: "Text"
+        case .caption: "Captions"
+        case .music: "Music"
+        }
+    }
+}
 
 /// Vertical layout of the timeline. Only lanes that have content are present (no empty rows);
 /// the clip and zoom tracks are always there.
@@ -47,12 +63,37 @@ extension EditorModel {
     }
 }
 
+/// Colours of the timeline. Chrome stays grey and white; colour only on content: clips yellow to amber, zooms violet,
+/// camera green, regions pink. Selection is a white outline and a step of brightness, never a colour.
+enum TimelineLook {
+    static let clip = LinearGradient(colors: [Yap.clipTop, Yap.clipBottom], startPoint: .top, endPoint: .bottom)
+    static let zoom = Yap.zoom
+    /// Automatic zooms: the same violet, a little deeper, so manual ones stand out without a second hue.
+    static let zoomAuto = Color(red: 0.45, green: 0.36, blue: 0.86)
+    static let camera = Color(red: 0.36, green: 0.70, blue: 0.56)
+    static let regions = Color(red: 0.96, green: 0.47, blue: 0.56)
+    static let text = Color(red: 0.86, green: 0.55, blue: 0.82)
+    static let caption = Color.white.opacity(0.16)
+    static let music = Color(red: 0.95, green: 0.58, blue: 0.34)
+    static let cursor = Color.white.opacity(0.22)
+    /// Lane ground: a faint step of brightness, so empty time reads as track.
+    static let laneGround = Color.white.opacity(0.04)
+    static let radius: CGFloat = 6
+    /// Track-name column left of the tracks (names never sit under items).
+    static let namesWidth: CGFloat = 64
+    static let namesColumn: CGFloat = namesWidth + 8
+}
+
 struct TimelineView: View {
     @ObservedObject var model: EditorModel
     @State private var viewportWidth: CGFloat = 800
     @State private var drag: DragKind?
     @State private var dragMoved = false
+    @Environment(\.displayScale) private var displayScale
     private var layout: TimelineLayout { TimelineLayout(lanes: model.visibleLanes) }
+
+    /// Width the track-name column takes from the panel.
+    static let namesWidth = TimelineLook.namesColumn
 
     private enum DragKind {
         case scrub
@@ -67,46 +108,52 @@ struct TimelineView: View {
     }
 
     var body: some View {
-        let g = model.geometry
-        let contentW = max(g.contentWidth(durationNs: model.durationNs) + 40, viewportWidth)
-        ScrollView([.horizontal, .vertical], showsIndicators: true) {
-            ZStack(alignment: .topLeading) {
-                Ruler(geometry: g, width: contentW)
-                    .frame(width: contentW, height: TimelineLayout.rulerHeight)
-                ForEach(Array(model.project.markerTimesNs.enumerated()), id: \.offset) { _, ns in
-                    Image(systemName: "flag.fill").font(.system(size: 9)).foregroundStyle(.orange)
-                        .offset(x: g.x(forNs: ns) - 2, y: 1).allowsHitTesting(false)
-                        .accessibilityLabel("Marker at \(formatTimecode(ns))")
-                }
-                outsideEnd(g, contentW: contentW)
-                clipTrack(g)
-                zoomTrack(g)
-                if layout.lanes.contains(.typing) { typingLane(g) }
-                if layout.lanes.contains(.camera) { cameraLane(g) }
-                if layout.lanes.contains(.cursor) { cursorLane(g) }
-                if layout.lanes.contains(.highlight) { highlightLane(g) }
-                if layout.lanes.contains(.text) { textLane(g, top: layout.textTop, kinds: [.annotation, .reaction]) }
-                if layout.lanes.contains(.caption) { textLane(g, top: layout.captionTop, kinds: [.caption]) }
-                if layout.lanes.contains(.music) { musicLane(g) }
-                if let snap = model.snapGuideNs {
-                    Rectangle().fill(Color.yellow.opacity(0.9)).frame(width: 1, height: layout.totalHeight)
-                        .offset(x: g.x(forNs: snap) + g.scrollOffsetPx)
-                }
-                PlayheadMarker(playhead: model.playhead, model: model, geometry: g, height: layout.totalHeight)
+        // Names stay put while the tracks scroll sideways; both scroll together vertically when lanes overflow.
+        ScrollView(.vertical) {
+            HStack(alignment: .top, spacing: 0) {
+                TrackNames(layout: layout)
+                ScrollView(.horizontal) { tracks }
+                    .frame(height: layout.totalHeight)
+                    .background(GeometryReader { p in Color.clear.onAppear { viewportChanged(p.size.width) }
+                        .onChange(of: p.size.width) { _, w in viewportChanged(w) } })
             }
-            .frame(width: contentW, height: layout.totalHeight, alignment: .topLeading)
-            .contentShape(Rectangle())
-            .gesture(timelineDrag(g))
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Timeline")
         }
-        .background(GeometryReader { p in Color.clear.onAppear { viewportChanged(p.size.width) }
-            .onChange(of: p.size.width) { _, w in viewportChanged(w) } })
-        .background(Color(nsColor: .controlBackgroundColor))
+        .scrollIndicators(.automatic)
         .task(id: model.revision) {
             try? await Task.sleep(for: .milliseconds(120))
             if !Task.isCancelled { await model.refreshWaveform() }
         }
+    }
+
+    private var tracks: some View {
+        let g = model.geometry
+        let contentW = max(g.contentWidth(durationNs: model.durationNs) + 40, viewportWidth)
+        return ZStack(alignment: .topLeading) {
+            Ruler(geometry: g, width: contentW)
+                .frame(width: contentW, height: TimelineLayout.rulerHeight)
+            markers(g)
+            outsideEnd(g, contentW: contentW)
+            clipTrack(g)
+            zoomTrack(g)
+            if layout.lanes.contains(.typing) { typingLane(g) }
+            if layout.lanes.contains(.camera) { cameraLane(g) }
+            if layout.lanes.contains(.cursor) { cursorLane(g) }
+            if layout.lanes.contains(.highlight) { highlightLane(g) }
+            if layout.lanes.contains(.text) { textLane(g, top: layout.textTop, kinds: [.annotation, .reaction]) }
+            if layout.lanes.contains(.caption) { textLane(g, top: layout.captionTop, kinds: [.caption]) }
+            if layout.lanes.contains(.music) { musicLane(g) }
+            if let snap = model.snapGuideNs {
+                Rectangle().fill(Yap.technical).frame(width: PixelGrid.pixel(scale: displayScale), height: layout.totalHeight)
+                    .offset(x: PixelGrid.lineEdge(g.x(forNs: snap) + g.scrollOffsetPx, scale: displayScale))
+                    .allowsHitTesting(false)
+            }
+            PlayheadMarker(playhead: model.playhead, model: model, geometry: g, height: layout.totalHeight)
+        }
+        .frame(width: contentW, height: layout.totalHeight, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .gesture(timelineDrag(g))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Timeline")
     }
 
     /// Remembers the visible width; the first real width fits the whole project with a small margin.
@@ -117,11 +164,21 @@ struct TimelineView: View {
         if !model.timelineFitted, w > 100 { model.timelineFitted = true; model.fitTimeline(width: Double(w) - 16) }
     }
 
+    /// Markers sit on the ruler, between the labels and the ticks.
+    private func markers(_ g: TimelineGeometry) -> some View {
+        ForEach(Array(model.project.markerTimesNs.enumerated()), id: \.offset) { _, ns in
+            Image(systemName: "flag.fill").font(.system(size: 8)).foregroundStyle(Yap.label)
+                .offset(x: g.x(forNs: ns) + 2, y: 13).allowsHitTesting(false)
+                .help("Marker at \(formatTimecode(ns, showFraction: false))")
+                .accessibilityLabel("Marker at \(formatTimecode(ns))")
+        }
+    }
+
     /// Time after the project end: lanes stop there, the ruler goes on, and this dimmed area says "outside".
     private func outsideEnd(_ g: TimelineGeometry, contentW: CGFloat) -> some View {
         let x = g.x(forNs: model.durationNs)
-        return Rectangle().fill(Color.primary.opacity(0.06))
-            .overlay(alignment: .leading) { Rectangle().fill(Color.primary.opacity(0.25)).frame(width: 1) }
+        return Rectangle().fill(Color.black.opacity(0.2))
+            .overlay(alignment: .leading) { Rectangle().fill(Color.white.opacity(0.14)).frame(width: PixelGrid.pixel(scale: displayScale)) }
             .frame(width: max(contentW - x, 0), height: max(layout.totalHeight - TimelineLayout.rulerHeight, 0))
             .offset(x: x, y: TimelineLayout.rulerHeight)
             .allowsHitTesting(false).accessibilityHidden(true)
@@ -133,25 +190,16 @@ struct TimelineView: View {
             let x = g.x(forNs: entry.startNs)
             let w = max(g.contentWidth(durationNs: entry.clip.timelineDurationNs), 2)
             let selected = model.selection == .clip(entry.clip.id)
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor.opacity(selected ? 0.55 : 0.28))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor.opacity(selected ? 1 : 0.5), lineWidth: selected ? 2 : 1))
+            RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
+                .fill(TimelineLook.clip)
                 .overlay(alignment: .topLeading) {
                     if model.showWaveform && !model.waveform.isEmpty {
                         WaveformLayer(points: model.waveform, geometry: g, width: g.contentWidth(durationNs: model.durationNs) + 40, height: TimelineLayout.clipTrackHeight, smooth: model.smoothWaveform)
                             .offset(x: -x).frame(width: max(w - 1, 1), height: TimelineLayout.clipTrackHeight, alignment: .topLeading).clipped()
                     }
                 }
-                .overlay(alignment: .topLeading) {
-                    // Label on its own small backing, above the waveform (which is drawn below it at low opacity).
-                    HStack(spacing: 4) {
-                        Text(clipLabel(entry.clip)).font(.caption.weight(.semibold))
-                        if entry.clip.speed != 1 { Text(String(format: "%.2g×", entry.clip.speed)).font(.caption2).foregroundStyle(.secondary) }
-                    }
-                    .lineLimit(1).padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 4))
-                    .foregroundStyle(.white).padding(4)
-                }
+                .overlay(alignment: .topLeading) { clipFace(entry.clip) }
+                .modifier(ChipChrome(selected: selected, grips: false))
                 .frame(width: max(w - 1, 1), height: TimelineLayout.clipTrackHeight)
                 .offset(x: x, y: layout.clipTop)
                 .accessibilityElement(children: .ignore)
@@ -159,6 +207,18 @@ struct TimelineView: View {
                 .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                 .accessibilityAction(named: "Select") { model.selection = .clip(entry.clip.id); model.seek(toNs: entry.startNs) }
                 .accessibilityAction(named: "Delete") { model.selection = .clip(entry.clip.id); model.deleteSelection() }
+        }
+    }
+
+    /// The length (and speed) on a small dark label, above the waveform; only where it fits whole.
+    private func clipFace(_ c: TimelineClip) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Text(clipLabel(c)).font(.system(size: 10, weight: .semibold)).lineLimit(1).fixedSize()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Color.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .padding(4)
+            Color.clear.frame(width: 0, height: 0)
         }
     }
 
@@ -170,30 +230,30 @@ struct TimelineView: View {
 
     private func zoomTrack(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04))
+            RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous).fill(TimelineLook.laneGround)
                 .overlay { if model.zooms.isEmpty && model.zoomCreatePreview == nil {
-                    Text("Click or drag to add zoom on cursor").font(.caption).foregroundStyle(.secondary)
+                    Text("Click or drag to add zoom on cursor").font(.system(size: 11)).foregroundStyle(Yap.faint).lineLimit(1)
                 } }
                 .frame(width: g.contentWidth(durationNs: model.durationNs), height: TimelineLayout.zoomTrackHeight)
             if let p = model.zoomCreatePreview {
-                RoundedRectangle(cornerRadius: 6).strokeBorder(Color.purple, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                    .background(Color.purple.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
+                RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
+                    .fill(TimelineLook.zoom.opacity(0.16))
+                    .overlay(RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
+                        .strokeBorder(TimelineLook.zoom, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
                     .frame(width: max(g.contentWidth(durationNs: p.end - p.start), 2), height: TimelineLayout.zoomTrackHeight - 4)
                     .offset(x: g.x(forNs: p.start), y: 2).allowsHitTesting(false)
             }
             ForEach(model.zooms) { z in
                 let selected = model.selection == .zoom(z.id) || model.extraZoomSelection.contains(z.id)
-                let tint: Color = z.mode == .auto ? .purple : .orange
                 let r = model.displayedRange(of: z)
                 let w = max(g.contentWidth(durationNs: r.end - r.start), 6)
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(tint.opacity(selected ? 0.6 : 0.32))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
+                RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
+                    .fill(z.mode == .auto ? TimelineLook.zoomAuto : TimelineLook.zoom)
                     .overlay(alignment: .leading) {
-                        Label(String(format: "%.1fx · ", z.scale).replacingOccurrences(of: ".0x", with: "x") + (z.mode == .auto ? "Auto" : "Manual"), systemImage: "plus.magnifyingglass")
-                            .font(.caption2.weight(.medium)).labelStyle(.titleAndIcon).padding(.leading, 8).lineLimit(1)
+                        ChipLabel(text: String(format: "%.1fx · ", z.scale).replacingOccurrences(of: ".0x", with: "x") + (z.mode == .auto ? "Auto" : "Manual"),
+                                  symbol: "plus.magnifyingglass")
                     }
-                    .modifier(TrimHandles(tint: tint, selected: selected))
+                    .modifier(ChipChrome(selected: selected))
                     .frame(width: w, height: TimelineLayout.zoomTrackHeight - 4)
                     .offset(x: g.x(forNs: r.start), y: 2)
                     .accessibilityElement(children: .ignore)
@@ -205,21 +265,20 @@ struct TimelineView: View {
         .offset(y: layout.zoomTop)
     }
 
-    private func laneBackground(_ g: TimelineGeometry, top: CGFloat, label: String) -> some View {
-        RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04))
-            .overlay(alignment: .leading) { Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.tertiary).padding(.leading, 6) }
+    private func laneBackground(_ g: TimelineGeometry, top: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous).fill(TimelineLook.laneGround)
             .frame(width: g.contentWidth(durationNs: model.durationNs), height: TimelineLayout.laneHeight)
             .offset(y: top)
     }
 
-    private func rangeChip(_ g: TimelineGeometry, key: String, span: TimeSpan, top: CGFloat, tint: Color, title: String, sel: EditorSelection, enabled: Bool = true) -> some View {
+    private func rangeChip(_ g: TimelineGeometry, key: String, span: TimeSpan, top: CGFloat, fill: Color, title: String, sel: EditorSelection,
+                           enabled: Bool = true, labelColor: Color = .white) -> some View {
         let selected = model.selection == sel
         let r = model.zoomPreview[key] ?? (span.startNs, span.endNs)
-        return RoundedRectangle(cornerRadius: 6)
-            .fill(tint.opacity(selected ? 0.6 : 0.32))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
-            .overlay(alignment: .leading) { Text(title).font(.caption2.weight(.medium)).lineLimit(1).padding(.leading, 12) }
-            .modifier(TrimHandles(tint: tint, selected: selected))
+        return RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
+            .fill(fill)
+            .overlay(alignment: .leading) { ChipLabel(text: title, color: labelColor) }
+            .modifier(ChipChrome(selected: selected))
             .opacity(enabled ? 1 : 0.4)
             .frame(width: max(g.contentWidth(durationNs: r.1 - r.0), 6), height: TimelineLayout.laneHeight - 4)
             .offset(x: g.x(forNs: r.0), y: top + 2)
@@ -229,14 +288,16 @@ struct TimelineView: View {
             .modifier(ItemActions(model: model, selection: sel))
     }
 
-    /// Keystroke bursts that could be sped up; click one for the suggestion popover.
+    /// Keystroke bursts that could be sped up: dashed while only suggested; click one for the suggestion popover.
     private func typingLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
-            laneBackground(g, top: layout.typingTop, label: "")
+            laneBackground(g, top: layout.typingTop)
             ForEach(model.typingSuggestions, id: \.startNs) { sp in
-                RoundedRectangle(cornerRadius: 6).fill(Color.orange.opacity(0.35))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.orange.opacity(0.7)))
-                    .overlay(alignment: .leading) { Label("Typing", systemImage: "keyboard").font(.caption2.weight(.medium)).padding(.leading, 6).lineLimit(1) }
+                RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous).fill(Color.white.opacity(0.06))
+                    .overlay(RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
+                        .strokeBorder(Yap.caption, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                    .overlay(alignment: .leading) { ChipLabel(text: "Typing", symbol: "keyboard", color: Yap.label) }
+                    .modifier(ChipChrome(selected: model.typingPopover == sp.startNs, grips: false))
                     .frame(width: max(g.contentWidth(durationNs: sp.durationNs), 6), height: TimelineLayout.laneHeight - 4)
                     .offset(x: g.x(forNs: sp.startNs), y: layout.typingTop + 2)
                     .popover(isPresented: Binding(get: { model.typingPopover == sp.startNs }, set: { if !$0 { model.typingPopover = nil } }), arrowEdge: .top) {
@@ -252,9 +313,9 @@ struct TimelineView: View {
 
     private func cameraLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
-            laneBackground(g, top: layout.cameraTop, label: "")
+            laneBackground(g, top: layout.cameraTop)
             ForEach(model.layouts) { l in
-                rangeChip(g, key: l.id, span: TimeSpan(startNs: l.startNs, endNs: l.endNs), top: layout.cameraTop, tint: .teal,
+                rangeChip(g, key: l.id, span: TimeSpan(startNs: l.startNs, endNs: l.endNs), top: layout.cameraTop, fill: TimelineLook.camera,
                           title: (layoutModes.first { $0.value == l.mode }?.label ?? l.mode) + (l.enabled ? "" : " (off)"), sel: .layout(l.id), enabled: l.enabled)
             }
         }
@@ -262,9 +323,9 @@ struct TimelineView: View {
 
     private func highlightLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
-            laneBackground(g, top: layout.highlightTop, label: "")
+            laneBackground(g, top: layout.highlightTop)
             ForEach(model.highlights) { h in
-                rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, tint: .yellow,
+                rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, fill: TimelineLook.regions,
                           title: h.kind.label + (h.enabled ? "" : " (off)"), sel: .highlight(h.id), enabled: h.enabled)
             }
         }
@@ -272,29 +333,30 @@ struct TimelineView: View {
 
     private func textLane(_ g: TimelineGeometry, top: CGFloat, kinds: [TextKind]) -> some View {
         ZStack(alignment: .topLeading) {
-            laneBackground(g, top: top, label: "")
+            laneBackground(g, top: top)
             ForEach(kinds.flatMap { model.textItems($0) }) { t in
-                rangeChip(g, key: EditorModel.textKey(t), span: t.span, top: top, tint: t.kind == .caption ? .indigo : t.kind == .reaction ? .pink : .mint,
-                          title: t.text.replacingOccurrences(of: "\n", with: " "), sel: .text(t.kind, t.id))
+                rangeChip(g, key: EditorModel.textKey(t), span: t.span, top: top, fill: t.kind == .caption ? TimelineLook.caption : TimelineLook.text,
+                          title: t.text.replacingOccurrences(of: "\n", with: " "), sel: .text(t.kind, t.id),
+                          labelColor: t.kind == .caption ? Yap.label : .white)
             }
         }
     }
 
     private func musicLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
-            laneBackground(g, top: layout.musicTop, label: "")
+            laneBackground(g, top: layout.musicTop)
             ForEach(model.music) { m in
-                rangeChip(g, key: m.id, span: m.span, top: layout.musicTop, tint: .green, title: "♪ " + m.title, sel: .music(m.id))
+                rangeChip(g, key: m.id, span: m.span, top: layout.musicTop, fill: TimelineLook.music, title: "♪ " + m.title, sel: .music(m.id))
             }
         }
     }
 
     private func cursorLane(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
-            laneBackground(g, top: layout.cursorTop, label: "")
+            laneBackground(g, top: layout.cursorTop)
             ForEach(model.cursorHides, id: \.index) { h in
-                rangeChip(g, key: EditorModel.cursorKey(h.index), span: h.span, top: layout.cursorTop, tint: .gray,
-                          title: "Cursor hidden", sel: .cursorHide(h.index))
+                rangeChip(g, key: EditorModel.cursorKey(h.index), span: h.span, top: layout.cursorTop, fill: TimelineLook.cursor,
+                          title: "Cursor hidden", sel: .cursorHide(h.index), labelColor: Yap.label)
             }
         }
     }
@@ -423,9 +485,92 @@ struct TimelineView: View {
     }
 }
 
+/// Quiet track names in their own column, each centred on its track (same tops as `TimelineLayout`).
+private struct TrackNames: View {
+    let layout: TimelineLayout
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            name("Video", top: layout.clipTop, height: TimelineLayout.clipTrackHeight)
+            name("Zoom", top: layout.zoomTop, height: TimelineLayout.zoomTrackHeight)
+            ForEach(layout.lanes, id: \.self) { lane in
+                name(lane.title, top: layout.top(of: lane) ?? layout.lanesTop, height: TimelineLayout.laneHeight)
+            }
+        }
+        .frame(width: TimelineLook.namesWidth, height: layout.totalHeight, alignment: .topTrailing)
+        .padding(.trailing, TimelineLook.namesColumn - TimelineLook.namesWidth)
+        .accessibilityHidden(true)
+    }
+
+    private func name(_ text: String, top: CGFloat, height: CGFloat) -> some View {
+        Text(text).font(.system(size: 10, weight: .medium)).foregroundStyle(Yap.faint).lineLimit(1)
+            .frame(width: TimelineLook.namesWidth, height: height, alignment: .trailing)
+            .offset(y: top)
+    }
+}
+
+/// Text on an item: white, 10 pt semibold, an optional symbol; shown only where it fits whole (a cut-off label is noise).
+private struct ChipLabel: View {
+    let text: String
+    var symbol: String?
+    var color = Color.white
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            full
+            Color.clear.frame(width: 0, height: 0)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var full: some View {
+        HStack(spacing: 4) {
+            if let symbol { Image(systemName: symbol).font(.system(size: 9, weight: .semibold)) }
+            Text(text).font(.system(size: 10, weight: .semibold)).lineLimit(1)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 10)
+        .fixedSize()
+    }
+}
+
+/// Selection, hover and trim grips of a timeline item: a white outline when selected, a step of brightness on hover
+/// (fast in, soft out), white grips at both ends on hover or selection (the edges are the trim hit areas).
+struct ChipChrome: ViewModifier {
+    let selected: Bool
+    var grips = true
+    @State private var hover = false
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: TimelineLook.radius, style: .continuous)
+        content
+            .brightness(hover ? 0.06 : 0)
+            .overlay { if selected { shape.strokeBorder(Color.white, lineWidth: 2) } }
+            .modifier(TrimHandles(visible: grips && (selected || hover)))
+            .clipShape(shape)
+            .onHover { on in withAnimation(Yap.Motion.hover(on)) { hover = on } }
+    }
+}
+
+/// Grips at both ends of a chip (white, no tint), visible while the pointer is over it or it is selected.
+struct TrimHandles: ViewModifier {
+    let visible: Bool
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .leading) { grip.padding(.leading, 3) }
+            .overlay(alignment: .trailing) { grip.padding(.trailing, 3) }
+    }
+    private var grip: some View {
+        Capsule().fill(Color.white).frame(width: 3, height: 14).opacity(visible ? 1 : 0).allowsHitTesting(false)
+    }
+}
+
+/// Major ticks with timecodes (yellow) and four minor ticks between, after the lab: major 8 px, minor 4 px, labels
+/// at least 70 pt apart (`TimelineGeometry.rulerStepSeconds`).
 struct Ruler: View {
     let geometry: TimelineGeometry
     let width: CGFloat
+    @Environment(\.displayScale) private var displayScale
 
     /// Whole seconds ("0:01") unless the label spacing needs a fraction ("0:01.5", "0:01.25" for very fine steps).
     static func label(_ t: Double, step: Double) -> String {
@@ -444,34 +589,17 @@ struct Ruler: View {
             let maxT = Double(width) / geometry.pixelsPerSecond
             for i in 0...((maxT / minor).isFinite ? Int(min(max(maxT / minor, 0), 100_000)) : 0) {
                 let t = Double(i) * minor
-                let x = t * geometry.pixelsPerSecond
-                let isMajor = i % 5 == 0
-                if isMajor {
-                    ctx.fill(Path(CGRect(x: x, y: size.height - 8, width: 1, height: 8)), with: .color(.secondary.opacity(0.7)))
-                    ctx.draw(Text(Self.label(t, step: step)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary),
+                let x = PixelGrid.lineEdge(t * geometry.pixelsPerSecond, scale: displayScale)
+                if i % 5 == 0 {
+                    ctx.fill(Path(CGRect(x: x, y: size.height - 8, width: 1, height: 8)), with: .color(.white.opacity(0.4)))
+                    ctx.draw(Text(Self.label(t, step: step)).font(.system(size: 10, weight: .medium).monospacedDigit()).foregroundStyle(Yap.technical),
                              at: CGPoint(x: x + 4, y: 8), anchor: .leading)
                 } else if minor * geometry.pixelsPerSecond >= 6 {
-                    ctx.fill(Path(CGRect(x: x, y: size.height - 4, width: 1, height: 4)), with: .color(.secondary.opacity(0.3)))
+                    ctx.fill(Path(CGRect(x: x, y: size.height - 4, width: 1, height: 4)), with: .color(.white.opacity(0.18)))
                 }
             }
         }
         .accessibilityHidden(true)
-    }
-}
-
-/// Grips at both ends of a chip, visible while the pointer is over it or it is selected (the edges are the trim hit areas).
-struct TrimHandles: ViewModifier {
-    let tint: Color
-    let selected: Bool
-    @State private var hovering = false
-    func body(content: Content) -> some View {
-        content
-            .overlay(alignment: .leading) { grip.padding(.leading, 3) }
-            .overlay(alignment: .trailing) { grip.padding(.trailing, 3) }
-            .onHover { hovering = $0 }
-    }
-    private var grip: some View {
-        Capsule().fill(tint).frame(width: 3, height: 14).opacity(selected || hovering ? 1 : 0).allowsHitTesting(false)
     }
 }
 
@@ -496,20 +624,25 @@ enum LaneHitTest {
 }
 
 /// Only this view observes the playhead, so scrubbing never re-evaluates the tracks.
+/// One physical pixel of white, on the pixel grid, with a small head in the ruler. White: red is for recording only.
 struct PlayheadMarker: View {
     @ObservedObject var playhead: PlayheadState
     let model: EditorModel
     let geometry: TimelineGeometry
     let height: CGFloat
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
-        ZStack(alignment: .top) {
-            // 1 pt line, drawn below the ruler and translucent over chips so their labels stay readable; the knob sits in the ruler.
-            Rectangle().fill(Color.red.opacity(0.7)).frame(width: 1, height: max(height - TimelineLayout.rulerHeight, 0)).offset(y: TimelineLayout.rulerHeight)
-            Rectangle().fill(Color.red).frame(width: 1, height: TimelineLayout.rulerHeight)
-            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 10)).foregroundStyle(.red).offset(y: -1)
+        let px = PixelGrid.pixel(scale: displayScale)
+        let edge = PixelGrid.lineEdge(geometry.x(forNs: playhead.ns), scale: displayScale)
+        ZStack(alignment: .topLeading) {
+            Rectangle().fill(Color.white).frame(width: px, height: height)
+            PlayheadHead().fill(Color.white)
+                .frame(width: PlayheadHead.width, height: PlayheadHead.height)
+                .offset(x: px / 2 - PlayheadHead.width / 2)
         }
-        .frame(width: 12, height: height, alignment: .top)
-        .offset(x: geometry.x(forNs: playhead.ns) - 6)
+        .frame(width: px, height: height, alignment: .topLeading)
+        .offset(x: edge)
         .allowsHitTesting(false)
         // VoiceOver: an adjustable "playhead" (up/down = ±1 s) with jump-to-edit-point actions.
         .accessibilityElement(children: .ignore)
@@ -518,6 +651,19 @@ struct PlayheadMarker: View {
         .accessibilityAdjustableAction { dir in model.step(bySeconds: dir == .increment ? 1 : -1) }
         .accessibilityAction(named: "Previous edit point") { model.jumpToEditPoint(forward: false) }
         .accessibilityAction(named: "Next edit point") { model.jumpToEditPoint(forward: true) }
+    }
+}
+
+/// The playhead's head: a small downward triangle at the top of the ruler, its tip on the line.
+struct PlayheadHead: Shape {
+    static let width: CGFloat = 9, height: CGFloat = 6
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.midX, y: r.maxY))
+        p.closeSubpath()
+        return p
     }
 }
 
@@ -539,26 +685,36 @@ struct TypingPopover: View {
     @ObservedObject var model: EditorModel
     let span: TimeSpan
     @State private var speed = 3.0
+
+    private var amount: Binding<Double> {
+        let r = EditorModel.typingSpeedRange
+        return Binding(get: { (speed - r.lowerBound) / (r.upperBound - r.lowerBound) },
+                       set: { speed = ((r.lowerBound + $0 * (r.upperBound - r.lowerBound)) * 2).rounded() / 2 })
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Speed up typing", systemImage: "keyboard").font(.headline)
-            Text("\(formatTimecode(span.startNs)) – \(formatTimecode(span.endNs))").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            HStack {
-                Slider(value: $speed, in: EditorModel.typingSpeedRange, step: 0.5) { e in if !e { model.typingSpeed = speed } }
-                    .accessibilityLabel("Typing speed").accessibilityValue(String(format: "%.1f times", speed))
-                Text(String(format: "%.1fx", speed)).monospacedDigit().frame(width: 40, alignment: .trailing)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "keyboard").foregroundStyle(Yap.caption)
+                Text("Speed up typing").font(Yap.Font.label).foregroundStyle(Yap.title)
+                Spacer()
+                Text("\(formatTimecode(span.startNs, showFraction: false)) – \(formatTimecode(span.endNs, showFraction: false))").technical()
             }
-            HStack {
+            ValueSlider("Speed", value: String(format: "%.1fx", speed), amount: amount)
+                .accessibilityLabel("Typing speed").accessibilityValue(String(format: "%.1f times", speed))
+            HStack(spacing: 8) {
                 Button("Apply") { model.typingSpeed = speed; model.applyTypingSuggestion(span) }.keyboardShortcut(.defaultAction)
                 Button("Apply to all (\(model.typingSuggestions.count))") { model.typingSpeed = speed; model.applyAllTypingSuggestions() }
                     .keyboardShortcut(.return, modifiers: .command)
             }
-            HStack {
-                Button("Remove suggestion", role: .destructive) { model.dismissTypingSuggestion(span) }
+            .buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
+            HStack(spacing: 14) {
+                Button("Remove suggestion") { model.dismissTypingSuggestion(span) }
                 Button("Restore removed") { model.restoreTypingSuggestions() }
-            }.buttonStyle(.borderless)
+            }
+            .buttonStyle(.plain).font(Yap.Font.caption).foregroundStyle(Yap.caption)
         }
-        .padding(14).frame(width: 290)
+        .padding(14).frame(width: 300)
         .onAppear { speed = model.typingSpeed }
     }
 }
