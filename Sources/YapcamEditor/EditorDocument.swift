@@ -43,6 +43,8 @@ import UniformTypeIdentifiers
         model.presetStore = presets; model.defaults = presets.defaults
         model.loadStoredPreviewOptions()
         model.loadLaneVisibility()
+        model.playheadMemoryPath = package.standardizedFileURL.path
+        model.restorePlayhead()
         model.favoriteWallpapers = Set(presets.defaults.stringArray(forKey: "editor.favoriteWallpapers") ?? [])
         model.smoothWaveform = presets.defaults.bool(forKey: "editor.smoothWaveform")
         model.showWaveform = presets.defaults.object(forKey: "editor.showWaveform") as? Bool ?? true

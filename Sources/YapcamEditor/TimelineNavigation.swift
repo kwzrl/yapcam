@@ -112,3 +112,33 @@ struct TimelineScrollHost: NSViewRepresentable {
         }
     }
 }
+
+// MARK: audio scrubbing (editor side of S-EDT-31)
+
+/// What the editor needs from render's `AudioScrubber` (not in render yet: see the request in docs/status/editor.md).
+@MainActor public protocol AudioScrubbing: AnyObject {
+    /// Plays a short grain at `ns`; `velocityNsPerSec` is the playhead speed (negative = reversed grain). Silence follows by itself.
+    func scrub(toNs ns: Int64, velocityNsPerSec: Double)
+    func stopScrubbing()
+}
+
+/// Playhead velocity from successive scrub positions; nil for the first sample or when no time passed.
+struct ScrubVelocity {
+    private var last: (ns: Int64, t: Double)?
+    mutating func sample(ns: Int64, at t: Double) -> Double? {
+        defer { last = (ns, t) }
+        guard let l = last, t > l.t else { return nil }
+        let v = Double(ns - l.ns) / (t - l.t)
+        return v.isFinite ? v : nil
+    }
+    mutating func reset() { last = nil }
+}
+
+extension EditorModel {
+    /// Called from the timeline's scrub drag. Does nothing unless a scrubber is attached and the user turned scrubbing on.
+    func scrubAudio(toNs ns: Int64, at time: Double) {
+        guard scrubAudioEnabled, let scrubber = audioScrubber else { return }
+        if let v = scrubVelocity.sample(ns: ns, at: time) { scrubber.scrub(toNs: ns, velocityNsPerSec: v) }
+    }
+    func endAudioScrub() { scrubVelocity.reset(); audioScrubber?.stopScrubbing() }
+}

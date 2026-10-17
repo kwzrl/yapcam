@@ -85,6 +85,12 @@ public final class EditorModel: ObservableObject {
     var timelineScroller: (any TimelineScroller)?
     @Published var laneVisibility = LaneVisibility()
     var optionRestoresCutTool: Bool?
+    /// Audio scrubbing (S-EDT-31): attached by the app once render provides a scrubber; the user switch is remembered.
+    public var audioScrubber: (any AudioScrubbing)?
+    var scrubVelocity = ScrubVelocity()
+    public var scrubAudioEnabled: Bool { get { defaults.bool(forKey: "editor.scrubAudio") } set { defaults.set(newValue, forKey: "editor.scrubAudio") } }
+    /// Project path under which the playhead position is remembered (set by the document).
+    var playheadMemoryPath: String?
     /// Range being dragged out in an empty Layouts or Masks lane.
     @Published var laneCreatePreview: (lane: TimelineLane, start: Int64, end: Int64)?
     /// Set once the timeline view has fitted the project to its real width.
@@ -138,6 +144,7 @@ public final class EditorModel: ObservableObject {
     /// Saves pending edits, cancels all background work and makes the model inert.
     public func close() {
         guard !isClosed else { return }
+        rememberPlayhead()
         saveNow()
         isClosed = true
         autosaveTask?.cancel()

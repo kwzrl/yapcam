@@ -82,3 +82,29 @@ import Testing
         #expect(TimelineClick.decide(input(200, 2)) == .scrub(selectClip: nil))                      // above the bubble: ruler scrub
     }
 }
+
+@MainActor @Suite struct AudioScrubWiringTests {
+    final class Spy: AudioScrubbing {
+        var grains: [(Int64, Double)] = [], stops = 0
+        func scrub(toNs ns: Int64, velocityNsPerSec v: Double) { grains.append((ns, v)) }
+        func stopScrubbing() { stops += 1 }
+    }
+    @Test func velocityIsNsPerSecondAndSignedForReverseDrags() {
+        var v = ScrubVelocity()
+        #expect(v.sample(ns: 1_000_000_000, at: 10) == nil)                    // first sample has no speed
+        #expect(v.sample(ns: 2_000_000_000, at: 10.5) == 2_000_000_000)        // 1 s of timeline in 0.5 s
+        #expect(v.sample(ns: 1_000_000_000, at: 11) == -2_000_000_000)         // reverse
+        #expect(v.sample(ns: 1_000_000_000, at: 11) == nil)                    // no time passed
+    }
+    @Test func scrubbingReachesTheScrubberOnlyWhenSwitchedOnAndStopsAtTheEnd() {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = EditorModel(project: FakeProject(durationNs: 10_000_000_000), player: FakePlayer()); m.defaults = iso.defaults
+        let spy = Spy(); m.audioScrubber = spy
+        m.scrubAudio(toNs: 0, at: 1); m.scrubAudio(toNs: 1_000_000_000, at: 2)
+        #expect(spy.grains.isEmpty)                                            // switch is off
+        m.scrubAudioEnabled = true
+        m.scrubAudio(toNs: 1_000_000_000, at: 3); m.scrubAudio(toNs: 3_000_000_000, at: 4)
+        #expect(spy.grains.count == 1 && spy.grains[0].0 == 3_000_000_000 && spy.grains[0].1 == 2_000_000_000)
+        m.endAudioScrub(); #expect(spy.stops == 1)
+    }
+}

@@ -110,3 +110,20 @@ import Testing
         #expect(EditorDocument.frameFileName(title: "Demo", atNs: 65_000_000_000) == "Demo 1-05.png")
     }
 }
+
+@MainActor @Suite struct PlayheadMemoryTests {
+    @Test func reopeningRestoresThePlayheadExceptAtTheVeryEnd() {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let p = FakeProject(durationNs: 20_000_000_000)
+        let m = EditorModel(project: p, player: FakePlayer()); m.defaults = iso.defaults; m.playheadMemoryPath = "/tmp/a.yapcam"
+        m.seek(toNs: 7_000_000_000); m.close()
+        let again = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer()); again.defaults = iso.defaults
+        again.playheadMemoryPath = "/tmp/a.yapcam"; again.restorePlayhead()
+        #expect(again.playheadNs == 7_000_000_000)
+        again.playheadMemoryPath = "/tmp/other.yapcam"; again.seek(toNs: 0); again.restorePlayhead(); #expect(again.playheadNs == 0)       // another project
+        PlayheadMemory.remember(path: "/tmp/a.yapcam", ns: 19_950_000_000, defaults: iso.defaults)
+        #expect(PlayheadMemory.restore(path: "/tmp/a.yapcam", durationNs: 20_000_000_000, defaults: iso.defaults) == nil)
+        for i in 0..<80 { PlayheadMemory.remember(path: "/tmp/p\(i)", ns: 1, defaults: iso.defaults) }
+        #expect((iso.defaults.dictionary(forKey: PlayheadMemory.key) ?? [:]).count <= PlayheadMemory.limit)
+    }
+}

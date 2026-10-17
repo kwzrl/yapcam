@@ -412,6 +412,7 @@ struct TimelineView: View {
                 case .zoomCreate(let s): model.zoomCreatePreview = (min(s, ns), max(s, ns))
                 case .scrub:
                     model.seek(toNs: model.snapped(ns, includePlayhead: false), precise: false)
+                    model.scrubAudio(toNs: model.playheadNs, at: ProcessInfo.processInfo.systemUptime)
                 case .zoomMove(let id, let off):
                     model.previewZoom(id: id, moveToStartNs: model.snapped(ns - off, excludingZoom: id))
                 case .zoomStart(let id):
@@ -433,7 +434,7 @@ struct TimelineView: View {
             }
             .onEnded { v in
                 switch drag {
-                case .scrub: model.seek(toNs: model.playheadNs, precise: true)
+                case .scrub: model.seek(toNs: model.playheadNs, precise: true); model.endAudioScrub()
                 case .zoomMove(let id, _), .zoomStart(let id), .zoomEnd(let id): model.commitZoomPreview(id: id)
                 case .rangeMove(let k, _), .rangeStart(let k), .rangeEnd(let k): model.commitRange(key: k)
                 case .laneCreate(let lane, let s):

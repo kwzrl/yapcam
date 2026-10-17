@@ -124,3 +124,30 @@ struct LaneMenu: View {
         .accessibilityLabel("Visible timelines")
     }
 }
+
+/// Where the playhead was when a project was closed, remembered per project (MKT-201 follow-up: reopen where you were).
+enum PlayheadMemory {
+    static let key = "editor.playheads", limit = 50
+    static func restore(path: String, durationNs: Int64, defaults: UserDefaults) -> Int64? {
+        guard let d = defaults.dictionary(forKey: key), let v = (d[path] as? NSNumber)?.int64Value else { return nil }
+        // Back at the very end means "done": start from the beginning again.
+        return v > 0 && v < durationNs - 200_000_000 ? v : nil
+    }
+    static func remember(path: String, ns: Int64, defaults: UserDefaults) {
+        var d = defaults.dictionary(forKey: key) ?? [:]
+        d[path] = NSNumber(value: ns)
+        if d.count > limit { for k in d.keys.sorted().prefix(d.count - limit) where k != path { d.removeValue(forKey: k) } }
+        defaults.set(d, forKey: key)
+    }
+}
+
+extension EditorModel {
+    func restorePlayhead() {
+        guard let path = playheadMemoryPath, let ns = PlayheadMemory.restore(path: path, durationNs: durationNs, defaults: defaults) else { return }
+        seek(toNs: ns)
+    }
+    func rememberPlayhead() {
+        guard let path = playheadMemoryPath else { return }
+        PlayheadMemory.remember(path: path, ns: playheadNs, defaults: defaults)
+    }
+}
