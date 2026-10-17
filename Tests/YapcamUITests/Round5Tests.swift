@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import YapcamRender
 import Foundation
 import Testing
 @testable import YapcamUI
@@ -197,8 +198,72 @@ import Testing
         return size
     }
 
+    private func renderView<V: View>(_ v: V, name: String, width: CGFloat = 560, height: CGFloat = 430) {
+        let settings = AppSettings(store: UserDefaults(suiteName: "mov.yapcam.Yapcam.r5-\(UUID().uuidString)")!)
+        let host = NSHostingView(rootView: v.environmentObject(settings).frame(width: width, height: height))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        host.layoutSubtreeIfNeeded()
+        if let dir = ProcessInfo.processInfo.environment["YAPCAM_SNAPSHOT_DIR"], let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(filePath: dir).appending(path: "\(name).png"))
+        }
+    }
+
+    @Test func settingsTabsRender() {
+        renderView(GeneralSettings(), name: "set-general")
+        renderView(RecordingSettings(), name: "set-recording")
+        renderView(EditingSettings(), name: "set-editing")
+        renderView(QuickExportSettings(), name: "set-quick")
+        renderView(ShortcutSettings(), name: "set-shortcuts")
+        renderView(AdvancedSettings(), name: "set-advanced")
+    }
+
     @Test func idleBarIsAHorizontalStrip() throws {
         let size = try render(nil, name: "bar-idle")
         #expect(size.width > size.height * 4 && size.width < 900, "\(size)")
+    }
+}
+
+@MainActor @Suite struct Round5SettingsTests {
+    static func suite() -> UserDefaults { UserDefaults(suiteName: "mov.yapcam.Yapcam.r5-\(UUID().uuidString)")! }
+
+    @Test func resetPutsEverythingBackButKeepsTheRecordingsFolder() {
+        let suite = Self.suite()
+        let s = AppSettings(store: suite)
+        s.countdown = 5; s.createAutoZooms = false; s.afterRecording = .exportSave; s.systemAudio = true
+        s.autosaveEnabled = false; s.savedAreaSizes = ["800x600"]; s.setCombo(KeyCombo(keyCode: 0, modifiers: 256), for: .marker)
+        s.storageDirectory = URL(filePath: "/tmp/my-recordings", directoryHint: .isDirectory)
+        s.hasCompletedOnboarding = true
+        s.resetToDefaults()
+        #expect(s.countdown == 0 && s.createAutoZooms && s.afterRecording == .createProject && !s.systemAudio && s.autosaveEnabled)
+        #expect(s.savedAreaSizes.isEmpty && s.shortcuts.isEmpty)
+        #expect(s.storageDirectory.path == "/tmp/my-recordings" && s.hasCompletedOnboarding)
+        let again = AppSettings(store: suite)          // what was written to disk matches
+        #expect(again.countdown == 0 && again.autosaveEnabled && again.storageDirectory.path == "/tmp/my-recordings")
+    }
+
+    @Test func quickExportSettingsPersistAndStayValid() {
+        let suite = Self.suite()
+        let s = AppSettings(store: suite)
+        #expect(s.quickExport.format == .mp4 && s.quickExport.outputHeight == 1080 && s.quickExport.fps == 30)
+        s.quickExport.outputHeight = 720; s.quickExport.fps = 60; s.quickExport.compression = .web
+        let back = AppSettings(store: suite).quickExport
+        #expect(back.outputHeight == 720 && back.fps == 60 && back.compression == .web)
+        var gif = AppSettings.defaultQuickExport; gif.format = .gif
+        s.quickExport = gif.closestValidPreset(for: .file)
+        let g = AppSettings(store: suite).quickExport
+        #expect(g.format == .gif && !g.includeAudio && ExportSettings.heights(for: .gif).contains(g.outputHeight))
+    }
+
+    @Test func quickExportUsesTheStoredSettingsAndKeepsGifConstantRate() {
+        var base = AppSettings.defaultQuickExport; base.outputHeight = 720
+        let e = QuickExport.quickExportSettings(base: base, variableFrameRate: true)
+        #expect(e.outputHeight == 720 && e.variableFrameRate)
+        var gif = base; gif.format = .gif
+        #expect(!QuickExport.quickExportSettings(base: gif, variableFrameRate: true).variableFrameRate)
+    }
+
+    @Test func editingShortcutsMatchTheEditor() {
+        #expect(ShortcutSettings.editingKeys.map(\.1) == ["C", "X", "L", "J", "K"])
     }
 }

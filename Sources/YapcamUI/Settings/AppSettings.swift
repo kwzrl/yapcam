@@ -236,3 +236,28 @@ extension AppSettings {
         return Self.activationPolicy(showInDock: showInDock, hideWhileRecording: hideDockWhileRecording, recording: phase == .recording || phase == .paused)
     }
 }
+
+extension AppSettings {
+    /// "Reset preferences": every preference goes back to its default. The recordings folder, the recents list and the
+    /// onboarding flag stay (resetting them would hide existing recordings or replay the welcome).
+    func resetToDefaults() {
+        let name = "yapcam.reset.\(UUID().uuidString)"
+        let scratch = UserDefaults(suiteName: name)!
+        defer { scratch.removePersistentDomain(forName: name) }
+        let f = AppSettings(store: scratch)
+        sourceMode = f.sourceMode; displayID = f.displayID; windowID = f.windowID; areaDisplayID = f.areaDisplayID; areaRect = f.areaRect
+        deviceID = f.deviceID; lastCameraID = f.lastCameraID; lastMicrophoneID = f.lastMicrophoneID
+        systemAudio = f.systemAudio; systemAudioSelectedOnly = f.systemAudioSelectedOnly; systemAudioApps = f.systemAudioApps
+        areaCustomRatioW = f.areaCustomRatioW; areaCustomRatioH = f.areaCustomRatioH
+        reuseLastProjectSettings = f.reuseLastProjectSettings; presetsDirectory = f.presetsDirectory
+        experimentalVariableFrameRate = f.experimentalVariableFrameRate; autosaveEnabled = f.autosaveEnabled
+        microphoneID = f.microphoneID; cameraID = f.cameraID; cameraMaxResolution = f.cameraMaxResolution
+        countdown = f.countdown; recordKeystrokes = f.recordKeystrokes; maxFPS = f.maxFPS
+        openEditorAfterRecording = f.openEditorAfterRecording; playSounds = f.playSounds; hideDesktopIcons = f.hideDesktopIcons
+        hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview
+        showInDock = f.showInDock; showMenuBarItem = f.showMenuBarItem
+        shortcuts = f.shortcuts; highlightRecordedArea = f.highlightRecordedArea; savedWindowSizes = f.savedWindowSizes; savedAreaSizes = f.savedAreaSizes
+        quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms
+        afterRecording = f.afterRecording; showQuickExportWidget = f.showQuickExportWidget
+    }
+}
