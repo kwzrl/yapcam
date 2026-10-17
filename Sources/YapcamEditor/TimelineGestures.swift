@@ -18,6 +18,7 @@ enum TimelineClick {
         var rangePreview: [String: (start: Int64, end: Int64)]
         var typing: [(startNs: Int64, endNs: Int64)]
         var clips: [(id: String, startNs: Int64, endNs: Int64)]
+        var cutMarkers: [(atNs: Int64, label: String)] = []
     }
 
     enum Action: Equatable {
@@ -31,6 +32,7 @@ enum TimelineClick {
         case zoomToggleSelect(id: String)
         case zoomDrag(id: String, part: ZoomPart)
         case clipCut(atNs: Int64)
+        case restoreCut(atNs: Int64)                           // S-EDT-24: click on a scissors bubble
         case clipEdge(id: String, edge: ClipTrim.Edge)         // S-EDT-23: drag the end of a clip
         case nothing
     }
@@ -42,7 +44,10 @@ enum TimelineClick {
     static func decide(_ i: Input) -> Action {
         let p = i.point, g = i.geometry, l = i.layout
         guard p.x.isFinite, p.y.isFinite else { return .nothing }
-        if p.y < l.clipTop { return .scrub(selectClip: nil) }
+        if p.y < l.clipTop {
+            if let m = i.cutMarkers.first(where: { CutMarker.hits(p, bubbleCenterX: g.x(forNs: $0.atNs), label: $0.label) }) { return .restoreCut(atNs: m.atNs) }
+            return .scrub(selectClip: nil)
+        }
         let ns = g.ns(forX: p.x)
         if l.lanes.contains(.typing), p.y >= l.typingTop, p.y < l.typingTop + TimelineLayout.laneHeight,
            let sp = i.typing.first(where: { p.x >= g.x(forNs: $0.startNs) - 2 && p.x <= g.x(forNs: $0.endNs) + 2 }) {

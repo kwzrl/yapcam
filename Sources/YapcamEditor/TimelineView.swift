@@ -133,6 +133,7 @@ struct TimelineView: View {
             Ruler(geometry: g, width: contentW)
                 .frame(width: contentW, height: TimelineLayout.rulerHeight)
             markers(g)
+            cutBubbles(g)
             outsideEnd(g, contentW: contentW)
             clipTrack(g)
             zoomTrack(g)
@@ -174,6 +175,15 @@ struct TimelineView: View {
                 .offset(x: g.x(forNs: ns) + 2, y: 13).allowsHitTesting(false)
                 .help("Marker at \(formatTimecode(ns, showFraction: false))")
                 .accessibilityLabel("Marker at \(formatTimecode(ns))")
+        }
+    }
+
+    /// Scissors bubbles where material was trimmed or cut away; clicking one restores it (routed through `TimelineClick`).
+    private func cutBubbles(_ g: TimelineGeometry) -> some View {
+        ForEach(model.cutMarkers) { m in
+            CutMarkerBubble(marker: m)
+                .offset(x: g.x(forNs: m.atNs) - CutMarker.width(CutMarker.label(m.removedNs)) / 2, y: CutMarker.top)
+                .allowsHitTesting(false)
         }
     }
 
@@ -444,7 +454,8 @@ struct TimelineView: View {
             zooms: model.zooms.map { z in let r = model.displayedRange(of: z); return (z.id, r.start, r.end) },
             rangeItems: items, rangePreview: model.zoomPreview,
             typing: model.typingSuggestions.map { ($0.startNs, $0.endNs) },
-            clips: model.clipStarts().map { ($0.clip.id, $0.startNs, $0.startNs + $0.clip.timelineDurationNs) })
+            clips: model.clipStarts().map { ($0.clip.id, $0.startNs, $0.startNs + $0.clip.timelineDurationNs) },
+            cutMarkers: model.cutMarkers.map { ($0.atNs, CutMarker.label($0.removedNs)) })
     }
 
     /// Secondary click: select what is under the pointer, then show its menu.
@@ -511,6 +522,7 @@ struct TimelineView: View {
             model.seek(toNs: model.snapped(ns, includePlayhead: false), precise: true)
             model.splitAtPlayhead()
             return .inert
+        case .restoreCut(let ns): model.restoreCut(atNs: ns); return .inert
         case .clipEdge(let id, let edge): model.selection = .clip(id); return .clipEdge(id: id, edge: edge)
         case .nothing: return .inert
         }
