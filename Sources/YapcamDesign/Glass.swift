@@ -73,6 +73,12 @@ public extension View {
         background(GlassSurface(radius: radius, floating: floating, behindWindow: behindWindow, lift: lift, sheen: sheen))
     }
 
+    /// A column or panel inside an opaque window (the editor): the same glass, blurring the window content,
+    /// corners concentric with the bar grid. `floating` lifts it over other content (a chat over the preview).
+    func columnPanel(floating: Bool = false) -> some View {
+        glassPanel(radius: Yap.Grid.barRadius, floating: floating, behindWindow: false, lift: floating ? 0.04 : 0)
+    }
+
     /// Dark-only window content with Yapcam's neutral tint (no accent colour for controls).
     func yapWindow() -> some View {
         environment(\.colorScheme, .dark).tint(Color.white)

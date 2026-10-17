@@ -74,21 +74,23 @@ public struct SlotButton: View {
     var compact: Bool
     /// A picture in place of the symbol (the toolbar's Edit button shows the latest recording).
     var image: NSImage?
+    /// Something new behind a closed slot (agent activity in a collapsed chat): the hover brightness stays on.
+    var attention: Bool
     let action: () -> Void
     @State private var hover = false
 
     public init(symbol: String, label: String, help: String = "", active: Bool, dim: Bool = false, enabled: Bool = true,
-                compact: Bool = false, image: NSImage? = nil, action: @escaping () -> Void) {
+                compact: Bool = false, image: NSImage? = nil, attention: Bool = false, action: @escaping () -> Void) {
         self.symbol = symbol; self.label = label; self.help = help; self.active = active; self.dim = dim
-        self.enabled = enabled; self.compact = compact; self.image = image; self.action = action
+        self.enabled = enabled; self.compact = compact; self.image = image; self.attention = attention; self.action = action
     }
 
     public var body: some View {
         Button(action: action) {
             content
-                .foregroundStyle(active || hover ? Yap.title : (dim ? Yap.caption : Yap.label))
+                .foregroundStyle(active || hover || attention ? Yap.title : (dim ? Yap.caption : Yap.label))
                 .opacity(enabled ? 1 : 0.35)
-                .background(Platter(active: active, hover: hover && enabled))
+                .background(Platter(active: active, hover: (hover || attention) && enabled))
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -123,5 +125,38 @@ public struct SlotButton: View {
         } else {
             Image(systemName: symbol).font(.system(size: size, weight: .regular))
         }
+    }
+}
+
+/// A small switch between a few views (Timeline / Transcript): text segments, the chosen one on a platter.
+/// No container, no separators; states through brightness only.
+public struct SegmentSwitch<ID: Hashable>: View {
+    let items: [(id: ID, title: String)]
+    @Binding var selection: ID
+    var height: CGFloat
+    @State private var hover: ID?
+
+    public init(_ items: [(id: ID, title: String)], selection: Binding<ID>, height: CGFloat = 28) {
+        self.items = items; _selection = selection; self.height = height
+    }
+
+    public var body: some View {
+        HStack(spacing: 2) {
+            ForEach(items, id: \.id) { item in segment(item.id, item.title) }
+        }
+    }
+
+    private func segment(_ id: ID, _ title: String) -> some View {
+        let on = selection == id, looked = hover == id
+        return Button { selection = id } label: {
+            Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                .foregroundStyle(on || looked ? Yap.title : Yap.caption)
+                .padding(.horizontal, 12).frame(height: height)
+                .background(Platter(active: on, hover: looked, radius: Yap.concentric(height / 2 + 4, inset: 4)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .onHover { hover = $0 ? id : (hover == id ? nil : hover) }
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }

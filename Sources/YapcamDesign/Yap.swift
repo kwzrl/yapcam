@@ -31,9 +31,15 @@ public enum Yap {
     /// Body of the glass: a neutral grey that is almost opaque (user preferred it over see-through glass).
     public static let glassGray = Color(white: 0.21)
 
-    /// Ground of opaque windows (editor) and the dark end of the glass tint.
-    public static let ground = Color(red: 0.075, green: 0.072, blue: 0.07)
-    public static let nsGround = NSColor(srgbRed: 0.075, green: 0.072, blue: 0.07, alpha: 1)
+    /// Ground of opaque windows (the editor's stage): neutral, a breath cool like the toolbar glass, never warm
+    /// (#1C1C1E; tuned in the lab with `ToneTuning`).
+    public static let ground = Color(red: 28 / 255, green: 28 / 255, blue: 30 / 255)
+    public static let nsGround = NSColor(srgbRed: 28 / 255, green: 28 / 255, blue: 30 / 255, alpha: 1)
+    /// Docked columns of a document window (inspector, chat, timeline, title row): a step above the ground, so the
+    /// stage in the middle reads as the darkest, calmest place. Separated from it by a plain hairline only (#242426).
+    public static let dock = Color(red: 36 / 255, green: 36 / 255, blue: 38 / 255)
+    /// Hairlines between docked columns: fainter than on glass.
+    public static let dockHairline = 0.09
 
     public enum Radius {
         public static let control: CGFloat = 10
@@ -76,6 +82,35 @@ public enum Yap {
         let d = GlassTuning()
         body = d.body; topLight = d.topLight; bottomLight = d.bottomLight
         rim = d.rim; warmth = d.warmth; shadow = d.shadow; sheen = d.sheen
+    }
+}
+
+/// Live-tunable tones of opaque windows (the design lab edits `shared`; the lab's editor reads it). Grey levels with
+/// red = green and blue `cool` above, so nothing turns brown. Defaults equal `Yap.ground`, `Yap.dock`, `Yap.dockHairline`.
+@MainActor @Observable public final class ToneTuning {
+    public static let shared = ToneTuning()
+    /// Grey level of the stage, 0…1.
+    public var stage: Double = 28 / 255
+    /// Grey level of docked columns and the title row, 0…1.
+    public var dock: Double = 36 / 255
+    /// White opacity of the hairlines between them.
+    public var hairline: Double = Yap.dockHairline
+    /// How much more blue than red and green (0 = neutral grey).
+    public var cool: Double = 2 / 255
+    public init() {}
+
+    public var stageColor: Color { grey(stage) }
+    public var dockColor: Color { grey(dock) }
+    public func grey(_ level: Double) -> Color { Color(red: level, green: level, blue: min(level + cool, 1)) }
+
+    public func hex(_ level: Double) -> String {
+        let v = Int((level * 255).rounded()), b = Int((min(level + cool, 1) * 255).rounded())
+        return String(format: "#%02X%02X%02X", v, v, b)
+    }
+
+    public func reset() {
+        let d = ToneTuning()
+        stage = d.stage; dock = d.dock; hairline = d.hairline; cool = d.cool
     }
 }
 
