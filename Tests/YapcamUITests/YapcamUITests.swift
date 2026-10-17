@@ -804,7 +804,7 @@ import YapcamEditor
 
     @Test func afterRecordingDefaultsAndLabels() {
         let s = settings()
-        #expect(s.afterRecording == .createProject && s.createAutoZooms && !s.showQuickExportWidget && s.showRecordingWidget)
+        #expect(s.afterRecording == .createProject && s.createAutoZooms && s.showQuickExportWidget && s.showRecordingWidget)
         #expect(AfterRecording.createProject.recordLabel == "Start recording")
         #expect(AfterRecording.exportCopy.recordLabel == "Record & Copy" && AfterRecording.exportSave.recordLabel == "Record & Save")
         s.afterRecording = .exportSave
@@ -1487,7 +1487,7 @@ extension UISmokeTests {
         #expect(AppSettings(store: d).systemAudioChoice == .all)
         d.set(false, forKey: "systemAudio")
         #expect(AppSettings(store: d).systemAudioChoice == .off)
-        #expect(AppSettings(store: store()).systemAudioChoice == .all)      // default unchanged: on, all apps
+        #expect(AppSettings(store: store()).systemAudioChoice == .off)      // reference default: off
     }
 
     @Test func selectedAppsPersistByBundleID() {

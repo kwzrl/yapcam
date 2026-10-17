@@ -121,7 +121,7 @@ private final class AreaOverlayView: NSView {
         NSColor.black.withAlphaComponent(0.45).setFill()
         bounds.fill()
         guard let r = rect else {
-            drawHint("Drag to select the area to record", at: CGPoint(x: bounds.midX, y: bounds.midY))
+            drawHint("Drag area you want to record", at: CGPoint(x: bounds.midX, y: bounds.midY))
             return
         }
         NSGraphicsContext.current?.compositingOperation = .clear
@@ -258,23 +258,16 @@ private final class AreaOverlayView: NSView {
         switch event.keyCode {
         case 53: onFinish?(nil)                                  // esc
         case 36, 76: confirm()                                    // return / enter
-        case 123, 124, 125, 126: nudge(event)                    // arrows: move; ⇧ resizes; ⌥ moves by 10
+        case 123, 124, 125, 126: nudge(event)                    // arrows move, ⌘ resizes, ⇧ = 10
         default: super.keyDown(with: event)
         }
     }
 
-    /// Keyboard control for people who can't drag: arrows move the area, ⇧+arrows resize it.
+    /// Keyboard control (reference): arrows move the area, ⌘+arrows resize it; ⇧ makes the step 10.
     private func nudge(_ event: NSEvent) {
-        let step: CGFloat = event.modifierFlags.contains(.option) ? 10 : 1
-        let dx: CGFloat = event.keyCode == 123 ? -step : event.keyCode == 124 ? step : 0
-        let dy: CGFloat = event.keyCode == 126 ? -step : event.keyCode == 125 ? step : 0
-        var r = rect ?? CGRect(x: bounds.midX - 200, y: bounds.midY - 120, width: 400, height: 240)
-        if event.modifierFlags.contains(.shift) { r.size.width += dx; r.size.height += dy }
-        else { r.origin.x += dx; r.origin.y += dy }
-        r.size.width = max(AreaGeometry.minSide, r.size.width); r.size.height = max(AreaGeometry.minSide, r.size.height)
-        r.origin.x = min(max(0, r.origin.x), bounds.width - r.width)
-        r.origin.y = min(max(0, r.origin.y), bounds.height - r.height)
-        rect = r
+        let arrow: AreaGeometry.Arrow = event.keyCode == 123 ? .left : event.keyCode == 124 ? .right : event.keyCode == 126 ? .up : .down
+        let r = rect ?? CGRect(x: bounds.midX - 200, y: bounds.midY - 120, width: 400, height: 240)
+        rect = AreaGeometry.nudged(r, arrow, shift: event.modifierFlags.contains(.shift), command: event.modifierFlags.contains(.command), in: bounds.size)
     }
 
     override func isAccessibilityElement() -> Bool { true }
@@ -286,7 +279,7 @@ private final class AreaOverlayView: NSView {
         return "\(Int(r.width)) by \(Int(r.height)) points at \(Int(r.minX)), \(Int(r.minY))"
     }
     override func accessibilityHelp() -> String? {
-        "Arrow keys move the area, Shift plus arrow resizes it, Option moves by ten points, Return confirms, Escape cancels."
+        "Arrow keys move the area, Command plus arrow resizes it, Shift makes the step ten points, Return confirms, Escape cancels."
     }
 
     // MARK: Bottom bar
@@ -372,9 +365,10 @@ private struct AreaBar: View {
                 NumberField(label: "Y", value: rect?.minY) { v in update { $0.origin.y = v } }
                 NumberField(label: "W", value: rect?.width) { v in update { $0.size.width = v } }
                 NumberField(label: "H", value: rect?.height) { v in update { $0.size.height = v } }
+                savedSizesMenu
                 Spacer(minLength: 0)
                 if rect != nil && !valid {
-                    Label("At least \(Int(AreaGeometry.recordMin)) × \(Int(AreaGeometry.recordMin))", systemImage: "exclamationmark.triangle.fill")
+                    Label(AreaGeometry.minimalSizeMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(.orange)
                 }
             }
@@ -383,6 +377,29 @@ private struct AreaBar: View {
         .padding(.horizontal, 14).padding(.vertical, 10)
         .panelSurface(cornerRadius: 12)
         .padding(4)
+    }
+
+    /// "Save current dimensions" / saved sizes / "Delete saved dimensions" (the reference's area presets).
+    private var savedSizesMenu: some View {
+        let saved = AppSettings.shared.savedAreaSizes
+        return Menu {
+            Button("Save current dimensions") { if let r = rect { AppSettings.shared.savedAreaSizes = AreaGeometry.saving(r.size, into: saved) } }
+                .disabled(rect == nil)
+            Divider()
+            if saved.isEmpty { Text("No saved dimensions") }
+            ForEach(saved, id: \.self) { t in
+                Button(t.replacingOccurrences(of: "x", with: " × ")) {
+                    if let size = WindowAX.parseSize(t) ?? Self.parseSmall(t) { update { $0.size = size } }
+                }
+            }
+            if !saved.isEmpty { Divider(); Button("Delete saved dimensions") { AppSettings.shared.savedAreaSizes = [] } }
+        } label: { Label("Saved sizes", systemImage: "bookmark") }
+        .menuStyle(.button).fixedSize().accessibilityLabel("Saved dimensions")
+    }
+
+    private static func parseSmall(_ t: String) -> CGSize? {
+        let p = t.split(separator: "x").compactMap { Double($0) }
+        return p.count == 2 ? CGSize(width: p[0], height: p[1]) : nil
     }
 
     private func update(_ change: (inout CGRect) -> Void) {

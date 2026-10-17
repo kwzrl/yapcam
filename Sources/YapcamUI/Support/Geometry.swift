@@ -83,6 +83,32 @@ enum AreaGeometry {
         return r.width >= recordMin && r.height >= recordMin
     }
 
+    enum Arrow { case left, right, up, down }
+
+    /// Arrow-key editing like the reference: arrows move by 1 pt (⇧: 10), ⌘+arrows resize by 1 pt (⌘⇧: 10).
+    /// The result stays inside `bounds` and never gets smaller than `minSide`.
+    static func nudged(_ r: CGRect, _ arrow: Arrow, shift: Bool, command: Bool, in bounds: CGSize) -> CGRect {
+        let step: CGFloat = shift ? 10 : 1
+        let dx: CGFloat = arrow == .left ? -step : arrow == .right ? step : 0
+        let dy: CGFloat = arrow == .up ? -step : arrow == .down ? step : 0
+        var n = r
+        if command { n.size.width += dx; n.size.height += dy } else { n.origin.x += dx; n.origin.y += dy }
+        n.size.width = min(max(minSide, n.width), bounds.width); n.size.height = min(max(minSide, n.height), bounds.height)
+        n.origin.x = min(max(0, n.origin.x), bounds.width - n.width)
+        n.origin.y = min(max(0, n.origin.y), bounds.height - n.height)
+        return n
+    }
+
+    /// "Minimal size is 150×150px." text shown while the area is too small.
+    static var minimalSizeMessage: String { "Minimal size is \(Int(recordMin))×\(Int(recordMin))px." }
+
+    /// Saved area dimensions ("1280x720"), newest first, without duplicates, at most 12.
+    static func saving(_ size: CGSize, into list: [String]) -> [String] {
+        let t = "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
+        var l = list; l.removeAll { $0 == t }; l.insert(t, at: 0)
+        return Array(l.prefix(12))
+    }
+
     /// Saved area → AppKit global rect on the display with frame `screenFrame`.
     static func globalRect(fromLocal r: CGRect, screenFrame f: CGRect) -> CGRect {
         CGRect(x: f.minX + r.minX, y: f.maxY - r.maxY, width: r.width, height: r.height)

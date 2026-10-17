@@ -124,6 +124,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var highlightRecordedArea: Bool { didSet { d.set(highlightRecordedArea, forKey: "highlightRecordedArea") } }
     @Published var removedRecents: Set<String> { didSet { d.set(Array(removedRecents), forKey: "removedRecents") } }
     @Published var savedWindowSizes: [String] { didSet { d.set(savedWindowSizes, forKey: "savedWindowSizes") } }
+    /// Area sizes the user saved in the area toolbar ("1280x720").
+    @Published var savedAreaSizes: [String] { didSet { d.set(savedAreaSizes, forKey: "savedAreaSizes") } }
     @Published var showRecordingWidget: Bool { didSet { d.set(showRecordingWidget, forKey: "showRecordingWidget") } }
     @Published var createAutoZooms: Bool { didSet { d.set(createAutoZooms, forKey: "createAutoZooms") } }
     @Published var afterRecording: AfterRecording { didSet { d.set(afterRecording.rawValue, forKey: "afterRecording") } }
@@ -155,7 +157,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         deviceID = d.string(forKey: "deviceID")
         lastCameraID = d.string(forKey: "lastCameraID")
         lastMicrophoneID = d.string(forKey: "lastMicrophoneID")
-        systemAudio = d.object(forKey: "systemAudio") as? Bool ?? true
+        systemAudio = d.object(forKey: "systemAudio") as? Bool ?? false      // reference default: off
         systemAudioSelectedOnly = d.object(forKey: "systemAudioSelectedOnly") as? Bool ?? false
         systemAudioApps = d.stringArray(forKey: "systemAudioApps") ?? []
         areaCustomRatioW = CGFloat(d.object(forKey: "areaCustomRatioW") as? Double ?? 16)
@@ -169,10 +171,10 @@ struct KeyCombo: Codable, Equatable, Hashable {
         cameraMaxResolution = CameraMaxResolution(rawValue: d.integer(forKey: "cameraMaxResolution")) ?? .hd1080
         let cd = d.object(forKey: "countdown") as? Int ?? 0
         countdown = [0, 3, 5, 10].contains(cd) ? cd : 0
-        recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? false
+        recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? true     // reference default: on (still needs Input Monitoring)
         maxFPS = d.object(forKey: "maxFPS") as? Int == 30 ? 30 : 60
         openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
-        playSounds = d.object(forKey: "playSounds") as? Bool ?? false
+        playSounds = d.object(forKey: "playSounds") as? Bool ?? true
         hideDesktopIcons = d.object(forKey: "hideDesktopIcons") as? Bool ?? false
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
@@ -181,10 +183,11 @@ struct KeyCombo: Codable, Equatable, Hashable {
         highlightRecordedArea = store.object(forKey: "highlightRecordedArea") as? Bool ?? true
         removedRecents = Set(store.stringArray(forKey: "removedRecents") ?? [])
         savedWindowSizes = store.stringArray(forKey: "savedWindowSizes") ?? []
+        savedAreaSizes = store.stringArray(forKey: "savedAreaSizes") ?? []
         showRecordingWidget = store.object(forKey: "showRecordingWidget") as? Bool ?? true
         createAutoZooms = store.object(forKey: "createAutoZooms") as? Bool ?? true
         afterRecording = AfterRecording(rawValue: store.string(forKey: "afterRecording") ?? "") ?? .createProject
-        showQuickExportWidget = store.object(forKey: "showQuickExportWidget") as? Bool ?? false
+        showQuickExportWidget = store.object(forKey: "showQuickExportWidget") as? Bool ?? true
         hasCompletedOnboarding = d.bool(forKey: "onboarded")
     }
 
