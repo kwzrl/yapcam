@@ -8,6 +8,7 @@
 | core | Codex gpt-6.1-sol (high) | `team/core` · `~/yapcam-team/core` | `core/**` except the header, `Sources/YapcamCore/**`, `Tests/YapcamCoreTests/**` |
 | render | Codex gpt-6.1-sol (high) | `team/render` · `~/yapcam-team/render` | `Sources/YapcamRender/**`, `Tests/YapcamRenderTests/**` |
 | editor | Claude Sonnet 5.5 | `team/editor` · `~/yapcam-team/editor` | `Sources/YapcamEditor/**`, `Tests/YapcamEditorTests/**` |
+| inspector | Claude Sonnet 5.5 | `team/inspector` · `~/yapcam-team/inspector` | Inside `Sources/YapcamEditor`: inspector sections, Animations, crop, export sheet, editor presets UI, transcript, music, background, camera inspector, command palette, shortcuts guide (round 7 split from editor; editor keeps Timeline*, EditorModel core paths, BlocksBar, Chat) |
 | ref → qa | Claude Sonnet 5.5 (+ Codex gpt-6-astra / Opus for reviews) | `team/qa` · `~/yapcam-team/qa` | `docs/FEATURES.md`, `docs/reference/**`, `docs/TESTING.md`, `scripts/qa/**`, `Tests/E2E/**` |
 
 Each team also owns `docs/status/<team>.md` (its own short status) and nothing else.

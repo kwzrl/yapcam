@@ -32,6 +32,10 @@ binary (serde, serde_core, serde_json, itoa, zmij, memchr) in an acknowledgement
 (e.g. generated with `cargo about` or `cargo-license`; not run here, no network tooling
 installed — **open**).
 
+`tools/yapcam-mcp` (stdio MCP server, a separate developer binary, not part of the app bundle) depends only on
+`serde_json` and `yapcam-core` (path). Its transitive crates are the ones in the table above; nothing new to review
+(Lead, 2026-10-18).
+
 ## 3. Apple system frameworks (no redistribution)
 AppKit, SwiftUI, Combine, Foundation, CoreGraphics, CoreImage, CoreMedia, CoreVideo,
 CoreText, ImageIO, AVFoundation, AudioToolbox, ScreenCaptureKit, VideoToolbox, Metal,
