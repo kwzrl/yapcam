@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
 
 /// One spacing scale and the shared geometry of inspector rows, so every slider row lines up.
 enum EditorMetrics {
@@ -19,10 +20,8 @@ extension View {
 }
 
 extension NSColor {
-    /// Quiet neutral behind the preview: a hair darker than the window in light mode, the under-page color in dark mode.
-    static let previewSurround = NSColor(name: nil) { a in
-        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .underPageBackgroundColor : NSColor(white: 0.93, alpha: 1)
-    }
+    /// Behind the preview: the stage ground (dark only).
+    static let previewSurround = Yap.nsGround
 }
 
 /// Label column + control that fills the rest of the row (sliders get the full remaining width in every panel).
@@ -42,35 +41,31 @@ struct SliderRow<Content: View>: View {
     }
 }
 
-/// The one primary action of a view: filled with the accent color in every window state (the system prominent style
-/// turns gray in inactive windows), dimmed while pressed or disabled.
+/// The one primary action of a view: the white capsule of the kit (the brightest thing on screen, dark label),
+/// the same in every window state, dimmed while pressed or disabled. Never the system accent.
 struct PrimaryButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var enabled
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.fontWeight(.semibold).foregroundStyle(.white)
-            .padding(.horizontal, EditorMetrics.m + 2).padding(.vertical, EditorMetrics.xs + 1)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(!enabled ? 0.4 : configuration.isPressed ? 0.75 : 1)))
-            .contentShape(RoundedRectangle(cornerRadius: 6))
-    }
+    func makeBody(configuration: Configuration) -> some View { CapsuleButtonStyle(.primary, height: 28).makeBody(configuration: configuration) }
 }
 
-// MARK: theme (own colors; structure follows the reference editor: dark stage, floating inspector card)
+// MARK: theme (Yap tokens: neutral, a breath cool, dark only; no accent colour)
 
+/// The editor's surfaces, mapped onto the Yap tokens of the approved docked design. Kept as names so section files
+/// keep compiling while they move to the kit; nothing here is warm or blue.
 enum EditorTheme {
-    private static func dynamic(dark: NSColor, light: NSColor) -> Color {
-        Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light })
-    }
-    /// Window / stage behind everything.
-    static let stage = dynamic(dark: NSColor(srgbRed: 0.055, green: 0.058, blue: 0.075, alpha: 1), light: NSColor(srgbRed: 0.914, green: 0.918, blue: 0.933, alpha: 1))
-    /// Floating inspector card and popovers.
-    static let card = dynamic(dark: NSColor(srgbRed: 0.086, green: 0.090, blue: 0.118, alpha: 1), light: NSColor(white: 1, alpha: 1))
-    /// Fill of option pills and fields inside the card.
-    static let control = dynamic(dark: NSColor(white: 1, alpha: 0.07), light: NSColor(white: 0, alpha: 0.06))
-    static let hairline = dynamic(dark: NSColor(white: 1, alpha: 0.10), light: NSColor(white: 0, alpha: 0.10))
-    static let cardRadius: CGFloat = 14, pillRadius: CGFloat = 9
+    /// Stage behind the preview (`Yap.ground`, #1C1C1E).
+    static let stage = Yap.ground
+    /// Docked columns: inspector, chat, timeline, title row (`Yap.dock`, #242426). No longer a floating card.
+    static let card = Yap.dock
+    /// Fill of option pills and fields on a docked column.
+    static let control = Color.white.opacity(0.07)
+    /// Selected pill or field: brightness, not colour.
+    static let controlSelected = Color.white.opacity(0.24)
+    static let hairline = Color.white.opacity(Yap.dockHairline)
+    /// Docked surfaces have no corners.
+    static let cardRadius: CGFloat = 0, pillRadius: CGFloat = Yap.Radius.control
 }
 
-/// Option group as separate rounded pills (selected = filled and outlined), like the reference's background type row.
+/// Option group as separate rounded pills (selected = brighter fill), like the reference's background type row.
 /// Pills size to their text with equal padding; when the row does not fit it scrolls sideways instead of squeezing the text.
 struct PillPicker<Value: Hashable>: View {
     @Binding var selection: Value
@@ -83,8 +78,7 @@ struct PillPicker<Value: Hashable>: View {
             Text(o.label).font(.callout).lineLimit(1).fixedSize()
                 .padding(.horizontal, EditorMetrics.m + 2).frame(maxWidth: fill ? .infinity : nil, minHeight: 28)
                 .foregroundStyle(on ? Color.primary : Color.secondary)
-                .background(on ? Color.accentColor.opacity(0.22) : EditorTheme.control, in: RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
-                .overlay(RoundedRectangle(cornerRadius: EditorTheme.pillRadius).strokeBorder(on ? Color.accentColor : .clear, lineWidth: 1.5))
+                .background(on ? EditorTheme.controlSelected : EditorTheme.control, in: RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
                 .contentShape(RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
         }
         .buttonStyle(.plain)
