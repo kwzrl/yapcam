@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import YapcamDesign
 
@@ -173,6 +174,8 @@ public struct EditorContent<Preview: View>: View {
     }
 
     private func handleKey(_ p: KeyPress) -> KeyPress.Result {
+        // While a text field edits (chat input, captions, text items, transcript), every key belongs to the field.
+        if NSApp.keyWindow?.firstResponder is NSText { return .ignored }
         var mods = ShortcutModifiers()
         if p.modifiers.contains(.command) { mods.insert(.command) }
         if p.modifiers.contains(.shift) { mods.insert(.shift) }
