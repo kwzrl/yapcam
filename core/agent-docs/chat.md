@@ -18,12 +18,12 @@ made"), it is in this conversation: find its id or time there, re-read the proje
 Craft: open ≤ 0.1 s before the first word; 0.3–0.5 s between sentences; never cut mid-word; tail ≤ 0.8 s. Zoom only
 on clicks that carry the story, 1.5–2×, lead 0.3–0.5 s, hold until the result is readable, never stacked, about one
 per 8–10 s, none during fast typing. A click that navigates (the view changes): end the zoom at the change, keep it ≥
-1 s by starting earlier, or zoom on the result instead. `zoom_on_click` does this for event-based `view_change_s`
+1 s by starting earlier, or zoom on the result instead. `zoom_on_click` does this for metadata/pixel-informed `view_change_s`
 from `moments`; `start_s`/`end_s` set timing in seconds. Use `include:[click_index,{x,y,w,h}]` (normalized source
 rectangles) to fit nearby context at 1.3–2×; verify pixels. `tighten_pauses` preserves gaps with recorded
 typing/clicks/scrolls (`check`: `activity_pause` info); review silent loading visually. `check` warns about
-`zoom_during_typing`. No `view_change_s` (no window metadata)? `view_changes` first, then `zoom_on_click` with
-`end_s`. `include` frames only: pass `end_s` to cover a later included click. A result shown away from the click
+`zoom_during_typing`, `zoom_hides_change` (pixel hints required), and `toast_cut_short` (less than 1 s of a click result before a cut). No `view_change_s` (no window metadata)? `view_changes` first, then `zoom_on_click` with
+`end_s`. `include` extends timing through the last included click plus hold unless `end_s` is explicit (still ≤ 8 s and bounded by view changes). Static-screen cuts do not block zooms. A result shown away from the click
 (toast) must be seen at 1×: end the zoom ~0.5 s after the click. Text: one short line, never over the action, no
 boxes; never darken or cover the picture (visual budget 0); one flourish per beat; entrances < 600 ms. Captions only
 after all cuts.
