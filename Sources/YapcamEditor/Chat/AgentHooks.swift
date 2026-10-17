@@ -10,6 +10,10 @@ import ObjectiveC
     @Published public var connectCommand: (() -> String)?
     /// Current undo depth of the project; lets "Undo" on an entry check its `undoMarker` is still the latest step.
     public var promptRunning = false
+    /// What the running chat prompt is doing ("Reading moments…"); nil shows "Working…".
+    @Published public var workingLine: String?
+    /// Starts a new conversation; nil while there is none to reset (the header hides its button).
+    @Published public var newChat: (() -> Void)?
     public var undoDepth: (() -> Int)?
 
     public init() {}
