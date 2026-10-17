@@ -20,7 +20,8 @@ struct ChatColumn: View {
         VStack(spacing: 0) {
             header
             history
-            if hooks.promptHandler != nil { ChatInput(send: send).padding(10) } else { ConnectHint(command: hooks.connectCommand) }
+            ConnectHint(command: hooks.connectCommand, explains: hooks.promptHandler == nil)
+            if hooks.promptHandler != nil { ChatInput(send: send).disabled(log.isWorking).padding(10) }
         }
         .frame(maxHeight: .infinity)
         .background { if floating { GlassSurface(radius: Yap.Grid.barRadius, behindWindow: false, lift: 0.04) } else { Yap.dock } }
@@ -119,12 +120,15 @@ struct ChatInput: View {
 /// No agent takes prompts yet: one line and the command to connect one.
 struct ConnectHint: View {
     let command: (() -> String)?
+    var explains = true
     @State private var copied = false
 
     var body: some View {
         VStack(spacing: 10) {
-            Text("Connect Claude Code or Codex to edit by asking.")
-                .font(Yap.Font.body).foregroundStyle(Yap.body).multilineTextAlignment(.center)
+            if explains {
+                Text("Connect Claude Code or Codex to edit by asking.")
+                    .font(Yap.Font.body).foregroundStyle(Yap.body).multilineTextAlignment(.center)
+            }
             Button(copied ? "Copied" : "Copy connect command") { copy() }
                 .buttonStyle(CapsuleButtonStyle(.secondary, height: 30))
                 .disabled(command == nil)

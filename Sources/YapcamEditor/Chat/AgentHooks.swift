@@ -9,6 +9,7 @@ import ObjectiveC
     /// The command a user runs to connect their own agent (e.g. `claude mcp add yapcam …`); copied by the empty state.
     @Published public var connectCommand: (() -> String)?
     /// Current undo depth of the project; lets "Undo" on an entry check its `undoMarker` is still the latest step.
+    public var promptRunning = false
     public var undoDepth: (() -> Int)?
 
     public init() {}

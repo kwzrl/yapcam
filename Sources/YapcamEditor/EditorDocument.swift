@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
     public let model: EditorModel
     public let export: ExportModel
     public let title: String
+    lazy var agentRunner = AgentPromptRunner(model: model, package: project.packageURL)
     let adapter: PreviewPlayerAdapter
 
     /// Opens `package/project.json`, or creates a project when only a recording exists.
@@ -47,6 +48,9 @@ import UniformTypeIdentifiers
         struct Library: Decodable { struct Item: Decodable { var id: String }; var sets: [Item] }
         model.cursorSetIDs = ((try? project.query("{\"q\":\"cursor_library\"}", as: Library.self))?.sets ?? []).map(\.id)
         model.fitTimeline(width: 900)
+        model.agentConnectCommand = { AgentConnection.shared.claudeCommand }
+        model.agentHooks.undoDepth = { [weak project] in (try? project?.historyState().undoSteps) ?? 0 }
+        model.agentPromptHandler = { [weak self] prompt in self?.agentRunner.send(prompt) }
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
         let transcriptURL = package.appendingPathComponent("recording/transcript.json")
         model.captionSourceWithOptions = { options, force in

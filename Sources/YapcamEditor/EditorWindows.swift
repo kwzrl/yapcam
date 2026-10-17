@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import YapcamCore
 
-/// Editor appearance: dark by default, like the reference editor; ui offers it in Settings (Editing).
+/// Legacy preference values retained for compatibility. Editor windows always use dark Aqua.
 public enum EditorAppearance: String, CaseIterable, Sendable {
     case dark, light, system
     public var label: String { switch self { case .dark: "Dark"; case .light: "Light"; case .system: "Match system" } }
@@ -15,7 +15,7 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
     /// Applied to editor windows when they open and live to the open ones when changed (`applyAppearance()`).
     nonisolated(unsafe) public static var appearance: EditorAppearance = .dark { didSet { onMain { applyAppearance() } } }
     /// Re-applies `appearance` to every open editor window.
-    public static func applyAppearance() { controllers.values.forEach { $0.window?.appearance = appearance.nsAppearance } }
+    public static func applyAppearance() { controllers.values.forEach { $0.window?.appearance = NSAppearance(named: .darkAqua) } }
 
     private static var controllers: [String: EditorWindowController] = [:]
     public static var openDocuments: [EditorDocument] { controllers.values.map(\.editorDocument) }
@@ -117,19 +117,20 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = document.title
-        window.appearance = EditorWindows.appearance.nsAppearance
+        window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = NSHostingView(rootView: EditorView(document: document))
         window.setFrameAutosaveName("YapcamEditor")
         window.center()
         super.init(window: window)
         window.delegate = self
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak document] _ in
-            onMain { document?.model.saveNow() }
+            onMain { document?.agentRunner.cancel(); document?.model.saveNow() }
         }
     }
     required init?(coder: NSCoder) { nil }
 
     func windowWillClose(_ notification: Notification) {
+        editorDocument.agentRunner.cancel()
         editorDocument.model.close()      // saves, cancels background work, makes the stale model inert
         editorDocument.player.pause()
         onClose()

@@ -73,7 +73,7 @@ import YapcamCore
                     if bytes.count >= boundary.upperBound + length {
                         let body = bytes.subdata(in: boundary.upperBound..<(boundary.upperBound + length))
                         Self.shared.receiving.remove(ObjectIdentifier(connection))
-                        await Self.shared.dispatch(connection, data: body, session: headers["mcp-session-id"])
+                        await Self.shared.dispatch(connection, data: body, session: headers["mcp-session-id"], scopedProject: headers["x-yapcam-project"]?.removingPercentEncoding)
                         return
                     }
                 } else if bytes.count > 16_384 { Self.shared.reply(connection, status: 431); return }
@@ -89,7 +89,7 @@ import YapcamCore
         if let session { header += "Mcp-Session-Id: \(session)\r\n" }
         connection.send(content: Data((header + "\r\n").utf8) + body, completion: .contentProcessed { _ in connection.cancel() })
     }
-    private func dispatch(_ connection: NWConnection, data: Data, session: String?) async {
+    private func dispatch(_ connection: NWConnection, data: Data, session: String?, scopedProject: String?) async {
         guard var request = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], request["jsonrpc"] as? String == "2.0", let method = request["method"] as? String else {
             reply(connection, object: ["jsonrpc": "2.0", "id": NSNull(), "error": ["code": -32700, "message": "Invalid JSON-RPC request"]]); return
         }
@@ -125,7 +125,9 @@ import YapcamCore
         if method == "tools/call", name == "list_documents" {
             rpc(Self.result(["documents": EditorWindows.openDocuments.map { ["name": $0.title, "path": $0.project.packageURL.path, "frontmost": $0 === EditorWindows.frontDocument] as [String: Any] }])); return
         }
-        let selector = args.removeValue(forKey: "project") as? String
+        let requestedProject = args.removeValue(forKey: "project") as? String
+        if let scopedProject, let requestedProject, scopedProject != requestedProject { fail("This chat is bound to a different document."); return }
+        let selector = scopedProject ?? requestedProject
         let matches = EditorWindows.openDocuments.filter { $0.title == selector || $0.project.packageURL.path == selector }
         guard let doc = selector == nil ? EditorWindows.frontDocument : (matches.count == 1 ? matches.first : nil) else { fail("No matching open editor. Open a project in Yapcam, or select an unambiguous project name/path."); return }
         let model = doc.model
@@ -135,8 +137,8 @@ import YapcamCore
         model.agentLog.isWorking = true
         defer {
             activeCalls[activityID, default: 1] -= 1
-            model.agentLog.isWorking = activeCalls[activityID, default: 0] > 0
-            if !model.agentLog.isWorking { activeCalls[activityID] = nil }
+            model.agentLog.isWorking = model.agentHooks.promptRunning || activeCalls[activityID, default: 0] > 0
+            if activeCalls[activityID, default: 0] == 0 { activeCalls[activityID] = nil }
         }
         do {
             if method == "tools/call", ["seek", "select", "transcribe", "transcription_status"].contains(name) {
