@@ -861,20 +861,6 @@ import YapcamEditor
 }
 
 @MainActor @Suite struct WindowExtrasTests {
-    @Test func resizePresetsKeepTheRatioAndFitTheDisplay() {
-        let display = CGSize(width: 1680, height: 1050)
-        for p in WindowAX.Preset.allCases {
-            let s = WindowAX.fit(CGSize(width: 800, height: 600), preset: p, limit: display)
-            #expect(abs(s.width / s.height - p.ratio) < 0.01, "\(p)")
-            #expect(s.width <= display.width && s.height <= display.height)
-        }
-        // A tall preset on a small display shrinks instead of overflowing.
-        let t = WindowAX.fit(CGSize(width: 1600, height: 900), preset: .tall, limit: CGSize(width: 1280, height: 800))
-        #expect(t.height <= 800 && abs(t.width / t.height - 9.0 / 16) < 0.01)
-        // Never below 150.
-        #expect(WindowAX.fit(CGSize(width: 100, height: 100), preset: .wide, limit: display).height >= 150)
-    }
-
     @Test func displayFrameInCGCoordinates() {
         let f = CGRect(x: 0, y: 1050, width: 1512, height: 982)        // display above the primary
         #expect(OverlayGeometry.cgFrame(of: f, primaryMaxY: 1050) == CGRect(x: 0, y: -982, width: 1512, height: 982))
@@ -1189,11 +1175,33 @@ private struct ScriptedPlayer: CuePlayer {
         settings.playSounds = true; settings.countdown = 0
         rec.engine = OrderEngine(log: log)
         rec.cuePlayer = OrderPlayer(log: log)
-        rec.startSession( UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
+        rec.startSession( UIRecordingOptions(target: .display(1), systemAudio: true, microphoneID: nil, cameraID: nil,
                                                     recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory))
         for _ in 0..<1500 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
         #expect(rec.phase == .recording)
         #expect(await log.events == ["sound-start", "sound-end", "capture-start"])
+        await rec.cancelAndWait()
+    }
+}
+
+extension StartSoundOrderTests {
+    @Test func silentTakeDoesNotWaitForTheCue() async throws {
+        let log = EventLog()
+        let rec = RecordingController()
+        let settings = AppSettings.shared
+        let oldSounds = settings.playSounds, oldCountdown = settings.countdown
+        defer { settings.playSounds = oldSounds; settings.countdown = oldCountdown }
+        settings.playSounds = true; settings.countdown = 0
+        rec.engine = OrderEngine(log: log)
+        rec.cuePlayer = OrderPlayer(log: log)
+        let silent = UIRecordingOptions(target: .display(1), systemAudio: false, microphoneID: nil, cameraID: nil,
+                                        recordKeystrokes: false, maxFPS: 30, outputDirectory: FileManager.default.temporaryDirectory)
+        #expect(!RecordingController.shouldAwaitStartSound(silent))
+        rec.startSession(silent)
+        for _ in 0..<1500 where rec.phase != .recording { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(rec.phase == .recording)
+        let events = await log.events
+        #expect(events.firstIndex(of: "capture-start").map { $0 < (events.firstIndex(of: "sound-end") ?? Int.max) } ?? false)
         await rec.cancelAndWait()
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import YapcamCapture
 import SwiftUI
 
 // MARK: - Pure geometry / hit testing (unit-tested)
@@ -28,8 +29,10 @@ struct WindowRow: Equatable {
 
 enum WindowHit {
     /// Topmost recordable window under `point`. `rows` must be ordered front to back (as CGWindowList returns them).
-    static func pick(from rows: [WindowRow], at point: CGPoint, excludingPID: Int32, ignoring: Set<UInt32> = []) -> WindowRow? {
-        rows.first { $0.layer == 0 && $0.pid != excludingPID && !ignoring.contains($0.id) && $0.bounds.width >= 80 && $0.bounds.height >= 60 && $0.bounds.contains(point) }
+    /// `allowed`: the window ids capture reports as recordable (nil until the first answer arrives): system and
+    /// helper windows that capture filters out are never offered.
+    static func pick(from rows: [WindowRow], at point: CGPoint, excludingPID: Int32, ignoring: Set<UInt32> = [], allowed: Set<UInt32>? = nil) -> WindowRow? {
+        rows.first { $0.layer == 0 && $0.pid != excludingPID && !ignoring.contains($0.id) && (allowed?.contains($0.id) ?? true) && $0.bounds.width >= 80 && $0.bounds.height >= 60 && $0.bounds.contains(point) }
     }
 
     static func onScreenRows() -> [WindowRow] {
@@ -47,31 +50,20 @@ enum WindowHit {
 
 // MARK: - Window actions through Accessibility (resize presets, bring to front)
 
+/// Window sizes for "resize the window you record". The resize itself is capture's `CaptureWindowControl`
+/// (typed errors, checks the size the app actually applied); this enum only shapes the menu and parses typed sizes.
 enum WindowAX {
-    enum Preset: String, CaseIterable, Identifiable {
-        case wide = "16:9", standard = "4:3", tall = "9:16", wide1610 = "16:10", square = "1:1"
-        var id: String { rawValue }
-        var ratio: CGFloat {
-            switch self { case .wide: 16.0 / 9; case .standard: 4.0 / 3; case .tall: 9.0 / 16; case .wide1610: 16.0 / 10; case .square: 1 }
-        }
-    }
-
-    /// Exact window sizes for "resize the window you record" (own list, grouped like the reference: ratio → sizes).
     struct SizeGroup: Identifiable, Equatable { let name: String; let sizes: [CGSize]; var id: String { name } }
-    static let sizeGroups: [SizeGroup] = [
-        .init(name: "16:9", sizes: [(1280, 720), (1920, 1080), (2560, 1440)].map { CGSize(width: $0.0, height: $0.1) }),
-        .init(name: "4:3", sizes: [(640, 480), (800, 600), (1024, 768), (1280, 960), (1600, 1200)].map { CGSize(width: $0.0, height: $0.1) }),
-        .init(name: "9:16", sizes: [(720, 1280), (1080, 1920), (1440, 2560)].map { CGSize(width: $0.0, height: $0.1) }),
-        .init(name: "16:10", sizes: [(640, 400), (1280, 800), (1920, 1200), (2560, 1600)].map { CGSize(width: $0.0, height: $0.1) }),
-        .init(name: "Square", sizes: [640, 800, 1024, 1200, 1600].map { CGSize(width: $0, height: $0) }),
-    ]
 
-    /// The groups with only the sizes that fit `limit` (the display in points); empty groups drop out.
+    /// Capture's exact presets that fit `limit` (the display in points), grouped in the reference order; empty groups drop out.
     static func groups(fitting limit: CGSize) -> [SizeGroup] {
-        sizeGroups.compactMap { g in
-            let fit = g.sizes.filter { $0.width <= limit.width && $0.height <= limit.height }
-            return fit.isEmpty ? nil : SizeGroup(name: g.name, sizes: fit)
+        var out: [SizeGroup] = []
+        for p in CaptureWindowSizePreset.fitting(in: limit) {
+            let name = p.group == .square ? "Square" : p.group.rawValue
+            if let i = out.firstIndex(where: { $0.name == name }) { out[i] = SizeGroup(name: name, sizes: out[i].sizes + [p.size]) }
+            else { out.append(SizeGroup(name: name, sizes: [p.size])) }
         }
+        return out
     }
 
     static func label(_ s: CGSize) -> String { "\(Int(s.width)) × \(Int(s.height))" }
@@ -84,41 +76,11 @@ enum WindowAX {
         return CGSize(width: w.rounded(), height: h.rounded())
     }
 
-    /// New size for a window of `size` that has the preset's aspect ratio, keeping its width where it fits
-    /// in `limit` (the display) and shrinking otherwise. Never below 150 pt.
-    static func fit(_ size: CGSize, preset: Preset, limit: CGSize) -> CGSize {
-        var w = size.width, h = w / preset.ratio
-        if h > limit.height { h = limit.height; w = h * preset.ratio }
-        if w > limit.width { w = limit.width; h = w / preset.ratio }
-        return CGSize(width: max(150, w.rounded()), height: max(150, h.rounded()))
-    }
-
-    private static func axWindow(pid: Int32, matching bounds: CGRect) -> AXUIElement? {
-        let app = AXUIElementCreateApplication(pid)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success, let wins = value as? [AXUIElement] else { return nil }
-        for w in wins {
-            var p: CFTypeRef?, sz: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(w, kAXPositionAttribute as CFString, &p) == .success,
-                  AXUIElementCopyAttributeValue(w, kAXSizeAttribute as CFString, &sz) == .success else { continue }
-            var pos = CGPoint.zero, size = CGSize.zero
-            AXValueGetValue(p as! AXValue, .cgPoint, &pos); AXValueGetValue(sz as! AXValue, .cgSize, &size)
-            if abs(pos.x - bounds.minX) < 3, abs(pos.y - bounds.minY) < 3, abs(size.width - bounds.width) < 3, abs(size.height - bounds.height) < 3 { return w }
-        }
-        return nil
-    }
-
-    /// Resizes the window; false when Accessibility isn't granted or the window can't be found/resized.
-    static func resize(pid: Int32, bounds: CGRect, to size: CGSize) -> Bool {
-        guard AXIsProcessTrusted(), let w = axWindow(pid: pid, matching: bounds) else { return false }
-        var s = size
-        guard let v = AXValueCreate(.cgSize, &s) else { return false }
-        return AXUIElementSetAttributeValue(w, kAXSizeAttribute as CFString, v) == .success
-    }
-
-    static func raise(pid: Int32, bounds: CGRect) {
-        NSRunningApplication(processIdentifier: pid)?.activate()
-        if AXIsProcessTrusted(), let w = axWindow(pid: pid, matching: bounds) { AXUIElementPerformAction(w, kAXRaiseAction as CFString) }
+    /// What to tell the user when a resize did not happen (typed capture errors; permission first).
+    static func resizeMessage(for error: Error) -> String {
+        if case CaptureError.permissionDenied = error { return "Allow Accessibility for Yapcam to resize windows." }
+        if case CaptureError.sourceUnavailable = error { return "That window is gone. Point at it again." }
+        return error.localizedDescription
     }
 }
 
@@ -186,6 +148,16 @@ struct SourceCard: View {
     let kind: Kind
     @Published var activeDisplayID: UInt32 = 0
     @Published var hover: WindowRow?
+    /// Recordable window ids from capture (refreshed while the window overlay is up).
+    var allowedWindows: Set<UInt32>?
+    private var allowedLoadedAt = Date.distantPast
+    func refreshAllowed() {
+        guard Date().timeIntervalSince(allowedLoadedAt) > 2 else { return }
+        allowedLoadedAt = Date()
+        Task { @MainActor in
+            if let sources = try? await CaptureSources.load(includeWindowThumbnails: false) { allowedWindows = Set(sources.windows.map(\.id)) }
+        }
+    }
     /// A display chosen from the Display button's context menu: its card stays put instead of following the pointer.
     var pinnedDisplay: UInt32?
     @Published var notice: String?
@@ -195,16 +167,15 @@ struct SourceCard: View {
     var onRecordDisplay: ((UInt32) -> Void)?
     init(kind: Kind) { self.kind = kind }
 
-    func resize(_ w: WindowRow, to preset: WindowAX.Preset, in limit: CGSize) {
-        let size = WindowAX.fit(w.bounds.size, preset: preset, limit: limit)
-        if !WindowAX.resize(pid: w.pid, bounds: w.bounds, to: size) {
-            notice = AXIsProcessTrusted() ? "This window can't be resized." : "Allow Accessibility for Yapcam to resize windows."
-        }
-    }
-
+    /// Resizes the real window through capture's Accessibility control and reports what the app actually did.
     func resize(_ w: WindowRow, toSize size: CGSize) {
-        if !WindowAX.resize(pid: w.pid, bounds: w.bounds, to: size) {
-            notice = AXIsProcessTrusted() ? "This window can't be resized." : "Allow Accessibility for Yapcam to resize windows."
+        if let issue = CapturePreflight.windowResizeIssue() { notice = issue.message; return }
+        Task { @MainActor in
+            do {
+                let actual = try await CaptureWindowControl.resize(windowID: w.id, to: size)
+                notice = "Window is now \(Int(actual.width)) × \(Int(actual.height))."
+                if hover?.id == w.id { hover = WindowRow(id: w.id, pid: w.pid, layer: w.layer, app: w.app, title: w.title, bounds: actual) }
+            } catch { notice = WindowAX.resizeMessage(for: error) }
         }
     }
 
@@ -229,7 +200,7 @@ struct SourceCard: View {
     /// Recordable windows grouped by app (own windows, system layers and ignored windows left out).
     func windowsByApp() -> [AppWindows] {
         let own = ProcessInfo.processInfo.processIdentifier
-        let rows = WindowHit.onScreenRows().filter { $0.layer == 0 && $0.pid != own && !ignored.contains($0.id) && $0.bounds.width >= 80 && $0.bounds.height >= 60 }
+        let rows = WindowHit.onScreenRows().filter { $0.layer == 0 && $0.pid != own && !ignored.contains($0.id) && (allowedWindows?.contains($0.id) ?? true) && $0.bounds.width >= 80 && $0.bounds.height >= 60 }
         return Dictionary(grouping: rows, by: \.app).map { AppWindows(app: $0.key, rows: $0.value) }.sorted { $0.app.localizedCaseInsensitiveCompare($1.app) == .orderedAscending }
     }
 
@@ -307,7 +278,7 @@ extension WindowOverlayRoot {
                     Menu(g.app) { ForEach(g.rows, id: \.id) { r in Button(r.title.isEmpty ? g.app : r.title) { model.select(r) } } }
                 }
             }
-            Button("Bring to front") { WindowAX.raise(pid: w.pid, bounds: w.bounds) }
+            Button("Bring to front") { do { try CaptureWindowControl.raise(windowID: w.id) } catch { NSRunningApplication(processIdentifier: w.pid)?.activate() } }
             Button("Adjust recording area…") { model.adjustAsArea(w, screenFrame: screenFrame, primaryMaxY: primaryMaxY) }
             Button("Record entire display") { model.recordDisplay(containing: w) }
         } label: {
@@ -470,7 +441,8 @@ private final class OverlayWindow: NSWindow {
                 if hypot(p.x - pin.at.x, p.y - pin.at.y) < 6 { return }
                 m.pinned = nil
             }
-            let hit = WindowHit.pick(from: WindowHit.onScreenRows(), at: cg, excludingPID: ProcessInfo.processInfo.processIdentifier, ignoring: m.ignored)
+            m.refreshAllowed()
+            let hit = WindowHit.pick(from: WindowHit.onScreenRows(), at: cg, excludingPID: ProcessInfo.processInfo.processIdentifier, ignoring: m.ignored, allowed: m.allowedWindows)
             if hit != m.hover { m.hover = hit }
         }
     }

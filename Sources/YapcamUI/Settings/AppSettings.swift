@@ -141,10 +141,12 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var showQuickExportWidget: Bool { didSet { d.set(showQuickExportWidget, forKey: "showQuickExportWidget") } }
     @Published var hasCompletedOnboarding: Bool { didSet { d.set(hasCompletedOnboarding, forKey: "onboarded") } }
 
-    /// 1080p MP4, 30 fps, H.264, "Social" compression, with audio.
-    static var defaultQuickExport: ExportSettings {
-        ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, includeAudio: true, compression: .social)
-    }
+    /// Frame-rate cap: 0 = automatic (follows the display's refresh rate; the reference has no picker), or an explicit 30 / 60 kept
+    /// from earlier versions. Anything else counts as automatic.
+    static func cap(_ saved: Int?) -> Int { saved == 30 || saved == 60 ? saved! : 0 }
+
+    /// Render's default export: MP4, 720p, 60 fps, H.264, social compression, with audio (reference default).
+    static var defaultQuickExport: ExportSettings { ExportSettings() }
 
     static var defaultStorage: URL {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Movies/Yapcam", directoryHint: .isDirectory)
@@ -186,7 +188,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         let cd = d.object(forKey: "countdown") as? Int ?? 0
         countdown = [0, 3, 5, 10].contains(cd) ? cd : 0
         recordKeystrokes = d.object(forKey: "recordKeystrokes") as? Bool ?? true     // reference default: on (still needs Input Monitoring)
-        maxFPS = d.object(forKey: "maxFPS") as? Int == 30 ? 30 : 60
+        maxFPS = AppSettings.cap(d.object(forKey: "maxFPS") as? Int)
         openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
         playSounds = d.object(forKey: "playSounds") as? Bool ?? true
         hideDesktopIcons = d.object(forKey: "hideDesktopIcons") as? Bool ?? false

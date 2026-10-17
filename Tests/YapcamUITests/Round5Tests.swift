@@ -1,4 +1,5 @@
 import AppKit
+import YapcamCapture
 import SwiftUI
 import YapcamRender
 import Foundation
@@ -81,27 +82,24 @@ import Testing
 }
 
 @Suite struct Round5WindowTests {
-    @Test func presetGroupsKeepTheReferenceOrder() {
-        #expect(WindowAX.sizeGroups.map(\.name) == ["16:9", "4:3", "9:16", "16:10", "Square"])
-        #expect(WindowAX.sizeGroups[0].sizes.first == CGSize(width: 1280, height: 720))
-        #expect(WindowAX.sizeGroups[0].sizes.last == CGSize(width: 2560, height: 1440))
+    @Test func menuGroupsFollowCapturesPresetsInReferenceOrder() {
+        let g = WindowAX.groups(fitting: CGSize(width: 3000, height: 1800))
+        #expect(g.map(\.name) == ["16:9", "4:3", "9:16", "16:10", "Square"])
+        #expect(g[0].sizes.first == CGSize(width: 1280, height: 720) && g[0].sizes.last == CGSize(width: 2560, height: 1440))
     }
 
     @Test func onlySizesThatFitTheDisplayAreOffered() {
         let small = WindowAX.groups(fitting: CGSize(width: 1440, height: 900))
         #expect(small.flatMap(\.sizes).allSatisfy { $0.width <= 1440 && $0.height <= 900 })
         #expect(small.first { $0.name == "16:9" }?.sizes == [CGSize(width: 1280, height: 720)])
-        #expect(!small.contains { $0.name == "9:16" && $0.sizes.contains(CGSize(width: 1440, height: 2560)) })
         #expect(WindowAX.groups(fitting: CGSize(width: 300, height: 300)).isEmpty)
     }
 
-    @Test func everyPresetIsAValidWindowSize() {
-        for g in WindowAX.sizeGroups { for s in g.sizes { #expect(WindowAX.parseSize(WindowAX.label(s)) == s) } }
-    }
-
-    @Test func ratioGroupsReallyHaveTheirRatio() {
-        let want: [String: CGFloat] = ["16:9": 16.0 / 9, "4:3": 4.0 / 3, "9:16": 9.0 / 16, "16:10": 1.6, "Square": 1]
-        for g in WindowAX.sizeGroups { for s in g.sizes { #expect(abs(s.width / s.height - want[g.name]!) < 0.01, "\(g.name) \(s)") } }
+    @Test func typedErrorsBecomeReadableMessages() {
+        #expect(WindowAX.resizeMessage(for: CaptureError.permissionDenied(.accessibility)).contains("Accessibility"))
+        #expect(WindowAX.resizeMessage(for: CaptureError.sourceUnavailable).contains("gone"))
+        let e = CaptureWindowControlError.sizeNotApplied(requested: CGSize(width: 800, height: 600), actual: CGSize(width: 900, height: 600))
+        #expect(WindowAX.resizeMessage(for: e).contains("900"))
     }
 }
 
@@ -250,7 +248,7 @@ import Testing
     @Test func quickExportSettingsPersistAndStayValid() {
         let suite = Self.suite()
         let s = AppSettings(store: suite)
-        #expect(s.quickExport.format == .mp4 && s.quickExport.outputHeight == 1080 && s.quickExport.fps == 30)
+        #expect(s.quickExport == ExportSettings() && s.quickExport.outputHeight == 720 && s.quickExport.fps == 60)
         s.quickExport.outputHeight = 720; s.quickExport.fps = 60; s.quickExport.compression = .web
         let back = AppSettings(store: suite).quickExport
         #expect(back.outputHeight == 720 && back.fps == 60 && back.compression == .web)
@@ -329,7 +327,7 @@ import Testing
 
 @MainActor @Suite struct Round5WidgetTests {
     @Test func summaryDescribesTheStoredSettings() {
-        #expect(QuickExport.summary(AppSettings.defaultQuickExport) == "1080p MP4 · 30 fps · \(ExportSettings.Compression.social.title) · with audio")
+        #expect(QuickExport.summary(AppSettings.defaultQuickExport) == "720p MP4 · 60 fps · \(ExportSettings.Compression.social.title) · with audio")
         var e = AppSettings.defaultQuickExport; e.outputHeight = 2160; e.fps = 60; e.compression = .studio; e.includeAudio = false
         #expect(QuickExport.summary(e) == "4K MP4 · 60 fps · \(ExportSettings.Compression.studio.title) · no audio")
         var g = AppSettings.defaultQuickExport; g.format = .gif; g.outputHeight = 480; g.fps = 15
@@ -387,5 +385,15 @@ import Testing
         #expect(m.movie?.deletingLastPathComponent().lastPathComponent == "seg-001")
         m.package = pkg.appending(path: "nothing"); m.loadThumbnail()
         #expect(m.movie == nil)
+    }
+}
+
+@Suite struct Round5WindowFilterTests {
+    private func row(_ id: UInt32, y: CGFloat = 0) -> WindowRow { WindowRow(id: id, pid: 1, layer: 0, app: "A", title: "", bounds: CGRect(x: 0, y: y, width: 400, height: 300)) }
+    @Test func windowsCaptureDoesNotReportAreNotOffered() {
+        let rows = [row(1), row(2)]
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99, allowed: [2])?.id == 2)
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99, allowed: nil)?.id == 1)
+        #expect(WindowHit.pick(from: rows, at: CGPoint(x: 10, y: 10), excludingPID: 99, allowed: [])?.id == nil)
     }
 }
