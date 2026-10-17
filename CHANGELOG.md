@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.10.0 — release candidate (Screen Studio 4.0.4 parity pass)
+
+Rebuilt the workflow, layout, defaults and option sets to match Screen Studio 4.0.4 closely,
+with Yapcam's own code, artwork, wallpapers, music, cursors and sounds. Parity audit: 127 of 129
+in-scope reference items match in code and tests (cloud features stay out of scope).
+
+- Editor: dark stage with a floating inspector card, one rail icon per section (Background, Cursor,
+  Camera Layout, Camera Style, Captions, Edit by transcript, Audio, Keyboard shortcuts, Animations),
+  pill option groups, colour rows with hex field and eyedropper, ⌘K command menu, prominent Export,
+  Reel preview (Instagram/TikTok safe areas, preview only), preview quality menu, centred transport,
+  audio waveform in the clip track, "Click or drag to add zoom on cursor", rename in the top bar.
+- Timeline keys: C split, X ripple delete, Backspace remove, copy/paste of item settings; fits the
+  project length on open; area after the end is set off.
+- Masks: Sensitive data blurs (strength 32) or covers; Highlight dims the rest (0.5); masks with motion
+  keyframes can be trimmed and moved.
+- New projects: dark wallpaper background, 10 % padding, 16 pt corners, directional shadow, captions at
+  0.05 with expanding growth, reference springs and cursor defaults.
+- Cursor: Original and Touch plus 12 own sets with per-type variants; sharp large system cursors.
+- Camera: smart framing keeps the camera off the cursor, hide during silence, fullscreen-camera and
+  screen-only layouts; layouts re-arrange when the aspect ratio changes.
+- Audio: background music library (4 categories, 18 own tracks), library folder, drag-and-drop.
+- Recording: two-step Esc in the picker, quick export widget with summary, Hide Desktop Icons through the
+  capture filter (Finder is no longer restarted), recording saved to disk about every 2 s.
+- Export: MP4 720p/1080p/4K up to 60 fps, GIF up to 1080p, clipboard export, queue status, separate
+  remembered settings for the export dialog and quick export, optional software encoder
+  (Settings > Advanced).
+- Settings: autosave switch, appearance (dark default), variable frame rate, rebindable shortcuts.
+
+Not verified on this build: real mouse/keyboard use, camera, microphone, Retina and multiple displays,
+first install on another Mac, notarization, 4K seek/export speed (F17/F18).
+
 ## 0.9.0 — release candidate
 
 Yapcam records and edits screen videos locally on Apple Silicon Macs running

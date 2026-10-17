@@ -1,6 +1,6 @@
 # Release packaging
 
-`VERSION` is the marketing version (`0.9.0`). The build number is
+`VERSION` is the marketing version (`0.10.0`). The build number is
 `git rev-list --count HEAD` at the start of packaging. The release script stamps
 `CFBundleShortVersionString` and `CFBundleVersion` into the **built** app before
 signing; it does not edit `Resources/Info.plist`. The ordinary debug build command
@@ -54,14 +54,14 @@ Outputs:
 ```text
 build/release/Yapcam.app
 build/release/Yapcam.app.dSYM
-build/release/Yapcam-0.9.0-<build>.dmg
-build/release/Yapcam-0.9.0-<build>.dmg.sha256
+build/release/Yapcam-0.10.0-<build>.dmg
+build/release/Yapcam-0.10.0-<build>.dmg.sha256
 build/release/reproducibility.txt
 build/release/BUILD-INFO.txt
 ```
 
 The UDZO image contains `Yapcam.app` and an `Applications` symlink to
-`/Applications`; its volume is `Yapcam 0.9.0`. The app and DMG are signed with the
+`/Applications`; its volume is `Yapcam 0.10.0`. The app and DMG are signed with the
 same selected identity. Leaf Mach-O code is signed before nested bundles and
 finally the outer app. Signing never uses `--deep`. The app uses hardened runtime.
 The release copy also includes the repository's Apache license and existing
@@ -265,7 +265,7 @@ steps complete.
    For the local self-signed image, ordinary Gatekeeper trust is not promised; do
    not disable system protection or add a trust exception automatically. Also
    verify a LaunchServices launch of the mounted app, recording any rejection.
-4. Check About shows `0.9.0` and the expected build. Verify first-run permission
+4. Check About shows `0.10.0` and the expected build. Verify first-run permission
    guidance, deny/cancel paths, then grant permissions through normal system UI.
    Record display and area, pause/resume, open the resulting project, edit, save,
    reopen and export MP4. Check file playback, cursor timing and system audio.
