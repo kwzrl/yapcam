@@ -634,3 +634,26 @@ import YapcamCore
         m.undo(); #expect(m.clickSoundChoice == "crisp")
     }
 }
+
+@MainActor @Suite struct CameraPlacementTests {      // CAM-15/16, CAM-04
+    @Test func gridCellsIncludeTheCentre() {
+        #expect(CameraPlacement.cell(of: [0.5, 0.5]) != nil && CameraPlacement.cell(of: [0.5, 0.5])! == (1, 1))
+        #expect(CameraPlacement.cell(of: [0.82, 0.78])! == (2, 2))
+        #expect(CameraPlacement.cell(of: nil) == nil && CameraPlacement.cell(of: [0.3, 0.3]) == nil)
+    }
+    @Test func layoutPositionAndSizeAreStoredPerSection() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.set("camera.layouts", .array([.object(["id": .string("a"), "tl_start_ns": .number(0), "tl_end_ns": .number(2e9), "mode": .string("overlay")])]))
+        m.setLayoutCameraPosition(id: "a", [0.5, 0.5]); #expect(m.layoutCameraPosition(id: "a") == [0.5, 0.5])
+        m.setLayoutCameraSize(id: "a", 0.5); #expect(m.layoutCameraSize(id: "a") == 0.5)
+        m.setLayoutCameraSize(id: "a", 9); #expect(m.layoutCameraSize(id: "a") == 0.75)
+        m.setLayoutCameraPosition(id: "a", nil); #expect(m.layoutCameraPosition(id: "a") == nil)
+        m.setLayoutCameraSize(id: "a", nil); #expect(m.layoutCameraSize(id: "a") == nil)
+    }
+    @Test func roundnessReachesACircleAndComesBack() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.setCameraRoundness(0.5); #expect(m.number("camera.radius") == 32 && abs(m.cameraRoundness - 0.5) < 1e-9)
+        m.setCameraRoundness(1); #expect(m.string("camera.shape") == "circle" && m.cameraRoundness == 1)
+        m.setCameraRoundness(0.25); #expect(m.string("camera.shape") == "rounded_rect" && m.number("camera.radius") == 16)
+    }
+}

@@ -160,13 +160,16 @@ private struct LayoutSegmentControls: View {
     }
 }
 
-/// 8-point position grid (corners and edge midpoints, no center); the chosen cell is the bright platter.
-struct CameraPositionRow: View {
-    @ObservedObject var model: EditorModel
-    static let xs = [0.18, 0.5, 0.82], ys = [0.22, 0.5, 0.78]
+/// 9-point position grid (corners, edge midpoints and centre); the chosen cell is the bright platter.
+/// `current` is the stored [x, y] (nil = unset, nothing highlighted); `choose` receives the cell's stored position.
+struct PositionGrid: View {
+    var title = "Position"
+    let current: [Double]?
+    let choose: ([Double]) -> Void
+    static let xs = CameraPlacement.xs, ys = CameraPlacement.ys
     var body: some View {
         HStack(alignment: .top) {
-            Text("Position").font(Yap.Font.body).foregroundStyle(Yap.label)
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
             Spacer(minLength: 8)
             VStack(spacing: 3) {
                 ForEach(0..<3, id: \.self) { r in
@@ -176,20 +179,25 @@ struct CameraPositionRow: View {
         }
     }
 
-    @ViewBuilder private func cell(_ r: Int, _ c: Int) -> some View {
-        if r == 1 && c == 1 {
-            Color.clear.frame(width: 26, height: 20)
-        } else {
-            let cur = model.numbers("camera.position")
-            let on = cur.count == 2 && abs(cur[0] - Self.xs[c]) < 0.02 && abs(cur[1] - Self.ys[r]) < 0.02
-            Button { model.set("camera.position", .array([.number(Self.xs[c]), .number(Self.ys[r])])) } label: {
-                RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.white.opacity(on ? 0.85 : 0.1))
-                    .frame(width: 26, height: 20)
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityLabel("Camera position \(["top", "middle", "bottom"][r]) \(["left", "center", "right"][c])")
-            .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+    private func cell(_ r: Int, _ c: Int) -> some View {
+        let on = CameraPlacement.cell(of: current) .map { $0 == (r, c) } ?? false
+        return Button { choose([Self.xs[c], Self.ys[r]]) } label: {
+            RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.white.opacity(on ? 0.85 : 0.1))
+                .frame(width: 26, height: 20)
         }
+        .buttonStyle(PressStyle())
+        .accessibilityLabel("\(title) \(["top", "middle", "bottom"][r]) \(["left", "center", "right"][c])")
+        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// Position of the camera for the whole recording.
+struct CameraPositionRow: View {
+    @ObservedObject var model: EditorModel
+    static let xs = CameraPlacement.xs, ys = CameraPlacement.ys
+    var body: some View {
+        let cur = model.numbers("camera.position")
+        PositionGrid(current: cur.count == 2 ? cur : nil) { model.set("camera.position", .array($0.map { .number($0) })) }
     }
 }
 
