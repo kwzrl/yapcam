@@ -1,5 +1,6 @@
 import AppKit
 import YapcamCapture
+import YapcamRender
 import Carbon.HIToolbox
 import SwiftUI
 
@@ -132,11 +133,18 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var savedWindowSizes: [String] { didSet { d.set(savedWindowSizes, forKey: "savedWindowSizes") } }
     /// Area sizes the user saved in the area toolbar ("1280x720").
     @Published var savedAreaSizes: [String] { didSet { d.set(savedAreaSizes, forKey: "savedAreaSizes") } }
+    /// Export settings used by quick export and the quick export widget (Settings → Quick export).
+    @Published var quickExport: ExportSettings { didSet { d.set(try? JSONEncoder().encode(quickExport), forKey: "quickExport.v1") } }
     @Published var showRecordingWidget: Bool { didSet { d.set(showRecordingWidget, forKey: "showRecordingWidget") } }
     @Published var createAutoZooms: Bool { didSet { d.set(createAutoZooms, forKey: "createAutoZooms") } }
     @Published var afterRecording: AfterRecording { didSet { d.set(afterRecording.rawValue, forKey: "afterRecording") } }
     @Published var showQuickExportWidget: Bool { didSet { d.set(showQuickExportWidget, forKey: "showQuickExportWidget") } }
     @Published var hasCompletedOnboarding: Bool { didSet { d.set(hasCompletedOnboarding, forKey: "onboarded") } }
+
+    /// 1080p MP4, 30 fps, H.264, "Social" compression, with audio.
+    static var defaultQuickExport: ExportSettings {
+        ExportSettings(format: .mp4, codec: .h264, outputHeight: 1080, fps: 30, includeAudio: true, compression: .social)
+    }
 
     static var defaultStorage: URL {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Movies/Yapcam", directoryHint: .isDirectory)
@@ -193,6 +201,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         removedRecents = Set(store.stringArray(forKey: "removedRecents") ?? [])
         savedWindowSizes = store.stringArray(forKey: "savedWindowSizes") ?? []
         savedAreaSizes = store.stringArray(forKey: "savedAreaSizes") ?? []
+        quickExport = (d.data(forKey: "quickExport.v1").flatMap { try? JSONDecoder().decode(ExportSettings.self, from: $0) })
+            .map { $0.closestValidPreset(for: .file) } ?? AppSettings.defaultQuickExport
         showRecordingWidget = store.object(forKey: "showRecordingWidget") as? Bool ?? true
         createAutoZooms = store.object(forKey: "createAutoZooms") as? Bool ?? true
         afterRecording = AfterRecording(rawValue: store.string(forKey: "afterRecording") ?? "") ?? .createProject
