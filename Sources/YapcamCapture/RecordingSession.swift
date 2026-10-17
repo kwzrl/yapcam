@@ -52,6 +52,7 @@ import ScreenCaptureKit
             try FileManager.default.createDirectory(at: options.outputDirectory, withIntermediateDirectories: true)
             try PackageIO.requireSpace(services.availableBytes(options.outputDirectory))
             let resolved = try await services.prepare(options)
+            _ = try Self.outputSize(resolved.source)
             let name = "Recording-\(Date().formatted(.iso8601.year().month().day().time(includingFractionalSeconds: false).dateSeparator(.dash).timeSeparator(.omitted)))-\(UUID().uuidString.prefix(6)).yapcam"
             let package = options.outputDirectory.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: package.appendingPathComponent("recording"), withIntermediateDirectories: true)
@@ -134,9 +135,14 @@ import ScreenCaptureKit
 
     public func stop() async throws -> URL {
         if case .finished(let url) = state { return url }
-        guard (state == .recording || state == .paused), !busy, let packageURL else { throw invalidState("stop") }
-        busy = true; state = .finishing
+        // A stop requested while stream startup/finalization is suspended must be
+        // remembered, not rejected as a transient invalid-state button click.
+        await operationGate.acquire()
         defer { busy = false }
+        if case .finished(let url) = state { return url }
+        if case .failed(let error) = state { throw error }
+        guard (state == .recording || state == .paused), let packageURL else { throw invalidState("stop") }
+        state = .finishing
         do {
             if writer != nil { try await endSegment() }
             manifest?.status = "complete"
@@ -151,8 +157,8 @@ import ScreenCaptureKit
 
     public func cancel() async {
         // Serialize cancellation with a potentially in-flight SCStream start/stop.
-        await operationGate.waitUntilAvailable()
-        busy = true; state = .finishing
+        await operationGate.acquire()
+        state = .finishing
         defer { busy = false }
         if writer != nil { try? await endSegment() }
         timer?.invalidate(); timer = nil
@@ -215,7 +221,7 @@ import ScreenCaptureKit
             }
         }
         self.writer = writer
-        let outputSize = CGSize(width: manifest.source.contentRectPoints[2], height: manifest.source.contentRectPoints[3])
+        let outputSize = try Self.outputSize(manifest.source)
         // Start the screen before auxiliary-device setup can delay it. Nothing is
         // exposed as recording until an actual written screen frame defines t=0.
         let stream = try resolved.makeStream(writer, manifest.tracks.screen.pixelSize)
@@ -330,14 +336,19 @@ import ScreenCaptureKit
         do {
             try PackageIO.requireSpace(services.availableBytes(packageURL))
             try requireSourcePermissions()
+            if let validateSource = services.validateSource {
+                try await validateSource(options)
+                guard state == .recording, !busy, activeStartNs == generation else { return }
+                return
+            }
             switch options.target {
             case .display(let id), .area(let id, _):
                 guard CGDisplayIsActive(id) != 0 else { throw CaptureError.sourceUnavailable }
                 let bounds = CGDisplayBounds(id)
                 switch options.target {
                 case .display:
-                    if let initial = manifest?.source.contentRectPoints,
-                       [initial[2], initial[3]] != [bounds.width, bounds.height] {
+                    if let source = manifest?.source,
+                       try Self.outputSize(source) != bounds.size {
                         throw CaptureError.writerFailed("Display dimensions changed during recording")
                     }
                     events?.updateContentRect(bounds)
@@ -389,6 +400,17 @@ import ScreenCaptureKit
     private func persist() throws {
         guard let packageURL, let manifest else { return }
         try PackageIO.write(manifest, to: packageURL.appendingPathComponent("recording/session.json"))
+    }
+    private static func outputSize(_ source: SourceMetadata) throws -> CGSize {
+        guard source.contentRectPoints.count == 4 else {
+            throw CaptureError.writerFailed("Capture source geometry is invalid")
+        }
+        let width = source.contentRectPoints[2]
+        let height = source.contentRectPoints[3]
+        guard width.isFinite, height.isFinite, width > 0, height > 0 else {
+            throw CaptureError.writerFailed("Capture source geometry is invalid")
+        }
+        return CGSize(width: width, height: height)
     }
     private func warn(_ text: String) { if !warnings.contains(text) { warnings.append(text) } }
     private func invalidState(_ op: String) -> CaptureError { .writerFailed("Cannot \(op) in state \(state)") }

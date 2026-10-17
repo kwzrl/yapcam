@@ -111,6 +111,8 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
     var freeBytes: Int64 = 2_000_000_000
     var rect = CGRect(x: 0, y: 0, width: 64, height: 64)
     var scale: CGFloat = 1
+    var sourceContentRectPoints: [Double]?
+    var sourceHealthError: CaptureError?
     var prepareError: CaptureError?
     var failFinish = false
     var barrier: StartupBarrier?
@@ -139,7 +141,7 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
                 self.preparedFrameRates.append(fps)
                 let geometry = try CaptureGeometry(rect: self.rect, scale: self.scale)
                 var source = SourceMetadata(kind: "display", displayID: 2,
-                    contentRectPoints: [self.rect.minX, self.rect.minY, self.rect.width, self.rect.height], scale: self.scale)
+                    contentRectPoints: self.sourceContentRectPoints ?? [self.rect.minX, self.rect.minY, self.rect.width, self.rect.height], scale: self.scale)
                 if case .device(let id) = options.target {
                     source.kind = "device"; source.displayID = 0; source.displayName = "Test iPhone"
                     source.deviceID = id; source.deviceName = "Test iPhone"
@@ -159,6 +161,8 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
             }, startEvents: { [unowned self] in
                 try $0.openEventLog()
                 try self.eventHook?($0)
+            }, validateSource: { [unowned self] _ in
+                if let error = self.sourceHealthError { throw error }
             }, automaticHealthChecks: false)
         return RecordingSession(options: RecordingOptions(target: target, systemAudio: systemAudio, outputDirectory: directory), services: services)
     }
@@ -415,6 +419,72 @@ private func readSession(_ package: URL) throws -> SessionManifest {
     #expect(session.packageURL == nil)
     #expect(!FileManager.default.fileExists(atPath: package.path))
     #expect(harness.finishes.count == 1)
+}
+
+@Test @MainActor func lifecycleDuplicateStartIsRejectedWithoutCreatingAnotherStream() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    let barrier = StartupBarrier(); harness.barrier = barrier
+    let session = harness.session()
+    let first = Task { @MainActor in try await session.start() }
+    try await eventually { barrier.isWaiting }
+    await #expect(throws: CaptureError.self) { try await session.start() }
+    #expect(harness.streams.count == 1)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: harness.directory.path).count == 1)
+    barrier.release()
+    try await first.value
+    let package = try await session.stop()
+    #expect(session.state == .finished(package))
+    #expect(harness.finishes.count == 1)
+    #expect(harness.streams[0].stopCount == 1)
+}
+
+@Test @MainActor func lifecycleStopsQueuedDuringStartupAreNotLost() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    let barrier = StartupBarrier(); harness.barrier = barrier
+    let session = harness.session()
+    let start = Task { @MainActor in try await session.start() }
+    try await eventually { barrier.isWaiting }
+    let firstStop = Task { @MainActor in try await session.stop() }
+    let secondStop = Task { @MainActor in try await session.stop() }
+    await Task.yield()
+    #expect(session.state == .preparing)
+    barrier.release()
+    try await start.value
+    let firstPackage = try await firstStop.value
+    let secondPackage = try await secondStop.value
+    #expect(firstPackage == secondPackage)
+    #expect(session.state == .finished(firstPackage))
+    #expect(try readSession(firstPackage).status == "complete")
+    #expect(harness.finishes.count == 1)
+    #expect(harness.streams[0].stopCount == 1)
+    #expect(RecordingPackageLease.isAvailable(firstPackage))
+}
+
+@Test(arguments: [false, true]) @MainActor func lifecycleClosedDisplayOrWindowUsesInjectedHealthCheck(window: Bool) async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    let session = harness.session(target: window ? .window(9) : .display(2))
+    try await session.start()
+    let package = try #require(session.packageURL)
+    harness.sourceHealthError = .sourceUnavailable
+    await session.checkHealth()
+    #expect(session.state == .failed(.sourceUnavailable))
+    #expect(try readSession(package).status == "interrupted")
+    #expect(harness.finishes.count == 1)
+    #expect(harness.streams[0].stopCount == 1)
+    #expect(RecordingPackageLease.isAvailable(package))
+}
+
+@Test @MainActor func lifecycleMalformedSourceGeometryReturnsErrorBeforeCreatingPackage() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.sourceContentRectPoints = [0, 0, 64]
+    let session = harness.session()
+    await #expect(throws: CaptureError.writerFailed("Capture source geometry is invalid")) {
+        try await session.start()
+    }
+    #expect(session.state == .failed(.writerFailed("Capture source geometry is invalid")))
+    #expect(session.packageURL == nil)
+    #expect(harness.streams.isEmpty)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: harness.directory.path).isEmpty)
 }
 
 @Test @MainActor func lifecycleWriterFinalizationFailureDoesNotPublishComplete() async throws {
