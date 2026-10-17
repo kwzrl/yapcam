@@ -77,6 +77,18 @@ enum ToolbarGeometry {
     /// The horizontal bar's popovers open upward when it sits in the lower half of the display, else downward.
     static func inLowerHalf(frame: CGRect, of screen: ScreenInfo) -> Bool { frame.midY < screen.frame.midY }
 
+    /// The widget must not sit on what is being recorded: when `frame` overlaps `recorded`, move it just below the
+    /// area (or just above when there is no room below) inside `visible`; unchanged when it does not overlap or fits nowhere.
+    static func avoiding(_ frame: CGRect, recorded: CGRect, in visible: CGRect) -> CGRect {
+        guard frame.intersects(recorded) else { return frame }
+        let gap: CGFloat = 10
+        var below = frame; below.origin.y = recorded.minY - frame.height - gap
+        if below.minY >= visible.minY + edgeInset { return below }
+        var above = frame; above.origin.y = recorded.maxY + gap
+        if above.maxY <= visible.maxY - edgeInset { return above }
+        return frame
+    }
+
     /// New frame after the bar's content changed size (idle ↔ recording): the center stays where it was.
     static func resized(_ frame: CGRect, to size: CGSize) -> CGRect {
         CGRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height)

@@ -352,3 +352,23 @@ import Testing
         #expect(!show(bar: false) && !show(phase: .recording) && !show(id: nil) && !show(available: false) && !show(granted: false) && !show(hidden: true))
     }
 }
+
+@Suite struct Round5WidgetPlacementTests {
+    let visible = CGRect(x: 0, y: 0, width: 1600, height: 900)
+    let bar = CGRect(x: 500, y: 40, width: 300, height: 50)
+    @Test func staysWhenItDoesNotOverlap() {
+        #expect(ToolbarGeometry.avoiding(bar, recorded: CGRect(x: 100, y: 300, width: 400, height: 300), in: visible) == bar)
+    }
+    @Test func movesBelowOrAboveAnOverlappingArea() {
+        let area = CGRect(x: 400, y: 20, width: 600, height: 400)       // covers the bar, no room below
+        let up = ToolbarGeometry.avoiding(bar, recorded: area, in: visible)
+        #expect(up.minY >= area.maxY && !up.intersects(area))
+        let high = CGRect(x: 400, y: 300, width: 600, height: 400)
+        let bar2 = CGRect(x: 500, y: 500, width: 300, height: 50)
+        let down = ToolbarGeometry.avoiding(bar2, recorded: high, in: visible)
+        #expect(down.maxY <= high.minY && !down.intersects(high))
+    }
+    @Test func fullDisplayAreaLeavesItAlone() {
+        #expect(ToolbarGeometry.avoiding(bar, recorded: visible, in: visible) == bar)
+    }
+}

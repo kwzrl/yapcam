@@ -48,7 +48,7 @@ import SwiftUI
         }
 
         RecordingController.shared.$phase.removeDuplicates()
-            .sink { [weak self] _ in DispatchQueue.main.async { self?.refit() } }.store(in: &bag)
+            .sink { [weak self] phase in DispatchQueue.main.async { self?.refit(); if phase == .recording { self?.stepAsideFromArea() } } }.store(in: &bag)
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
@@ -100,6 +100,15 @@ import SwiftUI
         }
         clampToScreen()
         updateSide()
+    }
+
+    /// Area recordings: the widget moves off the recorded rectangle (it is excluded from the capture either way).
+    private func stepAsideFromArea() {
+        let s = AppSettings.shared
+        guard s.sourceMode == .area, let local = s.areaRect, let screen = Displays.screen(for: s.areaDisplayID) else { return }
+        let global = AreaGeometry.globalRect(fromLocal: local, screenFrame: screen.frame)
+        let moved = ToolbarGeometry.avoiding(panel.frame, recorded: global, in: screen.visibleFrame)
+        if moved != panel.frame { isAdjusting = true; panel.setFrame(moved, display: true); isAdjusting = false }
     }
 
     // MARK: Position (rules live in ToolbarGeometry)

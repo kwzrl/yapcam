@@ -12,6 +12,7 @@ struct ToolbarView: View {
     @EnvironmentObject var perms: PermissionsModel
     @ObservedObject private var picker = PickerState.shared
     @ObservedObject private var recovery = RecoveryModel.shared
+    @ObservedObject private var devices = DeviceModel.shared
     @State private var open: ToolbarPopover?
 
     var body: some View {
@@ -59,6 +60,7 @@ struct ToolbarView: View {
             deviceButton(symbol: camLabelOn ? "video.fill" : "video.slash", label: DeviceLabels.camera(name: cameraName), isOn: camOn, help: "Camera", menu: .camera)
                 .popover(isPresented: binding(.camera), arrowEdge: edge) { CameraPopover().environmentObject(settings).environmentObject(perms) }
             deviceButton(symbol: micOn ? "mic.fill" : "mic.slash", label: DeviceLabels.microphone(name: microphoneName), isOn: micOn, help: "Microphone", menu: .microphone)
+                .overlay(alignment: .top) { if micOn { LevelMeter(level: devices.level).frame(width: 34).padding(.top, 2).allowsHitTesting(false) } }
                 .popover(isPresented: binding(.microphone), arrowEdge: edge) { MicrophonePopover().environmentObject(settings).environmentObject(perms) }
             deviceButton(symbol: settings.systemAudio ? "speaker.wave.2.fill" : "speaker.slash",
                          label: settings.systemAudioChoice.buttonLabel(appCount: settings.systemAudioApps.count), isOn: settings.systemAudio,
@@ -77,7 +79,10 @@ struct ToolbarView: View {
             settingsMenu
         }
         .onChange(of: open) { _, new in if new == .recents { settings.showRecentsWithPicker = true } else if settings.showRecentsWithPicker, new == nil { settings.showRecentsWithPicker = false } }
-        .onAppear { recovery.refresh(); if settings.showRecentsWithPicker { open = .recents } }
+        .onAppear { recovery.refresh(); startMeterIfNeeded(); if settings.showRecentsWithPicker { open = .recents } }
+        .onDisappear { devices.stopMeter() }
+        .onChange(of: settings.microphoneID) { _, _ in startMeterIfNeeded() }
+        .onChange(of: perms.state(.microphone)) { _, _ in startMeterIfNeeded() }
     }
 
     /// Display / Window / Area: one click selects the mode and shows its overlay with **Start recording**.
@@ -193,6 +198,9 @@ struct ToolbarView: View {
         .disabled(!enabled).opacity(enabled ? 1 : 0.35)
         .help(help).accessibilityLabel(label)
     }
+
+    /// The live input level on the microphone button runs only while the idle bar is showing and a microphone is chosen.
+    private func startMeterIfNeeded() { micOn ? devices.startMeter(deviceID: settings.microphoneID) : devices.stopMeter() }
 
     private func toggle(_ p: ToolbarPopover) { open = (open == p) ? nil : p }
     private func binding(_ p: ToolbarPopover) -> Binding<Bool> {

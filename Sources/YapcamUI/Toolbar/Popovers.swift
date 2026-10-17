@@ -103,9 +103,7 @@ struct MicrophonePopover: View {
             }
         }
         .padding(14).frame(width: 280)
-        .onAppear { devices.reload(); devices.startMeter(deviceID: settings.microphoneID) }
-        .onChange(of: settings.microphoneID) { _, id in devices.startMeter(deviceID: id) }
-        .onDisappear { devices.stopMeter() }
+        .onAppear { devices.reload() }       // the bar owns the level meter
     }
 }
 
