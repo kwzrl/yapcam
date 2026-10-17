@@ -12,6 +12,21 @@ READY b6bf19b qa: pause A/V + toolbar exclusion verified live; drive-input needs
 READY 769e499 qa: live QA results (TEST_REPORT section 4), findings F6/F7
 
 
+## R6 click-path audit (qa, main 11ce970; method: every `Button`/gesture/key handler in YapcamEditor and YapcamUI vs. test sources; "tested" = a test calls the same function the closure calls, which is weaker than driving the closure)
+
+Untested action targets found by script (closure calls a function no test mentions):
+- editor Inspector.swift:412 Duplicate (`duplicateSelectedZoom`); :528/:535/:538 silence suggestions OK/Dismiss (`dismissSilences`); :697 Remove motion (`removeRegionKeyframes`); :860 Open audio library folder (`revealUserMusicFolder`); Transcript.swift:120 export formats (`chooseTranscriptExport`); ExportSheet.swift:117 Copy again (`copyAgain`); EditorChrome.swift:152/164/170 preset Create/Rename/Remove (`promptName`, `removePreset`).
+- ui SourceOverlay.swift:259 Custom size, :260 Save current size, :274 Ignore this window, :282 Adjust recording area; SettingsWindow.swift:275 Export diagnostics; PostRecording.swift:410 and RecentProjects.swift:181/210 Show in Finder.
+
+Gesture/key paths with NO test at all (the class that hid the scissors bug):
+- editor TimelineView.swift:352-450 `timelineDrag` + `begin(at:)` (private `DragKind`, decisions depend on lane geometry, selection, `cutToolActive`, modifier keys): click routing for scrub, zoom create, zoom/layout/highlight select/move/trim, multi-select, typing popover, scissors on clip/zoom/layout/highlight. commit fcd6238 (scissors on zooms) shipped with no test; LayoutTests.swift:44 only covers the clip case through the model. Repro for a likely UX bug: with the scissors active, click an unselected layout or highlight lane item: `begin` only cuts when `model.selection` is already that item (TimelineView.swift:404-406), so the first click selects and drags, the cut needs a second click (zooms and clips cut on the first click).
+- editor Background.swift:130 inset-origin pad drag; EditorView.swift:77 option-drag pan; :171 zoom focus drag (model `previewFocus` is tested, the point mapping in the closure is not); :233 RectEdit overlay corner/move hit logic (no test mentions RectEdit); Transcript.swift:137 double-click word edit; CommandPalette.swift:109 click row.
+- ui AreaSelector.swift:173 mouseDown create/move/resize decision (`hitHandle`), SourceOverlay.swift:338 click-to-pick window (`start(w.id)`), SettingsWindow.swift:322/353 hotkey recorder key monitors, SourceOverlay.swift:358 and RecordingController.swift:533 `keyDown` (SourcePicker.escape is unit-tested, the NSView key routing is not).
+
+REQUEST editor (R6-QA-E1): extract the timeline click decision into a pure function (e.g. `TimelineHitRouter.route(point:, layout:, geometry:, selection:, cutToolActive:, modifiers:) -> Action`) and test every lane x cutToolActive x selection combination, including scissors on an unselected layout/highlight (should cut on the first click, like zooms).
+REQUEST editor (R6-QA-E2): same for RectEdit (corner/move hit) and the focus/inset pads: test the point -> value mapping, incl. drag outside the view and zero-size geometry.
+REQUEST ui (R6-QA-U1): extract `AreaSelector` mouseDown decision (resize handle / move / create) and the hotkey-recorder key handling into pure functions with tests; add one test per unlisted menu action above that calls the real closure target.
+
 ## R5 parity matrix
 
 REQUEST ui: Tests/YapcamUITests/Round5Tests.swift:314-316 uses fake home-style fixture paths; privacy-scan flags them (false positive). Use `/tmp/fixture/...` style paths so the scan stays clean.
