@@ -64,6 +64,21 @@ import UniformTypeIdentifiers
         }
     }
 
+    public func handleMCP(_ request: Data) throws -> Data {
+        let before = project.revision
+        let result = try project.mcp(request)
+        if project.revision != before {
+            (model.project as? CoreEditingProject)?.refresh()
+            model.noteExternalEdit()
+            model.selection = .none
+        }
+        if let req = try? JSONSerialization.jsonObject(with: request) as? [String: Any],
+           let params = req["params"] as? [String: Any], params["name"] as? String == "save",
+           let response = try? JSONSerialization.jsonObject(with: result) as? [String: Any],
+           let body = response["result"] as? [String: Any], body["isError"] as? Bool == false { model.saveNow() }
+        return result
+    }
+
     /// Applies a saved preset (.yapcampreset) to this project as an edit: undoable, marks the project dirty, redraws the preview.
     public func applyPreset(from url: URL) { model.applyPreset(at: url) }
 

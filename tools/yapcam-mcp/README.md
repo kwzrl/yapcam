@@ -56,7 +56,7 @@ transcripts return `available=false`; malformed transcripts return a tool error.
 Reading does not import captions into the actual project. There is no sentence
 grouping or pagination in this spike.
 
-The complete agent-facing examples are in [src/commands.md](src/commands.md) and
+The complete agent-facing examples are in [core/src/commands.md](../../core/src/commands.md) and
 embedded in both `apply` and `batch` descriptions returned by `tools/list`.
 They cover split, delete_range, zoom edits, speed, process_silence, auto_zooms,
 import_transcript, settings, typing acceleration, presets, captions, and batches.
@@ -143,3 +143,48 @@ Integration tests spawn the real stdio binary on disposable copies of
 initialize/list/read/batch/save, and verify rollback, history, exact timing,
 package immutability before save, backup preservation, caption fallback, protocol
 errors, and backup symlink containment. Temporary copies are removed on teardown.
+
+## Live editor transport (night build)
+
+The app starts a loopback-only Streamable HTTP endpoint when its first editor
+window opens. It remains available until the app quits, including when all editor
+windows close. Opening the agent UI is optional; the endpoint requires the local
+bearer token even when the UI is hidden. Protocol: `2025-06-18`, JSON responses,
+`POST /mcp`; GET returns 405 (no server event stream). Each initialize returns an
+`Mcp-Session-Id`; send it with subsequent requests. DELETE releases a session.
+
+`YapcamEditor.AgentConnection.shared` exposes `port`, `token`, `running`, `error`,
+`claudeCommand` and `stdioCommand(binary:closedProject:)` to the editor's connect
+UI. The default port is 7777; set the integer app preference `agent.mcp.port` and
+restart to change it. The randomly generated token is stored in the app preference
+`agent.mcp.token` on first use. The ready-to-copy command is:
+
+```sh
+claude mcp add --transport http yapcam http://127.0.0.1:7777/mcp --header "Authorization: Bearer <token>"
+```
+
+All nine stdio tools use `core/src/mcp.rs` in both transports. The HTTP transport
+also provides `list_documents`, `seek`, `select`, `transcribe`, and
+`transcription_status`. Every document tool accepts an optional `project` name or
+absolute package path; otherwise it targets the frontmost editor window. Duplicate
+names require a full path. `select` accepts clip, zoom, highlight, music,
+annotation, reaction, and caption IDs. `seek` takes `time_ns`.
+
+`transcribe` invokes the same on-device recognition/import path as Generate
+transcript and waits for completion. It can use a recording's existing transcript.
+Speech permission, language/model availability and source audio requirements are
+unchanged. Recognition failure is returned as a tool error. A concurrent timeline
+edit makes the editor reject stale transcription results. No shell is invoked.
+
+Live edits update core mutation notifications, adapter caches, editor revision,
+preview invalidation and the normal autosave path. Each apply/batch is one core
+history step, shared with keyboard undo/redo. Successful mutations append activity
+entries with client name, command rows and current undo depth. Reads do not create
+history or write transcript mappings back to disk. `save` preserves the same
+pre-MCP backup as stdio and updates the editor's saved state.
+
+The stdio executable remains the fallback for **closed** projects:
+`tools/yapcam-mcp/target/release/yapcam-mcp --project /path/to/project.yapcam`.
+Do not run this separate process against a package open in the editor.
+
+Transport behavior follows the [MCP 2025-06-18 specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).

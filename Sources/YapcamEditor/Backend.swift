@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import CoreGraphics
 import YapcamCore
 
@@ -354,5 +355,27 @@ extension EditorCommand {
     var isVisualOnly: Bool {
         guard case .set(let path, _) = self else { return false }
         return Self.visualPrefixes.contains { path == $0 || path.hasPrefix($0 + ".") || path.hasPrefix($0 + "_") }
+    }
+}
+
+
+@MainActor public final class AgentConnection: ObservableObject {
+    public static let shared = AgentConnection()
+    public let port: UInt16
+    public let token: String
+    @Published public var running = false
+    @Published public var error: String?
+    private init() {
+        let defaults = UserDefaults.standard
+        port = UInt16(exactly: defaults.integer(forKey: "agent.mcp.port")) .flatMap { $0 == 0 ? nil : $0 } ?? 7777
+        if let saved = defaults.string(forKey: "agent.mcp.token"), !saved.isEmpty { token = saved }
+        else { token = UUID().uuidString + UUID().uuidString; defaults.set(token, forKey: "agent.mcp.token") }
+    }
+    public var claudeCommand: String {
+        "claude mcp add --transport http yapcam http://127.0.0.1:\(port)/mcp --header \"Authorization: Bearer \(token)\""
+    }
+    public func stdioCommand(binary: URL, closedProject: URL) -> String {
+        func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        return "claude mcp add --transport stdio yapcam-closed -- \(quote(binary.path)) --project \(quote(closedProject.path))"
     }
 }

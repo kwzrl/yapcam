@@ -110,6 +110,33 @@ public final class Project: @unchecked Sendable {
         if !changes.changed.isEmpty { NotificationCenter.default.post(name: Self.didChange, object: self) }
         return changes
     }
+    public static func mcpCatalog() throws -> Data { try stringResult { yc_mcp_catalog($0) } }
+
+    /// Shared dispatcher serialized with editor mutations.
+    public func mcp(_ request: Data) throws -> Data {
+        var changed = false
+        let response = try withMutation {
+            let result = try String(decoding: request, as: UTF8.self).withCString { c in
+                try Self.stringResult { yc_mcp_handle(handle, c, $0) }
+            }
+            let req = try JSONSerialization.jsonObject(with: request) as? [String: Any]
+            let params = req?["params"] as? [String: Any]
+            let name = params?["name"] as? String ?? ""
+            let res = try JSONSerialization.jsonObject(with: result, options: [.fragmentsAllowed]) as? [String: Any]
+            let body = res?["result"] as? [String: Any]
+            let content = body?["structuredContent"] as? [String: Any]
+            if body?["isError"] as? Bool == false {
+                if ["apply", "batch"].contains(name) { changed = !(content?["changed"] as? [String] ?? []).isEmpty }
+                if ["undo", "redo"].contains(name) { changed = content?["changed"] as? Bool == true }
+                if changed { mutationRevision &+= 1 }
+            }
+            if name == "save", body?["isError"] as? Bool == false { savedRevision = mutationRevision }
+            return result
+        }
+        if changed { NotificationCenter.default.post(name: Self.didChange, object: self) }
+        return response
+    }
+
     public func undo() throws {
         let did = try withMutation {
             var did: UInt8 = 0; try Self.check(yc_undo(handle, &did)); if did != 0 { mutationRevision &+= 1 }; return did

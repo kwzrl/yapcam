@@ -18,6 +18,10 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
     public static func applyAppearance() { controllers.values.forEach { $0.window?.appearance = appearance.nsAppearance } }
 
     private static var controllers: [String: EditorWindowController] = [:]
+    public static var openDocuments: [EditorDocument] { controllers.values.map(\.editorDocument) }
+    public static var frontDocument: EditorDocument? {
+        NSApp.orderedWindows.compactMap { window in controllers.values.first { $0.window === window }?.editorDocument }.first
+    }
     /// Set by the app (it links YapcamCapture): runs on-device transcription for a package and returns the
     /// RecordingTranscript JSON (also written to recording/transcript.json). Nil → captions can only use an existing transcript.
     nonisolated(unsafe) public static var transcriber: (@Sendable (URL) async throws -> Data)?
@@ -99,6 +103,7 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         let controller = EditorWindowController(document: doc) { controllers[key] = nil }
         controllers[key] = controller
         controller.showWindow(nil)
+        (NSClassFromString("YapcamAgentServer") as? AgentServerStarting.Type)?.startServer()
         NSApp.activate()
     }
 }
@@ -208,3 +213,5 @@ extension EditorWindows {
         return target
     }
 }
+
+@MainActor public protocol AgentServerStarting { static func startServer() }
