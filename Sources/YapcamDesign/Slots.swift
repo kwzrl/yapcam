@@ -125,3 +125,36 @@ public struct SlotButton: View {
         }
     }
 }
+
+/// A small switch between a few views (Timeline / Transcript): text segments, the chosen one on a platter.
+/// No container, no separators; states through brightness only.
+public struct SegmentSwitch<ID: Hashable>: View {
+    let items: [(id: ID, title: String)]
+    @Binding var selection: ID
+    var height: CGFloat
+    @State private var hover: ID?
+
+    public init(_ items: [(id: ID, title: String)], selection: Binding<ID>, height: CGFloat = 28) {
+        self.items = items; _selection = selection; self.height = height
+    }
+
+    public var body: some View {
+        HStack(spacing: 2) {
+            ForEach(items, id: \.id) { item in segment(item.id, item.title) }
+        }
+    }
+
+    private func segment(_ id: ID, _ title: String) -> some View {
+        let on = selection == id, looked = hover == id
+        return Button { selection = id } label: {
+            Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                .foregroundStyle(on || looked ? Yap.title : Yap.caption)
+                .padding(.horizontal, 12).frame(height: height)
+                .background(Platter(active: on, hover: looked, radius: Yap.concentric(height / 2 + 4, inset: 4)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .onHover { hover = $0 ? id : (hover == id ? nil : hover) }
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}

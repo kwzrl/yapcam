@@ -242,3 +242,149 @@ public struct GlassMenu<ID: Hashable>: View {
         }
     }
 }
+
+// MARK: - Field
+
+/// Text input recessed into the glass like the slider groove; an optional trailing control sits inside.
+public struct RecessedField<Trailing: View>: View {
+    let prompt: String
+    @Binding var text: String
+    var height: CGFloat
+    let trailing: Trailing
+
+    public init(_ prompt: String, text: Binding<String>, height: CGFloat = 36, @ViewBuilder trailing: () -> Trailing) {
+        self.prompt = prompt; _text = text; self.height = height; self.trailing = trailing()
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain).font(Yap.Font.body).foregroundStyle(Yap.label)
+            trailing
+        }
+        .padding(.leading, 14).padding(.trailing, 4)
+        .frame(height: height)
+        .background(RoundedRectangle(cornerRadius: height / 2, style: .continuous).fill(Yap.recess))
+    }
+}
+
+public extension RecessedField where Trailing == EmptyView {
+    init(_ prompt: String, text: Binding<String>, height: CGFloat = 36) {
+        self.init(prompt, text: text, height: height) { EmptyView() }
+    }
+}
+
+// MARK: - Disclosure
+
+/// A section that shows its basics in one line (title, value in yellow) and opens for the fine-tuning.
+public struct DisclosureSection<Content: View>: View {
+    let title: String
+    var value: String
+    @Binding var open: Bool
+    let content: Content
+    @State private var hover = false
+
+    public init(_ title: String, value: String = "", open: Binding<Bool>, @ViewBuilder content: () -> Content) {
+        self.title = title; self.value = value; _open = open; self.content = content()
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { withAnimation(Yap.Motion.select) { open.toggle() } } label: { header }
+                .buttonStyle(PressStyle())
+                .onHover { hover = $0 }
+                .accessibilityLabel(title).accessibilityValue(value)
+                .accessibilityHint(open ? "Collapses the section" : "Shows the settings")
+            if open { content.padding(.horizontal, 8).padding(.bottom, 6) }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(title).font(Yap.Font.label).foregroundStyle(hover ? Yap.title : Yap.label)
+            Spacer(minLength: 8)
+            if !value.isEmpty { Text(value).technical().lineLimit(1) }
+            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(hover ? Yap.title : Yap.faint)
+                .rotationEffect(.degrees(open ? 90 : 0))
+        }
+        .padding(.horizontal, 8).frame(height: 32)
+        .background(Platter(active: false, hover: hover, radius: Yap.Radius.control))
+        .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Inspector rows
+
+/// A parameter: label on the left, its value in yellow on the right, the pill slider below.
+public struct ValueSlider: View {
+    let title: String
+    let value: String
+    @Binding var amount: Double
+
+    public init(_ title: String, value: String, amount: Binding<Double>) {
+        self.title = title; self.value = value; _amount = amount
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
+                Spacer()
+                Text(value).technical()
+            }
+            PillSlider(value: $amount, trackHeight: 18)
+                .accessibilityLabel(title)
+        }
+    }
+}
+
+/// A parameter with a few choices: label above, a segment switch below.
+public struct ValueChoice<ID: Hashable>: View {
+    let title: String
+    let items: [(id: ID, title: String)]
+    @Binding var selection: ID
+
+    public init(_ title: String, items: [(id: ID, title: String)], selection: Binding<ID>) {
+        self.title = title; self.items = items; _selection = selection
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
+            SegmentSwitch(items, selection: $selection, height: 26)
+        }
+    }
+}
+
+/// A row in a list (chat changes, results): icon, title, a value in yellow, platter on hover.
+public struct ValueRow: View {
+    let symbol: String
+    let title: String
+    let value: String
+    var help: String
+    let action: () -> Void
+    @State private var hover = false
+
+    public init(symbol: String, title: String, value: String, help: String = "", action: @escaping () -> Void) {
+        self.symbol = symbol; self.title = title; self.value = value; self.help = help; self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(hover ? Yap.title : Yap.caption).frame(width: 18)
+                Text(title).font(Yap.Font.body).foregroundStyle(hover ? Yap.title : Yap.label).lineLimit(1)
+                Spacer(minLength: 6)
+                Text(value).technical()
+            }
+            .padding(.horizontal, 8).frame(height: 30)
+            .background(Platter(active: false, hover: hover, radius: Yap.Radius.control))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
+        .onHover { hover = $0 }
+        .help(help)
+        .accessibilityLabel(title).accessibilityValue(value)
+    }
+}
