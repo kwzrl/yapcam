@@ -25,6 +25,90 @@ fn number(a: &Value, key: &str, default: f64) -> Result<f64> {
 fn ns(a: &Value, key: &str, default: i64) -> Result<i64> {
     Ok((number(a, key, seconds(default))? * SECOND as f64).round() as i64)
 }
+// Hints are revision-local evidence from the app's decoder, never project state.
+#[derive(Default)]
+struct VisionHints {
+    supplied: bool,
+    static_cuts: Vec<i64>,
+    changes: Vec<i64>,
+    regions: Vec<(i64, [f64; 4], Option<usize>)>,
+}
+impl VisionHints {
+    fn parse(a: &Value, duration: i64) -> Result<Self> {
+        fn array<'a>(a: &'a Value, key: &str) -> Result<&'a [Value]> {
+            a.get(key).map_or(Ok(&[][..]), |v| {
+                v.as_array()
+                    .filter(|v| v.len() <= 4096)
+                    .map(Vec::as_slice)
+                    .ok_or_else(|| bad("Vision hints must be arrays of at most 4096 entries"))
+            })
+        }
+        let mut hints = Self::default();
+        for key in ["static_cuts_s", "visual_view_changes_s"] {
+            hints.supplied |= a.get(key).is_some();
+            let mut times = vec![];
+            for v in array(a, key)? {
+                let at = ns(&json!({"at_s":v}), "at_s", 0)?;
+                if at > duration {
+                    return Err(bad("Vision hint exceeds current timeline"));
+                }
+                times.push(at);
+            }
+            times.sort_unstable();
+            times.dedup();
+            if key == "static_cuts_s" {
+                hints.static_cuts = times;
+            } else {
+                hints.changes = times;
+            }
+        }
+        hints.supplied |= a.get("visual_view_changes").is_some();
+        for row in array(a, "visual_view_changes")? {
+            if row.get("at_s").is_none() {
+                return Err(bad("Visual change requires at_s"));
+            }
+            let at = ns(row, "at_s", 0)?;
+            if at > duration {
+                return Err(bad("Vision hint exceeds current timeline"));
+            }
+            let rect = &row["bbox"];
+            if !["x", "y", "w", "h"].iter().all(|k| rect.get(*k).is_some()) {
+                return Err(bad("Visual change bbox requires normalized x,y,w,h"));
+            }
+            let rect = [
+                number(rect, "x", 0.0)?,
+                number(rect, "y", 0.0)?,
+                number(rect, "w", 0.0)?,
+                number(rect, "h", 0.0)?,
+            ];
+            if rect[2] <= 0.0
+                || rect[3] <= 0.0
+                || rect[0] + rect[2] > 1.0
+                || rect[1] + rect[3] > 1.0
+            {
+                return Err(bad("Visual change bbox must lie inside normalized source"));
+            }
+            let click = row
+                .get("click_index")
+                .map(|v| {
+                    v.as_u64()
+                        .and_then(|n| usize::try_from(n).ok())
+                        .ok_or_else(|| {
+                            bad("Visual change click_index must be a nonnegative integer")
+                        })
+                })
+                .transpose()?;
+            hints.regions.push((at, rect, click));
+            hints.changes.push(at);
+        }
+        hints.changes.sort_unstable();
+        hints.changes.dedup();
+        Ok(hints)
+    }
+    fn static_cut(&self, at: i64) -> bool {
+        self.static_cuts.iter().any(|t| (t - at).abs() <= 1_000_000)
+    }
+}
 #[derive(Clone)]
 struct Word {
     text: String,
@@ -37,9 +121,17 @@ struct View {
     app: Option<String>,
     title: Option<String>,
     url: Option<String>,
+    window_rect: Option<Value>,
+    window_id: Option<Value>,
 }
 impl View {
     fn update(&mut self, event: &crate::model::Event) {
+        if let Some(rect) = event.details.get("window_rect").filter(|r| r.is_array()) {
+            self.window_rect = Some(rect.clone());
+        }
+        if let Some(id) = event.details.get("window_id").filter(|v| v.is_number()) {
+            self.window_id = Some(id.clone());
+        }
         // Capture metadata is sparse. Missing fields must not erase prior context.
         for (field, keys) in [
             (&mut self.app, &["app_bundle_id"][..]),
@@ -82,6 +174,8 @@ impl Server<'_> {
             app: self.project.session.source.app_bundle_id.clone(),
             title: self.project.session.source.window_title.clone(),
             url: None,
+            window_rect: None,
+            window_id: None,
         };
         let mut state = initial.clone();
         let mut events: Vec<_> = self
@@ -119,24 +213,64 @@ impl Server<'_> {
         }
         (initial, changes)
     }
-    fn view_changes(&self) -> Vec<Value> {
+    fn view_changes(&self, hints: &VisionHints) -> Vec<Value> {
         let (initial, changes) = self.source_views();
         let clips = &self.project.data.timeline.clips;
         let mut rows = vec![];
         for (i, c) in clips.iter().enumerate() {
             if i > 0 && clips[i - 1].src_end_ns != c.src_start_ns {
-                let view = changes
+                let at = time::clip_bounds(clips, i).unwrap().0;
+                let left = clips[i - 1].src_end_ns;
+                let right = c.src_start_ns;
+                let view_at = |src| {
+                    changes
+                        .iter()
+                        .rev()
+                        .find(|(t, _)| *t <= src)
+                        .map_or(&initial, |(_, v)| v)
+                };
+                // Cursor travel alone does not change a page. Inspect SOURCE events:
+                // querying retained events would lose the very activity removed by the cut.
+                let activity = self
+                    .project
+                    .session
+                    .segments
                     .iter()
-                    .rev()
-                    .find(|(t, _)| *t <= c.src_start_ns)
-                    .map_or(&initial, |(_, v)| v);
-                rows.push(view.row(time::clip_bounds(clips, i).unwrap().0, "cut"));
+                    .zip(&self.project.events)
+                    .any(|(segment, events)| {
+                        events.iter().any(|e| {
+                            let t = segment.src_start_ns + e.t;
+                            t >= left.min(right)
+                                && t < left.max(right)
+                                && matches!(
+                                    e.kind.as_str(),
+                                    "down"
+                                        | "scroll"
+                                        | "key"
+                                        | "focus"
+                                        | "window_title"
+                                        | "title"
+                                        | "url"
+                                        | "navigation"
+                                        | "navigate"
+                                        | "view_change"
+                                )
+                        })
+                    });
+                if !hints.static_cut(at)
+                    && (activity || view_at(left.saturating_sub(1)) != view_at(right))
+                {
+                    rows.push(view_at(right).row(at, "cut"));
+                }
             }
             for (src, view) in &changes {
                 if let Some(t) = time::source_to_timeline(clips, i, *src) {
                     rows.push(view.row(t, "metadata"));
                 }
             }
+        }
+        for &at in &hints.changes {
+            rows.push(json!({"kind":"view_change","start_s":seconds(at),"reason":"visual"}));
         }
         rows.sort_by(|a, b| {
             a["start_s"]
@@ -145,12 +279,6 @@ impl Server<'_> {
                 .unwrap()
         });
         rows
-    }
-    fn next_view_change(&self, t: i64) -> Option<i64> {
-        self.view_changes()
-            .iter()
-            .map(|r| (r["start_s"].as_f64().unwrap() * SECOND as f64).round() as i64)
-            .find(|&at| at > t)
     }
     fn key_rows(&self, events: &[Value]) -> Vec<Value> {
         let clips = &self.project.data.timeline.clips;
@@ -307,7 +435,7 @@ impl Server<'_> {
     pub(crate) fn craft(&mut self, name: &str, a: &Value) -> Result<Value> {
         match name {
             "moments" => self.moments(a),
-            "check" => self.craft_check(),
+            "check" => self.craft_check(a),
             "zoom_on_click" => self.zoom_on_click(a),
             _ => self.word_edit(name, a),
         }
@@ -333,7 +461,8 @@ impl Server<'_> {
         }
         let events = self.project.query(&json!({"q":"events"}))?;
         let (initial, views) = self.source_views();
-        let changes = self.view_changes();
+        let hints = VisionHints::parse(a, time::duration(&self.project.data.timeline.clips))?;
+        let changes = self.view_changes(&hints);
         for (click_index, e) in events
             .as_array()
             .unwrap()
@@ -393,7 +522,7 @@ impl Server<'_> {
                 .unwrap()
         });
         Ok(
-            json!({"duration_s":seconds(time::duration(clips)),"transcript_available":available,"word_timing_available":!words.is_empty() && words.iter().all(|w|w.timed),"view_changes":rows.iter().filter(|r| r["kind"] == "view_change").collect::<Vec<_>>(),"moments":rows,"note":"Times are current timeline seconds; indices are zero-based and global before range filtering. Re-read after edits. Click x/y are capture points, not normalized coordinates."}),
+            json!({"hints_accepted":hints.supplied,"duration_s":seconds(time::duration(clips)),"transcript_available":available,"word_timing_available":!words.is_empty() && words.iter().all(|w|w.timed),"view_changes":rows.iter().filter(|r| r["kind"] == "view_change").collect::<Vec<_>>(),"moments":rows,"note":"Times are current timeline seconds; indices are zero-based and global before range filtering. Re-read after edits. Click x/y are capture points, not normalized coordinates."}),
         )
     }
     fn cut_ranges(&mut self, mut ranges: Vec<(i64, i64)>, noun: &str) -> Result<Value> {
@@ -644,6 +773,7 @@ impl Server<'_> {
             return Err(bad("Craft zoom scale must be between 1.05 and 4."));
         }
         let mut target = [x / geometry[2], y / geometry[3]];
+        let mut last_included = t;
         if let Some(include) = a.get("include") {
             let items = include.as_array().ok_or_else(|| {
                 bad("include must be an array of click indices or normalized {x,y,w,h} rectangles")
@@ -655,6 +785,7 @@ impl Server<'_> {
                         let c = clicks
                             .get(index as usize)
                             .ok_or_else(|| bad("include click index out of range"))?;
+                        last_included = last_included.max(c["tl_ns"].as_i64().unwrap());
                         [
                             c["x"]
                                 .as_f64()
@@ -725,19 +856,25 @@ impl Server<'_> {
         let hold = ns(a, "hold_s", 1_600_000_000)?.clamp(SECOND, 6 * SECOND);
         let duration = time::duration(&self.project.data.timeline.clips);
         let requested_start = ns(a, "start_s", (t - lead).max(0))?;
-        let requested_end = ns(a, "end_s", t.saturating_add(hold))?;
+        let hints = VisionHints::parse(a, duration)?;
+        let changes = self.view_changes(&hints);
+        let include_extended = a.get("end_s").is_none() && last_included > t;
+        let requested_end = ns(a, "end_s", last_included.saturating_add(hold))?;
         if requested_start > t || requested_end <= t || requested_end <= requested_start {
             return Err(bad("start_s/end_s must enclose the selected click."));
         }
         let mut start = requested_start;
         let mut end = requested_end.min(duration);
-        let view_change = self.next_view_change(t);
+        let view_change = changes
+            .iter()
+            .map(|r| (r["start_s"].as_f64().unwrap() * SECOND as f64).round() as i64)
+            .find(|&at| at > t);
         if let Some(change) = view_change {
             end = end.min(change.saturating_sub(50_000_000));
         }
         let mut earliest = 0;
-        // Do not extend the lead across a cut or a prior known view change.
-        for change in self.view_changes() {
+        // Static cuts do not bound the lead; only plausible or confirmed changes do.
+        for change in &changes {
             let at = (change["start_s"].as_f64().unwrap() * SECOND as f64).round() as i64;
             if at <= t {
                 earliest = earliest.max(at);
@@ -764,7 +901,10 @@ impl Server<'_> {
             }
         }
         start = start.min(end - SECOND).max(earliest);
-        if end <= t || end - start < SECOND || end - start > 8 * SECOND {
+        if include_extended {
+            end = end.min(start.saturating_add(8 * SECOND));
+        }
+        if start > t || end <= t || end - start < SECOND || end - start > 8 * SECOND {
             return Err(bad(
                 "Cannot fit a 1–8 second zoom around this click within view changes, other zooms and timeline bounds. Zoom on the result instead.",
             ));
@@ -787,9 +927,14 @@ impl Server<'_> {
         } else {
             ""
         };
+        let timing = if include_extended {
+            "; extended requested end to include later clicks plus hold (safety bounds still apply)"
+        } else {
+            ""
+        };
         let change=self.project.apply(&json!({"op":"batch","commands":[{"op":"add_zoom","mode":"manual","target":target,"scale":scale,"tl_start_ns":start,"tl_end_ns":end,"ease_in_ns":300_000_000,"ease_out_ns":300_000_000}]}))?;
         Ok(
-            json!({"changed":true,"message":format!("Zoom {scale:.2}× on click {} ({}–{}){reason}",clock(t),clock(start),clock(end)),"click_index":index,"at_s":seconds(t),"from_s":seconds(start),"to_s":seconds(end),"scale":scale,"target":target,"clamped":clamped,"view_change_s":view_change.map(seconds),"change":change}),
+            json!({"hints_accepted":hints.supplied,"include_extended":include_extended,"requested_end_s":seconds(requested_end),"changed":true,"message":format!("Zoom {scale:.2}× on click {} ({}–{}){reason}{timing}",clock(t),clock(start),clock(end)),"click_index":index,"at_s":seconds(t),"from_s":seconds(start),"to_s":seconds(end),"scale":scale,"target":target,"clamped":clamped,"view_change_s":view_change.map(seconds),"change":change}),
         )
     }
 }
@@ -798,9 +943,10 @@ fn normalize(s: &str) -> String {
         .to_lowercase()
 }
 impl Server<'_> {
-    fn craft_check(&self) -> Result<Value> {
+    fn craft_check(&self, a: &Value) -> Result<Value> {
         let p = &self.project.data;
         let duration = time::duration(&p.timeline.clips);
+        let hints = VisionHints::parse(a, duration)?;
         let (words, available) = self.craft_words()?;
         let activity = self.activity_ranges()?;
         let typing = self.typing_ranges();
@@ -814,6 +960,22 @@ impl Server<'_> {
             .filter(|z| z.enabled && (z.mode != "auto" || p.zoom_settings.automatic))
             .collect();
         for (i, z) in zooms.iter().enumerate() {
+            for &(at, rect, _) in &hints.regions {
+                if z.tl_start_ns <= at && at < z.tl_end_ns && at < duration {
+                    // Use the renderer's evaluated crop, including easing, canvas crop,
+                    // cursor-follow and adaptive framing, rather than a guessed 1/scale box.
+                    let crop = self.project.frame_geometry(at)?.screen_crop;
+                    if rect[0] < crop.x - 1e-6
+                        || rect[1] < crop.y - 1e-6
+                        || rect[0] + rect[2] > crop.x + crop.w + 1e-6
+                        || rect[1] + rect[3] > crop.y + crop.h + 1e-6
+                    {
+                        issue("warning", "zoom_hides_change", at,
+                            format!("Zoom '{}' crops a visual change outside the visible source frame.", z.id),
+                            "Include the result rectangle, reduce the zoom, or end it before the result; verify with capture.");
+                    }
+                }
+            }
             if overlaps(&typing, z.tl_start_ns, z.tl_end_ns) {
                 issue(
                     "warning",
@@ -854,6 +1016,74 @@ impl Server<'_> {
                         format!("Zooms '{}' and '{}' overlap.", other.id, z.id),
                         "Remove one zoom or trim the endpoints so they do not overlap.",
                     );
+                }
+            }
+        }
+        let events = self.project.query(&json!({"q":"events"}))?;
+        let clicks: Vec<i64> = events
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "down")
+            .map(|e| e["tl_ns"].as_i64().unwrap())
+            .collect();
+        if hints
+            .regions
+            .iter()
+            .any(|(_, _, i)| i.is_some_and(|i| i >= clicks.len()))
+        {
+            return Err(bad(
+                "Visual change click_index out of range; re-read moments",
+            ));
+        }
+        let clips = &p.timeline.clips;
+        let source_end = self
+            .project
+            .session
+            .segments
+            .iter()
+            .map(|s| s.src_start_ns + s.duration_ns)
+            .max()
+            .unwrap_or(0);
+        let mut cuts = vec![];
+        for (i, c) in clips.iter().enumerate() {
+            let next_source = clips
+                .get(i + 1)
+                .map_or(source_end, |next| next.src_start_ns);
+            if next_source > c.src_end_ns {
+                cuts.push(time::clip_bounds(clips, i).unwrap().1);
+            }
+        }
+        // Pixel evidence is preferred for results. Metadata is a fallback, not proof
+        // that a toast was visible. Each warning is a review candidate, never an edit.
+        let results: Vec<i64> =
+            if a.get("visual_view_changes_s").is_some() || a.get("visual_view_changes").is_some() {
+                hints.changes.clone()
+            } else {
+                self.view_changes(&hints)
+                    .iter()
+                    .filter(|r| r["reason"] == "metadata")
+                    .map(|r| (r["start_s"].as_f64().unwrap() * SECOND as f64).round() as i64)
+                    .collect()
+            };
+        for result in results {
+            let explicit_click = hints
+                .regions
+                .iter()
+                .find(|(at, _, i)| *at == result && i.is_some())
+                .and_then(|(_, _, i)| *i)
+                .map(|i| clicks[i]);
+            let click =
+                explicit_click.or_else(|| clicks.iter().rev().copied().find(|&t| t <= result));
+            if let Some(click) = click.filter(|&t| t <= result && result - t <= 3 * SECOND) {
+                if let Some(&cut) = cuts.iter().find(|&&cut| {
+                    cut > result
+                        && cut - result < SECOND
+                        && !cuts.iter().any(|&prior| click < prior && prior <= result)
+                }) {
+                    issue("warning", "toast_cut_short", cut,
+                        format!("A cut leaves only {:.2} s after the click result at {:.2} s.", seconds(cut-result), seconds(result)),
+                        "Keep at least 1 s of the result before cutting, or remove the whole step; verify the result with capture.");
                 }
             }
         }
@@ -1030,7 +1260,7 @@ impl Server<'_> {
         issues.sort_by(|a, b| a["at_s"].as_f64().partial_cmp(&b["at_s"].as_f64()).unwrap());
         issues.dedup();
         Ok(
-            json!({"issues":issues,"duration_s":seconds(duration),"transcript_available":available,"word_timing_available":!words.is_empty() && words.iter().all(|w|w.timed),"limitations":["Transcript gaps are timing candidates, not acoustic silence detection.","Without the original recording transcript, cuts inside source words cannot be checked.","Black pixels and composition quality require capture/filmstrip; this structural check does not decode video."]}),
+            json!({"hints_accepted":hints.supplied,"issues":issues,"duration_s":seconds(duration),"transcript_available":available,"word_timing_available":!words.is_empty() && words.iter().all(|w|w.timed),"limitations":["Transcript gaps are timing candidates, not acoustic silence detection.","Without the original recording transcript, cuts inside source words cannot be checked.","Black pixels and composition quality require capture/filmstrip; this structural check does not decode video."]}),
         )
     }
 }
@@ -1041,14 +1271,23 @@ pub(crate) fn catalog() -> Vec<Value> {
     pauses["max_gap_s"] = json!({"type":"number","default":0.5,"minimum":0.3});
     pauses["keep_s"] = json!({"type":"number","default":0.35,"minimum":0.3,"maximum":0.5});
     vec![
-        ("moments","Start here: one chronological timeline of sentences with word indices/timings, clicks with capture-point x/y, known app/window/URL and next event-based view_change_s (null if unknown), view_changes rows, shortcuts, printable typing text (including short bursts), zooms and cuts. All times SECONDS. Indices are zero-based/global; re-read after edits. Example: moments {}.",range,vec![]),
-        ("check","Verify after every edit stage: structural errors and craft warnings with severity, kind, at_s in SECONDS, message and fix_hint. Checks source-word cuts, zoom_during_typing and activity_pause (info for recorded activity); no pixel analysis. Follow with capture to verify appearance. Example: check {}.",json!({}),vec![]),
+        ("moments","Start here: one chronological timeline of sentences with word indices/timings, clicks with capture-point x/y, known app/window/URL and next metadata/pixel-informed view_change_s (null if unknown), view_changes rows, shortcuts, printable typing text (including short bursts), zooms and cuts. All times SECONDS. Indices are zero-based/global; re-read after edits. Example: moments {}.",range,vec![]),
+        ("check","Verify after every edit stage: structural errors and craft warnings with severity, kind, at_s in SECONDS, message and fix_hint. Checks source-word cuts, zoom_during_typing, activity_pause (info), toast_cut_short (<1 s of a click result before a cut), and zoom_hides_change using optional visual_view_changes bbox hints. Does not decode video itself. Follow with capture to verify appearance. Example: check {}.",json!({}),vec![]),
         ("cut_words","Remove an inclusive range of word indices from moments; snap to timed speech boundaries, retain up to 0.35 s breathing room, ripple all tracks. One undo step. Requires word timing, refuses overlaps with retained speech. Example: cut_words {\"from_word_index\":3,\"to_word_index\":4}.",json!({"from_word_index":{"type":"integer","minimum":0},"to_word_index":{"type":"integer","minimum":0}}),vec!["from_word_index","to_word_index"]),
         ("tighten_pauses","Tighten gaps between timed transcript words over max_gap_s (default 0.5 SECONDS), retaining keep_s (default 0.35, clamped 0.3–0.5). Skips whole gaps/tails containing typing, clicks or scrolls and reports activity_pauses_kept. Otherwise trim tail to 0.8 s when range reaches end. Transcript gaps need review; missing words do not prove silence. One undo step. Example: tighten_pauses {\"max_gap_s\":0.5,\"keep_s\":0.35}.",pauses,vec![]),
         ("remove_fillers","Remove exact case-insensitive timed filler words, ignoring surrounding punctuation. Defaults um, uh, erm, er, hmm; never automatically remove like/so/also. Keeps breathing room and makes one undo step. Example: remove_fillers {\"words\":[\"um\",\"uh\"]}.",json!({"words":{"type":"array","items":{"type":"string"}}}),vec![]),
         ("trim_start_to_first_word","Trim opening to first timed word minus lead_s (default 0.1 SECONDS, clamped 0–0.5). No transcript means an explicit error, never guessed silence. One undo step. Example: trim_start_to_first_word {\"lead_s\":0.1}.",json!({"lead_s":{"type":"number","default":0.1,"minimum":0,"maximum":0.5}}),vec![]),
-        ("zoom_on_click","Focus an important captured click by global click_index from moments OR at_s (nearest click within 0.25 SECONDS). Default scale 1.8, lead_s 0.4, hold_s 1.6. Optional start_s/end_s override timing in seconds; ends 0.05 s before next known view change, extends lead for >=1 s without crossing previous view changes. include is an array of other click indices and/or normalized source {x,y,w,h} rectangles; fits union at 1.3–2x or refuses if impossible. Reports clamps; eased 0.3 s, clamped to timeline and free interval, 1–8 s long, max 6/minute. Refuses a click already zoomed; update/remove existing zoom via apply instead. One undo step. Example: zoom_on_click {\"click_index\":0}.",json!({"click_index":{"type":"integer","minimum":0},"at_s":{"type":"number","minimum":0},"scale":{"type":"number","default":1.8,"minimum":1.05,"maximum":4},"lead_s":{"type":"number","default":0.4,"minimum":0},"hold_s":{"type":"number","default":1.6,"minimum":0},"start_s":{"type":"number","minimum":0},"end_s":{"type":"number","minimum":0},"include":{"type":"array","items":{"oneOf":[{"type":"integer","minimum":0},{"type":"object","properties":{"x":{"type":"number","minimum":0,"maximum":1},"y":{"type":"number","minimum":0,"maximum":1},"w":{"type":"number","exclusiveMinimum":0,"maximum":1},"h":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["x","y","w","h"],"additionalProperties":false}]}}}),vec![]),
-    ].into_iter().map(|(name,description,properties,required)| json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name=="moments" || name=="check","openWorldHint":false}})).collect()
+        ("zoom_on_click","Focus an important captured click by global click_index from moments OR at_s (nearest click within 0.25 SECONDS). Default scale 1.8, lead_s 0.4, hold_s 1.6. Optional start_s/end_s override timing in seconds; ends 0.05 s before next known view change, extends lead for >=1 s without crossing previous view changes. include is an array of other click indices and/or normalized source {x,y,w,h} rectangles; fits union at 1.3–2x or refuses if impossible. Included clicks extend end to the last included click plus hold unless end_s is explicit (still clamped, max 8 s). Static cuts do not bound timing. Reports clamps; eased 0.3 s, clamped to timeline and free interval, 1–8 s long, max 6/minute. Refuses a click already zoomed; update/remove existing zoom via apply instead. One undo step. Example: zoom_on_click {\"click_index\":0}.",json!({"click_index":{"type":"integer","minimum":0},"at_s":{"type":"number","minimum":0},"scale":{"type":"number","default":1.8,"minimum":1.05,"maximum":4},"lead_s":{"type":"number","default":0.4,"minimum":0},"hold_s":{"type":"number","default":1.6,"minimum":0},"start_s":{"type":"number","minimum":0},"end_s":{"type":"number","minimum":0},"include":{"type":"array","items":{"oneOf":[{"type":"integer","minimum":0},{"type":"object","properties":{"x":{"type":"number","minimum":0,"maximum":1},"y":{"type":"number","minimum":0,"maximum":1},"w":{"type":"number","exclusiveMinimum":0,"maximum":1},"h":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["x","y","w","h"],"additionalProperties":false}]}}}),vec![]),
+    ].into_iter().map(|(name,description,mut properties,required)| {
+        if matches!(name, "moments" | "zoom_on_click" | "check") {
+            properties["static_cuts_s"] = json!({"type":"array","maxItems":4096,"items":{"type":"number","minimum":0},"description":"Current-timeline cut times proven static by pixels; suppresses cut heuristics within 1 ms. Not persisted."});
+            properties["visual_view_changes_s"] = json!({"type":"array","maxItems":4096,"items":{"type":"number","minimum":0},"description":"Current-timeline pixel change times in seconds; adds hard view bounds. Explicit visual changes win over static-cut hints. Not persisted."});
+        }
+        if name == "check" {
+            properties["visual_view_changes"] = json!({"type":"array","maxItems":4096,"description":"Current-timeline pixel changes and normalized source-space bounding boxes. Optional click_index associates a result with a retained click.","items":{"type":"object","properties":{"at_s":{"type":"number","minimum":0},"click_index":{"type":"integer","minimum":0},"bbox":{"type":"object","properties":{"x":{"type":"number","minimum":0,"maximum":1},"y":{"type":"number","minimum":0,"maximum":1},"w":{"type":"number","exclusiveMinimum":0,"maximum":1},"h":{"type":"number","exclusiveMinimum":0,"maximum":1}},"required":["x","y","w","h"],"additionalProperties":false}},"required":["at_s","bbox"],"additionalProperties":false}});
+        }
+        json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name=="moments" || name=="check","openWorldHint":false}})
+    }).collect()
 }
 
 #[cfg(test)]
@@ -1110,6 +1349,281 @@ mod tests {
             .map(|e| serde_json::from_value(e.clone()).unwrap())
             .collect();
         p.rebuild_key_overlay_index();
+    }
+    #[test]
+    fn static_cuts_allow_zoom_lead_but_removed_activity_and_pixel_changes_bound_it() {
+        for kind in ["move", "down", "scroll", "key", "focus"] {
+            let (_f, mut p) = setup();
+            events(
+                &mut p,
+                json!([
+                    {"t":1_500_000_000,"type":kind,"x":160,"y":100},
+                    {"t":2_200_000_000_i64,"type":"down","x":160,"y":100}
+                ]),
+            );
+            p.apply(
+                &json!({"op":"delete_range","tl_start_ns":1_000_000_000,"tl_end_ns":2_000_000_000}),
+            )
+            .unwrap();
+            let m = call(&mut p, "moments", json!({}));
+            assert_eq!(
+                m["view_changes"].as_array().unwrap().is_empty(),
+                kind == "move"
+            );
+            assert!(m["moments"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["kind"] == "cut"));
+            let before = p.data.clone();
+            let args = json!({"click_index":0,"end_s":1.7});
+            let result = Server {
+                project: &mut p,
+                initialized: true,
+            }
+            .craft("zoom_on_click", &args);
+            assert_eq!(result.is_ok(), kind == "move");
+            if result.is_ok() {
+                p.undo().unwrap();
+            }
+            assert_eq!(p.data, before);
+            let z = call(
+                &mut p,
+                "zoom_on_click",
+                json!({"click_index":0,"end_s":1.7,"static_cuts_s":[1.0]}),
+            );
+            assert_eq!(z["from_s"], 0.7);
+            assert_eq!(z["hints_accepted"], true);
+            p.undo().unwrap();
+            let m = call(
+                &mut p,
+                "moments",
+                json!({"static_cuts_s":[1.0],"visual_view_changes_s":[1.0,1.8]}),
+            );
+            assert_eq!(m["view_changes"].as_array().unwrap().len(), 2);
+            assert_eq!(
+                m["moments"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|r| r["kind"] == "click")
+                    .unwrap()["view_change_s"],
+                1.8
+            );
+            assert!(Server {project:&mut p, initialized:true}.craft("zoom_on_click", &json!({"click_index":0,"end_s":1.7,"static_cuts_s":[1.0],"visual_view_changes_s":[1.0]})).is_err());
+            assert_eq!(p.data, before);
+        }
+    }
+    #[test]
+    fn cut_focus_comparison_handles_backward_jumps_and_speed() {
+        let (_f, mut p) = setup();
+        p.session.source.window_title = Some("Before".into());
+        events(
+            &mut p,
+            json!([
+                {"t":1_500_000_000,"type":"focus","window_title":"After"},
+                {"t":2_200_000_000_i64,"type":"down","x":160,"y":100}
+            ]),
+        );
+        let mut c = p.data.timeline.clips[0].clone();
+        c.src_start_ns = 2 * SECOND;
+        c.src_end_ns = 3 * SECOND;
+        c.speed = 2.0;
+        let mut next = c.clone();
+        next.id = "backwards".into();
+        next.src_start_ns = 0;
+        next.src_end_ns = SECOND;
+        p.data.timeline.clips = vec![c, next];
+        let m = call(&mut p, "moments", json!({}));
+        assert!(m["view_changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["reason"] == "cut" && r["start_s"] == 0.5));
+    }
+    #[test]
+    fn source_focus_geometry_is_a_view_change_even_with_the_same_title() {
+        let (_f, mut p) = setup();
+        events(
+            &mut p,
+            json!([
+                {"t":0,"type":"focus","window_title":"Browser","window_rect":[0,0,320,200]},
+                {"t":1_500_000_000,"type":"focus","window_title":"Browser","window_rect":[20,20,300,180]}
+            ]),
+        );
+        p.apply(
+            &json!({"op":"delete_range","tl_start_ns":1_000_000_000,"tl_end_ns":2_000_000_000}),
+        )
+        .unwrap();
+        let m = call(&mut p, "moments", json!({}));
+        assert!(m["view_changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["reason"] == "cut" && r["start_s"] == 1.0));
+    }
+    #[test]
+    fn included_clicks_extend_timing_with_override_view_and_duration_limits() {
+        let (_f, mut p) = setup();
+        events(
+            &mut p,
+            json!([
+                {"t":1_000_000_000,"type":"down","x":140,"y":100},
+                {"t":2_500_000_000_i64,"type":"down","x":180,"y":100}
+            ]),
+        );
+        let before = p.data.clone();
+        for (extra, end, extended) in [
+            (json!({}), 4.1, true),
+            (json!({"end_s":2.0}), 2.0, false),
+            (json!({"visual_view_changes_s":[2.9]}), 2.85, true),
+        ] {
+            let mut args = json!({"click_index":0,"include":[1]});
+            args.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let z = call(&mut p, "zoom_on_click", args);
+            assert_eq!(z["to_s"], end);
+            assert_eq!(z["include_extended"], extended);
+            assert_eq!(p.undo.len(), 1);
+            p.undo().unwrap();
+            assert_eq!(p.data, before);
+        }
+        // The fixture is 5 s; slow it down to exercise the 8 s bound.
+        for c in &mut p.data.timeline.clips {
+            c.speed = 0.25;
+        }
+        let z = call(
+            &mut p,
+            "zoom_on_click",
+            json!({"click_index":0,"include":[1],"hold_s":2.0}),
+        );
+        assert_eq!(
+            z["to_s"].as_f64().unwrap() - z["from_s"].as_f64().unwrap(),
+            8.0
+        );
+        assert_eq!(z["clamped"], true);
+    }
+    #[test]
+    fn visual_hint_errors_are_atomic_and_reads_preserve_history() {
+        let (_f, mut p) = setup();
+        events(
+            &mut p,
+            json!([{ "t":1_500_000_000,"type":"down","x":160,"y":100 }]),
+        );
+        let before = p.data.clone();
+        for invalid in [
+            json!({"static_cuts_s":{}}),
+            json!({"visual_view_changes_s":[-1]}),
+            json!({"visual_view_changes_s":["1"]}),
+            json!({"static_cuts_s":[6]}),
+            json!({"visual_view_changes":[{"at_s":2,"bbox":{"x":0.9,"y":0,"w":0.2,"h":0.1}}]}),
+            json!({"visual_view_changes":[{"bbox":{"x":0,"y":0,"w":0.2,"h":0.1}}]}),
+        ] {
+            for tool in ["moments", "check", "zoom_on_click"] {
+                let mut args = invalid.clone();
+                if tool == "zoom_on_click" {
+                    args["click_index"] = json!(0);
+                }
+                assert!(
+                    Server {
+                        project: &mut p,
+                        initialized: true
+                    }
+                    .craft(tool, &args)
+                    .is_err(),
+                    "{tool}: {args}"
+                );
+                assert_eq!(p.data, before);
+                assert!(p.undo.is_empty());
+            }
+        }
+        call(
+            &mut p,
+            "moments",
+            json!({"visual_view_changes_s":[2.0,2.0]}),
+        );
+        call(&mut p, "check", json!({"visual_view_changes_s":[2.0]}));
+        assert_eq!(p.data, before);
+        assert!(p.undo.is_empty());
+    }
+    #[test]
+    fn check_visual_regions_use_evaluated_zoom_and_ignore_disabled_zooms() {
+        let (_f, mut p) = setup();
+        events(
+            &mut p,
+            json!([{ "t":1_000_000_000,"type":"down","x":160,"y":100 }]),
+        );
+        call(
+            &mut p,
+            "zoom_on_click",
+            json!({"click_index":0,"scale":2.0}),
+        );
+        let hints = json!({"visual_view_changes":[
+            {"at_s":1.5,"bbox":{"x":0.9,"y":0.8,"w":0.08,"h":0.1},"click_index":0},
+            {"at_s":1.6,"bbox":{"x":0.45,"y":0.45,"w":0.1,"h":0.1}},
+            {"at_s":3.0,"bbox":{"x":0.9,"y":0.8,"w":0.08,"h":0.1}}
+        ]});
+        let result = call(&mut p, "check", hints.clone());
+        let warnings: Vec<_> = result["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["kind"] == "zoom_hides_change")
+            .collect();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0]["at_s"], 1.5);
+        assert_eq!(p.undo.len(), 1);
+        p.data.zooms[0].enabled = false;
+        assert!(!call(&mut p, "check", hints)["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["kind"] == "zoom_hides_change"));
+    }
+    #[test]
+    fn toast_cut_short_requires_result_click_and_less_than_one_second_before_cut() {
+        let (_f, mut p) = setup();
+        events(
+            &mut p,
+            json!([
+                {"t":800_000_000,"type":"down","x":160,"y":100},
+                {"t":1_000_000_000,"type":"focus","window_title":"Result"}
+            ]),
+        );
+        p.apply(
+            &json!({"op":"delete_range","tl_start_ns":1_400_000_000,"tl_end_ns":2_000_000_000}),
+        )
+        .unwrap();
+        assert!(kinds(&mut p).contains(&"toast_cut_short".into()));
+        for (hints, count) in [
+            (json!({"visual_view_changes_s":[1.0]}), 1),
+            (json!({"visual_view_changes_s":[]}), 0),
+            (json!({"visual_view_changes_s":[0.2]}), 0),
+            (json!({"visual_view_changes_s":[1.4]}), 0),
+        ] {
+            assert_eq!(
+                call(&mut p, "check", hints)["issues"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|r| r["kind"] == "toast_cut_short")
+                    .count(),
+                count
+            );
+        }
+        p.undo().unwrap();
+        p.apply(
+            &json!({"op":"delete_range","tl_start_ns":2_000_000_000,"tl_end_ns":3_000_000_000_i64}),
+        )
+        .unwrap();
+        assert!(!kinds(&mut p).contains(&"toast_cut_short".into()));
+        p.undo().unwrap();
+        p.apply(
+            &json!({"op":"delete_range","tl_start_ns":1_400_000_000,"tl_end_ns":5_000_000_000_i64}),
+        )
+        .unwrap();
+        assert!(kinds(&mut p).contains(&"toast_cut_short".into()));
     }
     #[test]
     fn view_metadata_clamps_zoom_and_survives_cuts_speed_and_repeats() {
