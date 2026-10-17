@@ -167,36 +167,6 @@ private struct PermissionPrompt: View {
     }
 }
 
-// MARK: - Notes
-
-struct NotesPopover: View {
-    @EnvironmentObject var rec: RecordingController
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            PopoverHeader(title: "Speaker notes")
-            TextEditor(text: $rec.notes)
-                .font(.system(size: 13))
-                .frame(height: 160)
-                .overlay(alignment: .topLeading) {
-                    if rec.notes.isEmpty {
-                        Text("Type what you want to say. It stays visible while you record.")
-                            .font(.system(size: 13)).foregroundStyle(.tertiary)
-                            .padding(.horizontal, 6).padding(.top, 8).allowsHitTesting(false)
-                    }
-                }
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.15)))
-            HStack {
-                Button { TeleprompterController.shared.toggle() } label: { Label("Teleprompter", systemImage: "text.alignleft") }
-                Spacer()
-                Text("\(rec.notes.count) characters").font(.caption).foregroundStyle(.secondary)
-            }
-            Text("The teleprompter floats above your screen, scrolls while you record and never appears in the recording. Notes are saved with the recording.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14).frame(width: 300)
-    }
-}
-
 // MARK: - After recording
 
 struct AfterRecordingPopover: View {

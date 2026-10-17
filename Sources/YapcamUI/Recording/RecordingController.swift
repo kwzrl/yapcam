@@ -19,7 +19,9 @@ enum RecordingPhase: Equatable {
         didSet {
             phaseChanged(from: oldValue)
             switch (oldValue, phase) {
-            case (_, .recording) where oldValue != .paused: Announcer.say("Recording started")
+            case (_, .recording) where oldValue != .paused:
+                Announcer.say("Recording started")
+                if NotesWindow.shared.isVisible, !notes.isEmpty { PrompterModel.shared.playing = true }   // auto-start with the take
             case (_, .paused): Announcer.say("Recording paused")
             case (.paused, .recording): Announcer.say("Recording resumed")
             case (_, .idle) where oldValue == .finishing: Announcer.say("Recording stopped")
@@ -37,7 +39,6 @@ enum RecordingPhase: Equatable {
     @Published private(set) var workingLong = false
     /// Markers added with the flag button or shortcut, in recording time (pauses excluded).
     @Published private(set) var markers: [Int64] = []
-    @Published var prompterPlaying = true
     /// The package of the last finished recording (quick export and "open last").
     private(set) var lastPackage: URL?
     private var skipRequested = false
@@ -442,7 +443,7 @@ enum RecordingPhase: Equatable {
 
     private func finish() {
         markers = []
-        TeleprompterController.shared.hide()
+        PrompterModel.shared.playing = false
         if settings.playSounds, session != nil {
             let player = cuePlayer
             Task.detached { try? await player.play(.stop, gain: StartSoundGate.gain) }

@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Speaker notes live outside the toolbar now: this small window opens from the toolbar's Settings menu
-/// and the Recording menu. The teleprompter button inside it shows the notes large while recording.
+/// Speaker notes and the prompter: one floating, capture-excluded panel (opens from the gear menu, the Recording menu
+/// and the global shortcut).
 @MainActor final class NotesWindow {
     static let shared = NotesWindow()
     private var window: NSPanel?
@@ -12,18 +12,27 @@ import SwiftUI
 
     func show() {
         if window == nil {
-            let p = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 332, height: 340),
-                            styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
+            let p = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 360, height: 360),
+                            styleMask: [.titled, .closable, .resizable, .utilityWindow, .fullSizeContentView], backing: .buffered, defer: false)
             p.title = "Speaker Notes"
+            p.titlebarAppearsTransparent = true; p.titleVisibility = .hidden
             p.isReleasedWhenClosed = false
             p.hidesOnDeactivate = false
             p.level = .floating
-            p.contentView = NSHostingView(rootView: NotesPopover().environmentObject(RecordingController.shared))
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            p.contentView = NSHostingView(rootView: SpeakerNotesView().environmentObject(RecordingController.shared))
             p.center()
             RecordingController.shared.engine.registerExcluded(p)
             window = p
         }
-        NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    func hide() { window?.orderOut(nil) }
+
+    /// ⌘⌥. : play or pause from anywhere; the panel opens first when it is hidden.
+    func togglePlay() {
+        if !isVisible { show() }
+        PrompterModel.shared.togglePlay()
     }
 }

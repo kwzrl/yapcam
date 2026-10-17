@@ -17,7 +17,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .restart: "Restart recording"
         case .marker: "Add marker"
         case .toggleWidget: "Show / hide toolbar"
-        case .prompterPlay: "Teleprompter play / pause"
+        case .prompterPlay: "Speaker notes: play / pause"
         case .toggleNotes: "Show / hide speaker notes"
         case .cancel: "Cancel recording"
         case .quickExportCopy: "Quick export: copy to clipboard"
@@ -128,7 +128,7 @@ extension KeyCombo {
         case .restart: rec.confirmRestart()
         case .marker: rec.addMarker()
         case .toggleWidget: ToolbarPanelController.shared.toggle()
-        case .prompterPlay: rec.prompterPlaying.toggle()
+        case .prompterPlay: NotesWindow.shared.togglePlay()
         case .toggleNotes: NotesWindow.shared.toggle()
         case .cancel: rec.confirmCancel()
         case .quickExportCopy: QuickExport.shared.runOnLast(.copy)

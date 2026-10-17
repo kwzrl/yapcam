@@ -53,4 +53,42 @@ import Testing
         #expect(CameraPreviewPanel.savedOrigin(nil, screens: screens) == nil)
         #expect(CameraPreviewPanel.savedOrigin([1], screens: screens) == nil)
     }
+
+    // B-04 speaker notes + prompter
+    @Test func prompterScrollsWhenPlayingRegardlessOfTheRecordingPhase() {
+        let m = PrompterModel(); m.speed = 8
+        m.tick(dt: 1, maxOffset: 1000)
+        #expect(m.offset == 0)                      // not playing: no movement
+        m.playing = true
+        m.tick(dt: 0.5, maxOffset: 1000)
+        #expect(m.offset == PrompterRanges.pointsPerSecond(8) * 0.5)
+        #expect(RecordingController.shared.phase == .idle)      // no take is running
+    }
+    @Test func prompterStopsAtTheEndAndRestartsFromTheTop() {
+        let m = PrompterModel(); m.speed = 25; m.playing = true
+        m.tick(dt: 10, maxOffset: 200)
+        #expect(m.offset == 200 && !m.playing)
+        m.togglePlay(maxOffset: 200)
+        #expect(m.offset == 0 && m.playing)
+        let empty = PrompterModel(); empty.playing = true
+        empty.tick(dt: 1, maxOffset: 0)
+        #expect(!empty.playing)                      // nothing to scroll
+    }
+    @Test func prompterSizeResetAndRanges() {
+        let m = PrompterModel(); m.fontSize = 30
+        #expect(!m.sizeIsDefault)
+        m.resetSize()
+        #expect(m.fontSize == 20 && m.sizeIsDefault)
+        #expect(PrompterRanges.speed == 1...25 && PrompterRanges.speedDefault == 8)
+        #expect(PrompterRanges.clampedSpeed(0) == 1 && PrompterRanges.clampedSpeed(99) == 25)
+    }
+    @Test func notesAreOneWindowAndThePlayShortcutOpensIt() {
+        _ = NSApplication.shared
+        let before = NotesWindow.shared.isVisible
+        NotesWindow.shared.hide()
+        NotesWindow.shared.togglePlay()
+        #expect(NotesWindow.shared.isVisible && PrompterModel.shared.playing)
+        PrompterModel.shared.playing = false; NotesWindow.shared.hide()
+        if before { NotesWindow.shared.show() }
+    }
 }

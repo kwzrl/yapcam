@@ -106,7 +106,7 @@ import Testing
 
 @Suite struct Round5PrompterTests {
     @Test func rangesMatchTheReference() {
-        #expect(PrompterRanges.speed == 0...25 && PrompterRanges.opacity == 0.4...1 && PrompterRanges.font == 12...32)
+        #expect(PrompterRanges.speed == 1...25 && PrompterRanges.opacity == 0.4...1 && PrompterRanges.font == 12...32)
         #expect(PrompterRanges.font.contains(PrompterRanges.fontDefault))
     }
     @Test func oldSavedFontSizesAreClamped() {
