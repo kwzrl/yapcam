@@ -142,7 +142,7 @@ import YapcamCore
         e.reset(); e.format = .gif; e.includeAudio = true                                              // never requested for GIF
         e.start(to: URL(fileURLWithPath: "/tmp/a.gif")); await e.waitUntilFinished()
         #expect(engine.last!.format == .gif && !engine.last!.includeAudio && engine.last!.speech == nil)
-        #expect(ExportFormat.allCases.map(\.fileExtension) == ["mp4", "mp4", "mov", "gif"])
+        #expect(ExportFormat.allCases.map(\.fileExtension) == ["mp4", "gif", "mp4", "mp4", "mov", "mov"])   // primary MP4 + GIF first, then the advanced formats
     }
 
     /// Guards the table against render's validation: every offered fps × height of every format must export.

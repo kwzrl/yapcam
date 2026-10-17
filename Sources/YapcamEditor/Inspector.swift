@@ -338,6 +338,7 @@ struct InspectorView: View {
                 RectRow(model: model, title: "Position", path: "cursor.key_overlay.rect", fallback: [0.3, 0.82, 0.4, 0.12])
                 let h = max(model.numbers("canvas.output_size").last ?? 1080, 1)
                 NumberRow(model: model, title: "Size", path: "cursor.key_overlay.style.font_size", range: 0.075 * h...0.25 * h, unit: "%", format: "%.1f", scale: 100 / h, defaultValue: 0.10 * h)
+                HiddenShortcutRows(model: model)
                 ColorRow(model: model, title: "Text", path: "cursor.key_overlay.style.color")
                 ColorRow(model: model, title: "Background", path: "cursor.key_overlay.style.background", opacity: true)
                 NumberRow(model: model, title: "Corner radius", path: "cursor.key_overlay.style.radius", range: 0...48, unit: "px", format: "%.0f")
@@ -451,7 +452,7 @@ struct InspectorView: View {
             DisclosureGroup("Rotation") {
                 NumberRow(model: model, title: "Rotate cursor", path: "cursor.rotation_degrees", range: -180...180, unit: "°", format: "%.0f", defaultValue: 0)
                 LabeledPills("Rotate while moving", selection: Binding(get: { model.string("cursor.rotation_mode", default: "static") }, set: { model.set("cursor.rotation_mode", string: $0) }),
-                             options: [("Off", "static"), ("Tilt", "tilt")])
+                             options: [("Off", "static"), ("Tilt", "tilt"), ("Follow", "follow")])
                 if model.string("cursor.rotation_mode", default: "static") == "tilt" {
                     NumberRow(model: model, title: "Tilt amount", path: "cursor.tilt_amount", range: 0...2, defaultValue: 1)
                 }
@@ -501,6 +502,8 @@ struct InspectorView: View {
                 Picker("Layout", selection: Binding(get: { l.mode }, set: { model.setLayoutMode(id: l.id, $0) })) {
                     ForEach(layoutModes, id: \.value) { Text($0.label).tag($0.value) }
                 }
+                Toggle("Enabled", isOn: Binding(get: { l.enabled }, set: { model.setLayoutEnabled(id: l.id, $0) }))
+                    .help("A disabled range keeps its settings but the default layout applies there")
                 if ["overlay", "cutout", "split"].contains(l.mode) { LayoutOwnSettings(model: model, layout: l) }
                 LabeledContent("Time") { Text("\(formatTimecode(l.startNs)) – \(formatTimecode(l.endNs))").monospacedDigit() }
                 Button("Remove layout", role: .destructive) { model.deleteSelection() }
@@ -683,7 +686,14 @@ struct HighlightControls: View {
         Picker("Follows", selection: Binding(get: { region.space }, set: { v in model.updateHighlight(id: id) { $0.space = v } })) {
             Text("Screen (zoom/crop)").tag("source"); Text("Canvas (fixed)").tag("canvas")
         }
+        Toggle("Enabled", isOn: Binding(get: { region.enabled }, set: { model.setHighlightEnabled(id: id, $0) }))
         LabeledContent("Time") { Text("\(formatTimecode(region.startNs)) – \(formatTimecode(region.endNs))").monospacedDigit() }
+        // Moving mask: keyframes of the box; the box is interpolated between them.
+        HStack {
+            Button("Add keyframe at playhead") { model.addRegionKeyframeAtPlayhead(id: id) }
+            if !region.keyframes.isEmpty { Button("Remove motion") { model.removeRegionKeyframes(id: id) } }
+        }
+        if !region.keyframes.isEmpty { Text("\(region.keyframes.count) keyframe\(region.keyframes.count == 1 ? "" : "s"). Drag the box at another time to move that keyframe.").font(.caption).foregroundStyle(.secondary) }
         if region.kind == .blur { BlurStrengthRow(model: model, region: region) }
         if region.kind != .blur { regionColor("Fill", get: { region.fill }, set: { c in model.updateHighlight(id: id) { $0.fill = c } }) }
         if region.kind != .mask && region.kind != .blur { regionColor("Outline", get: { region.stroke }, set: { c in model.updateHighlight(id: id) { $0.stroke = c } }) }
@@ -1006,5 +1016,36 @@ struct ZoomLensRows: View {
         row("Lens size", ZoomLensParams.radiusRange, { $0.radius }) { $0.radius = $1 }
         row("Bevel", 0...1, { $0.bevel }) { $0.bevel = $1 }
         row("Color fringing", 0...1, { $0.chromaticAberration }) { $0.chromaticAberration = $1 }
+    }
+}
+
+
+/// Per-shortcut "hide" list: every key or chord captured on the edited timeline, with a switch that keeps it out of the overlay.
+struct HiddenShortcutRows: View {
+    @ObservedObject var model: EditorModel
+    @State private var chords: [KeyChord] = []
+    var body: some View {
+        DisclosureGroup("Hide specific shortcuts") {
+            if chords.isEmpty { Text("No keys were captured on this timeline.").font(.caption).foregroundStyle(.secondary) }
+            ForEach(chords) { c in
+                Toggle(isOn: Binding(get: { c.hidden }, set: { model.setShortcutHidden(c.text, $0); chords = model.project.keyChords() })) {
+                    HStack { Text(c.text).font(.system(.callout, design: .monospaced)); if !c.isShortcut { Text("single key").font(.caption).foregroundStyle(.secondary) } }
+                }
+                .accessibilityLabel("Hide \(c.text)")
+            }
+        }
+        .onAppear { chords = model.project.keyChords() }
+        .onChange(of: model.revision) { _, _ in chords = model.project.keyChords() }
+    }
+}
+
+extension EditorModel {
+    /// The overlay skips chords in `cursor.key_overlay.hidden_shortcuts` (exact canonical text, at most 256 entries); one undo step.
+    public func setShortcutHidden(_ chord: String, _ hidden: Bool) {
+        var list: [String] = []
+        if case .array(let a)? = value("cursor.key_overlay.hidden_shortcuts") { list = a.compactMap { if case .string(let s) = $0 { s } else { nil } } }
+        list.removeAll { $0 == chord }
+        if hidden { list.append(chord) }
+        set("cursor.key_overlay.hidden_shortcuts", .array(list.map { .string($0) }))
     }
 }

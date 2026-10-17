@@ -98,7 +98,11 @@ extension EditorModel {
             if size > 0 { lastInset = (size, color) }
             set("canvas.inset", number: 0); return
         }
-        let r = lastInset ?? Self.insetFallback
+        // Restore the last use; else the reference's 4 px / 25 % gray. A color the user already stored (not core's factory
+        // black-50% or the older white) is kept; only the factory values are replaced.
+        let stored = color("canvas.inset_color")
+        let isFactory = stored == [0, 0, 0, 0.5] || stored == [1, 1, 1, 1] || stored.allSatisfy { $0 == 0 }
+        let r = lastInset ?? (Self.insetFallback.size, isFactory ? Self.insetFallback.color : stored)
         setMany([("canvas.inset", .number(r.size)), ("canvas.inset_color", .array(r.color.map { .number($0) }))])
     }
 }

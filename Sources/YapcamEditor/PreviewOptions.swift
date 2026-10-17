@@ -10,6 +10,8 @@ public struct PreviewOptions: Equatable, Sendable {
     public var resolution = 1.0
     public var rate = 1.0
     public var motionBlur = true
+    /// Safe-area overlay of a vertical platform; preview only (render draws it above the video, never in an export).
+    public var reel = ReelMode.off
     public init() {}
     public static func rateLabel(_ r: Double) -> String { r == r.rounded() ? "\(Int(r))×" : String(format: "%g×", r) }
 }
@@ -31,6 +33,7 @@ extension EditorModel {
         let rate = defaults.double(forKey: Self.previewKey + "rate")
         if PreviewOptions.rates.contains(rate) { o.rate = rate }
         if defaults.object(forKey: Self.previewKey + "motionBlur") != nil { o.motionBlur = defaults.bool(forKey: Self.previewKey + "motionBlur") }
+        o.reel = ReelMode(rawValue: defaults.string(forKey: Self.previewKey + "reel") ?? "") ?? .off
         guard o != previewOptions else { return }
         setPreviewOptions(o)
     }
@@ -42,6 +45,7 @@ extension EditorModel {
         defaults.set(o.resolution, forKey: Self.previewKey + "resolution")
         defaults.set(o.rate, forKey: Self.previewKey + "rate")
         defaults.set(o.motionBlur, forKey: Self.previewKey + "motionBlur")
+        defaults.set(o.reel.rawValue, forKey: Self.previewKey + "reel")
     }
 }
 

@@ -80,6 +80,13 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         guard let c = controllers.values.first(where: { $0.window?.isKeyWindow == true }) else { return false }
         c.editorDocument.model.trashRequested = true; return true
     }
+    /// The model of the editor window that is key now (nil when none): the app's Edit menu and shortcuts talk to it.
+    public static var keyModel: EditorModel? { controllers.values.first { $0.window?.isKeyWindow == true }?.editorDocument.model }
+    /// Opens the crop popover of the key editor (File > Crop recorded area…). False when no editor is key.
+    @discardableResult public static func requestCropOfKeyEditor() -> Bool {
+        guard let m = keyModel else { return false }
+        m.cropRequested = true; return true
+    }
     public static func isOpen(package: URL) -> Bool { controllers[package.standardizedFileURL.path] != nil }
 
     /// Flushes pending edits in every open editor (call from applicationWillTerminate).

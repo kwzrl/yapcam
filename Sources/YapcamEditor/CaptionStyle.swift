@@ -3,7 +3,7 @@ import SwiftUI
 /// Caption look as in the reference: size as a fraction of the output height (0.05–0.125), Dark or Light text,
 /// bottom or centered position. Applies to every caption and is remembered for new ones.
 public struct CaptionLook: Equatable, Sendable {
-    public var size = 0.07           // fraction of the output height
+    public var size = 0.05           // fraction of the output height (reference default; core caption_defaults ratio .05)
     public var light = false         // false: white text on a dark plate, true: dark text on a light plate
     public var center = false        // false: bottom, true: centered
     public static let sizeRange = 0.05...0.125
@@ -13,7 +13,9 @@ public struct CaptionLook: Equatable, Sendable {
 extension CaptionLook {
     func apply(to t: TextItem, outputHeight h: Double) -> TextItem {
         var t = t
-        t.fontSize = min(max(size, Self.sizeRange.lowerBound), Self.sizeRange.upperBound) * h
+        let ratio = min(max(size, Self.sizeRange.lowerBound), Self.sizeRange.upperBound)
+        t.fontSize = ratio * h
+        t.extraStyle["font_size_ratio"] = .number(ratio)     // core scales with the canvas; the pixel size above is the fallback
         t.color = light ? [0.08, 0.08, 0.08, 1] : [1, 1, 1, 1]
         t.background = light ? [1, 1, 1, 0.88] : [0, 0, 0, 0.65]
         let boxH = max(t.rect[3], 0.12)
@@ -63,7 +65,7 @@ extension EditorModel {
 
 struct CaptionStyleControls: View {
     @ObservedObject var model: EditorModel
-    @State private var size = 0.07
+    @State private var size = 0.05
     var body: some View {
         let look = model.captionLook
         SliderRow("Size") {

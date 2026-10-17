@@ -18,7 +18,10 @@ extension EditorModel {
         if mods.contains(.command) {
             switch k {
             case "k": paletteVisible = true; return true
+            case "e": if mods.contains(.shift) { performExport(.picker); return true }; return false
+            case "s": if mods.contains(.option) { performExport(.saveToFile); return true }; return false
             case "c":
+                if mods.contains(.option) { performExport(.copyToClipboard); return true }
                 if mods.contains(.shift) || !copySelectedSettings() { copyFrameHandler?() }
                 return true
             case "v": return pasteSettings()
@@ -30,6 +33,7 @@ extension EditorModel {
             }
         }
         if mods.contains(.control) { if k == "v" { volumeMenuSystem = true; volumeMenuVisible = true; return true }; return false }
+        guard let k = keyBindings.canonical(k) else { return false }        // Settings can move these keys
         switch k {
         case "j", "k", "l": shuttle(k); return true
         case "c": splitContextAware(); return true
@@ -46,7 +50,7 @@ extension EditorModel {
         case "d": if selectedZoom != nil { toggleSelectedZoomEnabled(); return true }; return false
         case "0"..."9":
             guard selectedZoom != nil, let d = k.wholeNumberValue else { return false }
-            setSelectedZoomLevel(zoomLevel(forDigit: d)); return true
+            setSelectedZoomLevel(d == 0 ? defaultZoomScale : zoomLevel(forDigit: d), coalesce: true); return true
         case "=", "+": if selectedZoom != nil { stepSelectedZoomLevel(by: 0.2); return true }; return false
         case "-": if selectedZoom != nil { stepSelectedZoomLevel(by: -0.2); return true }; return false
         default: return false

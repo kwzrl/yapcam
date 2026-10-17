@@ -52,12 +52,12 @@ extension EditorModel {
             PaletteCommand(title: "Move recording to Trash…", shortcut: "", enabled: true) { [self] in trashRequested = true },
             PaletteCommand(title: showWaveform ? "Hide audio waveform" : "Show audio waveform", shortcut: "", enabled: true) { [self] in setShowWaveform(!showWaveform) },
             PaletteCommand(title: "Reel preview: Off", shortcut: "", enabled: reelMode != .off) { [self] in setReelMode(.off) },
-            PaletteCommand(title: "Reel preview: Instagram Reels", shortcut: "", enabled: reelMode != .instagram) { [self] in setReelMode(.instagram) },
+            PaletteCommand(title: "Reel preview: Instagram", shortcut: "", enabled: reelMode != .instagram) { [self] in setReelMode(.instagram) },
             PaletteCommand(title: "Reel preview: TikTok", shortcut: "", enabled: reelMode != .tiktok) { [self] in setReelMode(.tiktok) },
             PaletteCommand(title: smoothWaveform ? "Use detailed waveform" : "Use smooth waveform", shortcut: "", enabled: showWaveform) { [self] in setSmoothWaveform(!smoothWaveform) },
             PaletteCommand(title: "Toggle snapping", shortcut: "", enabled: true) { [self] in snappingEnabled.toggle() },
         ]
-        return actions + settingCommands
+        return actions + exportCommands + settingCommands
     }
 
     public func filteredCommands(_ query: String) -> [PaletteCommand] {

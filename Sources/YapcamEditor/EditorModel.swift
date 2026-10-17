@@ -60,8 +60,12 @@ public final class EditorModel: ObservableObject {
     @Published public internal(set) var waveform: [WavePoint] = []
     @Published public internal(set) var showWaveform = true
     @Published public internal(set) var smoothWaveform = false
-    /// Preview-only safe-area overlay of a vertical platform (remembered).
-    @Published public internal(set) var reelMode: ReelMode = .off
+    /// The document's export model (set by `EditorDocument`) and what the window does to show its export sheet.
+    weak var exportModel: ExportModel?
+    var showExportPickerHandler: (@MainActor () -> Void)?
+    var exportTitle = "Recording"
+    /// Rebindable single-key shortcuts (the app's Settings edit `EditorKeyBindings.shared`; tests inject their own).
+    var keyBindings: EditorKeyBindings = .shared
     var lastInset: (size: Double, color: [Double])?
     /// Wallpapers starred by the user (right-click in the picker); remembered across projects.
     @Published public internal(set) var favoriteWallpapers: Set<String> = []
@@ -74,6 +78,8 @@ public final class EditorModel: ObservableObject {
     var timelineFitted = false
     /// Raised by the toolbar-less "Move to Trash" command; the editor shows its confirmation.
     @Published public var trashRequested = false
+    /// Raised by the File menu's crop command; the editor opens its crop popover.
+    @Published public var cropRequested = false
     /// Inspector section chosen in the icon rail (⌘1…⌘0 select by position).
     @Published public var inspectorSection: InspectorSection = .background
     @Published public var textRectPreview: (key: String, rect: [Double])?
@@ -589,8 +595,27 @@ public final class EditorModel: ObservableObject {
     public func saveNow() {
         autosaveTask?.cancel()
         guard !isClosed, saveState != .clean else { return }
+        let wasFailing: Bool = { if case .failed = saveState { true } else { false } }()
         do { try project.save(); saveState = .clean }
-        catch { saveState = .failed(error.localizedDescription); lastError = "Couldn't save: \(error.localizedDescription)" }
+        catch {
+            // The project stays dirty (the revision is untouched); only the first failure interrupts with a message.
+            saveState = .failed(error.localizedDescription)
+            if !wasFailing { lastError = "Couldn't save: \(error.localizedDescription)" }
+            scheduleSaveRetry()
+        }
+    }
+
+    /// After a failed save the next try comes one autosave delay later without needing another edit. A new edit restarts the
+    /// normal timer (and cancels this one); closing, or autosave switched off, ends the retries.
+    private func scheduleSaveRetry() {
+        guard !isClosed, autosaveAllowed() else { return }
+        let delay = autosaveDelay
+        autosaveTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            if Task.isCancelled { return }
+            guard let self, !self.isClosed else { return }
+            if case .failed = self.saveState { self.saveNow() }
+        }
     }
 
     // MARK: timeline zoom

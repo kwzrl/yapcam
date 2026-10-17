@@ -9,6 +9,25 @@ public final class ExportModel: ObservableObject {
         case failed(String)
         case cancelled
     }
+    /// What happened, for the app's notification and Dock-progress consumers (R5-U02).
+    public struct Outcome: Equatable, Sendable {
+        public enum Kind: Equatable, Sendable { case started, completed(URL), cancelled, failed(String) }
+        public var kind: Kind
+        public var target: ExportTarget
+    }
+    /// Called on the main actor when an export starts, finishes, is cancelled or fails (clipboard copies included).
+    public var onOutcome: (@MainActor (Outcome) -> Void)?
+    /// Seconds since the running export began and the fraction done, for elapsed/remaining readouts (nil when idle).
+    @Published public private(set) var startedAt: Date?
+    @Published public var target: ExportTarget = .file { didSet { if oldValue != target { normalize(); persist() } } }
+    /// Formats offered for the current target (the paired H.264 + HEVC export needs a folder, so not the clipboard).
+    public var availableFormats: [ExportFormat] { ExportFormat.allCases.filter { target == .file || !$0.fileTargetOnly } }
+    /// Files the clipboard export kept, newest first.
+    @Published public private(set) var history: [URL] = []
+    public func refreshHistory() { history = engine.clipboardHistory() }
+    public func copyAgain(_ url: URL) { do { try engine.copyToClipboard(url) } catch { state = .failed(error.localizedDescription) } }
+    /// Render warns that a 1080p GIF can become very large.
+    public var showsLargeGIFWarning: Bool { format == .gif && height >= 1080 }
     @Published public private(set) var state: State = .idle
     /// Queue phase of the running export (waiting for another export / preparing / rendering); nil when not running.
     @Published public private(set) var queueStatus: ExportQueueStatus?
@@ -40,6 +59,7 @@ public final class ExportModel: ObservableObject {
 
     /// Keeps the choices inside what the format offers (fps, height, preset available at that height).
     private func normalize() {
+        if target == .clipboard && format.fileTargetOnly { format = .mp4h264; return }
         let o = format.options
         if !o.fps.contains(fps) { fps = o.defaultFPS }
         if !o.heights.contains(height) { height = o.defaultHeight; return }
@@ -60,13 +80,23 @@ public final class ExportModel: ObservableObject {
 
     public var isRunning: Bool { if case .running = state { return true }; return false }
 
+    /// Exports to the clipboard: a local file kept in the history is rendered and copied as a file.
+    public func copyToClipboard() {
+        guard !isRunning else { return }
+        target = .clipboard
+        start(to: ClipboardPlaceholder.url)
+    }
+
     public func start(to destination: URL) {
         guard !isRunning else { return }
         lastDestination = destination
         failedWithAudio = false
         state = .running(0)
         queueStatus = .waiting
+        startedAt = Date()
+        onOutcome?(Outcome(kind: .started, target: target))
         let req = makeRequest(destination: destination)
+        let target = self.target
         let engine = engine
         task = Task { [weak self] in
             do {
@@ -75,15 +105,19 @@ public final class ExportModel: ObservableObject {
                 }, status: { s in
                     Task { @MainActor in self?.queueProgressed(s) }
                 })
-                self?.queueStatus = nil
+                self?.queueStatus = nil; self?.startedAt = nil
                 self?.state = .done(url)
+                if target == .clipboard { self?.refreshHistory() }
+                self?.onOutcome?(Outcome(kind: .completed(url), target: target))
             } catch is CancellationError {
-                self?.queueStatus = nil
+                self?.queueStatus = nil; self?.startedAt = nil
                 self?.state = .cancelled
+                self?.onOutcome?(Outcome(kind: .cancelled, target: target))
             } catch {
-                self?.queueStatus = nil
+                self?.queueStatus = nil; self?.startedAt = nil
                 self?.failedWithAudio = req.includeAudio
                 self?.state = .failed(error.localizedDescription)
+                self?.onOutcome?(Outcome(kind: .failed(error.localizedDescription), target: target))
             }
         }
     }
@@ -92,7 +126,7 @@ public final class ExportModel: ObservableObject {
         ExportRequest(height: height, fps: fps, destination: destination, includeAudio: includeAudio && format.supportsAudio,
                       speech: includeAudio && format.supportsAudio ? speechProvider() : nil, format: format, quality: quality,
                       compression: format == .gif ? nil : preset, gifHighQuality: gifHighQuality, gifDisableLoop: gifDisableLoop,
-                      variableFrameRate: variableFrameRateProvider() && format != .gif)
+                      variableFrameRate: variableFrameRateProvider() && format != .gif, target: target)
     }
     /// Size and time readout for the current choices (nil when the engine cannot plan them).
     public var estimate: ExportEstimateInfo? { engine.estimate(for: makeRequest(destination: URL(fileURLWithPath: "/dev/null"))) }
@@ -113,3 +147,6 @@ public final class ExportModel: ObservableObject {
     public func waitUntilFinished() async { await task?.value }
     public func reset() { if !isRunning { state = .idle } }
 }
+
+/// The clipboard export chooses its own file in render's history folder; this URL only fills the request.
+enum ClipboardPlaceholder { static let url = URL(fileURLWithPath: "/dev/null") }

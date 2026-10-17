@@ -86,6 +86,9 @@ public final class CoreEditingProject: EditingProject {
     }
     private var keyCache: [Int64] = []
     public var keyTimesNs: [Int64] { _ = clickTimesNs; return keyCache }
+    public func keyChords() -> [KeyChord] {
+        ((try? project.keyOverlayShortcuts()) ?? []).map { KeyChord(text: $0.text, isShortcut: $0.isShortcut, hidden: $0.hidden) }
+    }
     private var markerCache: [Int64] = []
     public var markerTimesNs: [Int64] { _ = clickTimesNs; return markerCache }
     private var typingCache: [TypingRecord] = []
@@ -106,6 +109,10 @@ public final class CoreEditingProject: EditingProject {
                              crop: CGRect(x: f.screen_crop.x, y: f.screen_crop.y, width: f.screen_crop.w, height: f.screen_crop.h))
     }
     public var hasCamera: Bool { project.session.tracks.camera != nil }
+    public var cameraPixelSize: (width: Int, height: Int)? {
+        guard let s = project.session.tracks.camera?.pixelSize, s.count == 2, s[0] > 0, s[1] > 0 else { return nil }
+        return (s[0], s[1])
+    }
     private lazy var mouseData: Bool = project.session.segments.contains { seg in
         guard let rel = seg.files["events"] else { return false }
         let url = project.packageURL.appendingPathComponent("recording").appendingPathComponent(rel)
@@ -179,6 +186,8 @@ public final class CoreEditingProject: EditingProject {
             if let mode { patch["mode"] = .string(mode.rawValue) }
             return .updateZoom(id: id, patch: patch)
         case .insertZoom(let s, let e): return .insertTimelineItem(.zoom, startNs: s, durationNs: e - s)
+        case .insertZoomWith(let s, let e, let patch): return .insertTimelineItem(.zoom, startNs: s, durationNs: e - s, patch: patch)
+        case .coalesced(let key, let inner): return .coalescedEdit(key: key, command: map(inner))
         case .setZoomLens(let id, let lens):
             var patch: [String: JSONValue] = ["style": .string(lens == nil ? "classic" : "lens")]
             if let l = lens { patch["lens"] = .object(["radius": .number(l.radius), "bevel": .number(l.bevel), "chromatic_aberration": .number(l.chromaticAberration)]) }
@@ -199,12 +208,18 @@ public final class CoreEditingProject: EditingProject {
     /// Structural timeline edits go through core's checked envelope (minimum clip/zoom lengths, atomic, history-safe).
     private func isStructural(_ c: EditorCommand) -> Bool {
         switch c {
-        case .split, .deleteRange, .addZoom, .insertZoom, .updateZoom, .setZoomLens, .processSilence: true
+        case .split, .deleteRange, .addZoom, .insertZoom, .insertZoomWith, .updateZoom, .setZoomLens, .processSilence: true
         case .batch(let cs): cs.contains(where: isStructural)
+        case .coalesced(_, let inner): isStructural(inner)
         default: false
         }
     }
     public func apply(_ command: EditorCommand) throws {
+        // The coalescing envelope goes OUTSIDE the checked timeline envelope (FORMATS: Interactive undo grouping).
+        if case .coalesced(let key, let inner) = command {
+            let m = map(inner)
+            try project.apply(.coalescedEdit(key: key, command: isStructural(inner) ? .timelineEdit(m) : m)); refresh(); return
+        }
         let mapped = map(command)
         try project.apply(isStructural(command) ? .timelineEdit(mapped) : mapped); refresh()
     }
@@ -306,6 +321,7 @@ final class PreviewPlayerAdapter: PlaybackEngine {
         s.maximumHeight = o.maxHeight
         s.resolution = PreviewSettings.Resolution(rawValue: o.resolution) ?? .full
         s.playbackRate = o.rate
+        s.reelMode = ReelPreviewMode(rawValue: o.reel.rawValue) ?? .off
         try player.setPreviewSettings(s)
         player.setMotionBlurEnabled(o.motionBlur)
     }
@@ -315,16 +331,17 @@ struct RenderExportEngine: ExportEngine {
     let source: ProjectRenderSource
 
     static func settings(for request: ExportRequest) -> ExportSettings {
-        let (container, codec): (ExportSettings.Format, ExportSettings.Codec) = switch request.format {
-        case .mp4h264: (.mp4, .h264); case .mp4hevc: (.mp4, .hevc); case .movh264: (.mov, .h264); case .gif: (.gif, .h264) }
+        let (container, codec) = (request.format.renderFormat, request.format.renderCodec)
         let compression: ExportSettings.Compression? = request.compression.map {
             switch $0 { case .studio: .studio; case .social: .social; case .web: .web; case .webLow: .webLow } }
-        return ExportSettings(format: container, codec: codec, outputHeight: request.height, fps: request.fps,
+        let settings = ExportSettings(format: container, codec: codec, outputHeight: request.height, fps: request.fps,
                               quality: compression == nil ? request.quality : nil,
                               includeAudio: request.includeAudio && request.format.supportsAudio,
                               speechEnhancement: request.speech.map(\.render), compression: compression,
                               gifHighQuality: request.gifHighQuality, gifDisableLoop: request.gifDisableLoop,
                               variableFrameRate: request.variableFrameRate)
+        // Render's own normalisation for the target (snaps size/rate to the catalog; the clipboard never writes a pair).
+        return settings.closestValidPreset(for: request.target == .clipboard ? .clipboard : .file)
     }
 
     func estimate(for request: ExportRequest) -> ExportEstimateInfo? {
@@ -336,9 +353,26 @@ struct RenderExportEngine: ExportEngine {
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
         try await run(request, progress: progress, status: { _ in })
     }
+    func clipboardHistory() -> [URL] { (try? MainActor.assumeIsolated { try ClipboardExport.previousExports() }) ?? [] }
+    func copyToClipboard(_ url: URL) throws { try MainActor.assumeIsolated { try ClipboardExport.copyFile(url) } }
+
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void,
              status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL {
         let settings = Self.settings(for: request)
+        if request.target == .clipboard {
+            // A local file kept in the history, then copied as a file reference (render's ClipboardExport).
+            status(.preparing)
+            return try await ClipboardExport.run(project: source, settings: settings, progress: { p in status(.rendering); progress(p) })
+        }
+        if settings.codec == .both {
+            // Two files (H.264 and "-h265"): rendered into a temporary folder, then both replace the destination files.
+            return try await AtomicExport.runPair(to: request.destination, settings: settings) { temp in
+                let exporter = try Exporter(project: source, settings: settings, destination: temp)
+                return try await exporter.run(progress: progress, status: { phase in
+                    switch phase { case .waiting: status(.waiting); case .preparing: status(.preparing); case .rendering: status(.rendering); default: break }
+                })
+            }
+        }
         return try await AtomicExport.run(to: request.destination) { temp in
             let exporter = try Exporter(project: source, settings: settings, destination: temp)
             return try await exporter.run(progress: progress, status: { phase in
