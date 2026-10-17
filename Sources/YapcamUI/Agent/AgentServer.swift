@@ -179,6 +179,10 @@ import YapcamCore
                 if name != "transcription_status" { log(doc, name: name, args: args, client: client) }
                 return
             }
+            if method == "tools/call", ["moments", "zoom_on_click", "check"].contains(name) {
+                args = try await AgentVision.enrich(name: name, arguments: args, project: doc.project)
+                guard !model.isClosed else { fail("The editor closed during pixel analysis"); return }
+            }
             params["arguments"] = args; request["params"] = params
             let bytes = try JSONSerialization.data(withJSONObject: request)
             let response = try JSONSerialization.jsonObject(with: doc.handleMCP(bytes)) as? [String: Any] ?? [:]

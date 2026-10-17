@@ -17,6 +17,47 @@ enum AgentVision {
         return try JSONSerialization.jsonObject(with: data) as! [String: Any]
     }
 
+    /// Only send hints advertised by this core build. Older cores ignore unknown
+    /// keys, which would otherwise silently promise pixel-aware zooms they cannot do.
+    @MainActor static func enrich(name: String, arguments: [String: Any], project: Project) async throws -> [String: Any] {
+        guard ["moments", "zoom_on_click", "check"].contains(name), project.durationNs > 0 else { return arguments }
+        let catalog = try JSONSerialization.jsonObject(with: Project.mcpCatalog()) as? [[String: Any]] ?? []
+        let supported = hintKeys(name: name, catalog: catalog)
+        guard !supported.isEmpty else { return arguments }
+        // A catalog entry alone is insufficient with a mismatched/older core:
+        // probe a READ on a snapshot before forwarding any mutating request.
+        let probe = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": ["name": "moments", "arguments": ["visual_view_changes_s": [], "static_cuts_s": []]]])
+        let response = try JSONSerialization.jsonObject(with: project.snapshot().mcp(probe)) as? [String: Any]
+        let result = response?["result"] as? [String: Any]
+        guard (result?["structuredContent"] as? [String: Any])?["hints_accepted"] as? Bool == true else { return arguments }
+        let hints = try await pixelHints(name: name, arguments: arguments, project: project)
+        var enriched = arguments
+        for key in supported { enriched[key] = hints[key] }
+        return enriched
+    }
+
+    @MainActor static func pixelHints(name: String, arguments: [String: Any], project: Project) async throws -> [String: Any] {
+        let selection = try AgentPixelSelection(name: name, arguments: arguments)
+        let revision = project.revision
+        let snapshot = try project.snapshot()
+        let data = try await worker.hints(snapshot: snapshot, owner: project, revision: revision, selection: selection)
+        try Task.checkCancellation()
+        guard !project.isClosed, project.revision == revision else {
+            throw RenderError.invalidSettings("The edit changed during pixel analysis; retry on the current timeline")
+        }
+        return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    }
+
+    static func hintKeys(name: String, catalog: [[String: Any]]) -> Set<String> {
+        let schema = catalog.first { $0["name"] as? String == name }?["inputSchema"] as? [String: Any]
+        let properties = schema?["properties"] as? [String: Any] ?? [:]
+        let keys: Set<String> = name == "check"
+            ? ["visual_view_changes", "visual_view_changes_s", "static_cuts_s"]
+            : ["visual_view_changes_s", "static_cuts_s"]
+        return keys.intersection(properties.keys)
+    }
+
     static var tools: [[String: Any]] {
         let time: [String: Any] = ["type": "number", "minimum": 0, "description": "Seconds on the current edited timeline."]
         let times: [String: Any] = ["type": "array", "items": time, "minItems": 1, "maxItems": 48]
@@ -33,7 +74,7 @@ enum AgentVision {
                  ["times": times, "source": ["type": "string", "enum": ["screen", "camera"], "default": "screen"]], required: ["times"]),
             tool("filmstrip", "Survey the CURRENT composition in labelled contact sheets (default 6 frames, 6 per sheet; count:12 returns 2 sheets), evenly spaced across from_s…to_s (seconds, defaults to the full edit). Uses the export compositor; default crop:frame shows the full canvas, crop:content enlarges the recording area for UI reading. Use before planning and after every stage, then capture key beats more closely. The exact end resolves to the last timeline nanosecond.",
                  range.merging(["count": ["type": "integer", "minimum": 1, "maximum": 12, "default": 6], "per_sheet": ["type": "integer", "minimum": 1, "maximum": 12, "default": 6], "crop": crop.merging(["default": "frame"]) { _, b in b }]) { _, b in b }),
-            tool("view_changes", "Find visible source-screen changes after clicks from moments. Optional click_indices are zero-based/global on the CURRENT edited timeline; omit for all clicks (maximum 100 per request). Compares a frame 0.05 s before each click with samples every 0.2 s up to 3 s afterward, stopping at the next edit cut. Returns the first sample whose normalized mean RGB difference reaches threshold (default 0.005, range >0 to 1), or null. Times are timeline SECONDS; timing precision is 0.2 s. Pixel evidence, not proof of navigation or causality: typing/scrolling can also change pixels, and small toasts may stay below threshold. Read-only; ignores editor zooms and overlays.",
+            tool("view_changes", "Find visible source-screen changes after clicks from moments. Optional click_indices are zero-based/global on the CURRENT edited timeline; omit for all clicks (maximum 100 per request). Compares a frame 0.05 s before each click with samples every 0.2 s up to 3 s afterward, stopping at the next edit cut. Returns the first sample whose normalized mean RGB difference reaches threshold (default 0.005, range >0 to 1), or null. Times are timeline SECONDS; detected transitions are refined to 0.025 s. Each changed row includes bbox {x,y,w,h}, the union of significant changed regions in normalized top-left source space (null if too faint/small). Pixel evidence, not proof of navigation or causality: typing/scrolling can also change pixels, and small toasts may stay below threshold. Read-only; ignores editor zooms and overlays.",
                  ["click_indices": ["type": "array", "items": ["type": "integer", "minimum": 0], "maxItems": 100], "threshold": ["type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 0.005]]),
             tool("waveform", "Inspect silence and speech/activity ranges in edited timeline seconds before tightening pauses. Uses the existing microphone-first silence analysis and Core's exact cut/speed mapping; system audio is the fallback. Reports analysis source, coverage and unknown ranges. Activity estimated from audio energy can include non-speech sounds. Read-only: no cuts or stored analysis changes.", range)
         ]
@@ -121,6 +162,63 @@ struct AgentVisionRequest: Sendable {
     }
 }
 
+/// A typed selection crosses the actor boundary, never an unvalidated Any dictionary.
+struct AgentPixelSelection: Sendable {
+    let index: Int?
+    let at: Int64?
+    init(name: String, arguments: [String: Any]) throws {
+        guard name == "zoom_on_click" else { index = nil; at = nil; return }
+        func number(_ key: String) throws -> Double? {
+            guard let raw = arguments[key] else { return nil }
+            guard let n = raw as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite, n.doubleValue >= 0 else {
+                throw RenderError.invalidSettings("\(key) must be a nonnegative number")
+            }
+            return n.doubleValue
+        }
+        let i = try number("click_index"), t = try number("at_s")
+        guard (i == nil) != (t == nil) else { throw RenderError.invalidSettings("Supply exactly one of click_index or at_s") }
+        if let i {
+            guard i.rounded() == i, i < Double(Int.max) else { throw RenderError.invalidSettings("click_index must be an integer") }
+            index = Int(i)
+        } else { index = nil }
+        if let t {
+            guard t < Double(Int64.max) / 1e9 else { throw RenderError.invalidSettings("at_s is out of range") }
+            at = Int64((t * 1e9).rounded())
+        } else { at = nil }
+    }
+    func indices(in clicks: [Int64]) throws -> [Int] {
+        if let index {
+            guard clicks.indices.contains(index) else { throw RenderError.invalidSettings("click_index out of range; read moments again") }
+            return [index]
+        }
+        if let at {
+            guard let nearest = clicks.indices.min(by: { abs(clicks[$0] - at) < abs(clicks[$1] - at) }), abs(clicks[nearest] - at) <= 250_000_000 else {
+                throw RenderError.invalidSettings("No click within 0.25 seconds of at_s")
+            }
+            return [nearest]
+        }
+        return Array(clicks.indices)
+    }
+}
+
+private struct AgentPixelClick {
+    let index: Int, click: Int64, before: Int64, end: Int64
+    var baseline: AgentFrameSignature?
+    var changed: Int64?
+    var difference: Double?
+    var bbox: CGRect?
+    var samples = 0
+    var sampledTo: Int64?
+    var lastUnchanged: Int64
+    var row: [String: Any] {
+        ["click_index": index, "at_s": Double(click) / 1e9, "baseline_s": Double(before) / 1e9,
+         "view_change_s": changed.map { Double($0) / 1e9 } as Any? ?? NSNull(),
+         "bbox": bbox.map { ["x": $0.minX, "y": $0.minY, "w": $0.width, "h": $0.height] } as Any? ?? NSNull(),
+         "difference": difference as Any? ?? NSNull(), "samples": samples,
+         "sampled_to_s": sampledTo.map { Double($0) / 1e9 } as Any? ?? NSNull(), "window_end_s": Double(end) / 1e9]
+    }
+}
+
 private actor AgentVisionWorker {
     func run(_ request: AgentVisionRequest, snapshot: Project) async throws -> Data {
         if request.name == "waveform" { return try await waveform(request, snapshot: snapshot) }
@@ -154,69 +252,137 @@ private actor AgentVisionWorker {
         return result
     }
 
-    private func viewChanges(_ request: AgentVisionRequest, snapshot: Project) throws -> Data {
+    private final class CachedPixels {
+        weak var owner: Project?
+        let revision: UInt64
+        var clicks: [Int: AgentPixelClick] = [:]
+        var cuts: [(time: Int64, difference: Double, bbox: CGRect?)]?
+        init(owner: Project, revision: UInt64) { self.owner = owner; self.revision = revision }
+    }
+    private var cache: [ObjectIdentifier: CachedPixels] = [:]
+
+    private func clickTimes(_ snapshot: Project) throws -> [Int64] {
         struct Event: Decodable { let type: String; let tlNs: Int64 }
-        let clicks = try snapshot.query("{\"q\":\"events\"}", as: [Event].self).filter { $0.type == "down" }
+        return try snapshot.query("{\"q\":\"events\"}", as: [Event].self).filter { $0.type == "down" }.map(\.tlNs)
+    }
+
+    func hints(snapshot: Project, owner: Project, revision: UInt64, selection: AgentPixelSelection) throws -> Data {
+        let clicks = try clickTimes(snapshot), indices = try selection.indices(in: clicks)
+        let key = ObjectIdentifier(owner)
+        cache = cache.filter { $0.value.owner != nil }
+        if cache[key]?.revision != revision {
+            if cache.count >= 4 { cache.removeAll() }
+            cache[key] = CachedPixels(owner: owner, revision: revision)
+        }
+        let entry = cache[key]!
+        let missing = indices.filter { entry.clicks[$0] == nil }
+        let cacheHit = missing.isEmpty && entry.cuts != nil
+        if !missing.isEmpty || entry.cuts == nil {
+            let renderer = try AgentFrameRenderer(snapshot: snapshot)
+            let clips = try snapshot.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
+            if entry.cuts == nil {
+                var cuts: [(Int64, Double, CGRect?)] = []
+                for i in clips.indices.dropFirst() where clips[i - 1].srcEndNs != clips[i].srcStartNs {
+                    try Task.checkCancellation()
+                    let time = clips[i].tlStartNs
+                    // Stay inside each retained clip and sample one source frame
+                    // before the jump; nearest-frame decoding at t-1ns can land
+                    // on the first removed frame instead of the last kept frame.
+                    let before = max(clips[i - 1].tlStartNs, time - max(1, Int64(34_000_000 / clips[i - 1].speed)))
+                    let left = try renderer.signature(atNs: before), right = try renderer.signature(atNs: time)
+                    cuts.append((time, right.difference(from: left), right.changedRegion(from: left)))
+                }
+                entry.cuts = cuts
+            }
+            let hardCuts = (entry.cuts ?? []).filter { $0.difference >= 0.005 }.map(\.time)
+            let found = try analyze(clicks: clicks, indices: missing, clips: clips, renderer: renderer, threshold: 0.005, hardCuts: hardCuts)
+            entry.clicks.merge(found) { _, new in new }
+        }
+        let rows = entry.clicks.values.sorted { $0.index < $1.index }
+        let cuts = entry.cuts ?? []
+        let changes = Set(rows.compactMap(\.changed) + cuts.filter { $0.difference >= 0.005 }.map(\.time)).sorted()
+        var regions: [[String: Any]] = rows.compactMap { row in
+            guard let time = row.changed, let b = row.bbox else { return nil }
+            return ["at_s": Double(time) / 1e9, "bbox": ["x": b.minX, "y": b.minY, "w": b.width, "h": b.height], "click_index": row.index]
+        }
+        regions += cuts.compactMap { cut in
+            guard cut.difference >= 0.005, let b = cut.bbox else { return nil }
+            return ["at_s": Double(cut.time) / 1e9, "bbox": ["x": b.minX, "y": b.minY, "w": b.width, "h": b.height]]
+        }
+        return try JSONSerialization.data(withJSONObject: [
+            "cache_hit": cacheHit, "analyzed_click_count": missing.count,
+            "visual_view_changes_s": changes.map { Double($0) / 1e9 },
+            "static_cuts_s": cuts.filter { $0.difference < 0.005 }.map { Double($0.time) / 1e9 },
+            "visual_view_changes": regions])
+    }
+
+    private func analyze(clicks: [Int64], indices: [Int], clips: [ClipInfo], renderer: AgentFrameRenderer,
+                         threshold: Double, hardCuts: [Int64]? = nil) throws -> [Int: AgentPixelClick] {
+        struct Sample { let time: Int64; let index: Int; let baseline: Bool }
+        var comparisons: [Int: AgentPixelClick] = [:], schedule: [Sample] = []
+        for index in Set(indices).sorted() {
+            let click = clicks[index]
+            guard let clip = clips.first(where: { $0.tlStartNs <= click && click < $0.tlEndNs }) else { continue }
+            let before = max(clip.tlStartNs, click - 50_000_000)
+            let limit = hardCuts.map { cuts in cuts.first { $0 > click } ?? clips.last!.tlEndNs } ?? clip.tlEndNs
+            let end = click + min(limit - 1 - click, 3_000_000_000)
+            comparisons[index] = AgentPixelClick(index: index, click: click, before: before, end: end, lastUnchanged: before)
+            schedule.append(Sample(time: before, index: index, baseline: true))
+            for offset in stride(from: Int64(200_000_000), through: end - click, by: 200_000_000) {
+                schedule.append(Sample(time: click + offset, index: index, baseline: false))
+            }
+            // A click just before a cut still needs the last available sample.
+            if end > before { schedule.append(Sample(time: end, index: index, baseline: false)) }
+        }
+        var cachedTime: Int64?, cachedSignature: AgentFrameSignature?
+        for sample in schedule.sorted(by: { $0.time == $1.time ? $0.baseline && !$1.baseline : $0.time < $1.time }) {
+            try Task.checkCancellation()
+            guard var c = comparisons[sample.index], c.changed == nil else { continue }
+            let signature: AgentFrameSignature
+            if cachedTime == sample.time, let cachedSignature { signature = cachedSignature }
+            else {
+                signature = try autoreleasepool { try renderer.signature(atNs: sample.time) }
+                cachedTime = sample.time; cachedSignature = signature
+            }
+            if sample.baseline { c.baseline = signature }
+            else if let baseline = c.baseline {
+                let delta = signature.difference(from: baseline)
+                c.samples += 1; c.sampledTo = sample.time
+                if delta >= threshold {
+                    c.changed = sample.time; c.difference = delta; c.bbox = signature.changedRegion(from: baseline)
+                    // Refine immediately while decoded-frame signatures still
+                    // cover this interval. No repeated backward video seeks.
+                    while c.changed! - c.lastUnchanged > 25_000_000 {
+                        try Task.checkCancellation()
+                        let time = c.lastUnchanged + (c.changed! - c.lastUnchanged) / 2
+                        let refined = try renderer.signature(atNs: time)
+                        let difference = refined.difference(from: baseline)
+                        c.samples += 1
+                        if difference >= threshold {
+                            c.changed = time; c.difference = difference; c.bbox = refined.changedRegion(from: baseline)
+                        } else { c.lastUnchanged = time }
+                    }
+
+                } else { c.lastUnchanged = sample.time }
+            }
+            comparisons[sample.index] = c
+        }
+        for index in comparisons.keys { comparisons[index]?.baseline = nil }
+        return comparisons
+    }
+
+    private func viewChanges(_ request: AgentVisionRequest, snapshot: Project) throws -> Data {
+        let clicks = try clickTimes(snapshot)
         let indices = request.clickIndices ?? Array(clicks.indices)
         guard indices.count <= 100, indices.allSatisfy({ clicks.indices.contains($0) }) else {
             throw RenderError.invalidSettings("Select at most 100 valid click_indices from moments")
         }
         let clips = try snapshot.query("{\"q\":\"clips\"}", as: [ClipInfo].self)
-        let renderer = indices.isEmpty ? nil : try AgentFrameRenderer(snapshot: snapshot)
-        var rows: [[String: Any]] = []
-        struct Sample { let time: Int64; let index: Int; let baseline: Bool }
-        struct Comparison {
-            let click: Int64, before: Int64, end: Int64
-            var baseline: AgentFrameSignature?
-            var changed: Int64?
-            var difference: Double?
-            var samples = 0
-            var sampledTo: Int64?
-        }
-        var comparisons: [Int: Comparison] = [:], schedule: [Sample] = []
-        for index in Set(indices).sorted() {
-            let click = clicks[index].tlNs
-            guard let clip = clips.first(where: { $0.tlStartNs <= click && click < $0.tlEndNs }) else { continue }
-            let before = max(clip.tlStartNs, click - 50_000_000)
-            let end = click + min(clip.tlEndNs - 1 - click, 3_000_000_000)
-            comparisons[index] = Comparison(click: click, before: before, end: end)
-            schedule.append(Sample(time: before, index: index, baseline: true))
-            for offset in stride(from: Int64(200_000_000), through: end - click, by: 200_000_000) {
-                schedule.append(Sample(time: click + offset, index: index, baseline: false))
-            }
-        }
-        // Interleave overlapping windows in timeline order. This avoids repeated
-        // backward seeks and decoding the same GOP for each nearby click.
-        var cachedTime: Int64?, cachedSignature: AgentFrameSignature?
-        for sample in schedule.sorted(by: { $0.time < $1.time }) {
-            try Task.checkCancellation()
-            guard var comparison = comparisons[sample.index], comparison.changed == nil else { continue }
-            let signature: AgentFrameSignature
-            if cachedTime == sample.time, let cachedSignature { signature = cachedSignature }
-            else {
-                signature = try autoreleasepool { try renderer!.signature(atNs: sample.time) }
-                cachedTime = sample.time; cachedSignature = signature
-            }
-            if sample.baseline { comparison.baseline = signature }
-            else if let baseline = comparison.baseline {
-                let delta = signature.difference(from: baseline)
-                comparison.samples += 1
-                comparison.sampledTo = sample.time
-                if delta >= request.threshold { comparison.changed = sample.time; comparison.difference = delta }
-            }
-            comparisons[sample.index] = comparison
-        }
-        for index in comparisons.keys.sorted() {
-            let c = comparisons[index]!
-            rows.append(["click_index": index, "at_s": Double(c.click) / 1e9, "baseline_s": Double(c.before) / 1e9,
-                         "view_change_s": c.changed.map { Double($0) / 1e9 } as Any? ?? NSNull(),
-                         "difference": c.difference as Any? ?? NSNull(), "samples": c.samples,
-                         "sampled_to_s": c.sampledTo.map { Double($0) / 1e9 } as Any? ?? NSNull(),
-                         "window_end_s": Double(c.end) / 1e9])
-        }
-        let value: [String: Any] = ["clicks": rows, "threshold": request.threshold, "sample_step_s": 0.2,
+        let rows = indices.isEmpty ? [:] : try analyze(clicks: clicks, indices: indices, clips: clips, renderer: AgentFrameRenderer(snapshot: snapshot), threshold: request.threshold)
+        let value: [String: Any] = ["clicks": rows.keys.sorted().map { rows[$0]!.row }, "threshold": request.threshold,
+                                   "sample_step_s": 0.2, "transition_precision_s": 0.025,
                                    "analysis": "source_rgb_mean_absolute_difference",
-                                   "note": "First changed sample, not exact transition time or proof the click caused it. Null means no sampled change met the threshold within this clip and 3 seconds. Re-read indices after edits."]
+                                   "note": "First detected change, refined to 25ms; not proof the click caused it. bbox is the union of significant changed regions in normalized top-left source space. Null means no sampled change met the threshold within this clip and 3 seconds. Re-read indices after edits."]
         return try JSONSerialization.data(withJSONObject: ["content": [["type": "text", "text": String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self)]], "structuredContent": value, "isError": false])
     }
 
