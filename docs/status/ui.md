@@ -83,6 +83,24 @@ Legend: match / MISMATCH / MISSING / out-of-scope. "plan" = done in this round (
 | website: take saved every 2 s, recoverable | capture flush | capture team (REC-18 verified live) | match (capture) |
 | website: Pause and resume / Countdown / One shortcut / Crash recovery / Import any video | yes | all present | match |
 
+### R5 result per audit row (updated as work lands)
+Done (unit-tested, rendered offscreen where visual, NOT run live): horizontal picker bar (A1) with close/Esc/1-2-3, recents beside picker (persisted), Recover button + File → Recover Recording…; display card "W×H • N FPS" + right-click display list; window card (icon, size, Resize, Adjust recording area), exact-size Resize groups that fit the display, Custom…, saved sizes + delete, Reset ignored windows, Select window; area min 150×150 message, reference arrow-key model, hint text, saved dimensions; camera/mic/system-audio buttons with reference labels and menu wording, "(default)" suffix, Hide camera preview, floating camera preview; gear menu (While Recording incl. Hide Dock Icon, After Recording, Countdown, Advanced → engine read-only); defaults (system audio off, sounds on, keystrokes on, quick export widget on); 48 pt recording widget with the growing timer format; Hide Dock Icon while recording; onboarding "Start recording"; Settings tabs exactly as the reference (+ Start at login, Reset preferences, quick export settings block, Shortcuts segmented); quick export widget summary + settings button; Save As…, Copy and Zip, On your Mac scan, open several; prompter ranges.
+Own / deliberate differences: default projects folder stays ~/Movies/Yapcam (existing user data); Frame rate cap moved to Advanced (reference has no fps control); record button removed from the bar (cards start recording, like the reference); picker accent stays our red; mic level is shown inside the microphone menu only (not on the bar button: no always-on mic).
+Open / not done (reason):
+- Shortcuts → Editing rows are read-only: the editor's keys are hard-coded (`EditorModel.handleShortcut`). Request to editor below.
+- Quick export: "Always save project when using quick export widget", "Action after quick export", "Mute widget preview": not applicable (our recording is always a saved .yapcam package; the widget shows a still preview, no video).
+- Hide Desktop Icons still restarts Finder; the reference excludes the icons from the capture. Request to capture below.
+- Experimental: masked content shift, unified audio playback, audio exporter, screen super resolution have no counterpart (render/editor own them).
+- Advanced: disable hardware acceleration needs a render/editor hook.
+- Update banner, cloud/account items, device frames: out of scope (COMMON.md).
+- Recording widget does not move away from the recorded bounds (it remembers its position; the capture excludes it).
+- Nothing in R5 was run live: the user's Yapcam instance was running (rule: never launch or kill a second one).
+### Requests (R5)
+- editor: expose rebindable editor keys (action → character) so Settings → Shortcuts → Editing can offer recorders; cut slice (C), remove slice before previous cut (X), J/K/L.
+- capture: hide desktop icons by excluding the Finder desktop-icon windows from the SCContentFilter instead of restarting Finder (reference behaviour).
+- render/editor: a hook for "disable hardware accelerated encoding/decoding" if wanted for the Advanced tab.
+
+
 
 ## Round 3 (2026-10-16)
 - **Flaky start-sound tests (fixed):** cause = the tests asserted wall-clock milliseconds, which fail whenever the machine is loaded (ms=2372 seen). Now `StartSoundGate.run` takes an injected `Clock`; tests use a `ManualClock` and assert exact virtual times (sound done at 200 ms → start at 200 ms; never-completing → not before and exactly at 540 ms; throwing → no clock advance needed). The start-sound and post-recording-queue tests no longer contain any wall-clock threshold (polling loops only bound a failure at ~30 s).
