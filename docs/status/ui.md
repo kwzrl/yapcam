@@ -16,6 +16,74 @@ READY ui: QA self-test launch flags (--capture-selftest options, --ui-record-sel
 
 # ui status
 
+## R5 parity (ui, audit 2026-10-17 against Screen Studio 4.0.4 spec A/B/4 + website; file refs on main + merge 6d6e873+)
+Legend: match / MISMATCH / MISSING / out-of-scope. "plan" = done in this round (commit per item).
+| id | reference | Yapcam now | verdict |
+|---|---|---|---|
+| A1 picker shape | one horizontal floating bar: x at left, modes, devices, utility buttons (recents, gear) | vertical 62 pt panel, Toolbar/ToolbarView.swift:17-70, has an extra big Record button | MISMATCH, plan: horizontal bar, no Record button (cards start) |
+| A1 open | New recording… global action; tray, app menu, dock | ToolbarPanel + MainMenu Recording menu, tray item AppDelegate.swift:208 | match |
+| A1 recents next to picker, persisted (openRecentProjectsWithRecordingPicker, off) | popover, not persisted (ToolbarView.swift `.recents`) | MISMATCH, plan: side panel state persisted |
+| A1 update banner | banner "Update available" | no updater | out-of-scope (auto-update) |
+| A1 recover action in picker | recover button when unfinished recordings exist; File → Recover | launch alert only (AppDelegate.swift:166) | MISSING, plan: picker button + File → Recover recording |
+| A1 Esc | clears selected mode; none selected → closes picker | overlays close on Esc; bar ignores Esc | MISMATCH, plan |
+| A2 display | 1 display auto-selected; cards per display with W×H "• N FPS"; right-click mode button lists displays | card per display, "W×H · fps" (SourceOverlay.swift:218); no context list | partial: plan context menu + "• FPS" from display refresh |
+| A2 window | hover card app/title, editable W×H, Resize; filters system/own windows | card with title, W×H, ⋯ menu (SourceOverlay.swift:253); WindowHit filters layer/own | partial: plan card look (icon, size + Resize, Start recording ⌄) |
+| A2 window context menu | Bring to front, Ignore this window, Reset ignored windows, Adjust recording area…, Select window (apps→windows), Record entire display | all but Reset ignored, Select window (SourceOverlay.swift:253-262) | MISSING 2 items, plan |
+| A2 window resize presets | exact sizes: 16:9 1280×720/1920×1080/2560×1440; 4:3 640×480…1600×1200; 9:16 720×1280…1440×2560; 16:10 640×400…2560×1600; Square 640…1600; Custom…; Save current size; Delete saved sizes; only sizes that fit | ratio presets that keep width (WindowAX.fit), Set size…, Save current size; no delete | MISMATCH, plan: own exact-size list, fit filter, delete saved sizes |
+| A2 area | hint "Drag area you want to record"; min 150×150 "Minimal size is 150×150px."; arrows move 1, ⇧ 10, ⌘ resize 1, ⌘⇧ 10; Esc cancels | min 16 (Support/Geometry.swift:77); arrows move 1, ⌥ 10, ⇧ resize (AreaSelector.swift:258-277) | MISMATCH, plan |
+| A2 area toolbar | Position + Size fields; aspect lock Any/16:9/4:3/1:1/3:4/9:16/custom (min 1); saved dimensions save/delete/"No saved dimensions" | fields + aspect incl. custom (AreaSelector.swift:88-97, GAP-UI-6); no saved dimensions | MISSING saved dimensions, plan |
+| A2 remembered area | last area kept | persisted in AppSettings.areaRect | match |
+| A2 device mode | iOS device list | out of scope (user decision, device source) | out-of-scope |
+| A2 quick keys | 1 / 2 / 3 = display / window / area while picker open | none | MISSING, plan |
+| A3 camera menu | cameras with "(default)", Max camera resolution 720p/1080p/4K (1080p), Hide camera preview, Don't record camera, button "No camera" | popover: Off + list + preview + resolution row (Popovers.swift:112-150); no (default), no hide preview | MISMATCH, plan: add (default) suffix, Hide camera preview setting, "Don't record camera" wording |
+| A3 microphone menu | permission check, list, Don't record microphone, live meter on the button, "No microphone" | popover with list + meter (Popovers.swift:63-100), "Off" wording | MISMATCH wording, plan |
+| A3 system audio | Record system audio from all apps / selected apps (checklist) / Don't record; label "Record system audio" / "Sound from N apps" / "No system audio"; default off | picker All/Selected/Off (SystemAudioChoice.swift), default ON (AppSettings.swift:151) | MISMATCH default + labels, plan |
+| A3 pre-flight | muted camera, missing device, lid, permissions | Recording/Preflight.swift (GAP-CAP-6) | match (hardware untested) |
+| A4 gear: Hide Desktop Icons | off | off (AppSettings.swift:157), via Finder restart (DesktopIcons.swift) | match value; method differs (capture team API is Finder-hide; reference excludes icons from capture) → request to capture is open in docs |
+| A4 gear: Hide Dock Icon (while recording) | checkbox default on | missing (only the general "Show in Dock") | MISSING, plan |
+| A4 gear: Highlight Recorded Area | on | on, ToolbarView.swift:158 | match |
+| A4 gear: Show Speaker Notes ⌘⌥/ | checkbox | "Speaker Notes…" action (ToolbarView.swift:159) | MISMATCH, plan: checkbox with shortcut |
+| A4 gear: After Recording → Open Quick Share Widget | on | off (AppSettings.swift:178) | MISMATCH default, plan |
+| A4 gear: Recording Countdown | None/3/5/10, none | same (AppSettings.swift:155) | match |
+| A4 gear: Advanced → Recording Engine | auto / force modern / force legacy | one engine (SCK) shown read-only in Experimental | out-of-scope (no legacy engine); read-only line stays |
+| A4 gear: Settings… ⌘, | yes | yes | match |
+| A4 FPS selector | none, follows display | Frame rate 30/60 in Settings + card menu (extra, kept, see REC-11) | MISMATCH by decision: moved to Settings → Advanced only; card menu entry removed |
+| A5 start | card Start button; Enter confirms; gated on valid source | card button + Return | match |
+| A5 countdown | None/3/5/10, ring, remaining seconds < 9, Continue, Enter skips | GetReadyCard (RecordingController.swift:537), ring + Continue | match |
+| A5 window prep | bring to front, refresh bounds, "Window is not capturable anymore" | RecordingController.swift:191 region | match |
+| A5 sounds | begin sound vol 0.33 (≤540 ms), end sound | StartSound.swift; default OFF (AppSettings.swift:158) | MISMATCH default, plan: on |
+| A5 dock badge ● | yes | RecordingController.swift:79 | match |
+| A6 widget | 48 pt tall floating bar, excluded from capture, avoids recorded bounds, remembers position, stop + timer (0:00→00:00→0:00:00→00:00:00), pause/resume, restart, cancel, markers, Working… after 3 s | vertical toolbar mode (ToolbarView.swift:230-262); timer 00:00 / 0:00:00; Working… exists | MISMATCH shape + timer format, plan: horizontal 48 pt bar |
+| A6 tray | icon becomes stop circle during recording | AppDelegate.swift:225 | match |
+| A6 other stop paths | dock click asks "Finish recording?"; low disk auto-stop | AppDelegate.swift:116; lowDisk | match |
+| A6 errors | crash recovered; "Recover now" | capture recovery + offerRecovery | match |
+| A7 after-recording action | Create project / Export+copy / Export+save, via record menu | AfterRecordingPopover (record button chevron) | partial: chevron moves into the card ⌄ menu with Start recording (window card look) |
+| A7 quick export widget | title field, export actions, open editor | QuickExportWidget (PostRecording.swift) | partial (title field, cloud out of scope) |
+| A7 autosave 30 s | on | EditorHooks (R4) | match |
+| A8 hotkeys | defaults list | Hotkeys.swift:44-58 identical incl. ⌘⌥C/S/Z; "⌘⌃S link" cloud | match |
+| A8 Not able to register | shown | Settings Shortcuts | match |
+| A9 onboarding | only Screen Recording + Accessibility up front; mic/camera on first device pick | all permissions up front (OnboardingWindow.swift) | MISMATCH, plan |
+| B General | Start at login (off), Hide Dock Icon (off), Reset preferences | Show in Dock, menu bar item, no login item, no reset | MISSING, plan |
+| B Recording | Save new projects to, Highlight area, Create zooms (on), Show widget (on), Max camera res (1080p) | spread over General/Recording/Editing/Storage | MISMATCH layout, plan: regroup 1:1 |
+| B Editing | Use last project settings (off), Use autosave (on), Save presets in | zooms+reuse+autosave in Editing, presets in Storage | MISMATCH, plan |
+| B Quick export | export settings block, Show widget (on), Always save project when using widget (off), Action after quick export, Mute widget preview | After recording + widget toggle only | MISSING 3, plan where the widget supports it |
+| B Shortcuts | segmented recording / editing | single list recording + "In Yapcam" | MISMATCH, plan segmented; editing keys are editor-owned (request) |
+| B Experimental | masked content shift, unified audio, audio exporter, super resolution, VFR | VFR only (R4) | partial: others have no counterpart in Yapcam (renderer/editor) → out-of-scope unless their team adds hooks |
+| B Advanced | disable HW accel, Share diagnostics | Export diagnostics, reset toolbar, logs, onboarding | partial; HW toggle needs render hook (request) |
+| B tabs | General, Recording, Editing, Quick export, Shortcuts, Experimental, Advanced | + extra Storage tab | MISMATCH, plan: drop Storage tab |
+| 4 recents/search | projects window: search, empty state, context menu Show in Finder / Remove from Recents, "On your Mac" scan; cap 100 | RecentProjects.swift has search + both menu items; no scan | partial: scan MISSING (L) |
+| 4 open | Open project…, drag/double-click, Open last project, several at once | Open Recording…, association, ⌘⌥Z | partial: multi-select open, plan |
+| 4 project actions | Save, Save as…, Show in Finder, Delete, Extract raw files, Copy and zip, Crop recorded area | rename/duplicate/trash/extract exist; Save as, Copy-and-zip missing | MISSING Save As + Copy and zip, plan (crop = editor) |
+| 4 naming | sanitized name + localized date/time; collision " 2" | ProjectActions naming | match (checked) |
+| 4 default folder | ~/Screen Studio Projects | ~/Movies/Yapcam (own name, kept: existing user data) | own |
+| UI-12 prompter | speed 0–25, opacity 0.4–1, font 12–32, ⌘⌥. | speed 0–25, opacity 0.4–1, font 16–64 (Teleprompter.swift:55) | MISMATCH range, plan |
+| website: resize recorded window to exact size | one click | see A2 presets | plan |
+| website: hide desktop icons | yes | yes (Finder method) | match |
+| website: speaker notes | yes | yes | match |
+| website: take saved every 2 s, recoverable | capture flush | capture team (REC-18 verified live) | match (capture) |
+| website: Pause and resume / Countdown / One shortcut / Crash recovery / Import any video | yes | all present | match |
+
+
 ## Round 3 (2026-10-16)
 - **Flaky start-sound tests (fixed):** cause = the tests asserted wall-clock milliseconds, which fail whenever the machine is loaded (ms=2372 seen). Now `StartSoundGate.run` takes an injected `Clock`; tests use a `ManualClock` and assert exact virtual times (sound done at 200 ms → start at 200 ms; never-completing → not before and exactly at 540 ms; throwing → no clock advance needed). The start-sound and post-recording-queue tests no longer contain any wall-clock threshold (polling loops only bound a failure at ~30 s).
 - **Production cap check (real defect found and fixed):** the 540 ms timer itself never ran on the main actor (the gate is nonisolated, the timer is a child task), but the old task-group implementation would not return until the player task had ended, so a player that ignores cancellation (hung output device) could hold the recording start indefinitely. The gate now races two detached tasks with a first-wins gate: the caller resumes at the cap whatever the player does (test `aPlayerThatIgnoresCancellationStillCannotHoldTheStart`). Remaining, unavoidable delay: after the cap fires the start continues on the main actor, so a main actor that is itself blocked for 2 s delays everything, including capture start; nothing in the start path should block main (not measured live).
