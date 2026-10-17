@@ -234,8 +234,7 @@ public final class Exporter: @unchecked Sendable {
         profile.writerReadinessMode=callbackVideo ? "callback" : "poll_2ms"
         let writer = try AVAssetWriter(outputURL: url, fileType: settings.format == .mp4 ? .mp4 : .mov)
         defer { if writer.status != .completed { writer.cancelWriting() } }
-        let compression: [String: Any] = [AVVideoAverageBitRateKey: settings.videoBitrate(width: width, height: height), AVVideoExpectedSourceFrameRateKey: settings.fps, AVVideoMaxKeyFrameIntervalKey: settings.fps * 2, AVVideoAllowFrameReorderingKey: false]
-        let video = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: settings.codec == .h264 ? AVVideoCodecType.h264 : .hevc, AVVideoWidthKey: width, AVVideoHeightKey: height, AVVideoEncoderSpecificationKey: [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String: settings.hardwareEncodingEnabled], AVVideoCompressionPropertiesKey: compression, AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2, AVVideoTransferFunctionKey: kCVImageBufferTransferFunction_sRGB as String, AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2]])
+        let video = AVAssetWriterInput(mediaType: .video, outputSettings: videoOutputSettings(for: settings, width: width, height: height))
         video.expectsMediaDataInRealTime = false
         guard writer.canAdd(video) else { throw RenderError.write("Requested video codec is unavailable") }
         writer.add(video)
@@ -423,6 +422,33 @@ public final class Exporter: @unchecked Sendable {
         }
         guard abs(duration - Double(range.count)/1e9) <= 1/Double(settings.fps)+0.000_001 else { throw RenderError.verification("GIF timing differs from requested duration") }
     }
+}
+
+/// The public encoder preference is translated at the AVAssetWriter boundary.
+/// `false` is Apple's supported request for a VideoToolbox software encoder;
+/// decoding remains system-managed because AVAssetReader has no corresponding
+/// per-output decoder switch.
+func videoOutputSettings(for settings: ExportSettings, width: Int, height: Int) -> [String: Any] {
+    let compression: [String: Any] = [
+        AVVideoAverageBitRateKey: settings.videoBitrate(width: width, height: height),
+        AVVideoExpectedSourceFrameRateKey: settings.fps,
+        AVVideoMaxKeyFrameIntervalKey: settings.fps * 2,
+        AVVideoAllowFrameReorderingKey: false,
+    ]
+    return [
+        AVVideoCodecKey: settings.codec == .h264 ? AVVideoCodecType.h264 : .hevc,
+        AVVideoWidthKey: width,
+        AVVideoHeightKey: height,
+        AVVideoEncoderSpecificationKey: [
+            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String: settings.hardwareEncodingEnabled,
+        ],
+        AVVideoCompressionPropertiesKey: compression,
+        AVVideoColorPropertiesKey: [
+            AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+            AVVideoTransferFunctionKey: kCVImageBufferTransferFunction_sRGB as String,
+            AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+        ],
+    ]
 }
 
 private final class AudioPumpContext: @unchecked Sendable {

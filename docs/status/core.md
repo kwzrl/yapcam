@@ -1,3 +1,32 @@
+READY W3 00acb17 + Lead checkpoint needed | Core E4.1/E4.3 revision3 Deep Slate wallpaper identity/pixels published; E8.2/E13.3/E11.1/E6.6 verified against reference and locked by Wave 3 regression | Rust133 PASS/1 intentional ignore; Core Swift91 PASS; fmt + strict Clippy PASS
+
+
+## R5 Wave 3 — core rows (03:18 UTC)
+
+Completed the six Core rows from `round5/remaining.md` using the decisions in
+`round5/wave3.md`. Base is Lead checkpoint `00acb17`; Lead must checkpoint the
+eleven owned modified paths because this sandbox cannot write Git metadata. No
+other team's source or status was edited.
+
+| Row | Wave 3 disposition |
+|---|---|
+| E4.1 / E4.3 | Delivered as new-project `defaults_revision:3`: Render's own dark `deep-slate` analytic wallpaper, published stable id `deep-slate` and zero-based catalog index 1, with its actual `#182b42 → #706988` /115° palette rendered through the existing gradient ABI. This is the explicit combined-row Wave 3 decision, replacing the reference product's color seed for new projects. Identity persists, reaches root/timed render options and typed Swift, and clears on direct visual/background-image edits. Revision0/1/2 files are never rewritten. |
+| E8.2 | Verified existing factory-aware contract: caption ratio .05 and expanding growth for revision2+; legacy 36px/full remains frozen. |
+| E13.3 | Verified existing factory-aware contract: explicit/new Highlight begins at dim .5; first unstyled mask remains Sensitive Data blur32; legacy serde fallback remains .4. |
+| E11.1 | Verified against `reference-spec.md` §2a.11: custom model/factory spring stays 125/12/1.5; Focused is 250/40/2.25 and Smooth is 170/50/3. The report had conflated the default with named presets. |
+| E6.6 | Verified existing persisted `Layout.enabled` (missing=true), disabled fall-through, fullscreen-camera mode `camera`, and screen-only/hide-camera mode `screen`. One regression exercises all three evaluated outcomes and save/reopen. |
+
+Verification after rebuilding the release Rust static library: `cargo test`
+**133 PASS / 1 intentional long benchmark ignored**; `swift test --filter
+YapcamCoreTests` **91 PASS**; focused typed renderer contract **3 PASS**; `cargo
+fmt --check` and `cargo clippy --all-targets -- -D warnings` PASS. Render's own
+background library/catalog suite also passed **8/8** against the published id and
+artwork. The first
+Swift invocation reused the checkpoint static library, so the recorded green
+run used a fresh scratch build after `scripts/build-core.sh`. No app launch,
+hardware, permission, reference asset, or native-pixel claim.
+
+
 READY R5b 3541eb0 + Lead checkpoint needed | H cursor flags, M authoritative layer purpose/original-space privacy contract, QA mirror/mask defaults and all older Core deliveries verified; only EDITOR-R5-MUSIC remains blocked outside Core ownership.
 
 

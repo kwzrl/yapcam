@@ -228,6 +228,7 @@ enum RecordingPhase: Equatable {
             cameraMaxResolution: settings.cameraMaxResolution,
             recordKeystrokes: settings.recordKeystrokes && PermissionsModel.shared.state(.inputMonitoring) == .granted,
             maxFPS: settings.maxFPS,
+            hideDesktopIcons: settings.hideDesktopIcons,
             outputDirectory: settings.storageDirectory)
     }
 
@@ -283,7 +284,6 @@ enum RecordingPhase: Equatable {
         // cut off before capture starts, and Yapcam's own audio is excluded from system-audio capture.
         let playSound = settings.playSounds
         let player = cuePlayer
-        if settings.hideDesktopIcons { DesktopIcons.hide() }
         let s = engine.makeSession(options)
         session = s
         elapsed = 0
@@ -301,7 +301,6 @@ enum RecordingPhase: Equatable {
             } catch {
                 session = nil
                 phase = .idle
-                DesktopIcons.restoreIfNeeded()
                 alert = AppAlert(title: "Recording could not start", error: error)
             }
         }
@@ -442,7 +441,6 @@ enum RecordingPhase: Equatable {
     private func finish() {
         markers = []
         TeleprompterController.shared.hide()
-        DesktopIcons.restoreIfNeeded()
         if settings.playSounds, session != nil {
             let player = cuePlayer
             Task.detached { try? await player.play(.stop, gain: StartSoundGate.gain) }

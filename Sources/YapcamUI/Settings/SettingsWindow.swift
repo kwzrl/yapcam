@@ -248,7 +248,7 @@ struct AdvancedSettings: View {
             Text("Exports use the software video encoder. Slower, but can avoid encoder problems. Decoding is managed by macOS.")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Hide desktop icons while recording", isOn: $s.hideDesktopIcons)
-            Text("Restarts Finder briefly. Icons are restored when recording ends, and on the next launch if Yapcam quit unexpectedly.")
+            Text("Desktop icons are excluded from the recording. Finder and your desktop stay unchanged.")
                 .font(.caption).foregroundStyle(.secondary)
             Button("Reset toolbar position") {
                 for key in AppDefaults.store.dictionaryRepresentation().keys where key.hasPrefix(ToolbarPanelController.positionKeyPrefix) {

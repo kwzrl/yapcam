@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const SCHEMA_VERSION: u32 = 1;
+/// Stable Render-owned wallpaper selected by the revision-3 project factory.
+/// The index is its zero-based position in `BackgroundLibrary.presets`.
+pub const FACTORY_WALLPAPER_ID: &str = "deep-slate";
+pub const FACTORY_WALLPAPER_INDEX: u32 = 1;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Session {
@@ -460,6 +464,8 @@ settings!(Background {
     color2: [f32; 4] = [0.24, 0.29, 0.38, 1.0],
     angle_deg: f64 = 45.0,
     asset: u32 = 0,
+    wallpaper_id: Option<String> = None,
+    wallpaper_index: Option<u32> = None,
     blur: f64 = 24.0,
     noise: f64 = 0.0,
 });
@@ -626,7 +632,7 @@ impl ProjectData {
             .last()
             .map_or(0, |s| s.src_start_ns + s.duration_ns);
         let mut data = Self {
-            defaults_revision: 2,
+            defaults_revision: 3,
             schema_version: SCHEMA_VERSION,
             id,
             created_at: session.created_at.clone(),
@@ -662,6 +668,25 @@ impl ProjectData {
         data.canvas.padding_ratio = Some(0.10);
         data.canvas.radius = 16.0;
         data.canvas.shadow.style = "directional".into();
+        // Render's own Deep Slate library entry is an analytic gradient, so its
+        // persisted palette renders through the existing ABI while the stable
+        // identity/index let picker consumers restore Wallpaper selection.
+        data.canvas.background.kind = "gradient".into();
+        data.canvas.background.color = [
+            0x18 as f32 / 255.0,
+            0x2b as f32 / 255.0,
+            0x42 as f32 / 255.0,
+            1.0,
+        ];
+        data.canvas.background.color2 = [
+            0x70 as f32 / 255.0,
+            0x69 as f32 / 255.0,
+            0x88 as f32 / 255.0,
+            1.0,
+        ];
+        data.canvas.background.angle_deg = 115.0;
+        data.canvas.background.wallpaper_id = Some(FACTORY_WALLPAPER_ID.into());
+        data.canvas.background.wallpaper_index = Some(FACTORY_WALLPAPER_INDEX);
         data.canvas.background.blur = 0.0;
         data.canvas.motion_blur = 1.0;
         data.canvas.global_motion_blur = Some(1.0);

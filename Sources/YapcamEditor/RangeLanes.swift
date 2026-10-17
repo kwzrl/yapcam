@@ -139,7 +139,7 @@ extension EditorModel {
         } else if music.contains(where: { $0.id == key }) {
             commitMusicSpan(id: key, start: r.start, end: r.end)
         } else if highlights.contains(where: { $0.id == key }) {
-            updateHighlight(id: key) { $0.startNs = r.start; $0.endNs = r.end }
+            updateHighlight(id: key) { $0 = $0.retimed(startNs: r.start, endNs: r.end) }
         } else if layouts.contains(where: { $0.id == key }) {
             writeLayouts(layouts.map { var l = $0; if l.id == key { l.startNs = r.start; l.endNs = r.end }; return l })
         }

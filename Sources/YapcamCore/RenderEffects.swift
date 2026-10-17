@@ -37,6 +37,10 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public var cursorMotionBlur: Double
     public var cursorSpotlightRadius: Double
     public var backgroundNoise: Double
+    /// Stable Render BackgroundLibrary identity for a selected wallpaper.
+    public var backgroundWallpaperId: String?
+    /// Zero-based index in the published Render wallpaper catalog.
+    public var backgroundWallpaperIndex: UInt32?
     public var windowChrome: Bool
     public var cameraBackgroundRemoval: Bool
     public var cameraFaceFraming: Bool

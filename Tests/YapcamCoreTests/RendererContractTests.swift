@@ -15,6 +15,14 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         let p = try Project.create(package: package)
         #expect(try p.renderOptions().cursorUseDefaultIfAppHasLowResolution == true)
         #expect(try p.renderOptions(atNs: 0).cursorAlwaysUseDefault == false)
+        #expect(try p.renderOptions().backgroundWallpaperId == "deep-slate")
+        #expect(try p.renderOptions().backgroundWallpaperIndex == 1)
+        try p.apply(.applyPreset(["canvas": .object(["background": .object([
+            "color": .array([0.1, 0.2, 0.3, 1].map(JSONValue.number))
+        ])])]))
+        #expect(try p.renderOptions().backgroundWallpaperId == nil)
+        try p.undo()
+        #expect(try p.renderOptions().backgroundWallpaperId == "deep-slate")
         let snapshot = try p.snapshot()
         try p.apply(.batch([.set(path: "cursor.use_default_if_app_has_low_resolution", value: .bool(false)), .set(path: "cursor.always_default", value: .bool(true))]))
         #expect(try p.renderOptions(atNs: 0).cursorUseDefaultIfAppHasLowResolution == false)
@@ -34,9 +42,11 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         let encoded = try JSONEncoder().encode(data)
         var old = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         old.removeValue(forKey: "cursor_use_default_if_app_has_low_resolution"); old.removeValue(forKey: "cursor_always_use_default")
+        old.removeValue(forKey: "background_wallpaper_id"); old.removeValue(forKey: "background_wallpaper_index")
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         let decoded = try decoder.decode(CoreRenderOptions.self, from: JSONSerialization.data(withJSONObject: old))
         #expect(decoded.cursorUseDefaultIfAppHasLowResolution == nil && decoded.cursorAlwaysUseDefault == nil)
+        #expect(decoded.backgroundWallpaperId == nil && decoded.backgroundWallpaperIndex == nil)
     }
 }
 
@@ -94,7 +104,7 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         try p.save()
         #expect(try Project.open(package: package).frame(atNs: 0).camera_mirror == 1)
         var raw = try JSONSerialization.jsonObject(with: p.toJSON()) as! [String: Any]
-        #expect(raw["defaults_revision"] as? Int == 2)
+        #expect(raw["defaults_revision"] as? Int == 3)
         var camera = raw["camera"] as! [String: Any]; camera.removeValue(forKey: "mirrored"); raw["camera"] = camera
         try JSONSerialization.data(withJSONObject: raw).write(to: package.appendingPathComponent("project.json"))
         #expect(try Project.open(package: package).frame(atNs: 0).camera_mirror == 1)

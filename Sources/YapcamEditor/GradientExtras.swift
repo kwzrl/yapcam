@@ -51,8 +51,8 @@ struct GradientExtras: View {
     var body: some View {
         SliderRow("Hue") {
             HStack {
-                Slider(value: Binding(get: { hue ?? GradientPresets.hue(model.color("canvas.background.color")) }, set: { hue = $0 }), in: 0...360, step: 1) { editing in
-                    if !editing, let h = hue { hue = nil; model.rotateGradientHue(by: h - GradientPresets.hue(model.color("canvas.background.color"))) }
+                Slider(value: Binding(get: { hue ?? GradientPresets.hue(model.color("canvas.background.color")) }, set: { hue = $0 }), in: 0...360) { editing in
+                    if !editing, let h = hue { hue = nil; model.rotateGradientHue(by: h.rounded() - GradientPresets.hue(model.color("canvas.background.color")).rounded()) }   // whole degrees
                 }.accessibilityLabel("Gradient hue")
                 Text("\(Int(hue ?? GradientPresets.hue(model.color("canvas.background.color")))) °").sliderValueLabel()
                 Color.clear.frame(width: EditorMetrics.resetSlot, height: 1)

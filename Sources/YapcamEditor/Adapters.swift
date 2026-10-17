@@ -351,7 +351,7 @@ struct RenderExportEngine: ExportEngine {
                               includeAudio: request.includeAudio && request.format.supportsAudio,
                               speechEnhancement: request.speech.map(\.render), compression: compression,
                               gifHighQuality: request.gifHighQuality, gifDisableLoop: request.gifDisableLoop,
-                              variableFrameRate: request.variableFrameRate)
+                              variableFrameRate: request.variableFrameRate, hardwareEncodingEnabled: request.hardwareEncoding)
         // Render's own normalisation for the target (snaps size/rate to the catalog; the clipboard never writes a pair).
         return settings.closestValidPreset(for: request.target == .clipboard ? .clipboard : .file)
     }

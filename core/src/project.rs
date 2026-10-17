@@ -334,6 +334,19 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     {
         return invalid("Invalid color");
     }
+    match (
+        c.background.wallpaper_id.as_deref(),
+        c.background.wallpaper_index,
+    ) {
+        (None, None) => {}
+        (Some(id), Some(_))
+            if !id.is_empty()
+                && id.len() <= 127
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') => {}
+        _ => return invalid("Invalid wallpaper identity"),
+    }
     if c.background.kind == "image" && c.background.asset as usize >= p.media.len() {
         return invalid("Background asset index is unavailable");
     }
@@ -877,7 +890,7 @@ pub(crate) mod tests {
     fn aligned_new_defaults_and_legacy_decode_preserve_distinct_appearance() {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();
-        assert_eq!(p.data.defaults_revision, 2);
+        assert_eq!(p.data.defaults_revision, 3);
         assert_eq!(p.data.canvas.padding_ratio, Some(0.1));
         let frame = p.frame(0).unwrap();
         assert_eq!((frame.canvas_w, frame.canvas_h), (1728, 1080));
@@ -895,7 +908,10 @@ pub(crate) mod tests {
         p.session.tracks.screen.pixel_size = [pixels[0] * 2, pixels[1] * 2];
         assert_eq!(p.frame(0).unwrap().cursor_scale, frame.cursor_scale);
         p.session.tracks.screen.pixel_size = pixels;
-        assert_eq!(p.data.canvas.background.color, [0.12, 0.14, 0.18, 1.0]);
+        assert_eq!(
+            p.data.canvas.background.wallpaper_id.as_deref(),
+            Some(crate::model::FACTORY_WALLPAPER_ID)
+        );
         assert!((10.0_f64.powf(p.data.audio.click_sound.gain_db / 20.0) - 0.25).abs() < 1e-12);
         p.apply(&serde_json::json!({"op":"set","path":"canvas.padding","value":12}))
             .unwrap();

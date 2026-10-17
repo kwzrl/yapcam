@@ -20,6 +20,8 @@ struct UIRecordingOptions {
     var cameraMaxResolution: CameraMaxResolution = .hd1080
     var recordKeystrokes: Bool
     var maxFPS: Int
+    /// Exclude Finder's desktop-icon surfaces from display/area capture without changing Finder preferences.
+    var hideDesktopIcons: Bool = false
     var outputDirectory: URL
 }
 

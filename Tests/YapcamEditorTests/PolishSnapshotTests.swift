@@ -96,6 +96,7 @@ import YapcamCore
         failing.start(to: URL(fileURLWithPath: "/tmp/x.mp4")); await failing.waitUntilFinished()
         try await Self.shoot("08-export-sheet-failed", in: dir, size: CGSize(width: 440, height: 300)) { ExportSheet(export: failing, suggestedName: title) }
         let done = ExportModel(engine: FakeExporter())
+        done.revealHandler = { _ in }       // never open Finder from a snapshot run
         done.start(to: URL(fileURLWithPath: "/tmp/x.mp4")); await done.waitUntilFinished()
         try await Self.shoot("09-export-sheet-done", in: dir, size: CGSize(width: 440, height: 240)) { ExportSheet(export: done, suggestedName: title) }
     }

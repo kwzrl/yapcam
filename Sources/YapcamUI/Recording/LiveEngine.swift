@@ -7,17 +7,7 @@ import YapcamEditor
     @MainActor final class Session: EngineSession {
         private let inner: RecordingSession
         init(_ options: UIRecordingOptions) {
-            let target: CaptureTarget
-            switch options.target {
-            case .display(let d): target = .display(d)
-            case .window(let w): target = .window(w)
-            case .area(let d, let r): target = .area(display: d, rect: r)
-            case .device(let id): target = .device(id)
-            }
-            inner = RecordingSession(options: RecordingOptions(
-                target: target, systemAudio: options.systemAudio, microphoneID: options.microphoneID,
-                cameraID: options.cameraID, recordKeystrokes: options.recordKeystrokes, maxFPS: options.maxFPS,
-                excludeYapcamWindows: true, systemAudioSelection: LiveEngine.selection(for: options), cameraMaxResolution: options.cameraMaxResolution, outputDirectory: options.outputDirectory))
+            inner = RecordingSession(options: LiveEngine.captureOptions(for: options))
         }
         var elapsed: TimeInterval { inner.elapsed }
         var micLevel: Float { inner.micLevel }
@@ -39,8 +29,7 @@ import YapcamEditor
         return o.systemAudioApps.map { .applications(bundleIDs: $0) } ?? .allApplications
     }
 
-    func preflight(_ o: UIRecordingOptions) async -> [PreflightIssue] {
-        guard let sources = try? await CaptureSources.load(includeWindowThumbnails: false) else { return [] }
+    static func captureOptions(for o: UIRecordingOptions) -> RecordingOptions {
         let target: CaptureTarget
         switch o.target {
         case .display(let d): target = .display(d)
@@ -48,9 +37,17 @@ import YapcamEditor
         case .area(let d, let r): target = .area(display: d, rect: r)
         case .device(let id): target = .device(id)
         }
-        let options = RecordingOptions(target: target, microphoneID: o.microphoneID, cameraID: o.cameraID,
-                                       systemAudioSelection: LiveEngine.selection(for: o), outputDirectory: o.outputDirectory)
-        return CapturePreflight.check(options: options, sources: sources).map { PreflightIssue($0) }
+        return RecordingOptions(
+            target: target, systemAudio: o.systemAudio, microphoneID: o.microphoneID,
+            cameraID: o.cameraID, recordKeystrokes: o.recordKeystrokes, maxFPS: o.maxFPS,
+            excludeYapcamWindows: true, hideDesktopIcons: o.hideDesktopIcons,
+            systemAudioSelection: selection(for: o), cameraMaxResolution: o.cameraMaxResolution,
+            outputDirectory: o.outputDirectory)
+    }
+
+    func preflight(_ o: UIRecordingOptions) async -> [PreflightIssue] {
+        guard let sources = try? await CaptureSources.load(includeWindowThumbnails: false) else { return [] }
+        return CapturePreflight.check(options: Self.captureOptions(for: o), sources: sources).map { PreflightIssue($0) }
     }
 
     static func map(_ error: Error) -> EngineError {

@@ -157,6 +157,8 @@ loading a version-0 spring preserves its legacy bounds and response.
 | `canvas.background.color2` | RGBA | [0.24,0.29,0.38,1] |
 | `canvas.background.angle_deg` | finite degrees | 45 |
 | `canvas.background.asset` | UInt32 index into project.media; must exist when kind=image | 0 |
+| `canvas.background.wallpaper_id` | null or stable lowercase Render-library id | null |
+| `canvas.background.wallpaper_index` | null or UInt32 index in the published Render wallpaper catalog; both identity fields must be null or both present | null |
 | `canvas.background.blur` | 0…16384 | 24 |
 | `canvas.background.noise` | 0…1 | 0 |
 | `canvas.window_chrome` | boolean | false |
@@ -298,7 +300,7 @@ Queries are cold paths returning allocated UTF-8 JSON, freed with yc_string_free
 | media (assets alias) | `{path,size,head_hash}` array |
 | session / project | complete session or current project object |
 | preset | portable setting objects only, without project-specific timeline ranges |
-| render_options | cursor_style, cursor_motion_blur, cursor_spotlight_radius, background_noise, window_chrome, camera_background_removal, camera_face_framing, camera_shadow_radius |
+| render_options | cursor_style, cursor_motion_blur, cursor_spotlight_radius, background_noise, optional background_wallpaper_id/background_wallpaper_index, window_chrome, camera_background_removal, camera_face_framing, camera_shadow_radius |
 | layers_at, with integer tl_ns | ordered highlight drawing records in canvas pixels, plus final canvas-fade when nonzero |
 
 `{"q":"clicks"}` returns records such as:
@@ -882,9 +884,9 @@ The three numbers are stiffness, damping and mass; custom ranges are 5...600,
 quadratically and damping linearly with the compression ratio; less than two
 capture-frame periods snaps. Existing version-0 transitions retain their curve.
 
-New-project overrides also use radius 16, motion blur 1, a 125/12/1.5 screen
-spring, a 48pt authored cursor from our classic palette, click sound gain 0.25,
-and our own calm dark background. Cursor smoothing starts off because the
+New-project revision-1 overrides also use radius 16, motion blur 1, a 125/12/1.5
+screen spring, a 48pt authored cursor from our classic palette, click sound gain
+0.25, and our own calm dark background. Cursor smoothing starts off because the
 reference's new-recording spring selection is ambiguous; explicit presets enable
 it. No wallpaper or cursor asset from the reference is imported.
 
@@ -1326,8 +1328,9 @@ omitting caption records/timing, while shared style preferences remain portable.
 
 ## Round 5 factory revision 2
 
-Only Project.create applies defaults_revision=2. Opening revision0/1 or files
-without these fields keeps stored values and legacy decode defaults unchanged.
+Project.create applied defaults_revision=2 before Wave 3; the revision-3 factory
+inherits every row below. Opening earlier files keeps stored values and legacy
+decode defaults unchanged.
 
 | Field | Revision1 factory → revision2 factory |
 |---|---|
@@ -1348,8 +1351,44 @@ settings accept finite0…1, default0 on old decode. The inset from each canvas 
 is that ratio times evaluated canvas padding. Overlay/cutout geometry uses this
 inset; screen/full-camera/split modes retain their own fitting rules. Stored
 camera.radius remains available for legacy/null corner_ratio. New cursor palette
-remains original and our calm dark background remains our own artwork choice.
+remains original. Revision 2 retained the calm dark solid background; revision 3
+replaces only the new-project background as documented below.
 All paths participate in normal set/batch, history, presets and save/reopen.
+
+
+## Round 5 Wave 3 factory revision 3
+
+`Project.create` now writes `defaults_revision:3`. Opening or saving a revision-0,
+1, or 2 project never applies these values or rewrites its background.
+
+Wave 3 resolves E4.1 and E4.3 together using Render's own **Deep Slate** analytic
+wallpaper: stable id `deep-slate`, zero-based `BackgroundLibrary.presets` index 1,
+palette `#182b42 → #706988`, angle 115°. Because that authored library entry is a
+two-stop analytic gradient, Core stores `kind:"gradient"` and the palette in the
+existing frame fields; current renderers display the intended pixels with no new
+C ABI field or copied asset. `wallpaper_id` plus `wallpaper_index` preserve its
+Wallpaper provenance for picker consumers, and `render_options` exposes them as
+optional `background_wallpaper_id` / `background_wallpaper_index`. Swift exposes
+the same optional values as `CoreRenderOptions.backgroundWallpaperId` and
+`backgroundWallpaperIndex`; older query payloads decode both as nil.
+
+This owned dark wallpaper is the explicit Wave 3 decision for the combined E4.1/
+E4.3 rows, superseding the reference product's `#4776e6 → #8e54e9` new-project
+seed. The legacy missing-field defaults remain the original solid colors in the
+schema inventory. Editing kind, either color, angle, or asset clears wallpaper
+identity transactionally; a background-image import does the same. Wallpaper
+applications must set identity and visual fields in one batch. Deep Slate's library
+index is distinct from `background.asset`, which remains strictly an index into
+project media for `kind:"image"`.
+
+The revision-3 factory continues revision 2's caption default (ratio .05,
+expanding growth), first-mask policy (Sensitive Data blur32 and Highlight dim .5),
+and all geometry/camera defaults. The screen spring itself remains custom
+125/12/1.5 as specified by reference §2a.11; choosing Focused evaluates
+250/40/2.25 and choosing Smooth evaluates 170/50/3. Camera layout records retain
+`enabled` (missing means true); compact mode `camera` means fullscreen camera and
+`screen` means screen-only/hide camera. Regression coverage checks those mappings,
+disabled fall-through, save/reopen, and revision-2 preservation.
 
 
 ### Round 5 seamless cursor loop
@@ -1365,7 +1404,7 @@ layout, ABI, field value or legacy duration is rewritten.
 ### Round 5 adaptive composition
 
 New `zoom_settings.smart_framing` bool defaults false on legacy decode, true
-for revision2 create. Auto zooms keep the evaluated cursor hotspot clear of a
+for revision2 and later creates. Auto zooms keep the evaluated cursor hotspot clear of a
 visible overlay/cutout camera. The evaluator first chooses a bounded crop shift;
 if source edges prevent that, the camera moves to the nearest clear corner and
 shrinks only when all corners would cover the cursor. Manual zooms/hidden cameras
@@ -1375,7 +1414,7 @@ New `canvas.avoid_empty_zoom_area` bool defaults false. When enabled, classic zo
 progressively fill their allocated screen region by adjusting the bounded crop
 aspect; disabled retains the fitted screen/background. No source outside the
 selected crop is sampled. `canvas.auto_layout` bool defaults false on legacy
-files and true for revision2. It adapts canvas-space caption/shortcut rectangles
+files and true for revision2 and later. It adapts canvas-space caption/shortcut rectangles
 for portrait output and avoids the evaluated camera; shortcuts also avoid active
 captions. Authored annotations/reactions/source-space items are unchanged. Turn
 it off to retain fixed normalized text positions. This evaluates rectangles;
@@ -1384,10 +1423,10 @@ changing aspect never rewrites saved targets, rectangles, time ranges or IDs.
 New optional `TextStyle.font_size_ratio` (null legacy; finite .005…0.25) is a
 fraction of canvas height. Evaluated layers convert it to pixel font_size, while
 stored font_size remains the explicit pixel fallback. `caption_defaults` query
-returns the factory insertion style: revision2 sans/line/expanding/appear,
+returns the factory insertion style: revision2 and later sans/line/expanding/appear,
 white on black, ratio.05, pixel fallback54; older projects retain the original
 36px/full-line defaults. Importing a transcript without an explicit style uses
-these defaults. Revision2 key-overlay style uses ratio.1/fallback108. The Swift
+these defaults. Revision2 and later key-overlay style uses ratio.1/fallback108. The Swift
 importTranscript style argument becomes optional; explicit styles retain their
 values. Updating a caption's explicit pixel font_size clears its ratio unless
 a ratio is supplied in the same style patch. Geometry/canvas/ABI types unchanged.
@@ -1585,8 +1624,8 @@ optional privacyMasks packet for older-Core compatibility.
 ### R5b QA E7.2 factory correction
 
 New Project.create camera.mirrored is false (reference Mirror horizontally off).
-This corrects the remaining factory mismatch reported by QA; defaults_revision2
-and schema/ABI versions stay unchanged. Opening old projects preserves their
+This correction was introduced with defaults_revision2 and is retained by
+revision3; schema/ABI versions stay unchanged. Opening old projects preserves their
 stored mirrored value, and missing legacy fields retain the original true decode
 default. Previously saved revision2 files with true are not rewritten. The existing
 camera.mirrored set path and evaluated frame flag are unchanged. Render/Editor:
@@ -1596,7 +1635,7 @@ explicit saved choices distinct from this editor transform.
 
 ### R5b QA E13.3 first-mask default
 
-In a revision2 project with no remembered mask style, insert_mask now starts as
+In a revision2 or later project with no remembered mask style, insert_mask starts as
 Sensitive Data (kind=blur, radius32). An explicit patch.kind wins, and last-edited
 style still overrides factory values. Revision0/1 insertions and old records with
 missing kind retain highlight; saved records/styles are never rewritten. Choosing
