@@ -553,8 +553,16 @@ mod tests {
                 99
             );
             probe!(yc_mcp_catalog, yc_mcp_catalog(&mut text), 99);
-            probe!(yc_agent_doc, yc_agent_doc(c"playbook".as_ptr(), &mut text), 99);
-            probe!(yc_agent_docs_rpc, yc_agent_docs_rpc(command.as_ptr(), &mut text), 99);
+            probe!(
+                yc_agent_doc,
+                yc_agent_doc(c"playbook".as_ptr(), &mut text),
+                99
+            );
+            probe!(
+                yc_agent_docs_rpc,
+                yc_agent_docs_rpc(command.as_ptr(), &mut text),
+                99
+            );
             probe!(yc_apply, yc_apply(p, command.as_ptr(), &mut text), 99);
             probe!(yc_undo, yc_undo(p, &mut did), 99);
             probe!(yc_redo, yc_redo(p, &mut did), 99);
@@ -899,9 +907,15 @@ pub unsafe extern "C" fn yc_agent_doc(name: *const c_char, out: *mut *mut c_char
         output(out, std::ptr::null_mut())?;
         let name = utf8(name)?;
         let text = if name == "app_instructions" {
-            format!("{}\n{}", crate::agent_docs::INSTRUCTIONS, crate::agent_docs::APP_INSTRUCTIONS)
+            format!(
+                "{}\n{}",
+                crate::agent_docs::INSTRUCTIONS,
+                crate::agent_docs::APP_INSTRUCTIONS
+            )
         } else {
-            crate::agent_docs::doc(name).ok_or_else(|| Error::new(1, "Unknown agent doc"))?.to_string()
+            crate::agent_docs::doc(name)
+                .ok_or_else(|| Error::new(1, "Unknown agent doc"))?
+                .to_string()
         };
         let s = CString::new(text).map_err(|_| Error::new(99, "Invalid doc string"))?;
         out.write(s.into_raw());

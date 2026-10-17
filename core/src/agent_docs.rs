@@ -4,12 +4,42 @@ use serde_json::{json, Value};
 
 /// (name, title, description, text). The name is the resource path after `yapcam://`.
 const DOCS: &[(&str, &str, &str, &str)] = &[
-    ("playbook", "Yapcam playbook", "Read first: the editing workflow every agent follows.", include_str!("../agent-docs/playbook.md")),
-    ("craft", "Craft rules", "Hard rules for cuts, zooms, text and captions in screen recordings.", include_str!("../agent-docs/craft.md")),
-    ("tools", "Which tool when", "One line per tool: understand, see, judge, edit, raw.", include_str!("../agent-docs/tools.md")),
-    ("examples/tighten", "Example: tighten a raw demo", "Worked example with tool calls: clean a raw demo.", include_str!("../agent-docs/examples/tighten.md")),
-    ("examples/walkthrough", "Example: feature walkthrough", "Worked example with tool calls: zooms on the key clicks.", include_str!("../agent-docs/examples/walkthrough.md")),
-    ("examples/changelog", "Example: what's-new clip", "Worked example with tool calls: a 30–45 s changelog clip.", include_str!("../agent-docs/examples/changelog.md")),
+    (
+        "playbook",
+        "Yapcam playbook",
+        "Read first: the editing workflow every agent follows.",
+        include_str!("../agent-docs/playbook.md"),
+    ),
+    (
+        "craft",
+        "Craft rules",
+        "Hard rules for cuts, zooms, text and captions in screen recordings.",
+        include_str!("../agent-docs/craft.md"),
+    ),
+    (
+        "tools",
+        "Which tool when",
+        "One line per tool: understand, see, judge, edit, raw.",
+        include_str!("../agent-docs/tools.md"),
+    ),
+    (
+        "examples/tighten",
+        "Example: tighten a raw demo",
+        "Worked example with tool calls: clean a raw demo.",
+        include_str!("../agent-docs/examples/tighten.md"),
+    ),
+    (
+        "examples/walkthrough",
+        "Example: feature walkthrough",
+        "Worked example with tool calls: zooms on the key clicks.",
+        include_str!("../agent-docs/examples/walkthrough.md"),
+    ),
+    (
+        "examples/changelog",
+        "Example: what's-new clip",
+        "Worked example with tool calls: a 30–45 s changelog clip.",
+        include_str!("../agent-docs/examples/changelog.md"),
+    ),
 ];
 const CHAT: &str = include_str!("../agent-docs/chat.md");
 
@@ -54,30 +84,50 @@ const PROMPTS: &[(&str, &str, &str)] = &[
 
 /// Methods this module answers.
 pub fn handles(method: &str) -> bool {
-    matches!(method, "resources/list" | "resources/templates/list" | "resources/read" | "prompts/list" | "prompts/get")
+    matches!(
+        method,
+        "resources/list"
+            | "resources/templates/list"
+            | "resources/read"
+            | "prompts/list"
+            | "prompts/get"
+    )
 }
 
 /// Answers resources/* and prompts/* requests. Err is a JSON-RPC (code, message).
 pub fn handle(method: &str, params: &Value) -> Result<Value, (i64, String)> {
     let invalid = |m: &str| Err((-32602, m.to_string()));
     match method {
-        "resources/list" => Ok(json!({"resources": DOCS.iter().map(|(name, title, description, text)| json!({
+        "resources/list" => Ok(
+            json!({"resources": DOCS.iter().map(|(name, title, description, text)| json!({
             "uri": format!("yapcam://{name}"), "name": name, "title": title, "description": description,
-            "mimeType": "text/markdown", "size": text.len()})).collect::<Vec<_>>()})),
+            "mimeType": "text/markdown", "size": text.len()})).collect::<Vec<_>>()}),
+        ),
         "resources/templates/list" => Ok(json!({"resourceTemplates": []})),
         "resources/read" => {
-            let Some(uri) = params["uri"].as_str() else { return invalid("uri required") };
-            match uri.strip_prefix("yapcam://").and_then(|n| DOCS.iter().find(|d| d.0 == n)) {
-                Some(d) => Ok(json!({"contents":[{"uri":uri,"mimeType":"text/markdown","text":d.3}]})),
+            let Some(uri) = params["uri"].as_str() else {
+                return invalid("uri required");
+            };
+            match uri
+                .strip_prefix("yapcam://")
+                .and_then(|n| DOCS.iter().find(|d| d.0 == n))
+            {
+                Some(d) => {
+                    Ok(json!({"contents":[{"uri":uri,"mimeType":"text/markdown","text":d.3}]}))
+                }
                 None => Err((-32002, format!("Resource not found: {uri}"))),
             }
         }
-        "prompts/list" => Ok(json!({"prompts": PROMPTS.iter().map(|(name, description, _)| json!({
+        "prompts/list" => Ok(
+            json!({"prompts": PROMPTS.iter().map(|(name, description, _)| json!({
             "name": name, "description": description,
             "arguments": [{"name":"goal","description":"Anything specific: target length, features to keep, what to drop.","required":false}]
-        })).collect::<Vec<_>>()})),
+        })).collect::<Vec<_>>()}),
+        ),
         "prompts/get" => {
-            let Some(name) = params["name"].as_str() else { return invalid("name required") };
+            let Some(name) = params["name"].as_str() else {
+                return invalid("name required");
+            };
             let Some((name, description, example)) = PROMPTS.iter().find(|p| p.0 == name) else {
                 return invalid(&format!("Unknown prompt: {name}"));
             };
@@ -107,7 +157,9 @@ pub fn rpc(request: &Value) -> Option<Value> {
     let params = request.get("params").cloned().unwrap_or(json!({}));
     Some(match handle(method, &params) {
         Ok(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
-        Err((code, message)) => json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}}),
+        Err((code, message)) => {
+            json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
+        }
     })
 }
 
@@ -116,7 +168,14 @@ mod tests {
     use super::*;
     #[test]
     fn docs_resolve_by_name_and_uri() {
-        for name in ["playbook", "craft", "tools", "examples/tighten", "examples/walkthrough", "examples/changelog"] {
+        for name in [
+            "playbook",
+            "craft",
+            "tools",
+            "examples/tighten",
+            "examples/walkthrough",
+            "examples/changelog",
+        ] {
             let text = doc(name).unwrap();
             assert!(text.starts_with("# "), "{name}");
             assert_eq!(doc(&format!("yapcam://{name}")), Some(text));
@@ -129,10 +188,29 @@ mod tests {
     }
     #[test]
     fn docs_name_only_contract_tools() {
-        let all: String = DOCS.iter().map(|d| d.3).chain([CHAT, INSTRUCTIONS]).collect();
-        for tool in ["moments", "check", "capture", "grab", "filmstrip", "waveform", "cut_words", "tighten_pauses",
-            "remove_fillers", "trim_start_to_first_word", "zoom_on_click", "batch"] {
-            assert!(all.contains(&format!("`{tool}")) || all.contains(&format!("\"{tool}\"")), "{tool} undocumented");
+        let all: String = DOCS
+            .iter()
+            .map(|d| d.3)
+            .chain([CHAT, INSTRUCTIONS])
+            .collect();
+        for tool in [
+            "moments",
+            "check",
+            "capture",
+            "grab",
+            "filmstrip",
+            "waveform",
+            "cut_words",
+            "tighten_pauses",
+            "remove_fillers",
+            "trim_start_to_first_word",
+            "zoom_on_click",
+            "batch",
+        ] {
+            assert!(
+                all.contains(&format!("`{tool}")) || all.contains(&format!("\"{tool}\"")),
+                "{tool} undocumented"
+            );
         }
     }
     #[test]
@@ -141,20 +219,50 @@ mod tests {
         assert_eq!(list["resources"].as_array().unwrap().len(), DOCS.len());
         assert_eq!(list["resources"][0]["uri"], "yapcam://playbook");
         let read = handle("resources/read", &json!({"uri":"yapcam://craft"})).unwrap();
-        assert!(read["contents"][0]["text"].as_str().unwrap().contains("Visual budget 0"));
-        assert_eq!(handle("resources/read", &json!({"uri":"yapcam://nope"})).unwrap_err().0, -32002);
+        assert!(read["contents"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Visual budget 0"));
+        assert_eq!(
+            handle("resources/read", &json!({"uri":"yapcam://nope"}))
+                .unwrap_err()
+                .0,
+            -32002
+        );
         assert_eq!(handle("resources/read", &json!({})).unwrap_err().0, -32602);
         let prompts = handle("prompts/list", &json!({})).unwrap();
-        let names: Vec<_> = prompts["prompts"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+        let names: Vec<_> = prompts["prompts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
         assert_eq!(names, ["tighten", "walkthrough", "changelog"]);
-        let get = handle("prompts/get", &json!({"name":"changelog","arguments":{"goal":"40 s"}})).unwrap();
-        assert!(get["messages"][0]["content"]["text"].as_str().unwrap().ends_with("My goal: 40 s"));
-        assert_eq!(get["messages"][3]["content"]["resource"]["uri"], "yapcam://examples/changelog");
+        let get = handle(
+            "prompts/get",
+            &json!({"name":"changelog","arguments":{"goal":"40 s"}}),
+        )
+        .unwrap();
+        assert!(get["messages"][0]["content"]["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("My goal: 40 s"));
+        assert_eq!(
+            get["messages"][3]["content"]["resource"]["uri"],
+            "yapcam://examples/changelog"
+        );
         assert!(handle("prompts/get", &json!({"name":"x"})).is_err());
-        assert!(handle("prompts/get", &json!({"name":"tighten","arguments":{"goal":3}})).is_err());
+        assert!(handle(
+            "prompts/get",
+            &json!({"name":"tighten","arguments":{"goal":3}})
+        )
+        .is_err());
         assert!(rpc(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).is_none());
         let r = rpc(&json!({"jsonrpc":"2.0","id":7,"method":"resources/read","params":{"uri":"yapcam://playbook"}})).unwrap();
         assert_eq!(r["id"], 7);
-        assert!(r["result"]["contents"][0]["text"].as_str().unwrap().starts_with("# Yapcam playbook"));
+        assert!(r["result"]["contents"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("# Yapcam playbook"));
     }
 }
