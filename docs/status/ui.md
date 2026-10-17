@@ -1,4 +1,4 @@
-READY RV HASH | item 5 (ui) done: case-only rename via temp name + test; item 1 (ui) BLOCKED: EditorWindows.hardwareEncodingEnabled not on origin/team/editor yet (95eae2e) - ui wiring is one line `EditorWindows.hardwareEncodingEnabled = { !AppSettings.shared.disableHardwareEncoding }` in AppDelegate launch once it lands | YapcamUITests 189 green; not run live
+READY RV 60aeda3 | item 5 (ui) done: case-only rename via temp name + test; item 1 (ui) BLOCKED: EditorWindows.hardwareEncodingEnabled not on origin/team/editor yet (95eae2e) - ui wiring is one line `EditorWindows.hardwareEncodingEnabled = { !AppSettings.shared.disableHardwareEncoding }` in AppDelegate launch once it lands | YapcamUITests 189 green; not run live
 READY W3 571c2e2 | A1.5, A7.3, X5, B.HW done | swift test --filter YapcamUITests 188 green; not run live
 READY R5 195d560 | every H/M row in ## R5 incoming requests (round 5b, read from main a96173e status files)
 | id | from | request | state |
