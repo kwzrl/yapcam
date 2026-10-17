@@ -1,3 +1,4 @@
+READY W3 9c67775+worktree | A4.1/W4 desktop-icon filter wired end to end; no recording-time Finder mutation/restart; 173 capture + focused UI tests pass, live permission check untested
 READY R5b 9acadbe +8 owned paths | 173 capture tests /127 Rust /signed main app green; 8 incoming requests delivered/resolvable, 3 explicitly blocked
 R5b 02:10UTC 9acadbe + owned changes | done: requests pass validated on main a96173e snapshot | next: Lead checkpoint/rebase; named identity/native/hardware handoffs
 READY R5 50efc6d + status reconciliation | H/M then L audited: 14 scoped matches, 1 user exclusion, 33 concrete blockers; UI/native gates remain
@@ -20,6 +21,28 @@ READY 63f4abb package 3 scale/multi-display geometry; math tests pass
 
 # capture status
 
+## W3 — A4.1 / W4 Hide Desktop Icons
+
+Resolved on the integrated `9c67775` baseline. `AppSettings.hideDesktopIcons` now
+travels through `UIRecordingOptions` and `LiveEngine.captureOptions(for:)` into
+`RecordingOptions.hideDesktopIcons`. Display and area capture therefore use
+`CaptureFilterPolicy`: Finder desktop-icon surfaces are omitted while normal Finder
+folder windows remain visible. Window capture is desktop-independent and unchanged.
+
+Recording start, failure, stop, cancel, and restart no longer call
+`DesktopIcons.hide/restore` or modify Finder preferences. `DesktopIcons` is retained
+only to restore the marker left by older builds at launch/termination; new recordings
+never create that marker. Settings copy now describes capture filtering and no Finder
+restart. Default remains off.
+
+Verification: `git diff --check`; focused desktop-filter run **4/4 pass**; complete
+`YapcamCaptureTests` **173/173 pass** (six suites, native opt-ins skipped). The full
+UI target reached an unrelated pre-existing `StartSoundGateTests` leaked-continuation
+abort; the focused `SystemAudioChoiceTests` suite passes **6/6**, including both new
+settings-to-UI and UI-to-capture boundary regressions. Live acceptance remains **untested**: it needs Screen Recording
+permission and a live display, and the user's running app was not touched. Lead must
+commit this worktree because capture cannot write `.git`.
+
 ## R5 incoming requests
 
 Read **all five other teams' status files from main a96173e** (ui370, core1048,
@@ -31,7 +54,7 @@ main snapshot rather than editing other teams' files in this worktree.
 | ID | Priority | From | Request / state |
 |---|---|---|---|
 | R5-CA01 (also CUR-06 sidecar) | H | render:64,105,464 | SOURCE IMPLEMENTED; BLOCKED global coverage — Render/Lead R5-CA01-IDENTITY: AppKit currentSystem guarantees image/hotspot, not semantic type or standard-instance identity across apps. Optional shape IDs now emitted only for registered standard-object identity; unknown/custom/fallback omit, even with identical PNG bytes. Do not certify universal system-cursor replacement from this sparse signal. Request Render/Lead accept this conservative contract or provide a positively identified semantic source; no private/numeric/bitmap guessing. |
-| UI-R5-DESKTOP | M | ui:44,94,103 | RESOLVABLE now: RecordingOptions.hideDesktopIcons plus CaptureFilterPolicy already exclude desktop Finder surfaces and retain folder windows (SourceOptionsTests). UI must forward its toggle through UIRecordingOptions/LiveEngine and remove recording-time DesktopIcons.hide/restore/Finder restarts; retain migration cleanup for any pre-existing legacy restore marker. Default stays false. No capture API change needed. |
+| UI-R5-DESKTOP | M | ui:44,94,103 | RESOLVED W3: the toggle is forwarded through UIRecordingOptions/LiveEngine; recording-time DesktopIcons mutation/restoration and Finder restarts are removed. Existing legacy markers are restored only during app migration. Default stays false; filter and boundary regressions pass. |
 | UI-U2-CAMERA-SIZE | M | ui:132 | RESOLVABLE: public @MainActor CameraFormatPolicy.effectiveSize(deviceID:maximum:fps:) returns optional (width,height); fps defaults60 and uses production30/29.97 fallback. UI can drop its independent largest-image chooser; pass30 when source cap<60. Nil for missing permission/device/compatible format, no prompt/configuration. Injected cap/rate/missing tests added; live camera remains untested (no hardware). |
 | CORE-ED10-LOCALES / E2 | M | core:640; editor:241 | RESOLVABLE: TranscriptionService.supportedLocales() -> [Locale] returns actual native identifiers sorted, without prompting/downloading or claiming installed on-device models. Main UI AppDelegate.swift:160–163 already forwards keyterms/options and native locales; UI may use the shared API. Native enumeration/authorization-unchanged regression added. |
 | E2-KEYTERMS-ERRORS | M | editor:25,241 | RESOLVED existing: contextualStrings/locale forwarded and unsupportedLocale/onDeviceModelNotInstalled typed errors are implemented; main UI wiring now present. F13 real EN/DE recognition verified by Lead; no new recognition run requested. |
@@ -111,10 +134,9 @@ no permission reset, app launch, or other-team source edit is required.
 - Locale query `TranscriptionService.swift:108` returns Speech's current locale set,
   not a hand-authored language catalog. Recognition still uses on-device-only
   requests and typed locale/model errors; enumeration is not model-install proof.
-- **UI desktop-icon request is resolvable without more capture code:** forward
-  hideDesktopIcons into RecordingOptions in LiveEngine; remove recording-time
-  DesktopIcons.hide/restore and Finder restarts (keep one-time cleanup of a legacy
-  restore marker if present). Both display/area use the filter;
+- **UI desktop-icon request resolved in W3:** `hideDesktopIcons` is forwarded into
+  RecordingOptions in LiveEngine; recording-time DesktopIcons.hide/restore and Finder
+  restarts are gone (one-time cleanup of a legacy restore marker remains). Both display/area use the filter;
   normal Finder folders remain visible. A desktop-independent window contains no
   desktop icons. Existing filter/default/old-options regression tests cover policy.
 - **Main UI adoption checked at a96173e:** system-audio-off, keys-on, sounds-on,
@@ -122,7 +144,7 @@ no permission reset, app launch, or other-team source edit is required.
   old50efc6d table observations below are superseded by this note. Still pending
   UI: automatic cap0 (AppSettings:189 still60), shared AX readback API (SourceOverlay
   still bool-only WindowAX), capture-filtered CG window candidates, conditional
-  sound wait, desktop toggle forwarding, camera query adoption. No UI source edits.
+  sound wait and camera query adoption. W3 supersedes the prior desktop-toggle note.
 - Lead R5b decision resolves legacy engine scope: ScreenCaptureKit only/macOS15+,
   read-only engine label. Native HEVC quality/keyframe certification is **Lead's
   acceptance task, not a code blocker**; command remains in R5-CAP-HOST1 below.
@@ -172,7 +194,7 @@ this status file, as required by TEAMS ownership.
 | L | A3 Camera preview | Floating preview, default square, hide toggle | UI CameraResolutionInfo.swift:58 and preview controller own view/settings; own app excluded | BLOCKED — UI R5-CAP-UI5: implement/verify square default and hide behavior; untested live (no camera hardware). |
 | L | A3 Preflight / CAP6 | Muted-camera confirmation, disappeared devices, closed-lid built-in mic warning, permissions/settings path | CapturePreflight.swift:18,33 supplies issues; UI Recording/Preflight.swift:42 resolves choices | BLOCKED — untested (no camera/mic/laptop hardware). All injected issue/continuation cases pass; UI R5-CAP-UI5 verifies prompts before countdown/start cue. |
 | L | A3 Resize preflight / CAP6 | AX permission required only for actual window resize | CapturePreflight.swift:23; CaptureWindowControl.swift:34 enforces permission | BLOCKED — UI R5-CAP-UI3: call windowResizeIssue before resize and offer settings; ordinary capture must not demand AX. Denied-permission injection passes. |
-| L | A4 Icons | Hide desktop icons off by default; filter capture, no Finder preference changes | YapcamCapture.swift:138; CaptureFilterPolicy.swift:14,19 retains ordinary Finder windows | match filter/default unit tests and prior native exclusion QA; no Finder preference changes/restoration needed. |
+| L | A4 Icons | Hide desktop icons off by default; filter capture, no Finder preference changes | RecordingController.swift:231; LiveEngine.swift:32; CaptureFilterPolicy.swift:14,19 retains ordinary Finder windows | match end-to-end forwarding/filter/default tests; recording lifecycle has no Finder mutation or restart. Live permission/display acceptance remains untested. |
 | L | A4 Dock/highlight | Hide Dock icon on; dim unrecorded area on | UI AppSettings.swift:177,181 and AreaOutline.swift own behavior | BLOCKED — UI R5-CAP-UI6: verify hide-Dock default/recording lifecycle and dim-outside default; these controls do not belong in capture engine. |
 | L | A4 Notes exclusion | Notes/teleprompter invisible in recording | CaptureFilterPolicy.swift:14 and CaptureGeometry.swift:107 exclude entire own app | match capture policy; newly created own overlays remain excluded, not just the initial window list. |
 | L | A4 Notes controls | Off; speed0…25, opacity0.4…1, font12…32; Cmd+Alt+/ | UI Toolbar/NotesWindow.swift owns controls and bounds | BLOCKED — UI R5-CAP-UI6: verify notes defaults/ranges/shortcut and section order. Capture exclusion implemented in previous row. |

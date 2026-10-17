@@ -1528,6 +1528,27 @@ extension UISmokeTests {
         #expect(LiveEngine.selection(for: opts()) == .applications(bundleIDs: []))     // never widened to all apps
     }
 
+    @Test func desktopIconPreferenceReachesCaptureWithoutFinderMutation() {
+        let ui = UIRecordingOptions(
+            target: .display(7), systemAudio: false, microphoneID: nil, cameraID: nil,
+            recordKeystrokes: false, maxFPS: 30, hideDesktopIcons: true,
+            outputDirectory: URL(fileURLWithPath: "/tmp"))
+        let capture = LiveEngine.captureOptions(for: ui)
+        #expect(capture.hideDesktopIcons)
+        #expect(capture.target == .display(7))
+    }
+
+    @Test func desktopIconSettingReachesControllerOptions() throws {
+        let s = AppSettings.shared
+        let saved = (s.sourceMode, s.displayID, s.hideDesktopIcons)
+        defer { (s.sourceMode, s.displayID, s.hideDesktopIcons) = saved }
+        s.sourceMode = .display
+        s.displayID = 0
+        s.hideDesktopIcons = true
+        guard Displays.resolve(0) != nil else { return }
+        #expect(try RecordingController.shared.makeOptions().hideDesktopIcons)
+    }
+
     @Test func checklistListsInjectedAppsAndKeepsClosedSelections() async {
         let m = AudioAppsModel()
         m.load = { [CaptureApplication(bundleID: "com.a", name: "Alpha"), CaptureApplication(bundleID: "com.b", name: "Beta")] }
