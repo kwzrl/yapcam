@@ -2,13 +2,18 @@ import Foundation
 
 public struct ExportSettings: Sendable, Codable, Equatable {
     public enum Format: String, Sendable, Codable { case mp4, mov, gif }
-    public enum Codec: String, CaseIterable, Sendable, Codable { case h264, hevc, both }
+    public enum Codec: String, CaseIterable, Sendable, Codable {
+        case h264, hevc, both
+        public var title: String {
+            switch self { case .h264: "H.264"; case .hevc: "HEVC"; case .both: "Both" }
+        }
+    }
     public enum Target: String, CaseIterable, Sendable, Codable { case file, clipboard }
     public static func codecs(for target: Target) -> [Codec] { target == .file ? [.h264,.hevc,.both] : [.h264,.hevc] }
     public enum Compression: String, CaseIterable, Sendable, Codable {
         case studio, social, web, webLow
         public var title: String {
-            switch self { case .studio: "Studio"; case .social: "Social"; case .web: "Web"; case .webLow: "Web Low" }
+            switch self { case .studio: "Studio"; case .social: "Social Media"; case .web: "Web"; case .webLow: "Web (Low)" }
         }
         public var preferredQuantizer: Int {
             switch self { case .studio: 14; case .social: 24; case .web: 30; case .webLow: 42 }
@@ -39,13 +44,16 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     /// Experimental MP4/MOV mode: omit exact duplicate rendered frames, retaining
     /// their timeline spacing and final endpoint. Evaluation remains on the fps grid.
     public var variableFrameRate: Bool
+    /// False explicitly requests a software encoder through Apple's public
+    /// encoder specification. Does not change decoder acceleration or GPU drawing.
+    public var hardwareEncodingEnabled: Bool
 
     public init(format: Format = .mp4, codec: Codec = .h264, outputHeight: Int? = nil, fps: Int? = nil,
                 quality: Double? = nil, includeAudio: Bool = true, bitrate: Int? = nil,
                 rangeStartNs: Int64? = nil, rangeEndNs: Int64? = nil,
                 speechEnhancement: SpeechEnhancementSettings? = nil, compression: Compression? = nil,
                 gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false,
-                screenQuality: ScreenQualitySettings? = nil) {
+                screenQuality: ScreenQualitySettings? = nil,hardwareEncodingEnabled: Bool = true) {
         self.format = format; self.codec = codec
         self.outputHeight = outputHeight ?? (format == .gif ? 480 : 720)
         self.fps = fps ?? (format == .gif ? 15 : 60)
@@ -57,8 +65,23 @@ public struct ExportSettings: Sendable, Codable, Equatable {
         self.screenQuality = screenQuality
         self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop
         self.variableFrameRate = format == .gif ? false : variableFrameRate
+        self.hardwareEncodingEnabled=hardwareEncodingEnabled
     }
     public static let primaryFormats: [Format] = [.mp4, .gif]
+    public static func heightTitle(_ height: Int) -> String { height == 2160 ? "4K" : "\(height)p" }
+    /// The effective format/target choices, shared by picker and quick export.
+    /// Legacy custom quality is labeled explicitly instead of pretending to be
+    /// one of the four compression presets.
+    public func summary(for target: Target = .file) -> String {
+        let s=closestValidPreset(for: target)
+        var parts=[s.format.rawValue.uppercased()]
+        if s.format != .gif { parts.append(s.codec.title) }
+        parts += [Self.heightTitle(s.outputHeight),"\(s.fps)fps"]
+        if s.format == .gif {
+            parts += [s.gifHighQuality ? "High quality" : "Standard quality",s.gifDisableLoop ? "Play once" : "Loop"]
+        } else { parts.append(s.compression?.title ?? "Custom") }
+        return parts.joined(separator: " • ")
+    }
     public static func frameRates(for format: Format) -> [Int] {
         format == .gif ? [50,30,25,20,15,10] : [60,50,30,25,24,20,10]
     }
@@ -134,7 +157,7 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     }
     private enum CodingKeys: String, CodingKey {
         case format, codec, outputHeight, fps, quality, compression, includeAudio, bitrate
-        case rangeStartNs, rangeEndNs, speechEnhancement, gifHighQuality, gifDisableLoop, variableFrameRate, screenQuality
+        case rangeStartNs, rangeEndNs, speechEnhancement, gifHighQuality, gifDisableLoop, variableFrameRate, screenQuality, hardwareEncodingEnabled
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -152,7 +175,8 @@ public struct ExportSettings: Sendable, Codable, Equatable {
                   gifHighQuality: try c.decodeIfPresent(Bool.self, forKey: .gifHighQuality) ?? true,
                   gifDisableLoop: try c.decodeIfPresent(Bool.self, forKey: .gifDisableLoop) ?? false,
                   variableFrameRate: try c.decodeIfPresent(Bool.self,forKey: .variableFrameRate) ?? false,
-                  screenQuality: try c.decodeIfPresent(ScreenQualitySettings.self,forKey: .screenQuality))
+                  screenQuality: try c.decodeIfPresent(ScreenQualitySettings.self,forKey: .screenQuality),
+                  hardwareEncodingEnabled: try c.decodeIfPresent(Bool.self,forKey: .hardwareEncodingEnabled) ?? true)
     }
 }
 public struct ExportMetrics: Sendable {

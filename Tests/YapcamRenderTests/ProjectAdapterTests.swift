@@ -15,7 +15,7 @@ final class ProjectAdapterTests: XCTestCase {
     func testFactoryDefaultsMapRatioPaddingSourceAspectAndCapturedArtwork() throws {
         let project=try Project.create(package: package)
         let frame=try project.frame(atNs: 0)
-        // Core's published revision-1 contract for this 320x200 recording.
+        // Core's published revision2 contract for this 320x200 recording.
         XCTAssertEqual(frame.canvas_w,1728); XCTAssertEqual(frame.canvas_h,1080)
         XCTAssertEqual(frame.screen_dest.x,172.8,accuracy: 0.000001)
         XCTAssertEqual(frame.screen_dest.y,108,accuracy: 0.000001)
@@ -26,6 +26,9 @@ final class ProjectAdapterTests: XCTestCase {
         XCTAssertEqual(factory.cursorSetID,"original")
         XCTAssertEqual(factory.cursorStyle,.recorded)
         XCTAssertEqual(factory.cursorSize,.regular)
+        XCTAssertEqual(factory.screenQuality,ScreenQualitySettings())
+        XCTAssertEqual(frame.inset_color.0,0); XCTAssertEqual(frame.inset_color.1,0)
+        XCTAssertEqual(frame.inset_color.2,0); XCTAssertEqual(frame.inset_color.3,0.5)
         let frozen=try project.renderSnapshot()
         try project.apply(.set(path: "cursor.set_id",value: .null))
         XCTAssertNil(try project.renderEffects(atNs: 0,canvasSize: canvas).configuration.cursorSetID)
@@ -65,6 +68,7 @@ final class ProjectAdapterTests: XCTestCase {
                 let effects=try source.renderEffects(atNs: frame.tl_ns,canvasSize: CGSize(width: 1920,height: 1080))
                 XCTAssertNil(effects.configuration.cursorSetID,name)
                 XCTAssertEqual(effects.configuration.cursorStyle,.recorded,name)
+                XCTAssertNil(effects.configuration.screenQuality,name)
                 XCTAssertEqual(effects.configuration.cursorSize,.regular,name)
                 XCTAssertEqual(effects.layers.count,2,name)
                 XCTAssertEqual(effects.layers.first?.rect,CGRect(x: 480,y: 270,width: 960,height: 540),name)

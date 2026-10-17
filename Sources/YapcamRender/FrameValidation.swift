@@ -8,6 +8,7 @@ func validateFrame(_ f: YcFrame,configuration c: RenderConfiguration,layers: [Re
     try c.screenQuality?.validate()
     try c.cameraMatte?.validate()
     for layer in layers {
+        try layer.validatePurpose()
         if case .blur(let radius) = layer.content {
             try MaskBlur.validate(radius: radius)
             // Like opaque covers, source-space privacy masks must not be
@@ -23,7 +24,9 @@ func validateFrame(_ f: YcFrame,configuration c: RenderConfiguration,layers: [Re
     }
     if c.glassLoupe != nil, f.screen.present != 0 {
         for layer in layers {
-            if case .highlight(_,let fill,_,_) = layer.content, fill.w*layer.opacity >= 0.999 {
+            if case .highlight(let dim,let fill,let stroke,let width) = layer.content,
+               layer.purpose != .textBackground,
+               fill.w*layer.opacity >= 0.999 || (layer.purpose == .privacyMask && layer.opacity > 0 && (fill.w>0 || dim>0 || (stroke.w>0 && width>0))) {
                 let coversCanvas = layer.cornerRadius == 0 && layer.rect.minX <= 0 && layer.rect.minY <= 0 && layer.rect.maxX >= CGFloat(f.canvas_w) && layer.rect.maxY >= CGFloat(f.canvas_h)
                 guard coversCanvas else { throw RenderError.unavailable("Glass magnifier cannot be combined with a cover mask yet; use classic zoom for that range") }
             }

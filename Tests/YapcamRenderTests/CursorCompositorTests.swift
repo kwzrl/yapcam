@@ -14,11 +14,11 @@ final class CursorCompositorTests: XCTestCase {
         let compositor = try FrameCompositor(device: device,project: TestSource(package: root))
         let queue = try XCTUnwrap(device.makeCommandQueue())
         let target = try XCTUnwrap(device.makeTexture(descriptor: .texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb,width: 192,height: 144,mipmapped: false)))
-        func render(_ configuration: RenderConfiguration,click: Float = -1) throws -> Data {
+        func render(_ configuration: RenderConfiguration,click: Float = -1,scale: Float = 1.75) throws -> Data {
             let source = TestSource(package: root,configuration: configuration) { ns in
                 var frame = YcFrame(); frame.tl_ns = ns; frame.canvas_w = 192; frame.canvas_h = 144
                 frame.background_color = (0.2,0.2,0.2,1); frame.click_progress = click
-                frame.cursor_visible = 1; frame.cursor_opacity = 1; frame.cursor_scale = 1.75; frame.cursor_id = 1; frame.screen.segment = 0
+                frame.cursor_visible = 1; frame.cursor_opacity = 1; frame.cursor_scale = scale; frame.cursor_id = 1; frame.screen.segment = 0
                 frame.cursor_x = 84; frame.cursor_y = 58; frame.click_x = 84; frame.click_y = 58
                 return frame
             }
@@ -29,9 +29,13 @@ final class CursorCompositorTests: XCTestCase {
             target.getBytes(&pixels,bytesPerRow: 192*4,from: MTLRegionMake2D(0,0,192,144),mipmapLevel: 0)
             return Data(pixels)
         }
-        let legacy = try render(.init())
+        let legacy = try render(.init(),scale: 0.75)
         var c = RenderConfiguration(); c.cursorSetID = "original"; c.cursorStyle = .crosshair
-        XCTAssertEqual(try render(c),legacy,"Original must keep actual PNG, its nonzero hotspot and recorded size")
+        XCTAssertEqual(try render(c,scale: 0.75),legacy,"Original keeps native-sized captured artwork and its nonzero hotspot")
+        let enlarged=try render(c,scale: 8)
+        c.cursorUseDefaultIfAppHasLowResolution=false
+        XCTAssertNotEqual(try render(c,scale: 8),enlarged,"Enlarged typed low-res art must use our sharp equivalent")
+        c.cursorUseDefaultIfAppHasLowResolution=true
         c.cursorSetID = "paper"; c.cursorStyle = .recorded
         let typed = try render(c)
         c.cursorStyle = .text

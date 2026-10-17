@@ -27,6 +27,37 @@ final class ReferenceExportTests: XCTestCase {
             else { XCTAssertThrowsError(try settings.validatedRange(duration: 1)) }
         }
         XCTAssertEqual(ExportSettings.Compression.allCases.map(\.preferredQuantizer),[14,24,30,42])
+        XCTAssertEqual(ExportSettings.Compression.allCases.map(\.title),["Studio","Social Media","Web","Web (Low)"])
+    }
+    func testSharedQuickExportSummaryUsesEffectiveOptionsAndLegacyDecoding() throws {
+        XCTAssertEqual(ExportSettings().summary(),"MP4 • H.264 • 720p • 60fps • Social Media")
+        XCTAssertEqual(ExportSettings(codec: .hevc,outputHeight: 1080).summary(),"MP4 • HEVC • 1080p • 60fps • Social Media")
+        XCTAssertEqual(ExportSettings(codec: .both,outputHeight: 2160,compression: .studio).summary(),"MP4 • Both • 4K • 60fps • Studio")
+        XCTAssertEqual(ExportSettings(codec: .both).summary(for: .clipboard),"MP4 • H.264 • 720p • 60fps • Social Media")
+        XCTAssertEqual(ExportSettings(outputHeight: 2160,compression: .web).summary(),"MP4 • H.264 • 1080p • 60fps • Web")
+        XCTAssertEqual(ExportSettings(format: .gif).summary(),"GIF • 480p • 15fps • High quality • Loop")
+        XCTAssertEqual(ExportSettings(format: .gif,fps: 24,gifHighQuality: false,gifDisableLoop: true).summary(),"GIF • 480p • 20fps • Standard quality • Play once")
+        let legacy=try JSONDecoder().decode(ExportSettings.self,from: Data(#"{"quality":0.4}"#.utf8))
+        XCTAssertTrue(legacy.hardwareEncodingEnabled)
+        XCTAssertEqual(legacy.summary(),"MP4 • H.264 • 720p • 60fps • Custom")
+        let software=ExportSettings(codec: .both,hardwareEncodingEnabled: false)
+        XCTAssertEqual(try JSONDecoder().decode(ExportSettings.self,from: JSONEncoder().encode(software)),software)
+        XCTAssertFalse(software.closestValidPreset().hardwareEncodingEnabled)
+        XCTAssertThrowsError(try JSONDecoder().decode(ExportSettings.self,from: Data(#"{"hardwareEncodingEnabled":"false"}"#.utf8)))
+    }
+    func testExplicitSoftwareH264ExportOnHost() async throws {
+        _ = try requireRenderDevice()
+        let root=try temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let source=try syntheticSource(root)
+        let url=root.appendingPathComponent("software.mp4")
+        let exporter=try Exporter(project: source,settings: .init(fps: 10,includeAudio: false,hardwareEncodingEnabled: false),destination: url)
+        _ = try await exporter.run { _ in }
+        let asset=AVURLAsset(url: url)
+        let track=try XCTUnwrap(asset.tracks(withMediaType: .video).first)
+        XCTAssertEqual(track.nominalFrameRate,10)
+        XCTAssertEqual(track.naturalSize,CGSize(width: 1152,height: 720))
+        XCTAssertEqual(exporter.encodedVideoFrames,2)
+        XCTAssertFalse(exporter.effectiveSettings.hardwareEncodingEnabled)
     }
     func testCompressionBitratesSavedLegacyQualityAndDimensionCaps() throws {
         let rates = ExportSettings.Compression.allCases.map { ExportSettings(compression: $0).videoBitrate(width: 1280) }

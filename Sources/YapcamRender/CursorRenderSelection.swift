@@ -44,8 +44,8 @@ struct CursorRenderSelection {
     let variant: VectorCursorVariant
     let pressed: Bool
     init(configuration c: RenderConfiguration,recordedShape: String?,clickProgress: Float) {
-        recorded = c.cursorSetID == "original" || (c.cursorSetID == nil && c.cursorStyle == .recorded)
-        style = c.cursorSetID == "touch" ? .touch : c.cursorStyle.vector ?? recordedShape.flatMap(VectorCursorStyle.init(shapeID:)) ?? .arrow
+        recorded = !c.cursorAlwaysUseDefault && (c.cursorSetID == "original" || (c.cursorSetID == nil && c.cursorStyle == .recorded))
+        style = c.cursorSetID == "touch" ? .touch : c.cursorAlwaysUseDefault ? .arrow : c.cursorStyle.vector ?? recordedShape.flatMap(VectorCursorStyle.init(shapeID:)) ?? .arrow
         // Frame validation rejects unknown ids before this policy is evaluated.
         preset = VectorCursorLibrary.preset(id: c.cursorSetID ?? "classic") ?? VectorCursorLibrary.presets[0]
         variant = c.cursorVariants[style.shapeID] ?? .standard

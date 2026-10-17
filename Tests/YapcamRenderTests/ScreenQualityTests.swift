@@ -16,6 +16,10 @@ final class ScreenQualityTests: XCTestCase {
         let project=try Project.create(package: root)
         var json=try project.query("{\"q\":\"render_options_at\",\"tl_ns\":0}",as: [String:JSONValue].self)
         let decoder=JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        XCTAssertEqual(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).screenQuality,ScreenQualitySettings(),"Revision2 factory selects processing; absent/null query additions stay legacy")
+        json.removeValue(forKey: "screen_quality")
+        XCTAssertNil(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).screenQuality)
+        json["screen_quality"] = .null
         XCTAssertNil(try decoder.decode(ProjectRenderOptions.self,from: JSONEncoder().encode(json)).screenQuality)
         // Optional query objects can be empty even while the current Core emits
         // canonical complete objects. Both must keep the documented defaults.

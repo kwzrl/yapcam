@@ -6,6 +6,13 @@ import YapcamCore
 
 /// Additional drawing instructions evaluated by the project, in the same canvas pixels as YcFrame.
 public struct RenderLayer: Sendable, Equatable {
+    /// Explicit evaluator metadata, never inferred from an id, color or a
+    /// neighboring text layer. Old/custom sources retain conservative checks.
+    public enum Purpose: String, Sendable, Codable {
+        case unspecified
+        case privacyMask = "privacy_mask"
+        case textBackground = "text_background"
+    }
     public enum Content: Sendable, Equatable {
         case text(String, fontSize: Double, color: SIMD4<Float>)
         case image(relativePath: String)
@@ -18,16 +25,33 @@ public struct RenderLayer: Sendable, Equatable {
     public var rect: CGRect
     public var cornerRadius: Float
     public var opacity: Float
+    public var purpose: Purpose
     /// Applies to text only. Sans preserves the original Helvetica rendering.
     public var textFontFamily: RenderTextFontFamily
     /// Evaluated Core caption instructions. Line opacity/slide already reside in
     /// opacity/rect; only glyph growth and per-word animation are applied here.
     public var caption: CoreCaptionEvaluation?
     public init(content: Content, rect: CGRect, cornerRadius: Float = 0, opacity: Float = 1,
-                textFontFamily: RenderTextFontFamily = .sans, caption: CoreCaptionEvaluation? = nil) {
+                textFontFamily: RenderTextFontFamily = .sans, caption: CoreCaptionEvaluation? = nil,
+                purpose: Purpose = .unspecified) {
         self.content = content; self.rect = rect; self.cornerRadius = cornerRadius; self.opacity = opacity
         self.textFontFamily = textFontFamily
         self.caption = caption
+        self.purpose = purpose
+    }
+    func validatePurpose() throws {
+        switch purpose {
+        case .unspecified: break
+        case .textBackground:
+            guard case .highlight(let dim,_,_,_) = content,dim == 0 else {
+                throw RenderError.invalidSettings("Text background purpose requires an undimmed background layer")
+            }
+        case .privacyMask:
+            switch content {
+            case .highlight, .blur: break
+            default: throw RenderError.invalidSettings("Privacy mask purpose requires a cover, highlight or blur mask")
+            }
+        }
     }
 }
 
@@ -49,6 +73,11 @@ public struct RenderConfiguration: Sendable, Equatable {
     /// Evaluated button/pulse state independent of the optional click-ring effect.
     /// nil preserves older Core's click_progress feedback when available.
     public var cursorPressed: Bool? = nil
+    /// Replace only positively identified, enlarged low-resolution standard art.
+    /// Unknown/custom recorded cursors remain untouched.
+    public var cursorUseDefaultIfAppHasLowResolution = true
+    /// Explicit evaluated override; separate from legacy style for Original art.
+    public var cursorAlwaysUseDefault = false
     public var cursorRotationRadians: Float = 0
     /// nil preserves custom-source legacy frame.motion_blur; Core supplies evaluated values.
     public var zoomMotionBlur: Float? = nil

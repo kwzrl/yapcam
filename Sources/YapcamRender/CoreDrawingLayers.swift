@@ -6,6 +6,7 @@ import YapcamCore
 /// Highlights and final fade are included here; never draw a second extras prefix alongside it.
 struct CoreDrawingLayer: Decodable {
     let id: String?
+    let purpose: RenderLayer.Purpose?
     let kind: String
     let rect: [Double]
     let cornerRadius: Float
@@ -42,9 +43,11 @@ struct CoreDrawingLayer: Decodable {
         // Preserve the exact old raster path for line/full captions, including
         // line fade/slide that Core has already applied to opacity/geometry.
         let advanced = caption.flatMap { $0.reveal == .word || $0.growth != .full ? $0 : nil }
-        return RenderLayer(content: content,rect: CGRect(x: rect[0],y: rect[1],width: rect[2],height: rect[3]),cornerRadius: cornerRadius,opacity: opacity,
+        let layer=RenderLayer(content: content,rect: CGRect(x: rect[0],y: rect[1],width: rect[2],height: rect[3]),cornerRadius: cornerRadius,opacity: opacity,
                            textFontFamily: fontFamily ?? caption.flatMap { RenderTextFontFamily(rawValue: $0.fontFamily.rawValue) } ?? .sans,
-                           caption: advanced)
+                           caption: advanced,purpose: purpose ?? .unspecified)
+        try layer.validatePurpose()
+        return layer
     }
 }
 

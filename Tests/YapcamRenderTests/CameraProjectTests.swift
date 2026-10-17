@@ -24,6 +24,13 @@ final class CameraProjectTests: XCTestCase {
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: package) }
     func testCameraZoomScaleGeometryFromCoreReachesFrozenRendererSource() throws {
         let project=try Project.create(package: package)
+        // Isolate zoom scaling from factory2's larger square camera, which is
+        // deliberately capped to the canvas at high magnifications.
+        try project.apply(.batch([
+            .set(path: "camera.size",value: .number(0.22)),
+            .set(path: "camera.zoom_scale",value: .number(1)),
+            .set(path: "zoom_settings.smart_framing",value: .bool(false))
+        ]))
         try project.apply(.addZoom(.init(startNs: 0,endNs: 2_000_000_000,target: [0.5,0.5],scale: 2,easeInNs: 500_000_000,easeOutNs: 500_000_000)))
         let normal=try project.frame(atNs: 1_000_000_000).camera_dest
         try project.apply(.set(path: "camera.zoom_scale",value: .number(1.5)))
@@ -38,6 +45,43 @@ final class CameraProjectTests: XCTestCase {
         try project.apply(.set(path: "camera.zoom_scale",value: .number(1)))
         XCTAssertEqual(try source.frame(atNs: 1_000_000_000).camera_dest.w,zoomed.camera_dest.w)
         XCTAssertEqual(try project.frame(atNs: 1_000_000_000).camera_dest.w,normal.w,accuracy: 0.000_001)
+    }
+    func testFactoryTwoCameraFitsSquareWithEdgePaddingAndPreservesSavedLegacyGeometry() throws {
+        let project=try Project.create(package: package)
+        let factory=try project.renderSnapshot()
+        let initial=try factory.frame(atNs: 0)
+        XCTAssertEqual(initial.camera_dest.w,864,accuracy: 0.000001)
+        XCTAssertEqual(initial.camera_dest.h,864,accuracy: 0.000001)
+        XCTAssertEqual(initial.camera_dest.x+initial.camera_dest.w,Double(initial.canvas_w)-54,accuracy: 0.000001)
+        XCTAssertEqual(initial.camera_dest.y+initial.camera_dest.h,Double(initial.canvas_h)-54,accuracy: 0.000001)
+        XCTAssertEqual(initial.camera_corner_radius,129.6,accuracy: 0.0001)
+        try project.apply(.batch([
+            .set(path: "zoom_settings.smart_framing",value: .bool(false)),
+            .addZoom(.init(startNs: 0,endNs: 2_000_000_000,target: [0.5,0.5],scale: 2,easeInNs: 0,easeOutNs: 0))
+        ]))
+        let zoom=try project.frame(atNs: 1_000_000_000)
+        XCTAssertEqual(zoom.camera_dest.w,864*0.8,accuracy: 0.000001)
+        XCTAssertEqual(zoom.camera_dest.h,864*0.8,accuracy: 0.000001)
+        try project.apply(.batch([
+            .set(path: "camera.size",value: .number(0.22)),
+            .set(path: "camera.position",value: .array([.number(0.82),.number(0.78)])),
+            .set(path: "camera.zoom_scale",value: .number(1)),
+            .set(path: "camera.layout_settings.aspect",value: .null),
+            .set(path: "camera.layout_settings.corner_ratio",value: .null),
+            .set(path: "camera.layout_settings.edge_padding_ratio",value: .number(0))
+        ]))
+        let legacy=try project.frame(atNs: 1_000_000_000)
+        XCTAssertEqual(legacy.camera_dest.w,380.16,accuracy: 0.000001)
+        XCTAssertEqual(legacy.camera_dest.h,237.6,accuracy: 0.000001)
+        XCTAssertEqual(legacy.camera_corner_radius,24)
+        try project.save()
+        let reopened=try Project.open(package: package).frame(atNs: 1_000_000_000)
+        XCTAssertEqual(reopened.camera_dest.x,legacy.camera_dest.x)
+        XCTAssertEqual(reopened.camera_dest.y,legacy.camera_dest.y)
+        XCTAssertEqual(reopened.camera_dest.w,legacy.camera_dest.w)
+        XCTAssertEqual(reopened.camera_dest.h,legacy.camera_dest.h)
+        XCTAssertEqual(reopened.camera_corner_radius,legacy.camera_corner_radius)
+        XCTAssertEqual(try factory.frame(atNs: 0).camera_dest.w,864)
     }
     func testCameraMediaAndVisionOptionsAreEvaluatedFromRealProjectData() throws {
         let project=try Project.create(package: package)

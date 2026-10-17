@@ -14,11 +14,14 @@ public struct PreviewSettings: Equatable, Sendable {
     /// Matches ExportSettings.screenQuality when a local processing preference
     /// should apply to both paths. Nil inherits evaluated project settings.
     public var screenQuality: ScreenQualitySettings?
+    /// Local interface guides drawn by PreviewView above the video, never exported.
+    public var reelMode: ReelPreviewMode
 
     public init(maximumHeight: Int? = nil, resolution: Resolution = .full, playbackRate: Double = 1,
-                screenQuality: ScreenQualitySettings? = nil) {
+                screenQuality: ScreenQualitySettings? = nil,reelMode: ReelPreviewMode = .off) {
         self.maximumHeight=maximumHeight; self.resolution=resolution; self.playbackRate=playbackRate
         self.screenQuality=screenQuality
+        self.reelMode=reelMode
     }
     public func validate() throws {
         try screenQuality?.validate()

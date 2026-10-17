@@ -60,6 +60,8 @@ extension Project: RenderProjectSource {
         }
         configuration.cursorVariants=options.cursorVariants ?? [:]
         configuration.cursorPressed=options.cursorPressed
+        configuration.cursorUseDefaultIfAppHasLowResolution=options.cursorUseDefaultIfAppHasLowResolution ?? true
+        configuration.cursorAlwaysUseDefault=options.cursorAlwaysUseDefault ?? false
         switch options.cursorLogicalSize ?? .regular {
         case .small: configuration.cursorSize = .small
         case .regular: configuration.cursorSize = .regular

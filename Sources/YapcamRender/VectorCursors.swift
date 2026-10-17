@@ -219,8 +219,8 @@ struct VectorCursorTexture {
     let texture: MTLTexture
     let size: CGSize
     let hotspot: CGPoint
-    init(style: VectorCursorStyle,preset: VectorCursorSet,size: VectorCursorSize,scale: CGFloat,variant: VectorCursorVariant = .standard,pressed: Bool = false,device: MTLDevice) throws {
-        let artwork=try VectorCursorLibrary.artwork(style,preset: preset,size: size,scale: scale,variant: variant,pressed: pressed)
+    init(style: VectorCursorStyle,preset: VectorCursorSet,size: VectorCursorSize,scale: CGFloat,variant: VectorCursorVariant = .standard,pressed: Bool = false,heightPoints: CGFloat? = nil,device: MTLDevice) throws {
+        let artwork=try VectorCursorLibrary.artwork(style,preset: preset,size: size,scale: scale,variant: variant,pressed: pressed,heightPoints: heightPoints)
         texture=try generatedSRGBTexture(artwork.image,device: device)
         self.size=artwork.sizePoints; hotspot=artwork.hotspot
     }

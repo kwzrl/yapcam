@@ -141,7 +141,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
             player?.defaultRate=Float(settings.playbackRate)
             if isPlaying && !audioLoading && !seeking { player?.play() }
         }
-        if let view { applyPreviewSize(to: view); view.needsDisplay=true }
+        if let view { applyPreviewSize(to: view); (view as? PreviewMetalView)?.setReelMode(settings.reelMode); view.needsDisplay=true }
         redrawRevision += 1
     }
     func applyPreviewSize(to view: MTKView) {
@@ -299,12 +299,17 @@ public struct PreviewView: NSViewRepresentable {
     public func makeNSView(context: Context) -> MTKView {
         let view = PreviewMetalView(frame: .zero, device: player.compositor.device)
         view.player=player
+        view.setReelMode(player.previewSettings.reelMode)
         view.colorPixelFormat = .bgra8Unorm_srgb; view.framebufferOnly = true
         view.enableSetNeedsDisplay = !player.isPlaying; view.isPaused = !player.isPlaying; view.preferredFramesPerSecond = 60
         view.delegate = context.coordinator; player.view = view; player.applyPreviewSize(to: view)
         return view
     }
-    public func updateNSView(_ view: MTKView, context: Context) { player.applyPreviewSize(to: view); view.needsDisplay = true }
+    public func updateNSView(_ view: MTKView, context: Context) {
+        player.applyPreviewSize(to: view)
+        (view as? PreviewMetalView)?.setReelMode(player.previewSettings.reelMode)
+        view.needsDisplay = true
+    }
     public static func dismantleNSView(_ view: MTKView, coordinator: Coordinator) { coordinator.player.pause(); view.delegate = nil }
     @MainActor public final class Coordinator: NSObject, MTKViewDelegate {
         let player: PreviewPlayer
@@ -323,6 +328,18 @@ public struct PreviewView: NSViewRepresentable {
 /// Resize notifications remain necessary when MTKView automatic sizing is disabled.
 @MainActor final class PreviewMetalView: MTKView {
     weak var player: PreviewPlayer?
+    private var reelOverlay: ReelOverlayView?
+    func setReelMode(_ mode: ReelPreviewMode) {
+        guard mode != .off || reelOverlay != nil else { return }
+        if reelOverlay == nil {
+            let overlay=ReelOverlayView()
+            overlay.wantsLayer=true
+            overlay.frame=bounds; overlay.autoresizingMask=[.width,.height]
+            addSubview(overlay)
+            reelOverlay=overlay
+        }
+        reelOverlay?.mode=mode
+    }
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize); player?.applyPreviewSize(to: self)
     }

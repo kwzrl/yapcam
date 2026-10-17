@@ -26,7 +26,7 @@ public final class FrameCompositor: @unchecked Sendable {
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
-    private struct CursorTextureKey: Hashable { let style: VectorCursorStyle; let set: String; let size: VectorCursorSize; let scale: Int; let variant: VectorCursorVariant; let pressed: Bool }
+    private struct CursorTextureKey: Hashable { let style: VectorCursorStyle; let set: String; let size: VectorCursorSize; let scale: Int; let variant: VectorCursorVariant; let pressed: Bool; let heightPoints: CGFloat? }
     private var vectorCursors: [CursorTextureKey: VectorCursorTexture] = [:]
     private let identityLUT: CameraLUTTexture
     private var cameraLUTs: [URL: CameraLUTTexture] = [:]
@@ -141,7 +141,7 @@ public final class FrameCompositor: @unchecked Sendable {
         var cursorTexture = empty
         var cursorRect = SIMD4<Float>.zero
         var recordedCursor: Cursor?, cursorMetadataURL: URL?
-        let needsRecordedCursor=options.cursorSetID == "original" || (options.cursorStyle == .recorded && options.cursorSetID != "touch")
+        let needsRecordedCursor = !options.cursorAlwaysUseDefault && (options.cursorSetID == "original" || (options.cursorStyle == .recorded && options.cursorSetID != "touch"))
         if needsRecordedCursor, frame.cursor_visible != 0, frame.cursor_opacity > 0, let segment = manifest.segment(at: frame.screen.segment), let path = segment.files["cursors"] {
             let root = project.packageURL.appendingPathComponent("recording")
             let metadataURL = try packageMediaURL(path, root: root)
@@ -153,6 +153,8 @@ public final class FrameCompositor: @unchecked Sendable {
             recordedCursor=cursors[String(frame.cursor_id)]; cursorMetadataURL=metadataURL
         }
         let selection=CursorRenderSelection(configuration: options,recordedShape: recordedCursor?.shape,clickProgress: frame.click_progress)
+        let pixelsPerPoint=max(Double(target.width)/Double(frame.canvas_w),Double(target.height)/Double(frame.canvas_h))*Double(frame.cursor_scale)
+        var replacement: RecordedCursorReplacement?
         func placedCursor(size: CGSize,hotspot: CGPoint) -> SIMD4<Float> {
             let rect=VectorCursorLibrary.placement(sizePoints: size,hotspot: hotspot,at: CGPoint(x: frame.cursor_x,y: frame.cursor_y),scale: CGFloat(frame.cursor_scale))
             return SIMD4(Float(rect.minX),Float(rect.minY),Float(rect.width),Float(rect.height))
@@ -163,19 +165,24 @@ public final class FrameCompositor: @unchecked Sendable {
             }
             cursorTexture=try image(packageMediaURL(cursor.file,root: metadataURL.deletingLastPathComponent()))
             cursorRect=placedCursor(size: CGSize(width: cursor.sizePoints[0],height: cursor.sizePoints[1]),hotspot: CGPoint(x: cursor.hotspot[0],y: cursor.hotspot[1]))
+            replacement=RecordedCursorReplacement(shape: cursor.shape,
+                sizePoints: CGSize(width: cursor.sizePoints[0],height: cursor.sizePoints[1]),
+                bitmapSize: CGSize(width: cursorTexture.width,height: cursorTexture.height),
+                pixelsPerPoint: pixelsPerPoint,enabled: options.cursorUseDefaultIfAppHasLowResolution)
         }
-        if frame.cursor_visible != 0 && (!selection.recorded || cursorTexture === empty) {
-            let style=selection.style, preset=selection.preset
-            let pixelsPerPoint=max(Double(target.width)/Double(frame.canvas_w),Double(target.height)/Double(frame.canvas_h))*Double(frame.cursor_scale)
-            let rasterScale=Int(ceil(min(8,max(2,pixelsPerPoint))))
-            let key=CursorTextureKey(style: style,set: preset.id,size: options.cursorSize,scale: rasterScale,variant: selection.variant,pressed: selection.pressed)
+        if frame.cursor_visible != 0 && (!selection.recorded || cursorTexture === empty || replacement != nil) {
+            let style=replacement?.style ?? selection.style, preset=selection.preset
+            let rasterScale=replacement?.rasterScale ?? Int(ceil(min(8,max(2,pixelsPerPoint))))
+            let variant=options.cursorVariants[style.shapeID] ?? .standard
+            let key=CursorTextureKey(style: style,set: preset.id,size: options.cursorSize,scale: rasterScale,variant: variant,pressed: selection.pressed,heightPoints: replacement?.heightPoints)
             if vectorCursors[key]==nil {
                 if vectorCursors.count>=48 { vectorCursors.removeAll() }
-                vectorCursors[key]=try VectorCursorTexture(style: style,preset: preset,size: options.cursorSize,scale: CGFloat(rasterScale),variant: selection.variant,pressed: selection.pressed,device: device)
+                vectorCursors[key]=try VectorCursorTexture(style: style,preset: preset,size: options.cursorSize,scale: CGFloat(rasterScale),variant: variant,pressed: selection.pressed,heightPoints: replacement?.heightPoints,device: device)
             }
             let cursor=vectorCursors[key]!
             cursorTexture=cursor.texture
-            cursorRect=placedCursor(size: cursor.size,hotspot: cursor.hotspot)
+            let geometry=replacement?.geometry(artworkSize: cursor.size,hotspot: cursor.hotspot) ?? (size: cursor.size,hotspot: cursor.hotspot)
+            cursorRect=placedCursor(size: geometry.size,hotspot: geometry.hotspot)
         }
         var background = empty
         if frame.background_kind == 2 { background = try image(project.renderBackgroundAsset(index: frame.background_asset)) }

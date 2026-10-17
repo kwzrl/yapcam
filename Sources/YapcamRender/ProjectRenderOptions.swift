@@ -40,6 +40,8 @@ struct ProjectRenderBaseOptions: Decodable {
     let cursorShape: String?
     let cursorVariants: [String: VectorCursorVariant]?
     let cursorPressed: Bool?
+    let cursorUseDefaultIfAppHasLowResolution: Bool?
+    let cursorAlwaysUseDefault: Bool?
     let cursorLogicalSize: CoreRenderOptions.CursorLogicalSize?
     let cameraStyle: CameraStyle?
     let cameraLayout: CoreCameraLayout?

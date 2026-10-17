@@ -40,7 +40,7 @@ final class CoreScreenStyleTests: XCTestCase {
             try source.renderEffects(atNs: 500_000_000,canvasSize: CGSize(width: 1728,height: 1080)).configuration
         }
         XCTAssertEqual(try configuration(project).screenInsetOrigin,.zero)
-        XCTAssertNil(try configuration(project).screenQuality)
+        XCTAssertEqual(try configuration(project).screenQuality,ScreenQualitySettings(),"Revision2 factory selects .5/quality")
         let original=try project.renderSnapshot(), frame=try project.frame(atNs: 500_000_000)
         for mode in CoreScreenQuality.Upscaling.allCases {
             try project.setScreenQuality(.init(improveQuality: 0.75,upscaling: mode))
@@ -53,7 +53,7 @@ final class CoreScreenStyleTests: XCTestCase {
         XCTAssertEqual(try configuration(selected).screenInsetOrigin,SIMD2(1,-0.5))
         XCTAssertEqual(try configuration(selected).screenQuality,ScreenQualitySettings(improveQuality: 0.75,upscaling: .quality))
         XCTAssertEqual(try configuration(original).screenInsetOrigin,.zero)
-        XCTAssertNil(try configuration(original).screenQuality)
+        XCTAssertEqual(try configuration(original).screenQuality,ScreenQualitySettings(),"Frozen factory selection survives later edits")
         let unchanged=try project.frame(atNs: 500_000_000)
         XCTAssertEqual(unchanged.screen_dest.x,frame.screen_dest.x); XCTAssertEqual(unchanged.screen_dest.w,frame.screen_dest.w)
         XCTAssertEqual(unchanged.screen_crop.x,frame.screen_crop.x); XCTAssertEqual(unchanged.screen_crop.w,frame.screen_crop.w)
