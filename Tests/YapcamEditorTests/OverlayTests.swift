@@ -138,17 +138,27 @@ private func pkgCopy() throws -> URL {
         #expect(m.lastError != nil && m.wallpaperBusy == nil)
     }
 
-    @Test func realLibraryAppliesGradientAndImageWallpapers() async throws {
+    @Test func realLibraryAppliesWallpapersOfEveryKindAndUndoesThem() async throws {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let m = try EditorDocument(package: d).model
-        #expect(m.wallpapers.count == 12)
-        m.applyWallpaper(id: "quiet-dawn"); await m.waitForWallpaper()
-        #expect(m.string("canvas.background.kind") == "gradient" && m.lastError == nil, "\(m.lastError ?? "")")
-        m.applyWallpaper(id: "boreal-glow"); await m.waitForWallpaper()
-        #expect(m.string("canvas.background.kind") == "image" && m.lastError == nil, "\(m.lastError ?? "")")
-        let thumb = await m.project.wallpaperThumbnail(id: "sediment")
+        // Expectations come from the library itself (render's catalog size and categories change between releases).
+        let all = m.wallpapers
+        #expect(all.count == BackgroundLibrary.presets.count && all.count >= 12)
+        #expect(Set(all.map(\.id)).count == all.count)                        // ids are unique
+        var firstOfEachCategory: [WallpaperInfo] = []
+        for w in all where !firstOfEachCategory.contains(where: { $0.category == w.category }) { firstOfEachCategory.append(w) }
+        #expect(firstOfEachCategory.count >= 2)
+        var kinds: [String] = []
+        for w in firstOfEachCategory.prefix(4) {
+            m.applyWallpaper(id: w.id); await m.waitForWallpaper()
+            #expect(m.lastError == nil, "\(w.id): \(m.lastError ?? "")")
+            let kind = m.string("canvas.background.kind")
+            #expect(["gradient", "image"].contains(kind), "\(w.id) → \(kind)")
+            kinds.append(kind)
+        }
+        let thumb = await m.project.wallpaperThumbnail(id: all[all.count / 2].id)
         #expect(thumb?.width == 192 && thumb?.height == 108)
-        m.undo(); #expect(m.string("canvas.background.kind") == "gradient")
+        if kinds.count >= 2 { m.undo(); #expect(m.string("canvas.background.kind") == kinds[kinds.count - 2]) }   // one undo step per wallpaper
     }
 }
 
@@ -255,24 +265,33 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let doc = try EditorDocument(package: d)
         let lib = try doc.project.query("{\"q\":\"cursor_library\"}", as: Library.self)
-        #expect(VectorCursorLibrary.catalog.map(\.id) == lib.sets.map(\.id))   // render catalog and core accept the same ids
-        #expect(cursorShapes.map(\.value) == lib.shapes)
+        // Core decides what is storable; render's catalog is what can be drawn. The picker offers the ids both know, and the
+        // two must overlap on at least the recorded cursor and Touch (they grow independently between releases).
+        let core = Set(lib.sets.map(\.id)), render = Set(VectorCursorLibrary.catalog.map(\.id))
+        #expect(core.contains("original") && core.contains("touch") && render.contains("original") && render.contains("touch"))
+        #expect(!core.intersection(render).isEmpty)
+        // Every shape the picker offers is a core shape; every core shape is one render can draw.
+        #expect(Set(cursorShapes.map(\.value)).isSubset(of: Set(lib.shapes)))
+        #expect(lib.shapes.allSatisfy { VectorCursorStyle(shapeID: $0) != nil }, "a core shape render does not know: \(lib.shapes.filter { VectorCursorStyle(shapeID: $0) == nil })")
         #expect(cursorSizes.map(\.value) == lib.logicalSizes.map(\.id))
     }
 
     @Test func carouselChoicesAreAcceptedByCoreAndOneUndoStepEach() throws {
         let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
         let doc = try EditorDocument(package: d); let m = doc.model
+        let lib = try doc.project.query("{\"q\":\"cursor_library\"}", as: Library.self)
         let choices = m.cursorSetChoices()
-        #expect(choices.map(\.id) == VectorCursorLibrary.catalog.map(\.id))   // original, touch and all 12 authored sets
-        #expect(choices.first?.id == "original")
-        for c in choices { m.chooseCursorSet(c); #expect(m.lastError == nil); #expect(m.selectedCursorSetID() == c.id) }
-        let paper = try #require(choices.first { $0.id == "paper" })
-        m.chooseCursorSet(paper)
+        // The carousel is render's catalog in render's order, limited to what core accepts.
+        let accepted = Set(lib.sets.map(\.id))
+        #expect(choices.map(\.id) == VectorCursorLibrary.catalog.map(\.id).filter { accepted.contains($0) })
+        #expect(choices.first?.id == "original" && choices.contains { $0.id == "touch" } && choices.count >= 3)
+        for c in choices { m.chooseCursorSet(c); #expect(m.lastError == nil, "\(c.id): \(m.lastError ?? "")"); #expect(m.selectedCursorSetID() == c.id) }
+        let pick = choices[choices.count - 1], other = choices[1]
+        m.chooseCursorSet(other); m.chooseCursorSet(pick)
         m.undo()
-        #expect(m.selectedCursorSetID() != "paper")
-        m.chooseCursorSet(paper); try doc.project.save()
-        #expect(try EditorDocument(package: d).model.selectedCursorSetID() == "paper")
+        #expect(m.selectedCursorSetID() == other.id)                          // one undo step per choice
+        m.chooseCursorSet(pick); try doc.project.save()
+        #expect(try EditorDocument(package: d).model.selectedCursorSetID() == pick.id)
     }
 
     @Test func variantsAreStoredPerTypeOneUndoStepAndSurviveReopen() throws {
@@ -300,13 +319,15 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         var baseSet: String? = nil; if case .string(let s)? = m.value("cursor.set_id") { baseSet = s }
         #expect(cfg.cursorSetID == baseSet && cfg.cursorSize == .regular)
         if m.defaultsRevision >= 1 { #expect(baseSet == "original") } else { #expect(baseSet == nil) }
-        m.set("cursor.set_id", string: "lagoon"); m.set("cursor.logical_size", string: "large"); m.set("cursor.shape", string: "text")
+        // Any authored set the library and core both have (the catalog's contents change between releases).
+        let authored = try #require(m.cursorSetChoices().first { $0.id != "original" && $0.id != "touch" }).id
+        m.set("cursor.set_id", string: authored); m.set("cursor.logical_size", string: "large"); m.set("cursor.shape", string: "text")
         #expect(m.lastError == nil, "\(m.lastError ?? "")")
         cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
-        #expect(cfg.cursorSetID == "lagoon" && cfg.cursorSize == .large && cfg.cursorStyle == .text)
+        #expect(cfg.cursorSetID == authored && cfg.cursorSize == .large && cfg.cursorStyle == .text)
         m.set("cursor.always_default", bool: true)
         cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
-        #expect(cfg.cursorStyle == .arrow && cfg.cursorSetID == "lagoon")     // default arrow wins over the shape, set and size stay
+        #expect(cfg.cursorStyle == .arrow && cfg.cursorSetID == authored)     // default arrow wins over the shape, set and size stay
         m.set("cursor.always_default", bool: false); m.set("cursor.set_id", .null); m.set("cursor.shape", .null); m.set("cursor.logical_size", string: "regular")
         cfg = try source.renderEffects(atNs: 500_000_000, canvasSize: size).configuration
         #expect(cfg.cursorSetID == nil && cfg.cursorSize == .regular)
@@ -579,16 +600,20 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         m.undo(); #expect(!m.bool("cursor.loop_to_start"))
     }
 
-    @Test func reelModeZonesStayInsideTheFrameAndAreRemembered() throws {
-        for mode in ReelMode.allCases {
-            for z in mode.zones { #expect(CGRect(x: 0, y: 0, width: 1, height: 1).contains(z.rect), "\(mode) \(z.name)") }
-            #expect(CGRect(x: 0, y: 0, width: 1, height: 1).contains(mode.safeRect))
-            for z in mode.zones { #expect(!z.rect.intersects(mode.safeRect.insetBy(dx: 0.001, dy: 0.001)) || mode == .off, "\(mode) safe area overlaps \(z.name)") }
-        }
-        #expect(ReelMode.off.zones.isEmpty)
-        let (doc, d, done) = try doc(); defer { done() }
-        doc.model.setReelMode(.tiktok); #expect(doc.model.reelMode == .tiktok)
-        _ = d
+    @Test func reelModeReachesThePlayerAsAPreviewSettingAndIsRemembered() throws {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let player = FakePlayer()
+        let m = EditorModel(project: FakeProject(), player: player); m.defaults = iso.defaults
+        #expect(m.reelMode == .off)
+        m.setReelMode(.tiktok)
+        #expect(m.reelMode == .tiktok && player.previewOptionCalls.last?.reel == .tiktok)
+        #expect(iso.defaults.string(forKey: "yapcam.preview.reel") == "tiktok")
+        let again = EditorModel(project: FakeProject(), player: FakePlayer()); again.defaults = iso.defaults; again.loadStoredPreviewOptions()
+        #expect(again.reelMode == .tiktok)
+        // The mapping onto render's own preview setting (the overlay is drawn by render, above the video, preview only).
+        for mode in ReelMode.allCases { #expect(ReelPreviewMode(rawValue: mode.rawValue) != nil, "\(mode)") }
+        var settings = PreviewSettings(); settings.reelMode = ReelPreviewMode(rawValue: ReelMode.instagram.rawValue)!
+        #expect(settings.reelMode == .instagram)
     }
 
     @Test func commandMenuReachesSettingsWithTheSameEffectAsTheInspector() throws {
@@ -599,7 +624,7 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         run("Go to Audio"); #expect(m.inspectorSection == .audio)
         run("Turn on window frame"); #expect(m.bool("canvas.window_chrome"))
         run("Background: Gradient"); #expect(m.string("canvas.background.kind") == "gradient")
-        run("Reel preview: Instagram Reels"); #expect(m.reelMode == .instagram)
+        run("Reel preview: Instagram"); #expect(m.reelMode == .instagram)
         run("Preview resolution: Half"); #expect(m.previewOptions.resolution == 0.5)
         #expect(m.filteredCommands("filler").contains { $0.title == "Remove filler words" })
         #expect(m.lastError == nil)
@@ -668,5 +693,331 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         let real = try await WaveformAnalysis.peaks(of: file)
         let shown = m.waveform.map(\.amp)
         #expect(!real.isEmpty && (shown.max() ?? 0) == (real.max() ?? -1))
+    }
+}
+
+@MainActor @Suite struct CoreR5RequestTests {
+    private func doc() throws -> (EditorDocument, () -> Void) {
+        let d = try pkgCopy(); let iso = EditorStorage.makeIsolated()
+        return (try EditorDocument(package: d, presets: iso.store), { try? FileManager.default.removeItem(at: d); iso.cleanup() })
+    }
+
+    @Test func e1InsetEnableAppliesReferenceValuesButKeepsAStoredColor() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.set("canvas.inset", number: 0); m.set("canvas.inset_color", color: [0.1, 0.2, 0.3, 0.9])     // a color the user stored before
+        m.setInsetEnabled(true)
+        #expect(m.number("canvas.inset") == 4 && m.color("canvas.inset_color") == [0.1, 0.2, 0.3, 0.9])
+        m.setInsetEnabled(false); m.set("canvas.inset_color", color: [0, 0, 0, 0.5])                    // core's factory color
+        m.lastInset = nil
+        m.setInsetEnabled(true)
+        #expect(m.color("canvas.inset_color") == EditorModel.insetFallback.color)
+    }
+
+    @Test func e2SplitDirectionAndCutoutAspectNull() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        for dir in ["horizontal", "vertical", "auto"] { m.set("camera.layout_settings.split_direction", string: dir); #expect(m.lastError == nil, "\(dir) \(m.lastError ?? "")"); #expect(m.string("camera.layout_settings.split_direction") == dir) }
+        m.set("camera.layout_settings.aspect", .number(1))
+        m.setCameraLayoutMode("cutout")
+        #expect(m.string("camera.layout_settings.mode") == "cutout" && m.value("camera.layout_settings.aspect") == .null)
+        m.undo(); #expect(m.string("camera.layout_settings.mode") != "cutout" && m.value("camera.layout_settings.aspect") == .number(1))   // one undo step
+        m.set("camera.layout_settings.split_direction", string: "diagonal"); #expect(m.lastError != nil)   // core rejects unknown directions
+    }
+
+    @Test func e3LevelKeysUseTheRememberedDefaultAndStayInOneToFour() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.seek(toNs: 500_000_000); m.addZoomAtPlayhead()
+        m.setSelectedZoomLevel(3.2)
+        #expect(m.defaultZoomScale == 3.2)                                // core remembers the committed level
+        m.setSelectedZoomLevel(1.4); m.handleShortcut("0")
+        #expect(m.selectedZoom?.scale == 1.4 || m.selectedZoom?.scale == 3.2)
+        m.setSelectedZoomLevel(9); #expect(m.selectedZoom?.scale == 4)    // the UI never goes above 4
+        m.setSelectedZoomLevel(0.2); #expect(m.selectedZoom?.scale == 1)
+        m.setSelectedZoomLevel(2.8); _ = m.handleShortcut("1"); #expect(m.selectedZoom?.scale == 1)
+        _ = m.handleShortcut("0"); #expect(m.selectedZoom?.scale == m.defaultZoomScale)
+    }
+
+    @Test func e4CoalescedLevelStepsShareOneUndoStepButDifferentObjectsDoNot() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.seek(toNs: 500_000_000); m.addZoomAtPlayhead()
+        let id = try #require(m.selectedZoom?.id)
+        let before = m.selectedZoom!.scale
+        m.stepSelectedZoomLevel(by: 0.2); m.stepSelectedZoomLevel(by: 0.2); m.stepSelectedZoomLevel(by: 0.2)   // well inside 100 ms
+        #expect(abs(m.zooms.first { $0.id == id }!.scale - (before + 0.6)) < 0.01)
+        m.undo()
+        #expect(m.zooms.first { $0.id == id }?.scale == before, "a burst of steps must undo in one step")
+        #expect(m.zooms.count == 1)                                       // the zoom itself (its own step) is still there
+    }
+
+    @Test func e4HistoryKeepsAtMost1000Steps() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        for i in 0..<1010 { m.set("canvas.radius", number: Double(i % 100)) }
+        var undone = 0
+        while m.canUndo && undone < 1100 { m.undo(); undone += 1 }
+        #expect(undone == 1000, "undo steps: \(undone)")
+    }
+
+    @Test func e5SplittingAZoomKeepsStyleModeEnabledAndEasing() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.seek(toNs: 500_000_000); m.addZoomAtPlayhead()
+        let id = try #require(m.selectedZoom?.id)
+        m.setZoomLens(id: id, ZoomLensParams())
+        m.setZoomMode(id: id, .manual)
+        m.perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: 3, focusX: 0.3, focusY: 0.7, easeInNs: 200_000_000, easeOutNs: 100_000_000, enabled: false))
+        let z = try #require(m.zooms.first { $0.id == id })
+        m.seek(toNs: z.startNs + (z.endNs - z.startNs) / 2); m.selection = .zoom(id); m.splitContextAware()
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.zooms.count == 2)
+        let second = try #require(m.zooms.first { $0.id != id })
+        #expect(second.lens != nil && second.mode == .manual && !second.enabled && second.scale == 3 && abs(second.focusX - 0.3) < 1e-9 && second.easeInNs == 200_000_000 && second.easeOutNs == 100_000_000)
+        m.undo(); #expect(m.zooms.count == 1)                              // one undo step
+    }
+
+    @Test func e5MaskKeyframesPartitionAtTheCutAndEnabledSurvivesRewrites() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.seek(toNs: 500_000_000); m.addHighlightAtPlayhead(kind: .blur)
+        let id = try #require(m.highlights.first?.id)
+        let h = m.highlights[0]
+        m.seek(toNs: h.startNs + 1_000_000_000); m.addRegionKeyframeAtPlayhead(id: id)   // key 1 at start+1 s (rect unchanged)
+        m.updateHighlightKeepingStyle(id: id) { $0.keyframes = [RegionKeyframe(tlNs: h.startNs + 1_000_000_000, rect: [0.1, 0.1, 0.3, 0.3]), RegionKeyframe(tlNs: h.startNs + 2_500_000_000, rect: [0.5, 0.5, 0.3, 0.3])] }
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        m.setHighlightEnabled(id: id, false)
+        m.updateHighlight(id: id) { $0.opacity = 0.9 }                         // an unrelated rewrite must keep enabled + keys
+        #expect(m.highlights[0].enabled == false && m.highlights[0].keyframes.count == 2)
+        m.setHighlightEnabled(id: id, true)
+        let cut = h.startNs + 2_000_000_000
+        m.seek(toNs: cut); m.selection = .highlight(id); m.splitContextAware()
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        let parts = m.highlights.sorted { $0.startNs < $1.startNs }
+        #expect(parts.count == 2)
+        #expect(parts[0].keyframes.map(\.tlNs) == [h.startNs + 1_000_000_000, cut])                // before the cut, plus the end box
+        #expect(parts[1].keyframes.map(\.tlNs) == [h.startNs + 2_500_000_000])                     // after the cut
+        #expect(parts[1].rect == parts[0].keyframes.last!.rect)                                    // second half starts where the first ends
+        // Interpolation: halfway between the two keys.
+        let mid = parts[0].rect(atNs: h.startNs + 1_500_000_000)
+        #expect(abs(mid[0] - (0.1 + (parts[0].keyframes.last!.rect[0] - 0.1) * 0.5)) < 1e-6)
+    }
+
+    @Test func e5LayoutEnabledSurvivesRewrites() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.writeLayoutList([LayoutSegment(id: "layout-t", startNs: 500_000_000, endNs: 3_000_000_000, mode: "overlay")])
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        let id = try #require(m.layouts.first?.id)
+        m.setLayoutEnabled(id: id, false); #expect(m.layouts[0].enabled == false)
+        m.setLayoutMode(id: id, "screen")
+        #expect(m.layouts[0].enabled == false && m.layouts[0].mode == "screen")
+        m.setLayoutEnabled(id: id, true); #expect(m.layouts[0].enabled)
+    }
+
+    @Test func e5HiddenShortcutsRoundTripThroughCore() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        let chords = m.project.keyChords()
+        let target = chords.first?.text ?? "⌘C"
+        m.setShortcutHidden(target, true)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        if !chords.isEmpty { #expect(m.project.keyChords().first { $0.text == target }?.hidden == true) }
+        m.setShortcutHidden(target, false)
+        if !chords.isEmpty { #expect(m.project.keyChords().first { $0.text == target }?.hidden == false) }
+    }
+
+    @Test func e5CaptionSizeIsStoredAsARatioOfTheCanvasHeight() async throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        #expect(CaptionLook().size == 0.05)
+        let transcript = Data(#"{"schema_version":1,"engine":"x","locale":"en","words":[{"text":"hello","src_start_ns":1000000000,"src_end_ns":1500000000}]}"#.utf8)
+        m.captionSource = { transcript }; m.captionSourceWithOptions = { _, _ in transcript }
+        m.generateCaptions(); await m.waitForCaptions()
+        #expect(m.textItems(.caption).count == 1, "\(m.captionState)")
+        var look = m.captionLook; look.size = 0.1; m.setCaptionLook(look)
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        if case .number(let r)? = m.textItems(.caption).first?.extraStyle["font_size_ratio"] { #expect(r == 0.1) } else { Issue.record("no font_size_ratio on the caption: \(String(describing: m.textItems(.caption).first?.extraStyle)) count \(m.textItems(.caption).count)") }
+    }
+
+    @Test func e6FailedSavesRetryWithoutNewEditsAndKeepTheRevision() async throws {
+        let p = FakeProject(durationNs: 10_000_000_000); p.failSave = true
+        let m = EditorModel(project: p, player: FakePlayer())
+        m.autosaveDelay = .milliseconds(40)
+        m.seek(toNs: 1_000_000_000); m.addZoomAtPlayhead()
+        let rev = m.revision
+        for _ in 0..<100 where p.saveAttempts < 3 { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(p.saveAttempts >= 3, "attempts \(p.saveAttempts)")          // retried on its own, no further edit
+        if case .failed = m.saveState {} else { Issue.record("state should stay failed, was \(m.saveState)") }
+        #expect(m.revision == rev)
+        p.failSave = false
+        for _ in 0..<100 where m.saveState != .clean { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(m.saveState == .clean && m.revision == rev)
+        let attempts = p.saveAttempts; try await Task.sleep(for: .milliseconds(200))
+        #expect(p.saveAttempts == attempts)                                  // a clean project does not keep saving
+        m.close()
+    }
+}
+
+@MainActor @Suite struct ExportParityTests {
+    private final class Box: @unchecked Sendable { var requests: [ExportRequest] = [] }
+    private struct RecordingEngine: ExportEngine {
+        let box: Box
+        func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL { box.requests.append(request); progress(1); return request.destination }
+    }
+
+    @Test func optionSetsAndTitlesComeFromRender() {
+        #expect(CompressionPreset.allCases.map(\.label) == ["Studio", "Social Media", "Web", "Web (Low)"])
+        for f in ExportFormat.allCases {
+            #expect(f.options.fps == ExportSettings.frameRates(for: f.renderFormat) && f.options.heights == ExportSettings.heights(for: f.renderFormat), "\(f)")
+        }
+    }
+
+    @Test func clipboardHidesThePairedExportAndFallsBack() {
+        let e = ExportModel(engine: RecordingEngine(box: Box()))
+        e.format = .mp4both; #expect(e.format == .mp4both && e.availableFormats.contains(.mp4both))
+        e.target = .clipboard
+        #expect(e.format == .mp4h264 && !e.availableFormats.contains(.mp4both))
+        e.target = .file; #expect(e.availableFormats.contains(.mp4both))
+        #expect(ExportFormat.primary == [.mp4h264, .gif] && Set(ExportFormat.advanced) == [.mp4hevc, .mp4both, .movh264, .movhevc])
+    }
+
+    @Test func gifAtOrAbove1080GetsTheLargeFileWarning() {
+        let e = ExportModel(engine: RecordingEngine(box: Box()))
+        e.format = .gif
+        #expect(!e.showsLargeGIFWarning)
+        e.height = 1080; #expect(e.showsLargeGIFWarning)
+        e.format = .mp4h264; #expect(!e.showsLargeGIFWarning)
+    }
+
+    @Test func requestsCarryTheTargetAndOutcomesReachTheApp() async throws {
+        let box = Box()
+        let e = ExportModel(engine: RecordingEngine(box: box))
+        var outcomes: [ExportModel.Outcome] = []
+        e.onOutcome = { outcomes.append($0) }
+        e.copyToClipboard(); await e.waitUntilFinished()
+        #expect(box.requests.last?.target == .clipboard && e.target == .clipboard)
+        e.target = .file
+        e.start(to: URL(fileURLWithPath: "/tmp/x.mp4")); await e.waitUntilFinished()
+        #expect(box.requests.last?.target == .file)
+        #expect(outcomes.map(\.kind).count == 4)
+        #expect(outcomes.first?.kind == .started && outcomes[1].kind == .completed(URL(fileURLWithPath: "/dev/null")) && outcomes[1].target == .clipboard)
+        #expect(outcomes[3].target == .file)
+    }
+
+    @Test func rememberedSettingsIncludeTheTargetAndOldOnesStillLoad() throws {
+        let suite = "yapcam.test.\(UUID().uuidString)"; let d = UserDefaults(suiteName: suite)!; defer { d.removePersistentDomain(forName: suite) }
+        let a = ExportModel(engine: RecordingEngine(box: Box())); a.remember(in: .dialog, defaults: d)
+        a.target = .clipboard; a.fps = 30
+        let b = ExportModel(engine: RecordingEngine(box: Box())); b.remember(in: .dialog, defaults: d)
+        #expect(b.target == .clipboard && b.fps == 30)
+        // A settings blob from before targets existed decodes with the file target.
+        let old = #"{"format":"mp4h264","height":1080,"fps":24,"includeAudio":true,"preset":"web","gifHighQuality":true,"gifDisableLoop":false}"#
+        d.set(Data(old.utf8), forKey: "yapcam.export.remembered.quick")
+        let c = ExportModel(engine: RecordingEngine(box: Box())); c.remember(in: .quick, defaults: d)
+        #expect(c.target == .file && c.height == 1080 && c.fps == 24 && c.preset == .web)
+    }
+
+    @Test func timingReadoutShowsElapsedAndRemaining() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        #expect(ExportSheet.timing(since: t0, fraction: 0.01, now: t0.addingTimeInterval(5)) == "0:05 elapsed")
+        #expect(ExportSheet.timing(since: t0, fraction: 0.5, now: t0.addingTimeInterval(60)) == "1:00 elapsed · about 1:00 left")
+        #expect(ExportSheet.timing(since: nil, fraction: 0.5, now: t0) == "")
+    }
+
+    @Test func commandMenuListsExportSettingsAndActionsAndShortcutsOpenThePicker() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store); let m = doc.model
+        var opened = 0; m.showExportPickerHandler = { opened += 1 }
+        func run(_ t: String) { m.filteredCommands(t).first { $0.title == t }?.run() }
+        run("Export format: GIF (no audio)"); #expect(doc.export.format == .gif)
+        run("Export size: 720p"); #expect(doc.export.height == 720)
+        run("Export frame rate: 30 fps"); #expect(doc.export.fps == 30)
+        run("Export target: Clipboard"); #expect(doc.export.target == .clipboard)
+        run("Export target: File")
+        run("Export format: MP4 (H.264)"); run("Export compression: Web (Low)"); #expect(doc.export.preset == .webLow)
+        #expect(m.handleShortcut("e", [.command, .shift])); #expect(opened == 1)
+        run("Show recent clipboard copies"); #expect(opened == 2 && doc.export.target == .clipboard)
+        doc.export.target = .file
+        #expect(m.paletteCommands.contains { $0.title == "Export…" && $0.shortcut == "⇧⌘E" })
+        #expect(m.paletteCommands.contains { $0.title == "Copy export to clipboard" && $0.shortcut == "⌥⌘C" })
+        #expect(m.paletteCommands.contains { $0.title == "Export to file…" && $0.shortcut == "⌥⌘S" })
+    }
+
+    @Test func pairedExportWritesBothFilesAndReplacesExistingOnes() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("pair-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: out) }
+        let primary = out.appendingPathComponent("demo.mp4"), second = out.appendingPathComponent("demo-h265.mp4")
+        try Data("old".utf8).write(to: primary); try Data("old".utf8).write(to: second)       // both are replaced, nothing refuses
+        doc.export.format = .mp4both; doc.export.height = 720; doc.export.fps = 10
+        doc.export.start(to: primary); await doc.export.waitUntilFinished()
+        if case .done = doc.export.state {} else { Issue.record("paired export did not finish: \(doc.export.state)") }
+        for f in [primary, second] {
+            let size = (try? FileManager.default.attributesOfItem(atPath: f.path)[.size] as? Int) ?? 0
+            #expect(size > 1000, "\(f.lastPathComponent) size \(size)")
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: out.path).filter { $0.hasPrefix(".yapcam") }.isEmpty)   // no temp folder left
+    }
+}
+
+@MainActor @Suite struct UIRequestTests {
+    private func store() -> (EditorKeyBindings, () -> Void) {
+        let name = "yapcam.test.\(UUID().uuidString)"; let d = UserDefaults(suiteName: name)!
+        return (EditorKeyBindings(defaults: d), { d.removePersistentDomain(forName: name) })
+    }
+    private func model(_ kb: EditorKeyBindings) -> EditorModel {
+        let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer()); m.keyBindings = kb; return m
+    }
+
+    @Test func rebindingMovesTheActionAndFreesTheOldKey() {
+        let (kb, done) = store(); defer { done() }
+        let m = model(kb)
+        m.seek(toNs: 8_000_000_000)
+        #expect(m.handleShortcut("c") && m.clips.count == 2)                // default C splits
+        m.undo()
+        #expect(kb.setKey("q", for: "split"))
+        #expect(kb.key(for: "split") == "q" && kb.isCustomized)
+        #expect(!m.handleShortcut("c") && m.clips.count == 1)               // the old key does nothing now
+        #expect(m.handleShortcut("q") && m.clips.count == 2)                // the new one splits
+        #expect(kb.setKey(nil, for: "split") && kb.key(for: "split") == "c" && !kb.isCustomized)
+    }
+
+    @Test func conflictsAndReservedKeysAreRefused() {
+        let (kb, done) = store(); defer { done() }
+        #expect(!kb.setKey("x", for: "split"))                              // X belongs to ripple delete
+        #expect(!kb.setKey("5", for: "split") && !kb.setKey("=", for: "split") && !kb.setKey(" ", for: "split"))
+        #expect(!kb.setKey("q", for: "doesNotExist"))
+        #expect(kb.setKey("x", for: "ripple") && kb.setKey("c", for: "ripple") == false)   // moving ripple away: C is split's
+        #expect(kb.setKey("Q", for: "ripple") && kb.key(for: "ripple") == "q")              // stored lowercase
+        kb.resetAll(); #expect(!kb.isCustomized && kb.key(for: "ripple") == "x")
+        #expect(EditorKeyBindings.actions.count == Set(EditorKeyBindings.actions.map(\.defaultKey)).count)   // unique defaults
+    }
+
+    @Test func swappingTwoKeysWorksThroughAFreeKey() {
+        let (kb, done) = store(); defer { done() }
+        #expect(kb.setKey("q", for: "split") && kb.setKey("c", for: "ripple") && kb.setKey("x", for: "split"))
+        #expect(kb.key(for: "split") == "x" && kb.key(for: "ripple") == "c")
+        #expect(kb.canonical("x") == "c" && kb.canonical("c") == "x")       // pressed x runs split (default key c)
+    }
+
+    @Test func keyModelCropRequestAndPresetApplicationAreAvailableToTheApp() throws {
+        #expect(EditorWindows.keyModel == nil && !EditorWindows.requestCropOfKeyEditor())        // no editor window is key in tests
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store); let m = doc.model
+        // A preset made from a different look, applied as an edit: undoable and marks the project dirty.
+        m.set("canvas.radius", number: 40)
+        try FileManager.default.createDirectory(at: iso.store.directory, withIntermediateDirectories: true)
+        m.savePreset(named: "Look"); #expect(m.lastError == nil)
+        m.set("canvas.radius", number: 8)
+        m.saveNow(); #expect(m.saveState == .clean)
+        doc.applyPreset(from: iso.store.url("Look"))
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.number("canvas.radius") == 40)
+        #expect(m.saveState != .clean)                                       // dirty tracking
+        #expect(m.canUndo)
+        m.undo(); #expect(m.number("canvas.radius") == 8, "undo must restore the look before the preset")
+    }
+
+    @Test func cameraPixelSizeIsNilWithoutACamera() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store)
+        #expect(doc.model.project.hasCamera == (doc.model.project.cameraPixelSize != nil))
     }
 }

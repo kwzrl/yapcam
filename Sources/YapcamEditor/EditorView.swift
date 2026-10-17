@@ -50,6 +50,7 @@ public struct EditorContent<Preview: View>: View {
         } message: { Text(model.lastError ?? "") }
         .focusedSceneValue(\.editorModel, model)
         .onChange(of: model.selection) { _, new in if new != .none { model.announce(model.describe(new)) } }
+        .onAppear { model.showExportPickerHandler = { showExport = true }; if model.exportModel == nil { model.exportModel = export }; model.exportTitle = title }
         .onDisappear { model.saveNow() }
     }
 
@@ -67,7 +68,6 @@ public struct EditorContent<Preview: View>: View {
             }
             preview
                 .aspectRatio(model.previewAspect, contentMode: .fit)
-                .overlay { if model.reelMode != .off { ReelOverlay(mode: model.reelMode) } }
                 .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model, playhead: model.playhead) } }
                 .overlay { rectEditor }
                 .scaleEffect(model.previewZoom)
@@ -106,7 +106,9 @@ public struct EditorContent<Preview: View>: View {
         if p.modifiers.contains(.command) {
             if p.key == .leftArrow { model.seek(toNs: 0); return .handled }
             if p.key == .rightArrow { model.seek(toNs: model.durationNs); return .handled }
-            if let c = p.characters.first, model.handleShortcut(c, mods) { return .handled }
+            // ⌥ changes `characters` (⌥S types ß): the key itself identifies the command.
+            let c = mods.contains(.option) ? p.key.character : (p.characters.first ?? p.key.character)
+            if model.handleShortcut(c, mods) { return .handled }
             return .ignored
         }
         switch p.key {

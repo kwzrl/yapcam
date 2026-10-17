@@ -9,6 +9,8 @@ public struct LayoutSegment: Equatable, Identifiable, Sendable {
     public var cameraSize: Double?
     /// Own layout settings for this interval (replaces the root settings; kept verbatim so edits never drop it).
     public var settings: [String: JSONValue]?
+    /// A disabled range keeps all its settings but does not override the default layout (core `enabled`, missing = true).
+    public var enabled = true
 }
 
 public let layoutModes: [(label: String, value: String)] = [
@@ -28,7 +30,9 @@ extension EditorModel {
             if case .number(let v)? = o["camera_size"] { size = v }
             var settings: [String: JSONValue]?
             if case .object(let s)? = o["settings"] { settings = s }
-            return LayoutSegment(id: id, startNs: Int64(a), endNs: Int64(b), mode: mode, cameraPosition: pos, cameraSize: size, settings: settings)
+            var enabled = true
+            if case .bool(let e)? = o["enabled"] { enabled = e }
+            return LayoutSegment(id: id, startNs: Int64(a), endNs: Int64(b), mode: mode, cameraPosition: pos, cameraSize: size, settings: settings, enabled: enabled)
         }
     }
 
@@ -48,6 +52,7 @@ extension EditorModel {
         if let p = l.cameraPosition { o["camera_position"] = .array(p.map { .number($0) }) }
         if let s = l.cameraSize { o["camera_size"] = .number(s) }
         if let s = l.settings { o["settings"] = .object(s) }
+        if !l.enabled { o["enabled"] = .bool(false) }
         return .object(o)
     }
     private func writeLayouts(_ ls: [LayoutSegment]) { set("camera.layouts", .array(ls.sorted { $0.startNs < $1.startNs }.map(layoutJSON))) }
@@ -63,16 +68,26 @@ extension EditorModel {
         writeLayouts(layouts + [l]); selection = .layout(l.id)
     }
     public func setLayoutMode(id: String, _ mode: String) {
-        writeLayouts(layouts.map { var l = $0; if l.id == id { l.mode = mode }; return l })
+        // The cutout takes the camera's own aspect (null), not the overlay's square one.
+        writeLayouts(layouts.map { var l = $0; if l.id == id { l.mode = mode; if mode == "cutout", l.settings != nil { l.settings?["aspect"] = .null } }; return l })
+    }
+    /// Default camera layout (overlay / cutout / split). Selecting Cutout also clears the aspect, in the same undo step.
+    public func setCameraLayoutMode(_ mode: String) {
+        var items: [(path: String, value: JSONValue)] = [("camera.layout_settings.mode", .string(mode))]
+        if mode == "cutout" { items.append(("camera.layout_settings.aspect", .null)) }
+        setMany(items)
     }
     /// Gives a segment its own settings (a copy of the current camera layout settings), or returns it to the root ones.
     public func setLayoutOwnSettings(id: String, _ on: Bool) {
         var root: [String: JSONValue] = [:]
         if case .object(let o)? = value("camera.layout_settings") { root = o }
-        writeLayouts(layouts.map { var l = $0; if l.id == id { l.settings = on ? root : nil }; return l })
+        writeLayouts(layouts.map { var l = $0; if l.id == id { l.settings = on ? root : nil; if on, l.mode == "cutout" { l.settings?["aspect"] = .null } }; return l })
     }
     public func setLayoutSetting(id: String, key: String, _ v: JSONValue) {
         writeLayouts(layouts.map { var l = $0; if l.id == id, l.settings != nil { l.settings?[key] = v }; return l })
+    }
+    public func setLayoutEnabled(id: String, _ on: Bool) {
+        writeLayouts(layouts.map { var l = $0; if l.id == id { l.enabled = on }; return l })
     }
     public func removeLayout(id: String) { writeLayouts(layouts.filter { $0.id != id }) }
 

@@ -66,7 +66,7 @@ extension EditorModel {
     public func nudgeSelection(byNs delta: Int64) {
         guard let item = selectableItems.first(where: { $0.selection == selection }), let key = item.rangeKey else { return }
         let span = TimeSpan(startNs: item.startNs, endNs: item.endNs)
-        if case .zoom(let id) = selection { moveZoom(id: id, toStartNs: item.startNs + delta); return }
+        if case .zoom(let id) = selection { moveZoom(id: id, toStartNs: item.startNs + delta); return }   // zooms: one discrete step per nudge
         previewRange(key: key, current: span, moveToStartNs: item.startNs + delta); commitRange(key: key)
     }
 

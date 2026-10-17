@@ -8,6 +8,9 @@ struct CameraStylePanel: View {
     private var preset: String { model.string("camera.style.preset", default: "original") }
 
     var body: some View {
+        if let size = model.project.cameraPixelSize {
+            Section { LabeledContent("Recorded at") { Text("\(size.width) × \(size.height)").monospacedDigit() } }
+        }
         Section("Color look") {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 6)], spacing: 6) {
                 tile("Original", id: "original")

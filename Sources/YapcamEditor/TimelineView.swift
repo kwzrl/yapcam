@@ -212,7 +212,7 @@ struct TimelineView: View {
             .offset(y: top)
     }
 
-    private func rangeChip(_ g: TimelineGeometry, key: String, span: TimeSpan, top: CGFloat, tint: Color, title: String, sel: EditorSelection) -> some View {
+    private func rangeChip(_ g: TimelineGeometry, key: String, span: TimeSpan, top: CGFloat, tint: Color, title: String, sel: EditorSelection, enabled: Bool = true) -> some View {
         let selected = model.selection == sel
         let r = model.zoomPreview[key] ?? (span.startNs, span.endNs)
         return RoundedRectangle(cornerRadius: 6)
@@ -220,6 +220,7 @@ struct TimelineView: View {
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(tint.opacity(selected ? 1 : 0.6), lineWidth: selected ? 2 : 1))
             .overlay(alignment: .leading) { Text(title).font(.caption2.weight(.medium)).lineLimit(1).padding(.leading, 12) }
             .modifier(TrimHandles(tint: tint, selected: selected))
+            .opacity(enabled ? 1 : 0.4)
             .frame(width: max(g.contentWidth(durationNs: r.1 - r.0), 6), height: TimelineLayout.laneHeight - 4)
             .offset(x: g.x(forNs: r.0), y: top + 2)
             .accessibilityElement(children: .ignore)
@@ -254,7 +255,7 @@ struct TimelineView: View {
             laneBackground(g, top: layout.cameraTop, label: "")
             ForEach(model.layouts) { l in
                 rangeChip(g, key: l.id, span: TimeSpan(startNs: l.startNs, endNs: l.endNs), top: layout.cameraTop, tint: .teal,
-                          title: layoutModes.first { $0.value == l.mode }?.label ?? l.mode, sel: .layout(l.id))
+                          title: (layoutModes.first { $0.value == l.mode }?.label ?? l.mode) + (l.enabled ? "" : " (off)"), sel: .layout(l.id), enabled: l.enabled)
             }
         }
     }
@@ -264,7 +265,7 @@ struct TimelineView: View {
             laneBackground(g, top: layout.highlightTop, label: "")
             ForEach(model.highlights) { h in
                 rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, tint: .yellow,
-                          title: h.kind.label, sel: .highlight(h.id))
+                          title: h.kind.label + (h.enabled ? "" : " (off)"), sel: .highlight(h.id), enabled: h.enabled)
             }
         }
     }

@@ -10,12 +10,18 @@ struct CameraLayoutSettings: View {
     var body: some View {
         Section("Camera") {
             ToggleRow(model: model, title: "Show camera", path: "camera.visible", defaultValue: true)
-            LabeledPills("Layout", selection: Binding(get: { mode }, set: { model.set(p + "mode", string: $0) }), options: [("Overlay", "overlay"), ("Cutout", "cutout"), ("Split", "split")])
+            LabeledPills("Layout", selection: Binding(get: { mode }, set: { model.setCameraLayoutMode($0) }), options: [("Overlay", "overlay"), ("Cutout", "cutout"), ("Split", "split")])
         }
         switch mode {
         case "cutout": cutout
         case "split": split
         default: overlay
+        }
+        if mode != "split" {
+            Section {
+                ToggleRow(model: model, title: "Avoid empty area", path: "canvas.avoid_empty_zoom_area")
+                Text("Keeps a zoom from showing empty background around the screen.").font(.caption).foregroundStyle(.secondary)
+            }
         }
         Section("Silence") {
             Toggle("Hide the camera during silence", isOn: Binding(get: { model.bool("camera.hide_during_silence") }, set: { model.setHideDuringSilence($0) }))
@@ -58,6 +64,8 @@ struct CameraLayoutSettings: View {
     @ViewBuilder private var split: some View {
         Section("Split") {
             LabeledPills("Ratio", selection: Binding(get: { ratioKey }, set: { setRatio($0) }), options: [("Auto", "auto"), ("½", "half"), ("⅔", "twoThirds")])
+            LabeledPills("Direction", selection: Binding(get: { model.string(p + "split_direction", default: "auto") }, set: { model.set(p + "split_direction", string: $0) }),
+                         options: [("Auto", "auto"), ("Horizontal", "horizontal"), ("Vertical", "vertical")])
             ToggleRow(model: model, title: "Flip sides", path: p + "split_flip")
             ToggleRow(model: model, title: "Padded", path: p + "split_padded")
         }
@@ -145,6 +153,9 @@ struct LayoutOwnSettings: View {
             case "split":
                 LabeledPills("Ratio", selection: Binding(get: { ratioKey }, set: { k in
                     model.setLayoutSetting(id: layout.id, key: "split_ratio", k == "auto" ? .null : .number(k == "half" ? 0.5 : 2.0 / 3)) }), options: [("Auto", "auto"), ("½", "half"), ("⅔", "twoThirds")])
+                LabeledPills("Direction", selection: Binding(get: { if case .string(let s)? = layout.settings?["split_direction"] { s } else { "auto" } },
+                                                              set: { model.setLayoutSetting(id: layout.id, key: "split_direction", .string($0)) }),
+                             options: [("Auto", "auto"), ("Horizontal", "horizontal"), ("Vertical", "vertical")])
                 Toggle("Flip sides", isOn: Binding(get: { flag("split_flip") }, set: { model.setLayoutSetting(id: layout.id, key: "split_flip", .bool($0)) }))
                 Toggle("Padded", isOn: Binding(get: { flag("split_padded") }, set: { model.setLayoutSetting(id: layout.id, key: "split_padded", .bool($0)) }))
             default:

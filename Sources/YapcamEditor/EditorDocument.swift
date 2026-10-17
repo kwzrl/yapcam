@@ -37,11 +37,11 @@ import UniformTypeIdentifiers
         title = package.deletingPathExtension().lastPathComponent
         if !hasProject { try? project.save() }
         if restored { model.markRecoveredUnsaved() }   // journal-only state must be written on close
+        model.exportModel = export; model.exportTitle = title
         export.remember(in: .dialog, defaults: presets.defaults)
         model.presetStore = presets; model.defaults = presets.defaults
         model.loadStoredPreviewOptions()
         model.favoriteWallpapers = Set(presets.defaults.stringArray(forKey: "editor.favoriteWallpapers") ?? [])
-        model.reelMode = ReelMode(rawValue: presets.defaults.string(forKey: "editor.reelMode") ?? "") ?? .off
         model.smoothWaveform = presets.defaults.bool(forKey: "editor.smoothWaveform")
         model.showWaveform = presets.defaults.object(forKey: "editor.showWaveform") as? Bool ?? true
         struct Library: Decodable { struct Item: Decodable { var id: String }; var sets: [Item] }
@@ -63,6 +63,9 @@ import UniformTypeIdentifiers
             return try await transcriber(package)
         }
     }
+
+    /// Applies a saved preset (.yapcampreset) to this project as an edit: undoable, marks the project dirty, redraws the preview.
+    public func applyPreset(from url: URL) { model.applyPreset(at: url) }
 
     /// Renders the current timeline frame with the shared compositor and puts a PNG on the clipboard.
     public func copyCurrentFrame() {

@@ -158,8 +158,8 @@ struct EditorTopBar: View {
             // Filled with the accent color in every window state (the system prominent style turns gray in inactive windows).
             Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
             .buttonStyle(PrimaryButtonStyle()).disabled(exportRunning)
-            .keyboardShortcut("e", modifiers: [.command])
-            .help(exportRunning ? "An export is running — wait for it to finish" : "Export the video (⌘E)").accessibilityLabel("Export")
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .help(exportRunning ? "An export is running — wait for it to finish" : "Export the video (⇧⌘E)").accessibilityLabel("Export")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.s)
@@ -209,6 +209,7 @@ struct PreviewControlsBar: View {
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 12).padding(.vertical, 6)
+        .onChange(of: model.cropRequested) { _, v in if v { model.cropRequested = false; showCrop = true } }
     }
     private var aspectTitle: String {
         let a = model.string("canvas.aspect", default: "source")

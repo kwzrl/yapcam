@@ -80,6 +80,10 @@ public enum EditorCommand: Equatable, Sendable {
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
     /// New zoom with the project's remembered (last edited) style; focus is centered.
     case insertZoom(startNs: Int64, endNs: Int64)
+    /// New zoom with explicit fields (scale, target, mode, style, lens, enabled, easing): used by split and duplicate so nothing is lost.
+    case insertZoomWith(startNs: Int64, endNs: Int64, patch: [String: JSONValue])
+    /// A continuous interactive change: edits with the same key less than 100 ms apart share one undo step (core coalesced_edit).
+    indirect case coalesced(key: String, command: EditorCommand)
     /// nil = classic style; otherwise the glass loupe with these parameters.
     case setZoomLens(id: String, lens: ZoomLensParams?)
     case removeZoom(id: String)
@@ -154,6 +158,8 @@ public protocol EditingProject: AnyObject {
     var typingRecords: [TypingRecord] { get }
     func frameGeometry(atNs: Int64) -> FrameGeometry?
     var hasCamera: Bool { get }
+    /// Pixel size the camera was recorded at (from the recording manifest); nil without a camera.
+    var cameraPixelSize: (width: Int, height: Int)? { get }
     /// The recording has cursor movement data (not an external device) / typed keys were recorded.
     var hasMouseData: Bool { get }
     var hasKeystrokes: Bool { get }
@@ -184,6 +190,14 @@ public protocol EditingProject: AnyObject {
     func silentSpans() async throws -> [TimeSpan]
     /// Microphone (else system audio) loudness mapped onto the edited timeline; empty when there is no audio.
     func waveformPoints() async throws -> [WavePoint]
+    /// Keys and chords captured on the edited timeline with their hidden state (core `key_overlay_shortcuts`).
+    func keyChords() -> [KeyChord]
+}
+
+public struct KeyChord: Equatable, Sendable, Identifiable {
+    public var text: String, isShortcut: Bool, hidden: Bool
+    public var id: String { text }
+    public init(text: String, isShortcut: Bool, hidden: Bool) { self.text = text; self.isShortcut = isShortcut; self.hidden = hidden }
 }
 
 @MainActor
@@ -213,12 +227,30 @@ public struct SpeechEnhancement: Equatable, Sendable {
 }
 
 /// Output container/codec choices the export sheet offers (all supported by render's exporter).
+/// MP4 (H.264) and GIF are the primary choices; the rest sit under "Advanced" in the sheet.
 public enum ExportFormat: String, CaseIterable, Sendable, Identifiable {
-    case mp4h264, mp4hevc, movh264, gif
+    case mp4h264, gif, mp4hevc, mp4both, movh264, movhevc
     public var id: String { rawValue }
-    public var label: String { switch self { case .mp4h264: "MP4 (H.264)"; case .mp4hevc: "MP4 (HEVC, smaller)"; case .movh264: "MOV (H.264)"; case .gif: "GIF (no audio)" } }
-    public var fileExtension: String { switch self { case .mp4h264, .mp4hevc: "mp4"; case .movh264: "mov"; case .gif: "gif" } }
+    public var label: String {
+        switch self {
+        case .mp4h264: "MP4 (H.264)"; case .gif: "GIF (no audio)"; case .mp4hevc: "MP4 (HEVC, smaller)"
+        case .mp4both: "MP4 (H.264 + HEVC copy)"; case .movh264: "MOV (H.264)"; case .movhevc: "MOV (HEVC)"
+        }
+    }
+    public var fileExtension: String { switch self { case .mp4h264, .mp4hevc, .mp4both: "mp4"; case .movh264, .movhevc: "mov"; case .gif: "gif" } }
     public var supportsAudio: Bool { self != .gif }
+    /// The paired H.264 + HEVC export writes two files, so it needs a folder: not available for the clipboard.
+    public var fileTargetOnly: Bool { self == .mp4both }
+    public var isPrimary: Bool { self == .mp4h264 || self == .gif }
+    public static var primary: [ExportFormat] { allCases.filter(\.isPrimary) }
+    public static var advanced: [ExportFormat] { allCases.filter { !$0.isPrimary } }
+}
+
+/// Where the export goes: a file you choose, or the clipboard (a local file kept in a history, pasted as a file).
+public enum ExportTarget: String, CaseIterable, Sendable, Identifiable {
+    case file, clipboard
+    public var id: String { rawValue }
+    public var label: String { self == .file ? "File" : "Clipboard" }
 }
 
 public struct ExportRequest: Equatable, Sendable {
@@ -235,9 +267,11 @@ public struct ExportRequest: Equatable, Sendable {
     public var gifDisableLoop: Bool
     /// Experimental (Settings): MP4/MOV omit exact duplicate rendered frames. Ignored for GIF.
     public var variableFrameRate: Bool
+    public var target: ExportTarget
     public init(height: Int, fps: Int, destination: URL, includeAudio: Bool = true, speech: SpeechEnhancement? = nil,
                 format: ExportFormat = .mp4h264, quality: Double = 0.8, compression: CompressionPreset? = nil,
-                gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false) {
+                gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false, target: ExportTarget = .file) {
+        self.target = target
         self.height = height; self.fps = fps; self.destination = destination; self.includeAudio = includeAudio; self.speech = speech
         self.format = format; self.quality = quality; self.compression = compression
         self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop
@@ -266,9 +300,14 @@ public protocol ExportEngine: Sendable {
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL
     /// Planning numbers for the sheet's readout; nil when the engine cannot estimate.
     func estimate(for request: ExportRequest) -> ExportEstimateInfo?
+    /// Files the clipboard export kept (newest first), and putting one of them on the clipboard again.
+    func clipboardHistory() -> [URL]
+    func copyToClipboard(_ url: URL) throws
 }
 public extension ExportEngine {
     func estimate(for request: ExportRequest) -> ExportEstimateInfo? { nil }
+    func clipboardHistory() -> [URL] { [] }
+    func copyToClipboard(_ url: URL) throws {}
     /// Engines without a queue report nothing.
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void,
              status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL { try await run(request, progress: progress) }
@@ -277,6 +316,8 @@ public extension ExportEngine {
 public extension EditingProject {
     var markerTimesNs: [Int64] { [] }
     func waveformPoints() async throws -> [WavePoint] { [] }
+    var cameraPixelSize: (width: Int, height: Int)? { nil }
+    func keyChords() -> [KeyChord] { [] }
 }
 
 /// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.

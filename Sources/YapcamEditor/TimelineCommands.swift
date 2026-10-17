@@ -3,7 +3,8 @@ import YapcamCore
 
 /// Fixed clip speeds of the reference's speed menu.
 public let clipSpeedOptions: [Double] = [0.5, 0.75, 1, 1.2, 1.4, 1.6, 1.8, 2, 3, 4, 8, 16, 24]
-/// Zoom levels reached by the digit keys: 1 → 1.0×, 2 → 1.2× … 9 → 2.6×; 0 → the default level.
+/// Zoom levels reached by the digit keys: 1 → 1.0×, 2 → 1.2× … 9 → 2.6×; 0 → the project's default level
+/// (`EditorModel.defaultZoomScale`, which core updates whenever a zoom level in 1…4 is committed).
 public func zoomLevel(forDigit d: Int) -> Double { d == 0 ? 2.0 : 1.0 + 0.2 * Double(d - 1) }
 public let zoomLevelRange = 1.0...4.0
 
@@ -58,12 +59,15 @@ extension EditorModel {
         switch selection {
         case .zoom(let id):
             guard let z = zooms.first(where: { $0.id == id }), ph - z.startNs >= minItemNs, z.endNs - ph >= minItemNs else { tooShortToSplit(); return }
+            // Both halves keep style, mode, enabled state and easing; one undo step.
             perform(.batch([.updateZoom(id: id, startNs: nil, endNs: ph, scale: nil, focusX: nil, focusY: nil),
-                            .addZoom(startNs: ph, endNs: z.endNs, scale: z.scale, focusX: z.focusX, focusY: z.focusY)]))
+                            .insertZoomWith(startNs: ph, endNs: z.endNs, patch: zoomPatch(z))]))
         case .highlight(let id):
             guard let h = highlights.first(where: { $0.id == id }), ph - h.startNs >= minItemNs, h.endNs - ph >= minItemNs else { tooShortToSplit(); return }
-            var second = h; second.id = "region-" + UUID().uuidString.prefix(8).lowercased(); second.startNs = ph
-            var first = h; first.endNs = ph
+            // Keyframes partition at the cut; the second half starts from the box the first one ends with.
+            var (first, second) = h.split(atNs: ph)
+            second.id = "region-" + UUID().uuidString.prefix(8).lowercased()
+            first.id = id
             writeHighlightList(highlights.map { $0.id == id ? first : $0 } + [second])
         case .layout(let id):
             guard let l = layouts.first(where: { $0.id == id }), ph - l.startNs >= minItemNs, l.endNs - ph >= minItemNs else { tooShortToSplit(); return }
@@ -87,18 +91,31 @@ extension EditorModel {
 
     // MARK: zoom keys (A, M, D, ⌘D, 1–9, 0, =, -)
 
-    public func setSelectedZoomLevel(_ level: Double) {
+    /// The level new zooms get and the 0 key applies (`zoom_settings.default_scale`, 1…4, factory 2).
+    public var defaultZoomScale: Double { min(max(number("zoom_settings.default_scale", default: 2), zoomLevelRange.lowerBound), zoomLevelRange.upperBound) }
+    /// Keys and steppers change the level in quick succession: those edits are coalesced (same key within 100 ms = one undo step).
+    public func setSelectedZoomLevel(_ level: Double, coalesce: Bool = false) {
         guard let z = selectedZoom else { return }
-        setZoomScale(id: z.id, min(max(level, zoomLevelRange.lowerBound), zoomLevelRange.upperBound))
+        let l = min(max(level, zoomLevelRange.lowerBound), zoomLevelRange.upperBound)
+        let cmd = EditorCommand.updateZoom(id: z.id, startNs: nil, endNs: nil, scale: l, focusX: nil, focusY: nil)
+        perform(coalesce ? .coalesced(key: "zoom-level:\(z.id)", command: cmd) : cmd)
     }
-    public func stepSelectedZoomLevel(by delta: Double) { if let z = selectedZoom { setSelectedZoomLevel(((z.scale + delta) * 10).rounded() / 10) } }
+    public func stepSelectedZoomLevel(by delta: Double) { if let z = selectedZoom { setSelectedZoomLevel(((z.scale + delta) * 10).rounded() / 10, coalesce: true) } }
+    /// Everything of a zoom that a copy of it must keep (level, focus, mode, style/lens, enabled, easing).
+    func zoomPatch(_ z: TimelineZoom) -> [String: JSONValue] {
+        var p: [String: JSONValue] = ["scale": .number(z.scale), "target": .array([.number(z.focusX), .number(z.focusY)]), "mode": .string(z.mode.rawValue),
+                                      "enabled": .bool(z.enabled), "ease_in_ns": .number(Double(z.easeInNs)), "ease_out_ns": .number(Double(z.easeOutNs))]
+        if let l = z.lens { p["style"] = .string("lens"); p["lens"] = .object(["radius": .number(l.radius), "bevel": .number(l.bevel), "chromatic_aberration": .number(l.chromaticAberration)]) }
+        else { p["style"] = .string("classic") }
+        return p
+    }
     public func toggleSelectedZoomEnabled() { if let z = selectedZoom { setZoomEnabled(id: z.id, !z.enabled) } }
     public func duplicateSelectedZoom() {
         guard let z = selectedZoom else { return }
         let len = z.endNs - z.startNs
         let start = min(z.endNs, max(0, durationNs - len))
         let before = Set(zooms.map(\.id))
-        perform(.addZoom(startNs: start, endNs: start + len, scale: z.scale, focusX: z.focusX, focusY: z.focusY))
+        perform(.insertZoomWith(startNs: start, endNs: start + len, patch: zoomPatch(z)))
         if let new = zooms.first(where: { !before.contains($0.id) }) { selection = .zoom(new.id) }
     }
     /// "Apply zoom level to all other zooms" (one undo step).

@@ -110,6 +110,17 @@ public final class FakeProject: EditingProject {
             zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: scale, focusX: fx, focusY: fy))
         case .insertZoom(let s, let e):
             zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: 2, focusX: 0.5, focusY: 0.5))
+        case .insertZoomWith(let st, let e, let patch):
+            var z = TimelineZoom(id: newID("z"), startNs: st, endNs: e, mode: .manual, scale: 2, focusX: 0.5, focusY: 0.5)
+            if case .number(let v)? = patch["scale"] { z.scale = v }
+            if case .array(let t)? = patch["target"], t.count == 2, case .number(let x) = t[0], case .number(let y) = t[1] { z.focusX = x; z.focusY = y }
+            if case .string(let m)? = patch["mode"], let mode = TimelineZoom.Mode(rawValue: m) { z.mode = mode }
+            if case .bool(let en)? = patch["enabled"] { z.enabled = en }
+            if case .string("lens")? = patch["style"] { z.lens = ZoomLensParams() }
+            if case .number(let v)? = patch["ease_in_ns"] { z.easeInNs = Int64(v) }
+            if case .number(let v)? = patch["ease_out_ns"] { z.easeOutNs = Int64(v) }
+            zooms.append(z)
+        case .coalesced(_, let inner): try run(inner)
         case .setZoomLens(let id, let lens):
             if let i = zooms.firstIndex(where: { $0.id == id }) { zooms[i].lens = lens }
         case .updateZoom(let id, let s, let e, let scale, let fx, let fy, let ei, let eo, let en, let mode):
@@ -216,8 +227,12 @@ public final class FakeProject: EditingProject {
     }
     public private(set) var closed = false
     public func close() { closed = true }
+    public var saveAttempts = 0
+    public var chords: [KeyChord] = []
+    public func keyChords() -> [KeyChord] { chords }
     public func silentSpans() async throws -> [TimeSpan] { try await Task.sleep(for: silenceDelay); return silences }
     public func save() throws {
+        saveAttempts += 1
         if failSave { throw NSError(domain: "Fake", code: 2, userInfo: [NSLocalizedDescriptionKey: "disk full"]) }
         saveCount += 1
     }

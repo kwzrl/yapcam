@@ -93,10 +93,48 @@ struct PillPicker<Value: Hashable>: View {
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: EditorMetrics.xs + 2) { ForEach(Array(options.enumerated()), id: \.offset) { _, o in pill(o, fill: true) } }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: EditorMetrics.xs + 2) { ForEach(Array(options.enumerated()), id: \.offset) { _, o in pill(o, fill: false) } }
-            }
+            ScrollingPills(options: options.map(\.value), selected: selection) { index in pill(options[index], fill: false) }
         }
+    }
+}
+
+/// The row that does not fit: scrolls sideways, brings the selected pill into view, and fades the edge where more pills continue.
+private struct ScrollingPills<Value: Hashable, Pill: View>: View {
+    let options: [Value]
+    let selected: Value
+    let pill: (Int) -> Pill
+    @State private var offset: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+    @State private var viewportWidth: CGFloat = 0
+    init(options: [Value], selected: Value, @ViewBuilder pill: @escaping (Int) -> Pill) { self.options = options; self.selected = selected; self.pill = pill }
+    private struct Metrics: PreferenceKey {
+        static var defaultValue: [CGFloat] { [] }
+        static func reduce(value: inout [CGFloat], nextValue: () -> [CGFloat]) { value = nextValue() }
+    }
+    private let fade: CGFloat = 22
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: EditorMetrics.xs + 2) {
+                    ForEach(Array(options.enumerated()), id: \.offset) { i, _ in pill(i).id(i) }
+                }
+                .background(GeometryReader { g in Color.clear.preference(key: Metrics.self, value: [g.frame(in: .named("pills")).minX, g.size.width]) })
+            }
+            .coordinateSpace(name: "pills")
+            .background(GeometryReader { g in Color.clear.onAppear { viewportWidth = g.size.width }.onChange(of: g.size.width) { _, w in viewportWidth = w } })
+            .onPreferenceChange(Metrics.self) { if $0.count == 2 { offset = $0[0]; contentWidth = $0[1] } }
+            .mask(
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.black.opacity(offset < -1 ? 0 : 1), .black], startPoint: .leading, endPoint: .trailing).frame(width: fade)
+                    Rectangle().fill(.black)
+                    LinearGradient(colors: [.black, .black.opacity(contentWidth + offset > viewportWidth + 1 ? 0 : 1)], startPoint: .leading, endPoint: .trailing).frame(width: fade)
+                }
+            )
+            .onAppear { if let i = options.firstIndex(of: selected) { proxy.scrollTo(i, anchor: nil) } }
+            .onChange(of: selected) { _, new in if let i = options.firstIndex(of: new) { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(i, anchor: nil) } } }
+        }
+        .frame(height: 30)
     }
 }
 
