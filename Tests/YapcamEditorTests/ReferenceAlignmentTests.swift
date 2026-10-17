@@ -71,12 +71,12 @@ import YapcamCore
     @Test func cSplitsTheClipOrTheSelectedItem() {
         let (m, _) = make()
         m.seek(toNs: 8_000_000_000); #expect(m.handleShortcut("c")); #expect(m.clips.count == 2)
-        m.seek(toNs: 2_000_000_000); m.addZoomAtPlayhead()                           // zoom 2.0–4.0 s, selected
+        m.seek(toNs: 2_000_000_000); m.addZoomAtPlayhead()                           // zoom 2.0–5.0 s (3 s like the reference), selected
         m.seek(toNs: 3_000_000_000); #expect(m.handleShortcut("c"))
         #expect(m.zooms.count == 2 && m.zooms.map(\.startNs).sorted() == [2_000_000_000, 3_000_000_000] && m.clips.count == 2)
         m.undo(); #expect(m.zooms.count == 1)                                         // one undo step
         m.selection = .zoom(m.zooms[0].id)
-        m.seek(toNs: 4_000_000_000); m.handleShortcut("c"); #expect(m.lastError != nil && m.zooms.count == 1)   // at the end: too short
+        m.seek(toNs: 5_000_000_000); m.handleShortcut("c"); #expect(m.lastError != nil && m.zooms.count == 1)   // at the end: too short
     }
 
     @Test func xRemovesFromThePreviousCutToThePlayhead() {

@@ -57,6 +57,7 @@ struct TimelineView: View {
     private enum DragKind {
         case scrub
         case inert
+        case zoomCreate(startNs: Int64)
         case zoomMove(id: String, grabOffsetNs: Int64)
         case zoomStart(id: String)
         case zoomEnd(id: String)
@@ -79,6 +80,10 @@ struct TimelineView: View {
                 }
                 outsideEnd(g, contentW: contentW)
                 clipTrack(g)
+                if model.showWaveform && !model.waveform.isEmpty {
+                    WaveformLayer(points: model.waveform, geometry: g, width: contentW, height: TimelineLayout.clipTrackHeight)
+                        .offset(y: layout.clipTop)
+                }
                 zoomTrack(g)
                 if layout.lanes.contains(.typing) { typingLane(g) }
                 if layout.lanes.contains(.camera) { cameraLane(g) }
@@ -102,6 +107,10 @@ struct TimelineView: View {
         .background(GeometryReader { p in Color.clear.onAppear { viewportChanged(p.size.width) }
             .onChange(of: p.size.width) { _, w in viewportChanged(w) } })
         .background(Color(nsColor: .controlBackgroundColor))
+        .task(id: model.revision) {
+            try? await Task.sleep(for: .milliseconds(120))
+            if !Task.isCancelled { await model.refreshWaveform() }
+        }
     }
 
     /// Remembers the visible width; the first real width fits the whole project with a small margin.
@@ -156,7 +165,16 @@ struct TimelineView: View {
     private func zoomTrack(_ g: TimelineGeometry) -> some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.04))
+                .overlay { if model.zooms.isEmpty && model.zoomCreatePreview == nil {
+                    Text("Click or drag to add zoom on cursor").font(.caption).foregroundStyle(.secondary)
+                } }
                 .frame(width: g.contentWidth(durationNs: model.durationNs), height: TimelineLayout.zoomTrackHeight)
+            if let p = model.zoomCreatePreview {
+                RoundedRectangle(cornerRadius: 6).strokeBorder(Color.purple, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    .background(Color.purple.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
+                    .frame(width: max(g.contentWidth(durationNs: p.end - p.start), 2), height: TimelineLayout.zoomTrackHeight - 4)
+                    .offset(x: g.x(forNs: p.start), y: 2).allowsHitTesting(false)
+            }
             ForEach(model.zooms) { z in
                 let selected = model.selection == .zoom(z.id) || model.extraZoomSelection.contains(z.id)
                 let tint: Color = z.mode == .auto ? .purple : .orange
@@ -327,6 +345,7 @@ struct TimelineView: View {
                 let ns = g.ns(forX: v.location.x)
                 switch drag! {
                 case .inert: break
+                case .zoomCreate(let s): model.zoomCreatePreview = (min(s, ns), max(s, ns))
                 case .scrub:
                     model.seek(toNs: model.snapped(ns, includePlayhead: false), precise: false)
                 case .zoomMove(let id, let off):
@@ -348,6 +367,9 @@ struct TimelineView: View {
                 case .scrub: model.seek(toNs: model.playheadNs, precise: true)
                 case .zoomMove(let id, _), .zoomStart(let id), .zoomEnd(let id): model.commitZoomPreview(id: id)
                 case .rangeMove(let k, _), .rangeStart(let k), .rangeEnd(let k): model.commitRange(key: k)
+                case .zoomCreate(let s):
+                    model.zoomCreatePreview = nil
+                    if dragMoved { model.addZoom(fromNs: s, toNs: model.snapped(g.ns(forX: v.location.x), includePlayhead: false)) } else { model.addZoom(fromNs: s) }
                 case .inert, nil: break
                 }
                 drag = nil
@@ -366,6 +388,10 @@ struct TimelineView: View {
             model.typingPopover = sp.startNs; return .inert
         }
         if p.y >= layout.lanesTop, let kind = hitRange(at: p, g) { return kind }
+        if p.y >= layout.zoomTop, p.y < layout.lanesTop, hitZoom(at: p.x, g) == nil, p.x >= 0, g.ns(forX: p.x) < model.durationNs {
+            model.selection = .none
+            return .zoomCreate(startNs: model.snapped(g.ns(forX: p.x), includePlayhead: false))
+        }
         if p.y >= layout.zoomTop, p.y < layout.lanesTop, let (z, kind) = hitZoom(at: p.x, g) {
             if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
                 // Multi-select: toggle membership; no drag.

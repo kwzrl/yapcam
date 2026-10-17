@@ -85,22 +85,17 @@ struct TranscriptPanel: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         } else {
-            Section("Transcript") {
-                TranscriptionOptionControls(model: model)
-                switch model.captionState {
-                case .working: HStack { ProgressView().controlSize(.small); Text("Transcribing on this Mac…") }
-                case .failed(let m): Text(m).foregroundStyle(.red); Button("Dismiss") { model.captionState = .idle }
-                case .idle: RegenerateButton(model: model)
-                }
-                Menu("Export transcript…") {
-                    ForEach(TranscriptFormat.allCases) { f in Button(f.label) { model.chooseTranscriptExport(f, suggestedName: "Transcript") } }
-                }
-                Text("Exported times follow the edited timeline (after cuts and speed changes).").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Clean up") {
-                Button("Remove filler words (\(model.fillerWordCount))") { model.removeFillerWords() }.disabled(model.fillerWordCount == 0)
+            // The two clean-up actions come first, like the reference's transcript editor.
+            Section {
                 let pauses = model.pauseCuts()
-                Button("Tighten pauses (\(pauses.count))") { model.tightenPauses() }.disabled(pauses.isEmpty)
+                Button { model.removeFillerWords() } label: { Label("Remove \(model.fillerWordCount) filler word\(model.fillerWordCount == 1 ? "" : "s")", systemImage: "wand.and.stars").frame(maxWidth: .infinity, alignment: .leading) }
+                    .buttonStyle(.plain).padding(.vertical, EditorMetrics.xs + 2).padding(.horizontal, EditorMetrics.m)
+                    .background(EditorTheme.control, in: RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
+                    .disabled(model.fillerWordCount == 0)
+                Button { model.tightenPauses() } label: { Label("Tighten \(pauses.count) pause\(pauses.count == 1 ? "" : "s")", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right").frame(maxWidth: .infinity, alignment: .leading) }
+                    .buttonStyle(.plain).padding(.vertical, EditorMetrics.xs + 2).padding(.horizontal, EditorMetrics.m)
+                    .background(EditorTheme.control, in: RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
+                    .disabled(pauses.isEmpty)
                 Text("Pauses over 0.7 s are shortened to 0.25 s. Undo (⌘Z) restores anything cut.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Words") {
@@ -113,6 +108,18 @@ struct TranscriptPanel: View {
                         ForEach(words) { w in row(w) }
                     }
                 }.frame(maxHeight: 320)
+            }
+            Section("Transcript options") {
+                TranscriptionOptionControls(model: model)
+                switch model.captionState {
+                case .working: HStack { ProgressView().controlSize(.small); Text("Transcribing on this Mac…") }
+                case .failed(let m): Text(m).foregroundStyle(.red); Button("Dismiss") { model.captionState = .idle }
+                case .idle: RegenerateButton(model: model)
+                }
+                Menu("Export transcript…") {
+                    ForEach(TranscriptFormat.allCases) { f in Button(f.label) { model.chooseTranscriptExport(f, suggestedName: "Transcript") } }
+                }
+                Text("Exported times follow the edited timeline (after cuts and speed changes).").font(.caption).foregroundStyle(.secondary)
             }
         }
     }

@@ -120,7 +120,7 @@ struct EditorTopBar: View {
                 .help("Undo (⌘Z)").accessibilityLabel("Undo")
             Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }.disabled(!model.canRedo)
                 .help("Redo (⇧⌘Z)").accessibilityLabel("Redo")
-            Button { model.paletteVisible = true } label: { Image(systemName: "command") }
+            Button { model.paletteVisible = true } label: { Image(systemName: "command.circle") }
                 .help("Command palette (⌘K)").accessibilityLabel("Commands")
             Divider().frame(height: 16)
             Menu {
@@ -140,19 +140,18 @@ struct EditorTopBar: View {
                         Button("Remove", role: .destructive) { model.removePreset(named: n); presetNames = model.presetStore.names() }
                     }
                 }
-            } label: { Label("Presets", systemImage: "square.stack") }
+            } label: { Label("Presets", systemImage: "wand.and.rays") }
                 .menuStyle(.borderlessButton).fixedSize()
                 .onAppear { presetNames = model.presetStore.names() }
                 .help("Apply or save a look")
             // Filled with the accent colour in every window state (the system prominent style turns grey in inactive windows).
-            Button("Export") { showExport = true }
+            Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
             .buttonStyle(PrimaryButtonStyle())
             .keyboardShortcut("e", modifiers: [.command])
             .help("Export the video (⌘E)").accessibilityLabel("Export")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.s)
-        .background(Color(nsColor: .windowBackgroundColor))
         .confirmationDialog("Move “\(title)” to the Trash?", isPresented: $model.trashRequested, titleVisibility: .visible) {
             Button("Move to Trash", role: .destructive) {
                 guard let url = packageURL else { return }
@@ -186,6 +185,10 @@ struct PreviewControlsBar: View {
                 .help("Crop the recording")
             Spacer()
             PreviewOptionsMenu(model: model)
+            Button { model.zoomPreview(by: 0.8) } label: { Image(systemName: "minus.magnifyingglass") }
+                .help("Zoom the preview out").accessibilityLabel("Zoom preview out")
+            Button { model.zoomPreview(by: 1.25) } label: { Image(systemName: "plus.magnifyingglass") }
+                .help("Zoom the preview in").accessibilityLabel("Zoom preview in")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 12).padding(.vertical, 6)
@@ -201,14 +204,11 @@ struct PreviewLeftRail: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         VStack(spacing: 6) {
-            railButton("plus.magnifyingglass", "Zoom preview in") { model.zoomPreview(by: 1.25) }
-            railButton("minus.magnifyingglass", "Zoom preview out") { model.zoomPreview(by: 0.8) }
             railButton("arrow.up.left.and.down.right.magnifyingglass", "Fit preview") { model.resetPreviewZoom() }
             if model.previewZoom > 1 { Text("\(Int(model.previewZoom * 100))%").font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
             Spacer()
         }
-        .padding(.vertical, 8).frame(width: 40)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.vertical, EditorMetrics.s).frame(width: 44)
     }
     private func railButton(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).frame(width: 28, height: 28).contentShape(Rectangle()) }
@@ -232,7 +232,8 @@ struct TransportBar: View {
             Toggle(isOn: $model.cutToolActive) { Image(systemName: "scissors") }
                 .toggleStyle(.button).help("Cut tool: click a clip to split it there (S splits at the playhead)")
                 .accessibilityLabel("Cut tool")
-            HStack(spacing: 8) {
+            Spacer()
+            HStack(spacing: 12) {
                 Text(formatTimecode(playhead.ns, showFraction: false)).monospacedDigit().frame(minWidth: 38, alignment: .trailing)
                 Button { model.jumpToEditPoint(forward: false) } label: { Image(systemName: "backward.end.fill") }
                     .help("Previous edit point (⌥←)").accessibilityLabel("Previous edit point")
@@ -269,8 +270,7 @@ struct TransportBar: View {
             }
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 14).padding(.vertical, 6)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.xs + 2)
     }
 }
 

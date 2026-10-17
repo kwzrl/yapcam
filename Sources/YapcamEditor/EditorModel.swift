@@ -21,7 +21,7 @@ public enum EditorSelection: Equatable, Sendable {
 
 public let minZoomDurationNs: Int64 = 300_000_000
 /// Projects shorter than the usual minimum (e.g. 0.2 s) still accept items that span the whole project.
-public let defaultZoomDurationNs: Int64 = 2_000_000_000
+public let defaultZoomDurationNs: Int64 = 3_000_000_000
 
 /// All editor state and actions. Views are thin; everything here is unit-testable
 /// against fake backends.
@@ -56,6 +56,9 @@ public final class EditorModel: ObservableObject {
     public var volumeMenuSystem = false
     public var itemClipboard: ItemClipboard?
     /// Visible width of the timeline in points (set by the view); bounds the timeline zoom window to 2 s…10 min.
+    /// Microphone level across the edited timeline, drawn in the clip track (reference: "audio waveform on/off").
+    @Published public internal(set) var waveform: [WavePoint] = []
+    @Published public internal(set) var showWaveform = true
     public var timelineViewportWidth: Double = 900
     /// Set once the timeline view has fitted the project to its real width.
     var timelineFitted = false
@@ -408,6 +411,20 @@ public final class EditorModel: ObservableObject {
         perform(.insertZoom(startNs: start, endNs: end))
         if let new = zooms.first(where: { !before.contains($0.id) }) { selection = .zoom(new.id) }
     }
+
+    /// Click (default length) or drag (that range) in the empty zoom track. One undo step; the new zoom is selected.
+    public func addZoom(fromNs a: Int64, toNs b: Int64? = nil) {
+        var start = max(0, min(a, durationNs)), end = b.map { max(0, min($0, durationNs)) } ?? start + defaultZoomDurationNs
+        if end < start { swap(&start, &end) }
+        if end - start < minItemNs { end = start + defaultZoomDurationNs }
+        if end > durationNs { end = durationNs; start = max(0, min(start, end - minItemNs)) }
+        guard end - start >= minItemNs else { lastError = "Not enough room for a zoom here."; return }
+        let before = Set(zooms.map(\.id))
+        perform(.insertZoom(startNs: start, endNs: end))
+        if let new = zooms.first(where: { !before.contains($0.id) }) { selection = .zoom(new.id) }
+    }
+    /// Range being dragged out in the zoom track (nil when not dragging).
+    @Published var zoomCreatePreview: (start: Int64, end: Int64)?
 
     // Zoom drags preview locally and commit once on release → one undo step per gesture.
     @Published public private(set) var zoomPreview: [String: (start: Int64, end: Int64)] = [:]

@@ -76,15 +76,51 @@ struct RestingColorPicker: View {
     var transform: ([Double]) -> [Double] = { $0 }        // e.g. keep the stored alpha for pickers without opacity
     @State private var pending: [Double]?
     @State private var task: Task<Void, Never>?
+    @State private var hexText = ""
+    @State private var editingHex = false
+    @FocusState private var hexFocused: Bool
+
+    private var current: [Double] { pending ?? get() }
+    private func stage(_ c: [Double]) {
+        pending = c
+        task?.cancel()
+        task = Task { try? await Task.sleep(for: .milliseconds(350)); if !Task.isCancelled { flush() } }
+    }
+    /// Swatch + hex field + eyedropper, like the reference's colour row.
     var body: some View {
-        ColorPicker(title, selection: Binding(
-            get: { let c = pending ?? get(); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: opacity ? c[3] : 1) },
-            set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
-                   pending = [n.redComponent, n.greenComponent, n.blueComponent, opacity ? n.alphaComponent : get()[3]].map { Double($0) }
-                   task?.cancel()
-                   task = Task { try? await Task.sleep(for: .milliseconds(350)); if !Task.isCancelled { flush() } } }),
-                    supportsOpacity: opacity)
+        SliderRow(title) {
+            HStack(spacing: EditorMetrics.s) {
+                ColorPicker(title, selection: Binding(
+                    get: { let c = current; return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: opacity ? c[3] : 1) },
+                    set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
+                           stage([n.redComponent, n.greenComponent, n.blueComponent, opacity ? n.alphaComponent : get()[3]].map { Double($0) }) }),
+                            supportsOpacity: opacity)
+                    .labelsHidden()
+                TextField("Hex", text: $hexText)
+                    .textFieldStyle(.plain).font(.system(.callout, design: .monospaced)).focused($hexFocused)
+                    .padding(.horizontal, EditorMetrics.s).frame(height: 26)
+                    .background(EditorTheme.control, in: RoundedRectangle(cornerRadius: 7))
+                    .accessibilityLabel("\(title) hex value")
+                    .onSubmit { commitHex() }
+                    .onChange(of: hexFocused) { _, f in editingHex = f; if !f { commitHex() } }
+                Button { sample() } label: { Image(systemName: "eyedropper").frame(width: 26, height: 26) }
+                    .buttonStyle(.plain).background(EditorTheme.control, in: RoundedRectangle(cornerRadius: 7))
+                    .help("Pick a colour from the screen").accessibilityLabel("Pick \(title) from the screen")
+            }
+        }
+        .onAppear { hexText = HexColor.string(current, alpha: opacity) }
+        .onChange(of: current) { _, c in if !editingHex { hexText = HexColor.string(c, alpha: opacity) } }
         .onDisappear { task?.cancel(); flush() }
+    }
+    private func commitHex() {
+        if let c = HexColor.parse(hexText, keepAlpha: current[3]) { stage(opacity ? c : [c[0], c[1], c[2], get()[3]]) }
+        hexText = HexColor.string(current, alpha: opacity)
+    }
+    private func sample() {
+        NSColorSampler().show { picked in
+            guard let n = picked?.usingColorSpace(.sRGB) else { return }
+            DispatchQueue.main.async { stage([n.redComponent, n.greenComponent, n.blueComponent, opacity ? current[3] : get()[3]].map { Double($0) }) }
+        }
     }
     private func flush() { if let p = pending { pending = nil; set(transform(p)) } }
 }
@@ -166,11 +202,11 @@ struct InspectorRail: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         let section = model.inspectorSection
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             ForEach(model.availableSections) { s in
                 Button { model.showSection(s) } label: {
-                    Image(systemName: s.symbol).font(.system(size: 15)).frame(width: 34, height: 34)
-                        .background(section == s ? Color.accentColor.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                    Image(systemName: s.symbol).font(.system(size: 19)).frame(width: 44, height: 44)
+                        .background(section == s ? Color.accentColor.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 10))
                         .foregroundStyle(section == s ? Color.accentColor : .secondary)
                         .contentShape(Rectangle())
                 }
@@ -181,9 +217,8 @@ struct InspectorRail: View {
             }
             Spacer()
         }
-        .padding(.vertical, 8).padding(.horizontal, 5)
-        .frame(width: 44)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.vertical, EditorMetrics.m).padding(.horizontal, EditorMetrics.xs)
+        .frame(width: 54)
     }
 }
 
@@ -203,19 +238,21 @@ struct InspectorView: View {
     var body: some View {
         HStack(spacing: 0) {
             InspectorRail(model: model)
-            Divider()
             VStack(spacing: 0) {
                 HStack {
-                    Text(itemTitle ?? section.title).font(.headline); Spacer()
+                    Text(itemTitle ?? section.title).font(.title3.weight(.semibold)); Spacer()
                     if itemTitle != nil { Button("Done") { model.selection = .none }.buttonStyle(.borderless).help("Back to the section (Esc)") }
                 }
                 .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.m)
-                .background(Color(nsColor: .windowBackgroundColor))
-                Divider()
                 Form {
                     if itemTitle != nil { itemInspector } else { sectionBody }
-                }.formStyle(.grouped)
+                }.formStyle(.grouped).scrollContentBackground(.hidden)
             }
+            // Floating card on the stage, like the reference: rounded, own colour, hairline edge.
+            .background(EditorTheme.card, in: RoundedRectangle(cornerRadius: EditorTheme.cardRadius))
+            .overlay(RoundedRectangle(cornerRadius: EditorTheme.cardRadius).strokeBorder(EditorTheme.hairline))
+            .clipShape(RoundedRectangle(cornerRadius: EditorTheme.cardRadius))
+            .padding(.vertical, EditorMetrics.s).padding(.trailing, EditorMetrics.s)
         }
         .onAppear { if let initialSection { model.inspectorSection = initialSection } }
         .onChange(of: model.selection) { _, s in
@@ -336,12 +373,8 @@ struct InspectorView: View {
 
     private func zoomSection(_ z: TimelineZoom) -> some View {
         Section(z.mode == .auto ? "Zoom (automatic)" : "Zoom") {
-            Picker("Type", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) })) {
-                Text("Auto").tag(TimelineZoom.Mode.auto); Text("Manual").tag(TimelineZoom.Mode.manual)
-            }.pickerStyle(.segmented)
-            Picker("Style", selection: Binding(get: { z.lens != nil }, set: { model.setZoomLens(id: z.id, $0 ? ZoomLensParams() : nil) })) {
-                Text("Classic").tag(false); Text("Glass loupe").tag(true)
-            }.pickerStyle(.segmented)
+            LabeledPills("Type", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) }), options: [("Auto", TimelineZoom.Mode.auto), ("Manual", TimelineZoom.Mode.manual)])
+            LabeledPills("Style", selection: Binding(get: { z.lens != nil }, set: { model.setZoomLens(id: z.id, $0 ? ZoomLensParams() : nil) }), options: [("Classic", false), ("Glass loupe", true)])
             if let l = z.lens { ZoomLensRows(model: model, zoomID: z.id, lens: l) }
             ZoomScaleRow(model: model, zoom: z)
             LabeledContent("Focus") { Text(String(format: "%.0f%%, %.0f%%", z.focusX * 100, z.focusY * 100)).monospacedDigit() }

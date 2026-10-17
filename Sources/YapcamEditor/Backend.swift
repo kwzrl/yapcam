@@ -182,6 +182,8 @@ public protocol EditingProject: AnyObject {
     func importPreset(from url: URL) throws
     /// Silent stretches of the main audio track in timeline time (decodes audio; may take a moment).
     func silentSpans() async throws -> [TimeSpan]
+    /// Microphone (else system audio) loudness mapped onto the edited timeline; empty when there is no audio.
+    func waveformPoints() async throws -> [WavePoint]
 }
 
 @MainActor
@@ -272,7 +274,10 @@ public extension ExportEngine {
              status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL { try await run(request, progress: progress) }
 }
 
-public extension EditingProject { var markerTimesNs: [Int64] { [] } }
+public extension EditingProject {
+    var markerTimesNs: [Int64] { [] }
+    func waveformPoints() async throws -> [WavePoint] { [] }
+}
 
 /// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.
 public struct TypingRecord: Equatable, Sendable { public var id: String; public var span: TimeSpan }

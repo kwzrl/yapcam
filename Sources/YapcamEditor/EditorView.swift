@@ -21,22 +21,17 @@ public struct EditorContent<Preview: View>: View {
         GeometryReader { geo in
             VStack(spacing: 0) {
                 EditorTopBar(model: model, title: title, packageURL: packageURL, showExport: $showExport)
-                Divider()
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
                         PreviewControlsBar(model: model)
-                        Divider()
                         HStack(spacing: 0) {
                             PreviewLeftRail(model: model)
-                            Divider()
                             previewArea
                         }
                     }
-                    Divider()
-                    InspectorView(model: model, initialSection: initialSection).frame(width: 396)
+                    InspectorView(model: model, initialSection: initialSection).frame(width: 450)
                 }
                 .frame(maxHeight: .infinity)
-                Divider()
                 TransportBar(model: model)
                 Divider()
                 TimelineView(model: model)
@@ -44,7 +39,7 @@ public struct EditorContent<Preview: View>: View {
             }
         }
         .frame(minWidth: 1000, minHeight: 640)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(EditorTheme.stage)
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(phases: .down) { press in handleKey(press) }
@@ -66,7 +61,7 @@ public struct EditorContent<Preview: View>: View {
 
     private var previewArea: some View {
         ZStack {
-            Color(nsColor: .previewSurround)
+            Color.clear
             if model.clips.isEmpty || model.durationNs <= 0 {
                 Text("Nothing to preview yet").font(.callout).foregroundStyle(.secondary)
             }

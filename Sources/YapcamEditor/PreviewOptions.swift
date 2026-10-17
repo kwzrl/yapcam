@@ -62,7 +62,13 @@ struct PreviewOptionsMenu: View {
                 ForEach(PreviewOptions.rates, id: \.self) { Text(PreviewOptions.rateLabel($0)).tag($0) }
             }
             Toggle("Motion blur in preview", isOn: Binding(get: { model.previewOptions.motionBlur }, set: { v in edit { $0.motionBlur = v } }))
-        } label: { Label("Preview", systemImage: "play.rectangle") }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "play.rectangle")
+                Text("Preview quality").fontWeight(.semibold)
+                Text(PreviewOptions.resolutions.first { $0.value == model.previewOptions.resolution }?.label ?? "Full").foregroundStyle(.secondary)
+            }
+        }
             .menuStyle(.borderlessButton).fixedSize().help("Preview size, resolution and speed (does not change the export)")
     }
 }

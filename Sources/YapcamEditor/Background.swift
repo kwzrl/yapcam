@@ -23,10 +23,9 @@ struct BackgroundPanel: View {
 
     var body: some View {
         Section {
-            Picker("Background type", selection: Binding(get: { effectiveMode }, set: { newMode in choose(newMode) })) {
-                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented).labelsHidden().controlSize(.small).accessibilityLabel("Background type")
+            Text("Background").font(.subheadline).foregroundStyle(.secondary)
+            PillPicker(selection: Binding(get: { effectiveMode }, set: { newMode in choose(newMode) }),
+                       options: Mode.allCases.map { ($0.rawValue, $0) }, accessibilityTitle: "Background type")
             switch effectiveMode {
             case .wallpaper: WallpaperBrowser(model: model)
             case .gradient:
@@ -35,7 +34,6 @@ struct BackgroundPanel: View {
                 NumberRow(model: model, title: "Angle", path: "canvas.background.angle_deg", range: 0...360, unit: "°", format: "%.0f", defaultValue: 45)
             case .color:
                 ColorRow(model: model, title: "Color", path: "canvas.background.color")
-                HexField(model: model, path: "canvas.background.color")
             case .image:
                 Button("Choose image…") { chooseImage() }
                 Text(kind == "image" && model.selectedWallpaperID == nil ? "An image is used as the background." : "Pick a picture to use behind the screen.")
@@ -195,9 +193,7 @@ struct ShadowRows: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         if model.hasShadowStyle {
-            Picker("Shadow", selection: Binding(get: { model.string("canvas.shadow.style", default: "classic") }, set: { model.set("canvas.shadow.style", string: $0) })) {
-                Text("Classic").tag("classic"); Text("Directional").tag("directional")
-            }.pickerStyle(.segmented)
+            LabeledPills("Shadow", selection: Binding(get: { model.string("canvas.shadow.style", default: "classic") }, set: { model.set("canvas.shadow.style", string: $0) }), options: [("Classic", "classic"), ("Directional", "directional")])
         }
         NumberRow(model: model, title: "Shadow intensity", path: "canvas.shadow.opacity", range: 0...0.6, defaultValue: 0.3)
         if model.hasShadowStyle && model.string("canvas.shadow.style") == "directional" {

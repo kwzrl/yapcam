@@ -50,6 +50,7 @@ extension EditorModel {
             PaletteCommand(title: "Zoom timeline out", shortcut: "⌘-", enabled: true) { [self] in zoomTimeline(by: 0.8) },
             PaletteCommand(title: "Fit timeline to window", shortcut: "⇧Z", enabled: true) { [self] in fitTimeline(width: timelineViewportWidth) },
             PaletteCommand(title: "Move recording to Trash…", shortcut: "", enabled: true) { [self] in trashRequested = true },
+            PaletteCommand(title: showWaveform ? "Hide audio waveform" : "Show audio waveform", shortcut: "", enabled: true) { [self] in setShowWaveform(!showWaveform) },
             PaletteCommand(title: "Toggle snapping", shortcut: "", enabled: true) { [self] in snappingEnabled.toggle() },
         ]
     }

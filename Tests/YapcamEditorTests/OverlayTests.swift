@@ -483,3 +483,37 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(m.geometry.pixelsPerSecond == before)            // fitted once, not on every layout pass
     }
 }
+
+@MainActor @Suite struct WaveformTests {
+    @Test func realAudioFileGivesTimelineMappedPeaksThatFollowCuts() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store); let m = doc.model
+        await m.refreshWaveform()
+        #expect(!m.waveform.isEmpty)
+        #expect(m.waveform.allSatisfy { (0...1.0001).contains($0.amp) && $0.tlNs >= 0 && $0.tlNs <= m.durationNs })
+        #expect(m.waveform.map(\.tlNs) == m.waveform.map(\.tlNs).sorted())
+        #expect(m.waveform.contains { $0.amp > 0.01 }, "the fixture's audio is not silent")
+        let full = m.waveform.count
+        // A cut shortens the timeline; the waveform is re-mapped (fewer points, none beyond the new end).
+        m.seek(toNs: 1_000_000_000); m.splitAtPlayhead(); m.seek(toNs: 3_000_000_000); m.splitAtPlayhead()
+        m.selection = .clip(m.clips[1].id); m.deleteSelection()
+        await m.refreshWaveform()
+        #expect(m.waveform.count < full)
+        #expect(m.waveform.allSatisfy { $0.tlNs <= m.durationNs })
+        m.setShowWaveform(false); #expect(m.waveform.isEmpty && !m.showWaveform)
+        #expect(iso.defaults.bool(forKey: "editor.showWaveform") == false)
+    }
+
+    @Test func clickingOrDraggingTheEmptyZoomTrackAddsAZoomInOneUndoStep() throws {
+        let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer())
+        #expect(m.zooms.isEmpty)
+        m.addZoom(fromNs: 4_000_000_000)                      // click: default length
+        #expect(m.zooms.count == 1 && m.zooms[0].startNs == 4_000_000_000 && m.zooms[0].endNs - m.zooms[0].startNs == defaultZoomDurationNs)
+        m.addZoom(fromNs: 12_000_000_000, toNs: 9_000_000_000)   // drag right-to-left: that range
+        #expect(m.zooms.count == 2)
+        #expect(m.zooms.contains { $0.startNs == 9_000_000_000 && $0.endNs == 12_000_000_000 })
+        m.undo(); #expect(m.zooms.count == 1)
+        #expect(m.selection == .zoom(m.zooms[0].id) || m.selection == .none)
+    }
+}

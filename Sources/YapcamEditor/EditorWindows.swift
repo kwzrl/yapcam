@@ -2,7 +2,21 @@ import SwiftUI
 import AppKit
 import YapcamCore
 
+/// Editor appearance: dark by default, like the reference editor; ui offers it in Settings (Editing).
+public enum EditorAppearance: String, CaseIterable, Sendable {
+    case dark, light, system
+    public var label: String { switch self { case .dark: "Dark"; case .light: "Light"; case .system: "Match system" } }
+    public var nsAppearance: NSAppearance? {
+        switch self { case .dark: NSAppearance(named: .darkAqua); case .light: NSAppearance(named: .aqua); case .system: nil }
+    }
+}
+
 @MainActor public enum EditorWindows {
+    /// Applied to editor windows when they open and live to the open ones when changed (`applyAppearance()`).
+    nonisolated(unsafe) public static var appearance: EditorAppearance = .dark { didSet { MainActor.assumeIsolated { applyAppearance() } } }
+    /// Re-applies `appearance` to every open editor window.
+    public static func applyAppearance() { controllers.values.forEach { $0.window?.appearance = appearance.nsAppearance } }
+
     private static var controllers: [String: EditorWindowController] = [:]
     /// Set by the app (it links YapcamCapture): runs on-device transcription for a package and returns the
     /// RecordingTranscript JSON (also written to recording/transcript.json). Nil → captions can only use an existing transcript.
@@ -88,6 +102,7 @@ import YapcamCore
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 800),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = document.title
+        window.appearance = EditorWindows.appearance.nsAppearance
         window.contentView = NSHostingView(rootView: EditorView(document: document))
         window.setFrameAutosaveName("YapcamEditor")
         window.center()

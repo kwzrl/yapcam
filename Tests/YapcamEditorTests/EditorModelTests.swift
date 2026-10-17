@@ -52,7 +52,7 @@ private func makeModel(duration: Int64 = 10_000_000_000) -> (EditorModel, FakePr
         m.seek(toNs: 3_000_000_000)
         m.addZoomAtPlayhead()
         #expect(m.zooms.count == 1)
-        #expect(m.zooms[0].startNs == 3_000_000_000 && m.zooms[0].endNs == 5_000_000_000)
+        #expect(m.zooms[0].startNs == 3_000_000_000 && m.zooms[0].endNs == 6_000_000_000)   // inserted zooms last 3 s, as in the reference
         #expect(m.selectedZoom?.id == m.zooms[0].id)
     }
 

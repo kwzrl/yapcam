@@ -1,3 +1,4 @@
+import os
 import Foundation
 import CoreGraphics
 import Combine
@@ -236,6 +237,23 @@ public final class CoreEditingProject: EditingProject {
         var track: String, path: String
         var fileStartNs: Int64, fileEndNs: Int64, tlStartNs: Int64, tlEndNs: Int64
     }
+
+    public func waveformPoints() async throws -> [WavePoint] {
+        let rows = try project.query("{\"q\":\"audio_ranges\"}", as: [AudioRangeRow].self)
+        let track = rows.contains { $0.track == "mic" } ? "mic" : "system_audio"
+        let used = rows.filter { $0.track == track }
+        var peaks: [String: [Float]] = [:]
+        let key = packageKey
+        for path in Set(used.map(\.path)) {
+            if let cached = Self.peakCache.withLock({ $0[key + path] }) { peaks[path] = cached; continue }
+            let computed = try await WaveformAnalysis.peaks(of: project.packageURL.appendingPathComponent(path))
+            Self.peakCache.withLock { $0[key + path] = computed }
+            peaks[path] = computed
+        }
+        return WaveformAnalysis.timelinePoints(rows: used.map { ($0.path, $0.fileStartNs, $0.fileEndNs, $0.tlStartNs, $0.tlEndNs) }, peaks: peaks)
+    }
+    private var packageKey: String { project.packageURL.path + "|" }
+    private static let peakCache = OSAllocatedUnfairLock<[String: [Float]]>(initialState: [:])
 
     public func silentSpans() async throws -> [TimeSpan] {
         let rows = try project.query("{\"q\":\"audio_ranges\"}", as: [AudioRangeRow].self)
