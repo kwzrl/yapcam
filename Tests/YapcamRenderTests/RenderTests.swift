@@ -113,6 +113,7 @@ final class RenderTests: XCTestCase {
         let project=try Project.create(package: package)
         try project.apply(.batch([
             .set(path: "canvas.padding",value: .number(540)),
+            .set(path: "canvas.background.kind",value: .string("solid")),
             .set(path: "canvas.background.color",value: .array([1,1,1,1].map(JSONValue.number))),
             .set(path: "canvas.shadow.opacity",value: .number(0)),
             .set(path: "canvas.highlights",value: .array([.object([

@@ -1,5 +1,6 @@
 import XCTest
 import AVFoundation
+import VideoToolbox
 import ImageIO
 import AppKit
 @testable import YapcamRender
@@ -58,6 +59,15 @@ final class ReferenceExportTests: XCTestCase {
         XCTAssertEqual(track.naturalSize,CGSize(width: 1152,height: 720))
         XCTAssertEqual(exporter.encodedVideoFrames,2)
         XCTAssertFalse(exporter.effectiveSettings.hardwareEncodingEnabled)
+    }
+    func testSoftwareEncoderPreferenceReachesVideoToolboxSpecification() throws {
+        let software = videoOutputSettings(for: .init(hardwareEncodingEnabled: false), width: 1280, height: 720)
+        let softwareSpecification = try XCTUnwrap(software[AVVideoEncoderSpecificationKey] as? [String: Any])
+        XCTAssertEqual(softwareSpecification[kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String] as? Bool, false)
+
+        let normal = videoOutputSettings(for: .init(), width: 1280, height: 720)
+        let normalSpecification = try XCTUnwrap(normal[AVVideoEncoderSpecificationKey] as? [String: Any])
+        XCTAssertEqual(normalSpecification[kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String] as? Bool, true)
     }
     func testCompressionBitratesSavedLegacyQualityAndDimensionCaps() throws {
         let rates = ExportSettings.Compression.allCases.map { ExportSettings(compression: $0).videoBitrate(width: 1280) }
