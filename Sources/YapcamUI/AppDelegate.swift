@@ -132,6 +132,7 @@ import YapcamEditor
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if QuitGuard.shouldBlockQuit() { return .terminateCancel }
         if RecordingController.shared.isRecording {
             let a = NSAlert()
             a.messageText = "A recording is in progress"

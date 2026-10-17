@@ -334,4 +334,16 @@ import YapcamEditor
         s.alwaysKeepProjectAfterQuickExport = true; s.resetToDefaults()
         #expect(!s.alwaysKeepProjectAfterQuickExport)
     }
+
+    // addendum: confirm before quitting while an export runs
+    @Test func quitIsGuardedWhileAnyExportRuns() {
+        #expect(QuitGuard.exportRunning(quick: .working(0.3), editors: []))
+        #expect(QuitGuard.exportRunning(quick: .idle, editors: [false, true]))
+        #expect(!QuitGuard.exportRunning(quick: .done("x"), editors: [false]))
+        #expect(!QuitGuard.exportRunning(quick: .idle, editors: []))
+        let saved = QuitGuard.confirmQuit; defer { QuitGuard.confirmQuit = saved }
+        var asked = 0
+        QuitGuard.confirmQuit = { asked += 1; return false }
+        #expect(!QuitGuard.shouldBlockQuit() && asked == 0)       // nothing exporting here: no question
+    }
 }
