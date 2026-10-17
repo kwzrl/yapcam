@@ -92,6 +92,9 @@ import YapcamCore
         try await Self.shoot("06-timeline", in: dir, size: CGSize(width: 1280, height: 260)) { TimelineView(model: m) }
         let exp = ExportModel(engine: FakeExporter())
         try await Self.shoot("07-export-sheet-settings", in: dir, size: CGSize(width: 440, height: 520)) { ExportSheet(export: exp, suggestedName: title) }
+        // The fake exporter above cannot estimate, so its sheet has no size/time line; the real engine's sheet does.
+        let realExport = doc.export; realExport.revealHandler = { _ in }
+        try await Self.shoot("07b-export-sheet-estimate", in: dir, size: CGSize(width: 440, height: 520)) { ExportSheet(export: realExport, suggestedName: title) }
         let failing = ExportModel(engine: FakeExporter(failure: NSError(domain: "x", code: 1, userInfo: [NSLocalizedDescriptionKey: "The disk is full."])))
         failing.start(to: URL(fileURLWithPath: "/tmp/x.mp4")); await failing.waitUntilFinished()
         try await Self.shoot("08-export-sheet-failed", in: dir, size: CGSize(width: 440, height: 300)) { ExportSheet(export: failing, suggestedName: title) }
