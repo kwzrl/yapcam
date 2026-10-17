@@ -13,7 +13,7 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
 
 @MainActor public enum EditorWindows {
     /// Applied to editor windows when they open and live to the open ones when changed (`applyAppearance()`).
-    nonisolated(unsafe) public static var appearance: EditorAppearance = .dark { didSet { MainActor.assumeIsolated { applyAppearance() } } }
+    nonisolated(unsafe) public static var appearance: EditorAppearance = .dark { didSet { onMain { applyAppearance() } } }
     /// Re-applies `appearance` to every open editor window.
     public static func applyAppearance() { controllers.values.forEach { $0.window?.appearance = appearance.nsAppearance } }
 
@@ -119,7 +119,7 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         super.init(window: window)
         window.delegate = self
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak document] _ in
-            MainActor.assumeIsolated { document?.model.saveNow() }
+            onMain { document?.model.saveNow() }
         }
     }
     required init?(coder: NSCoder) { nil }
