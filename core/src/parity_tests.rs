@@ -10,6 +10,7 @@ fn revision_two_factory_defaults_and_camera_geometry_preserve_existing_projects(
     let fixture = Fixture::new();
     let mut p = Project::create(&fixture.0).unwrap();
     assert_eq!(p.data.defaults_revision, 2);
+    assert!(!p.data.camera.mirrored);
     assert_eq!(p.data.camera.position, [1.0, 1.0]);
     assert_eq!(p.data.camera.size, 0.5);
     assert_eq!(p.data.camera.zoom_scale, 0.8);
@@ -35,6 +36,7 @@ fn revision_two_factory_defaults_and_camera_geometry_preserve_existing_projects(
     }
     let frame = p.frame(0).unwrap();
     assert_eq!(frame.camera.present, 1);
+    assert_eq!(frame.camera_mirror, 0);
     assert!((frame.camera_dest.w / frame.camera_dest.h - 1.0).abs() < 1e-9);
     assert!(
         (frame.camera_dest.x + frame.camera_dest.w - frame.canvas_w as f64 + 54.0).abs() < 1e-9
@@ -60,6 +62,7 @@ fn revision_two_factory_defaults_and_camera_geometry_preserve_existing_projects(
     let decoded = crate::project::decode_project(&serde_json::to_vec(&raw).unwrap()).unwrap();
     assert_eq!(decoded.camera.layout_settings.edge_padding_ratio, 0.0);
     assert_eq!(decoded.camera.size, 0.22);
+    assert!(decoded.camera.mirrored);
 }
 
 #[test]

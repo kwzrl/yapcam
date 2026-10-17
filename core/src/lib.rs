@@ -93,3 +93,8 @@ mod parity_tests;
 pub(crate) mod adaptive;
 
 pub(crate) mod speech_activity;
+
+mod privacy;
+
+#[cfg(test)]
+mod renderer_contract_tests;

@@ -537,7 +537,7 @@ impl Project {
             active.push(row);
         }
         Ok(
-            json!({"layers":self.layers_at(tl)?,"render_options":self.render_options(Some(tl))?,"audio":active}),
+            json!({"layers":self.layers_at(tl)?,"render_options":self.render_options(Some(tl))?,"audio":active,"privacy_masks":self.privacy_masks_at(tl)?}),
         )
     }
     pub fn render_options(&self, tl: Option<i64>) -> Result<Value> {
@@ -572,7 +572,7 @@ impl Project {
             },
         };
         Ok(
-            json!({"inset_origin":p.canvas.inset_origin,"screen_quality":p.canvas.screen_quality,"global_motion_blur":p.canvas.global_motion_blur,"zoom_lens":match tl { Some(t)=>crate::zoom_lens::query(self,t)?,None=>Value::Null },"camera_layout":crate::camera_layout::query(self,tl)?,"camera_style":p.camera.style,"screen_shadow":{"style":p.canvas.shadow.style,"offset_x":p.canvas.shadow.evaluated().0,"offset_y":p.canvas.shadow.evaluated().1,"radius":p.canvas.shadow.evaluated().2,"opacity":p.canvas.shadow.opacity},"padding_ratio":p.canvas.padding_ratio,"cursor_size_points":p.cursor.size_points,"cursor_set_id":p.cursor.set_id,"cursor_variants":p.cursor.variants,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur*p.canvas.global_motion_blur.unwrap_or(1.0)} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
+            json!({"inset_origin":p.canvas.inset_origin,"screen_quality":p.canvas.screen_quality,"global_motion_blur":p.canvas.global_motion_blur,"zoom_lens":match tl { Some(t)=>crate::zoom_lens::query(self,t)?,None=>Value::Null },"camera_layout":crate::camera_layout::query(self,tl)?,"camera_style":p.camera.style,"screen_shadow":{"style":p.canvas.shadow.style,"offset_x":p.canvas.shadow.evaluated().0,"offset_y":p.canvas.shadow.evaluated().1,"radius":p.canvas.shadow.evaluated().2,"opacity":p.canvas.shadow.opacity},"padding_ratio":p.canvas.padding_ratio,"cursor_size_points":p.cursor.size_points,"cursor_set_id":p.cursor.set_id,"cursor_variants":p.cursor.variants,"cursor_use_default_if_app_has_low_resolution":p.cursor.use_default_if_app_has_low_resolution,"cursor_always_use_default":p.cursor.always_default,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur*p.canvas.global_motion_blur.unwrap_or(1.0)} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
         )
     }
 }

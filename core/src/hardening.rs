@@ -608,7 +608,7 @@ fn random_json_ffi_commands_never_panic_or_corrupt_state() {
                 let query = if step % 33 == 0 {
                     json!({"q":(["typing_suggestions","capabilities","history","insertion_styles","autosave_policy","timeline_constraints","markers","camera_style","camera_style_library","microphone_media","caption_options"][(step as usize/33)%11])})
                 } else if step % 22 == 0 {
-                    json!({"q":(["effects_at","zoom_lens_at","camera_layout_at"][(n%3) as usize]),"tl_ns":arbitrary_json(&mut seed,2)})
+                    json!({"q":(["effects_at","zoom_lens_at","camera_layout_at","privacy_masks_at"][(n%4) as usize]),"tl_ns":arbitrary_json(&mut seed,2)})
                 } else {
                     arbitrary_json(&mut seed, 3)
                 };

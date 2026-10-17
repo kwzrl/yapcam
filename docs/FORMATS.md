@@ -1331,6 +1331,7 @@ without these fields keeps stored values and legacy decode defaults unchanged.
 
 | Field | Revision1 factory → revision2 factory |
 |---|---|
+| camera.mirrored |true →false (R5b QA E7.2; new create only) |
 | camera.position / size / zoom_scale | [.82,.78] / .22 /1 → [1,1] /.5 /.8 |
 | camera.layout_settings.aspect / corner_ratio | null/null →1/.15 |
 | camera.layout_settings.edge_padding_ratio | new field, legacy0 → factory.5 |
@@ -1339,6 +1340,7 @@ without these fields keeps stored values and legacy decode defaults unchanged.
 | cursor.rotation_mode / rotate_on_move / tilt_amount |static/false/1 →tilt/true/.5 |
 | canvas.inset_color |[1,1,1,1] →[0,0,0,.5] (size stays0) |
 | canvas.screen_quality |null →{improve_quality:.5,upscaling:quality} |
+| first insert_mask kind with no remembered/explicit style |highlight →blur (R5b QA E13.3; revision2 only) |
 | newly inserted highlight dim_opacity with no remembered style |.4 →.5 |
 
 `camera.layout_settings.edge_padding_ratio` and the same field in each layout's
@@ -1493,3 +1495,110 @@ at nine camera positions over wide/square/portrait canvases. Relocating a shortc
 to avoid a caption must not reintroduce a camera overlap. When custom content
 leaves no free rectangle, auto layout retains a bounded preferred rectangle;
 it does not hide authored content or shrink text below its specified style.
+
+## Round 5b renderer handoff
+
+### Cursor replacement flags (R5-C01)
+
+`cursor.use_default_if_app_has_low_resolution` is a persisted bool, default true
+on new and legacy decode. It controls replacing positively identified standard,
+low-resolution app cursors with our own sharp equivalent; unknown/custom shapes
+stay captured. `cursor.always_default` remains the existing authoritative bool
+(default false). Both support normal set/batch, history, presets and save/reopen.
+`render_options` and `render_options_at` always emit
+`cursor_use_default_if_app_has_low_resolution` and `cursor_always_use_default`.
+The latter is necessary because captured cursor id0 is a valid image and cannot
+by itself encode “force our own arrow”. Existing frame cursor IDs are unchanged.
+Typed Swift CoreRenderOptions appends optional booleans for older query decoders.
+Its CursorShape enum also includes crosshair/not_allowed, matching all12 already
+accepted Core IDs; valid replacement queries must not fail typed decoding.
+
+### Authoritative layer purpose (R5-C02a)
+
+Core-generated `layers_at`/`effects_at.layers` rows add `purpose`:
+- `text_background`: the undimmed highlight backing generated from an annotation,
+  reaction, caption or keyboard overlay's text style.
+- `privacy_mask`: an actual record in canvas.highlights, including blur/cover,
+  dim-outside and translucent highlight records.
+- `unspecified`: other content such as text glyphs and final scene fade.
+
+Purpose comes from the producing collection, never an ID/name suffix or an
+editable project field. Unknown persisted purpose keys are rejected. Missing/null
+purpose in old/custom query rows stays conservative in Render. A tag does not
+relax blur/cover protection; source-mask support below must land before Render
+removes its explicit unsupported error for unsafe mask/loupe combinations.
+
+### Original-space privacy instructions (R5-C02)
+
+New cold query `{"q":"privacy_masks_at","tl_ns":500000000}` returns:
+
+```json
+{"schema_version":1,"tl_ns":500000000,
+ "screen":{"present":true,"segment":0,"src_ns":500000000,"file_ns":500000000,
+   "pixel_size":[320,200],"canvas_size":[1728,1080],
+   "crop":[0,0,1,1],"dest":[108,67.5,1512,945],
+   "source_pixels_per_canvas_pixel":[0.21164021164021163,0.21164021164021163]},
+ "masks":[{"id":"mask-a","order":0,"purpose":"privacy_mask",
+   "space":"source","kind":"blur","rect":[0.1,0.2,0.3,0.2],
+   "tl_start_ns":0,"tl_end_ns":1000000000,
+   "corner_radius":12,"blur_radius":32,"opacity":1,"dim_opacity":0,
+   "fill":[0,0,0,1],"stroke":[0,0,0,0],"stroke_width":0}]}
+```
+
+The packet's screen sample uses the same edited timeline/segment/track clock as
+frame_at; src_ns is recording time and file_ns is segment-file time. The current
+source texture's full pixel_size is distinct from logical input points. crop and
+dest are the evaluated screen projection after classic zoom/layout/entrance;
+a local loupe samples this base projection and does not mutate it. The scale
+array is crop pixel extent divided by dest pixel extent on each axis; it is null
+when a nondegenerate projection is unavailable. Style lengths remain canonical
+canvas pixels. Convert blur/corner/stroke lengths with those per-axis factors
+before a source-texture operation; do not assume isotropic output or a fixed DPI.
+
+masks contains enabled, active records in the original canvas.highlights order;
+order is the original collection index, including inactive/disabled gaps. rect is
+the evaluated keyframe rectangle **before crop intersection or canvas projection**.
+space=source means normalized full-screen texture coordinates (top-left origin,
+x right/y down); space=canvas means
+normalized canonical canvas coordinates. No field is inferred from the record ID.
+All original style terms are retained, including dim-outside, alpha and stroke;
+blur_radius is null for highlight rows. Disabled and half-open-ended records are
+omitted. Source records outside the current crop are still supplied. No media is
+read and querying never mutates project data or timing.
+
+Render must use source-masked pixels for both the base screen and loupe, apply
+canvas-space instructions in the proper canvas stage, preserve mask order, and
+avoid drawing a consumed source mask twice. Mixed-source/canvas ordering or
+styles the pipeline cannot faithfully preserve must stay explicitly unsupported.
+Do not drop masks, weaken alpha/corner semantics, or remove existing fail-closed
+validation merely because this metadata is present. Native privacy-pixel acceptance
+belongs to Render/Lead. Existing drawing layers/extras remain available for older
+consumers; the C structs and ABI version are unchanged.
+
+`effects_at` additionally includes this packet under `privacy_masks` so consumers
+can obtain drawing/options/audio/privacy metadata on one immutable snapshot.
+Swift `privacyMasks(atNs:)` decodes CorePrivacyMaskFrame; effects(atNs:) exposes an
+optional privacyMasks packet for older-Core compatibility.
+
+
+### R5b QA E7.2 factory correction
+
+New Project.create camera.mirrored is false (reference Mirror horizontally off).
+This corrects the remaining factory mismatch reported by QA; defaults_revision2
+and schema/ABI versions stay unchanged. Opening old projects preserves their
+stored mirrored value, and missing legacy fields retain the original true decode
+default. Previously saved revision2 files with true are not rewritten. The existing
+camera.mirrored set path and evaluated frame flag are unchanged. Render/Editor:
+update new-project mirror expectations only; keep recorded-track metadata and
+explicit saved choices distinct from this editor transform.
+
+
+### R5b QA E13.3 first-mask default
+
+In a revision2 project with no remembered mask style, insert_mask now starts as
+Sensitive Data (kind=blur, radius32). An explicit patch.kind wins, and last-edited
+style still overrides factory values. Revision0/1 insertions and old records with
+missing kind retain highlight; saved records/styles are never rewritten. Choosing
+a new Highlight still starts at dim_opacity.5 unless the remembered/explicit
+style chooses another value. This completes the QA default request without
+changing the legacy Highlight serde fallback.

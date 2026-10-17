@@ -245,7 +245,8 @@ settings!(Cursor {
     variants: CursorVariants = CursorVariants::default(),
     logical_size: String = "regular".into(),
     spotlight_radius: f64 = 0.0, key_overlay: KeyOverlay = KeyOverlay::default(),
-    always_default: bool = false, rotate_on_move: bool = false,
+    always_default: bool = false,
+    use_default_if_app_has_low_resolution: bool = true, rotate_on_move: bool = false,
     rotation_mode: String = "static".into(), rotation_degrees: f64 = 0.0,
     tilt_amount: f64 = 1.0, shake_threshold: f64 = 500.0,
     stop_before_end_ns: i64 = 0, remove_shakes: bool = false, optimize_types: bool = false,
@@ -678,6 +679,7 @@ impl ProjectData {
             mass: 1.5,
             allow_overshoot: false,
         };
+        data.camera.mirrored = false;
         data.camera.position = [1.0, 1.0];
         data.camera.size = 0.5;
         data.camera.zoom_scale = 0.8;

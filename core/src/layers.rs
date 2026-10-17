@@ -146,9 +146,9 @@ fn append_text(
             .map_or(r.style.font_size, |ratio| ratio * f.canvas_h as f64);
         let rect = [d.x, d.y, d.w, d.h];
         if r.style.background[3] > 0.0 {
-            layers.push(json!({"id":format!("{id}:background"),"kind":"highlight","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":r.style.background,"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0}));
+            layers.push(json!({"id":format!("{id}:background"),"purpose":"text_background","kind":"highlight","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":r.style.background,"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0}));
         }
-        layers.push(json!({"id":id,"kind":"text","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":[0.0,0.0,0.0,0.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0,"text":r.text,"font_size":font_size,"font_family":r.style.font_family,"color":r.style.color}));
+        layers.push(json!({"id":id,"purpose":"unspecified","kind":"text","rect":rect,"corner_radius":r.style.radius,"opacity":r.style.opacity,"dim_opacity":0.0,"fill":[0.0,0.0,0.0,0.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0,"text":r.text,"font_size":font_size,"font_family":r.style.font_family,"color":r.style.color}));
     }
 }
 /// Apply content entrance/exit to the legacy geometry. No additional ABI slots,
@@ -293,7 +293,7 @@ impl Project {
         for h in &self.data.canvas.highlights {
             if let Some(highlight) = highlight_at(h, &f) {
                 let r = highlight.rect;
-                let mut row = json!({"id":h.id,"kind":h.kind,"rect":[r.x,r.y,r.w,r.h],
+                let mut row = json!({"id":h.id,"purpose":"privacy_mask","kind":h.kind,"rect":[r.x,r.y,r.w,r.h],
                     "corner_radius":h.radius,"opacity":h.opacity,"dim_opacity":h.dim_opacity,
                     "fill":h.fill,"stroke":h.stroke,"stroke_width":h.stroke_width});
                 if h.kind == "blur" {
@@ -379,10 +379,12 @@ impl Project {
             tl_ns,
         );
         if opacity > 0.0 {
-            layers.push(json!({"id":"canvas-fade","kind":"highlight",
+            layers.push(
+                json!({"id":"canvas-fade","purpose":"unspecified","kind":"highlight",
                 "rect":[0.0,0.0,f.canvas_w as f64,f.canvas_h as f64],
                 "corner_radius":0.0,"opacity":opacity,"dim_opacity":0.0,
-                "fill":[0.0,0.0,0.0,1.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0}));
+                "fill":[0.0,0.0,0.0,1.0],"stroke":[0.0,0.0,0.0,0.0],"stroke_width":0.0}),
+            );
         }
         Ok(layers.into())
     }

@@ -119,6 +119,7 @@ public struct CoreAudioOverlay: Decodable, Sendable, Equatable {
     public var gainAt: Double?
 }
 public struct CoreEffectsAt: Decodable, Sendable, Equatable {
+    public var privacyMasks: CorePrivacyMaskFrame?
     public var layers: [CoreRenderLayer]
     public var renderOptions: CoreRenderOptions
     public var audio: [CoreAudioOverlay]

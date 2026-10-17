@@ -188,6 +188,11 @@ impl Project {
                     self.render_options(Some(tl))
                 }
             }
+            "privacy_masks_at" => self.privacy_masks_at(
+                query["tl_ns"]
+                    .as_i64()
+                    .ok_or_else(|| Error::new(1, "Missing integer tl_ns"))?,
+            ),
             "layers_at" => {
                 let tl = query
                     .get("tl_ns")

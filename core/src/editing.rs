@@ -205,6 +205,7 @@ pub(crate) fn command(
             if op == "insert_mask" {
                 if p.defaults_revision >= 2 {
                     row["dim_opacity"] = 0.5.into();
+                    row["kind"] = "blur".into();
                 }
                 if let Some(style) = &p.insertion_styles.mask {
                     merge_style(&mut row, serde_json::to_value(style)?);

@@ -365,7 +365,9 @@ private func expectClosed(_ operation: () throws -> Void) {
 @Test func olderOpaqueMasksKeepTheirAppearanceAndNewBlurDefaultsRemainInactive() throws {
     try withFixture { package in
         let p = try Project.create(package: package)
-        try p.apply(.insertTimelineItem(.mask, patch: ["fill": .array([.number(0), .number(0), .number(0), .number(1)])]))
+        // Freeze an actual old opaque style, independent of the current factory.
+        try p.apply(.insertTimelineItem(.mask, patch: ["kind": .string("highlight"), "fill": .array([.number(0), .number(0), .number(0), .number(1)])]))
+        try p.save() // Reopen the edited primary below, not a newer recovery journal.
         let expected = try p.renderLayers(atNs: 1_000_000_000)
         var fields = try JSONSerialization.jsonObject(with: p.toJSON()) as! [String: Any]
         var canvas = fields["canvas"] as! [String: Any]

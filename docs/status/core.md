@@ -1,6 +1,44 @@
-READY R5 4ec00e9 + follow-up | 01:10 UTC | H20/M45/L6 rows now match, out-of-scope or named owner blockers; split direction + text/camera collision fixed | Rust127/SwiftCore88/Clippy/signed debug/scale PASS. Lead checkpoint/review; consumer requests in rows.
+R5b 01:57 UTC d8fa8b1 | done: all five other main status files scanned; incoming requests inventoried | next: H cursor flags, M layer purpose and source-mask contract/tests, verify existing deliveries. Main merge denied by read-only Git; Core source matches a96173e.
 
 
+
+## R5 incoming requests
+
+Read every other team's full status file on main a96173e (capture1462 lines,
+editor340, render1000, UI370, QA286); extracted
+current and older Core-addressed requests. Own Core source/FORMATS equals main;
+HEADd8fa8b1 is its ancestor. git merge main failed ORIG_HEAD.lock permission;
+Lead sync/checkpoint is needed, with no sandbox workaround. No other team's status
+or source files are edited. Older requests are retained here with closure evidence.
+
+| ID | From / main evidence | Priority | State / requester row disposition |
+|---|---|---|---|
+| R5-C01 | Render status:65/104 | H | implementing — persisted cursor fallback preference and two explicit evaluated booleans |
+| R5-C02a | Render status:82/106 | M | implementing — authoritative text_background/privacy_mask query tags, never ID inference/user-forged metadata |
+| R5-C02 | Render status:83/107 | M | implementing — ordered original-space privacy geometry + typed cold query; Render native pre-mask/loupe acceptance stays consumer work |
+| R5-E04 (Core part) | Render status:56/111, Editor R5 background controls | M | verifying — Core already accepts both stop colors/angle and atomic batches; favorite/random/palette/hue control is Editor-owned |
+| EDITOR-R5-FOLLOW | Editor status:304/336 | M | delivered, row resolvable — cursor.rotation_mode=follow; heading/idle/cut/legacy/persistence tests |
+| EDITOR-R5-AVOID | Editor status:305/336 | M | delivered, row resolvable — canvas.avoid_empty_zoom_area bool defaultfalse; bounded-crop evaluator and tests |
+| EDITOR-R5-DISABLE | Editor status:314/336 | L | delivered, row resolvable — Highlight.enabled and Layout.enabled, missing=true; set false to disable; retained history/geometry/persistence |
+| EDITOR-R5-MUSIC | Editor status:308/337 (render/core assets) | M | blocked — Render must supply original18-track audio/catalog for Commercial/Electronic/Instrumental/Lo-fi. Core supports registered local file tracks and real imports now; do not advertise18 inert IDs or duplicate the same audio under new labels. Native audio/artwork production is outside Core ownership. |
+| QA-R5-E7.2 mirror | QA status:21/119 | M | implementing — new create camera.mirrored=false; old/default-missing legacy true and explicit saved values preserved; FORMATS factory table amended |
+| QA-R5-E13.3 first mask | QA status:21/130 | M | implementing — first revision2 insertion starts Sensitive Data/blur32; explicit/inherited styles and legacy Highlight fallback retained |
+| QA-R5-DEFAULTS / P2/P5/P6 | QA status:21/93–136 | H/M | verified existing factory2 versus legacy defaults: blur0/padding.10/radius16/directional shadow/no click/tilt.5/shakes+optimization/camera.5-BR/caption.05-expanding/springs/highlight.5; own dark artwork is approved; checked minimums/click windows and own-format atomic backup remain covered. Mirror was the remaining correction. |
+| REC-21 notes | UI status:185/242 | M | delivered, row resolvable — notes string + set path; Unicode/history/save regressions; UI itself records resolution |
+| CAP-3/UI markers | UI status:337/339, Capture durable marker sidecar | M | delivered, row resolvable — markers query reads both recording markers and captured flags; maps cuts/speeds/repeats; marker fixture tests |
+| F9 optional source labels | QA status:257, UI status:364 (historical) | H | delivered, row resolvable — absent display_name accepted for all source kinds; current/older-window regressions; QA later verified fix |
+| F6 short audio tails | UI status:196/203, Capture status:1047, Render status:886 | H | resolved Core scope — logical metadata clocks remain unchanged; Render clamps physical AVFoundation track ranges. Render explicitly accepted this contract/host fix; no file probing/disk IO added to frame_at. |
+| Core Project.close | Editor status:95 | H | delivered, row resolvable — later mutations/save/import rejected after close; independent snapshot reads preserved; editor acknowledges closure |
+| GAP-ED-16 masks | Editor status:13 (historical) | M | delivered, row resolvable — blur kind/radius + companion/evaluated layers; old opaque fallback preserved; R5-C02 is separate lens/privacy request |
+| ED-9 layouts/silence | Editor status:165 (historical) | M | delivered, row resolvable — split/cutout params, silence ranges/source activity, checked ranges and disabled state |
+| ED-10 captions | Editor status:33/166 (historical) | M | delivered, row resolvable — font/reveal/growth/entrance/language metadata + caption defaults/ratio; typed API and timing tests |
+| ED-8/RND-6 grading | Editor status:172, Render status:833/954 | M | delivered, row resolvable — camera_style/camera_layout/zoom_lens authoritative queries and local registered LUT; Render marks older aliases superseded |
+| E1 cursor/geometry queries | Editor status:233/236 (historical) | M | delivered, row resolvable — rotation_degrees/mode/tilt/shake fields, clicks query and declared output aspect sizes; Swift/Core regression coverage |
+
+R5-CAP-DEC1 legacy-engine exclusion and native encoder certification are Lead's
+explicit decisions, not incoming Core implementation work. No live app launch,
+permission changes, or unowned-process control planned. Original artwork/sounds
+only; no reference bundle code, strings or assets copied.
 
 ## R5 reconciliation — 01:10 UTC
 
