@@ -21,7 +21,8 @@ import SwiftUI
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.hasShadow = true
+        // The system window shadow draws a hard dark ring around transparent windows; ToolbarView draws its own.
+        p.hasShadow = false
         p.level = .floating
         p.isMovableByWindowBackground = true
         p.hidesOnDeactivate = false

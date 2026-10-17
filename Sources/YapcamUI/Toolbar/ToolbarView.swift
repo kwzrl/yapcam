@@ -6,6 +6,8 @@ enum ToolbarPopover: Hashable { case audio, microphone, camera, afterRecording, 
 
 /// The recording picker: one horizontal bar (close, sources, devices, recents + gear) that turns into the
 /// recording widget while a take runs. Starting happens on the source cards, not on the bar.
+/// Look (lab variant B): rounded rectangle, concentric platters, plain hairlines between the groups, record
+/// beside the bar on its own glass. Vertical, the bar is as narrow as the horizontal one is tall (icons only).
 struct ToolbarView: View {
     @ObservedObject var layout: ToolbarLayoutModel
     @EnvironmentObject var rec: RecordingController
@@ -22,31 +24,27 @@ struct ToolbarView: View {
         let layout = vertical ? AnyLayout(VStackLayout(spacing: spacing)) : AnyLayout(HStackLayout(spacing: spacing))
         return layout { content() }
     }
+    static let radius: CGFloat = 16
+    static let thickness: CGFloat = 54
     private var separator: some View {
-        FadingHairline(axis: vertical ? .horizontal : .vertical)
-            .frame(width: vertical ? 40 : 2, height: vertical ? 2 : 30)
-            .padding(vertical ? .vertical : .horizontal, 3)
+        Hairline(axis: vertical ? .horizontal : .vertical)
+            .frame(width: vertical ? 30 : nil, height: vertical ? nil : 30)
+            .padding(vertical ? .vertical : .horizontal, 5)
     }
 
     var body: some View {
         let recording = rec.phase == .recording || rec.phase == .paused
         // The vertical widget needs room for the elapsed time across.
-        let thickness: CGFloat = recording ? (vertical ? 64 : 44) : 46
-        line(0) {
-            Grabber(vertical: vertical, onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil)
-            Group {
-                switch rec.phase {
-                case .idle: idleControls
-                case .countdown(let n): countdownControls(n)
-                case .starting, .finishing: busyControls
-                case .recording, .paused: recordingControls
-                }
+        let thickness: CGFloat = recording ? (vertical ? 64 : 44) : Self.thickness
+        line(10) {
+            bar(thickness: thickness)
+            if rec.phase == .idle {
+                RecordButton(help: "Start recording (\(settings.startStopShortcut.display))", action: rec.begin)
             }
-            .padding(vertical ? .bottom : .trailing, 6)
         }
-        .frame(width: vertical ? max(thickness, 86) : nil, height: vertical ? nil : thickness)
-        .panelSurface(cornerRadius: vertical ? 22 : (recording ? 22 : 23))
-        .padding(2)
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 5)
+        .padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 24)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Yapcam recording toolbar")
         .accessibilityAction(named: "Move toolbar left") { layout.move(-60, 0) }
@@ -63,22 +61,39 @@ struct ToolbarView: View {
         }
     }
 
+    private func bar(thickness: CGFloat) -> some View {
+        line(0) {
+            Grabber(vertical: vertical, onClose: rec.phase == .idle ? { ToolbarPanelController.shared.hide() } : nil)
+            Group {
+                switch rec.phase {
+                case .idle: idleControls
+                case .countdown(let n): countdownControls(n)
+                case .starting, .finishing: busyControls
+                case .recording, .paused: recordingControls
+                }
+            }
+            .padding(vertical ? .bottom : .trailing, 6)
+        }
+        .frame(width: vertical ? thickness : nil, height: vertical ? nil : thickness)
+        .panelSurface(cornerRadius: Self.radius, sheen: true)
+    }
+
     private var edge: Edge { vertical ? (layout.onLeftHalf ? .leading : .trailing) : (layout.inLowerHalf ? .top : .bottom) }
 
     // MARK: Idle: sources, devices, recents + gear
 
     private var idleControls: some View {
-        line(3) {
+        line(2) {
             ForEach(SourceMode.toolbarModes) { sourceButton($0) }
 
             separator
 
-            deviceButton(symbol: camLabelOn ? "video.fill" : "video.slash", label: DeviceLabels.camera(name: cameraName), isOn: camOn, help: "Camera", menu: .camera)
+            deviceButton(symbol: camLabelOn ? "video" : "video.slash", label: DeviceLabels.camera(name: cameraName), isOn: camOn, help: "Camera", menu: .camera)
                 .popover(isPresented: binding(.camera), arrowEdge: edge) { CameraPopover().environmentObject(settings).environmentObject(perms) }
-            deviceButton(symbol: micOn ? "mic.fill" : "mic.slash", label: DeviceLabels.microphone(name: microphoneName), isOn: micOn, help: "Microphone", menu: .microphone)
+            deviceButton(symbol: micOn ? "mic" : "mic.slash", label: DeviceLabels.microphone(name: microphoneName), isOn: micOn, help: "Microphone", menu: .microphone)
                 .overlay(alignment: .top) { if micOn { LevelMeter(level: devices.level).frame(width: 34).padding(.top, 2).allowsHitTesting(false) } }
                 .popover(isPresented: binding(.microphone), arrowEdge: edge) { MicrophonePopover().environmentObject(settings).environmentObject(perms) }
-            deviceButton(symbol: settings.systemAudio ? "speaker.wave.2.fill" : "speaker.slash",
+            deviceButton(symbol: settings.systemAudio ? "speaker.wave.2" : "speaker.slash",
                          label: settings.systemAudioChoice.buttonLabel(appCount: settings.systemAudioApps.count), isOn: settings.systemAudio,
                          help: "System audio", menu: .audio)
                 .popover(isPresented: binding(.audio), arrowEdge: edge) { SystemAudioPopover().environmentObject(settings) }
@@ -86,11 +101,11 @@ struct ToolbarView: View {
             separator
 
             if recovery.count > 0 {
-                ToolbarButton(symbol: "exclamationmark.arrow.circlepath", label: "Recover", help: "Recover an unfinished recording", active: false) {
+                ToolbarButton(symbol: "exclamationmark.arrow.circlepath", label: "Recover", help: "Recover an unfinished recording", active: false, compact: vertical) {
                     RecoveryFlow.run(silentWhenNone: false); recovery.refresh()
                 }
             }
-            ToolbarButton(symbol: "folder", label: "Recent", help: "Recent projects", active: open == .recents || settings.showRecentsWithPicker, style: .iconOnly) { toggle(.recents) }
+            ToolbarButton(symbol: "folder", label: "Recent", help: "Recent projects", active: open == .recents || settings.showRecentsWithPicker, compact: vertical) { toggle(.recents) }
                 .popover(isPresented: binding(.recents), arrowEdge: edge) { RecentsPopover(dismiss: { open = nil }) }
             settingsMenu
         }
@@ -103,7 +118,7 @@ struct ToolbarView: View {
 
     /// Display / Window / Area: one click selects the mode and shows its overlay with **Start recording**.
     private func sourceButton(_ mode: SourceMode) -> some View {
-        ToolbarButton(symbol: mode.symbol, label: mode.title, help: sourceHelp(mode), active: picker.openMode == mode) {
+        ToolbarButton(symbol: mode.symbol, label: mode.title, help: sourceHelp(mode), active: picker.openMode == mode, compact: vertical) {
             open = nil
             if picker.openMode == mode { SourcePicker.escape(); return }
             SourcePicker.open(mode)
@@ -130,8 +145,7 @@ struct ToolbarView: View {
 
     /// A device button: icon + state text; a click opens the device menu.
     private func deviceButton(symbol: String, label: String, isOn: Bool, help: String, menu: ToolbarPopover) -> some View {
-        ToolbarButton(symbol: symbol, label: label, help: help, active: open == menu, dim: !isOn, width: vertical ? 74 : nil,
-                      style: vertical ? .stacked : .inline) { toggle(menu) }
+        ToolbarButton(symbol: symbol, label: label, help: help, active: open == menu, dim: !isOn, compact: vertical) { toggle(menu) }
             .accessibilityLabel(help).accessibilityValue(label)
     }
 
@@ -142,7 +156,7 @@ struct ToolbarView: View {
     /// A normal toolbar button that pops up the settings menu (an AppKit menu: it keeps the
     /// icon-over-label look that SwiftUI's `Menu` flattens into a row).
     private var settingsMenu: some View {
-        ToolbarButton(symbol: "gearshape", label: "Settings", help: "Recording options and more", active: false, style: .menu) {
+        ToolbarButton(symbol: "gearshape", label: "Settings", help: "Recording options and more", active: false, compact: vertical) {
             if let view = ToolbarPanelController.shared.panel.contentView, let event = NSApp.currentEvent {
                 NSMenu.popUpContextMenu(GearMenu.build(settings: settings), with: event, for: view)
             }
@@ -197,7 +211,7 @@ struct ToolbarView: View {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Yap.technical)
                     .help((rec.warnings + (rec.lowDisk ? ["Low disk space: recording may stop soon."] : [])).joined(separator: "\n"))
             }
-            FadingHairline(axis: vertical ? .horizontal : .vertical).frame(width: vertical ? 28 : 2, height: vertical ? 2 : 28)
+            Hairline(axis: vertical ? .horizontal : .vertical).frame(width: vertical ? 28 : nil, height: vertical ? nil : 28)
             iconButton(paused ? "play.circle" : "pause.circle", label: paused ? "Resume" : "Pause",
                        help: "\(paused ? "Resume" : "Pause") (\(settings.pauseShortcut.display))", action: rec.togglePause)
             iconButton("arrow.counterclockwise", label: "Restart", help: "Discard this take and start over (asks first)", action: rec.confirmRestart)
@@ -226,7 +240,7 @@ struct ToolbarView: View {
 
 // MARK: - Components
 
-/// Start of the bar: the white close circle and a milled separator (idle only). The bar itself is the drag
+/// Start of the bar: the white close circle and a hairline (idle only). The bar itself is the drag
 /// handle; horizontal/vertical lives in the gear menu.
 private struct Grabber: View {
     var vertical: Bool
@@ -236,12 +250,9 @@ private struct Grabber: View {
         let stack = vertical ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
         stack {
             if let onClose {
-                Button(action: onClose) { Image(systemName: "xmark") }
-                    .buttonStyle(CircleButtonStyle(active: true, size: 20))
-                    .help("Close (Esc)").accessibilityLabel("Close toolbar")
-                    .frame(width: 30, height: 30)
-                FadingHairline(axis: vertical ? .horizontal : .vertical)
-                    .frame(width: vertical ? 40 : 2, height: vertical ? 2 : 30)
+                CloseButton(action: onClose)
+                Hairline(axis: vertical ? .horizontal : .vertical)
+                    .frame(width: vertical ? 30 : nil, height: vertical ? nil : 30)
                     .padding(vertical ? .vertical : .horizontal, 5)
             } else {
                 Color.clear.frame(width: vertical ? 1 : 6, height: vertical ? 6 : 1)
@@ -251,8 +262,72 @@ private struct Grabber: View {
     }
 }
 
+/// Icon over label on a platter concentric with the bar (bar radius 16, inset 6 → 10).
+/// The white close circle, in a slot like every other button: hover shows the platter and lifts the circle.
+private struct CloseButton: View {
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Color.black)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(Color.white))
+                .scaleEffect(hover ? 1.1 : 1)
+                .animation(hover ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: hover)
+                .frame(width: ToolbarButton.size, height: ToolbarButton.size)
+                .background(Platter(active: false, hover: hover))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .onHover { hover = $0 }
+        .help("Close (Esc)").accessibilityLabel("Close toolbar")
+    }
+}
+
+/// Record beside the bar on its own glass, as tall as the bar. Same as the start shortcut: records what an
+/// open source overlay shows, otherwise the saved source.
+private struct RecordButton: View {
+    let help: String
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: ToolbarView.radius, style: .continuous)
+        Button(action: action) {
+            Circle().fill(Yap.record).frame(width: 20, height: 20)
+                .scaleEffect(hover ? 1.12 : 1)
+                .animation(hover ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: hover)
+                .frame(width: ToolbarView.thickness, height: ToolbarView.thickness)
+                .background(Platter(active: false, hover: hover).padding(6))
+                .panelSurface(cornerRadius: ToolbarView.radius, sheen: true)
+                .contentShape(shape)
+        }
+        .buttonStyle(PressableStyle())
+        .onHover { hover = $0 }
+        .help(help).accessibilityLabel("Start recording")
+    }
+}
+
+/// Hover/selection platter behind a slot: comes in fast and grows from 90 %, leaves softly.
+private struct Platter: View {
+    var active: Bool
+    var hover: Bool
+    @Environment(\.contrastOpacity) private var contrast
+
+    var body: some View {
+        let on = active || hover
+        RoundedRectangle(cornerRadius: Yap.Radius.control, style: .continuous)
+            .fill(Color.white.opacity(active ? (contrast.increased ? 0.36 : 0.24) : (contrast.increased ? 0.16 : 0.08)))
+            .opacity(on ? 1 : 0)
+            .scaleEffect(on ? 1 : 0.9)
+            .animation(on ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: on)
+            .animation(.snappy(duration: 0.18), value: active)
+    }
+}
+
 struct ToolbarButton: View {
-    enum Style { case stacked, inline, iconOnly, menu }
+    static let size: CGFloat = 42
     let symbol: String
     let label: String
     var help: String = ""
@@ -261,20 +336,17 @@ struct ToolbarButton: View {
     /// Off state of a device (no camera, mic muted): dimmed, never a colour.
     var dim: Bool = false
     var enabled: Bool = true
-    /// Fixed width for stacked buttons; nil = fit the content.
-    var width: CGFloat? = 46
-    var style: Style = .stacked
+    /// Icon only (vertical bar); the label stays in the tooltip and for VoiceOver.
+    var compact = false
     let action: () -> Void
     @State private var hover = false
-    @Environment(\.contrastOpacity) private var contrast
 
     var body: some View {
         Button(action: action) {
             content
-                .foregroundStyle(active ? Yap.title : (dim ? Yap.caption : Yap.label))
+                .foregroundStyle(active || hover ? Yap.title : (dim ? Yap.caption : Yap.label))
                 .opacity(enabled ? 1 : 0.35)
-                .background(RoundedRectangle(cornerRadius: Yap.Radius.control, style: .continuous)
-                    .fill(Color.white.opacity(active ? (contrast.increased ? 0.22 : 0.10) : (hover ? (contrast.increased ? 0.14 : 0.05) : 0))))
+                .background(Platter(active: active, hover: hover && enabled))
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressableStyle())
@@ -287,34 +359,26 @@ struct ToolbarButton: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch style {
-        case .stacked:
-            VStack(spacing: 2) {
-                Image(systemName: symbol).font(.system(size: 14, weight: .medium)).frame(height: 17)
-                Text(label).font(.system(size: 9, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
+        if compact {
+            Image(systemName: symbol).font(.system(size: 17, weight: .regular)).frame(width: Self.size, height: Self.size)
+        } else {
+            VStack(spacing: 3) {
+                Image(systemName: symbol).font(.system(size: 16, weight: .regular)).frame(height: 19)
+                Text(label).font(.system(size: 10, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
+                    .frame(maxWidth: 104)
             }
-            .frame(width: width, height: 36)
-        case .inline:
-            HStack(spacing: 7) {
-                Image(systemName: symbol).font(.system(size: 14, weight: .medium))
-                Text(label).font(.system(size: 12, weight: .medium)).lineLimit(1)
-            }
-            .padding(.horizontal, 9).frame(height: 30)
-        case .iconOnly:
-            Image(systemName: symbol).font(.system(size: 15, weight: .medium)).frame(width: 34, height: 30)
-        case .menu:
-            HStack(spacing: 3) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .medium))
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
-            }
-            .frame(width: 42, height: 30)
+            .padding(.horizontal, 12)
+            .frame(minWidth: Self.size, minHeight: Self.size, maxHeight: Self.size)
         }
     }
 }
 
 private struct PressableStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.opacity(configuration.isPressed ? 0.6 : 1)
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(.snappy(duration: 0.12), value: configuration.isPressed)
     }
 }
 

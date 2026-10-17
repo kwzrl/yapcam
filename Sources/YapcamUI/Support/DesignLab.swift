@@ -53,31 +53,71 @@ private struct DesignLabView: View {
     @State private var tab = "look"
     @State private var scale = 0.35
     @State private var menuOpen = true
+    @State private var page = "toolbars"
+    @State private var barSource = SourceMode.display
 
     var body: some View {
         HStack(alignment: .top, spacing: 28) {
             VStack(alignment: .leading, spacing: 28) {
-                toolbar
-                HStack(alignment: .top, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Button { menuOpen.toggle() } label: { Image(systemName: "ellipsis") }
-                            .buttonStyle(CircleButtonStyle(active: menuOpen))
-                        if menuOpen {
-                            GlassMenu(caption: "What happens when\na recording stops",
-                                      items: [("project", "Open the editor"), ("copy", "Export and copy"), ("save", "Export and save")],
-                                      selection: $after)
-                                .frame(width: 260)
-                                .glassPanel(radius: Yap.Radius.card + 6, lift: 0.04)
-                        }
-                    }
-                    widget
-                }
-                inspector
+                pageSwitch
+                if page == "kit" { kit } else { toolbarCompare }
             }
             tuning
         }
         .padding(36)
         .onExitCommand(perform: close)
+    }
+
+    private var pageSwitch: some View {
+        OptionRow(["toolbars", "kit"], selection: $page) { id, on in
+            Text(id == "kit" ? "Kit" : "Toolbars").font(Yap.Font.label).foregroundStyle(on ? Yap.title : Yap.caption)
+        }
+        .frame(width: 220)
+        .padding(4)
+        .glassPanel(radius: Yap.Radius.card + 4)
+    }
+
+    // MARK: toolbar (variant B, chosen 2026-10-17; A and C dropped)
+
+    private var toolbarCompare: some View {
+        VStack(alignment: .leading, spacing: 36) {
+            variant("B  Toolbar", "rounded rectangle, concentric platters, hairlines, record beside") {
+                OrbitBar(source: $barSource, labels: true, rounded: true)
+            }
+        }
+    }
+
+    private func variant<Bar: View>(_ title: String, _ note: String, @ViewBuilder _ bar: () -> Bar) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Text(title).font(Yap.Font.label).foregroundStyle(Yap.title)
+                Text(note).font(Yap.Font.caption).foregroundStyle(Yap.caption)
+            }
+            bar()
+        }
+    }
+
+    // MARK: kit
+
+    private var kit: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            toolbar
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button { menuOpen.toggle() } label: { Image(systemName: "ellipsis") }
+                        .buttonStyle(CircleButtonStyle(active: menuOpen))
+                    if menuOpen {
+                        GlassMenu(caption: "What happens when\na recording stops",
+                                  items: [("project", "Open the editor"), ("copy", "Export and copy"), ("save", "Export and save")],
+                                  selection: $after)
+                            .frame(width: 260)
+                            .glassPanel(radius: Yap.Radius.card + 6, lift: 0.04)
+                    }
+                }
+                widget
+            }
+            inspector
+        }
     }
 
     // MARK: toolbar
@@ -173,12 +213,13 @@ private struct DesignLabView: View {
             knob("Rim light", \.rim, 0...0.5)
             knob("Warmth", \.warmth, 0...0.3)
             knob("Shadow", \.shadow, 0...0.8)
+            knob("Sheen (B, C)", \.sheen, 0...0.4)
             HStack {
                 Button("Reset") { t.reset() }.buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
                 Spacer()
                 Button("Copy values") {
-                    let s = String(format: "body %.2f, topLight %.2f, bottomLight %.2f, rim %.2f, warmth %.2f, shadow %.2f",
-                                   t.body, t.topLight, t.bottomLight, t.rim, t.warmth, t.shadow)
+                    let s = String(format: "body %.2f, topLight %.2f, bottomLight %.2f, rim %.2f, warmth %.2f, shadow %.2f, sheen %.2f",
+                                   t.body, t.topLight, t.bottomLight, t.rim, t.warmth, t.shadow, t.sheen)
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setString(s, forType: .string)
                 }.buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
             }
@@ -221,6 +262,129 @@ private struct RecordDot: View {
             .padding(6)
             .background(Circle().fill(Color.white.opacity(hover ? 0.14 : 0.08)))
             .onHover { hover = $0 }
+            .accessibilityLabel("Start recording")
+    }
+}
+
+// MARK: - Toolbar variants
+
+private enum LabDevices {
+    struct Item: Identifiable { let id: String; let line: String; let title: String; var on = true }
+    static let all = [
+        Item(id: "camera", line: "video.slash", title: "No camera", on: false),
+        Item(id: "mic", line: "mic", title: "MacBook Mic"),
+        Item(id: "audio", line: "speaker.wave.2", title: "System audio"),
+    ]
+}
+
+/// B and C, after the visionOS tab bar: a platter marks the selection, hairlines between the groups,
+/// record sits beside the bar on its own glass. `rounded` = rounded rectangle (B), otherwise capsule (C).
+private struct OrbitBar: View {
+    @Binding var source: SourceMode
+    let labels: Bool
+    let rounded: Bool
+    static let height: CGFloat = 54
+    static let inset: CGFloat = 6
+    static let radius: CGFloat = 16
+
+    private var barRadius: CGFloat { rounded ? Self.radius : Self.height / 2 }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            bar
+            RecordSatellite(size: Self.height, radius: barRadius)
+        }
+    }
+
+    private var separator: some View {
+        Hairline().frame(height: 30).padding(.horizontal, 5)
+    }
+
+    private var bar: some View {
+        HStack(spacing: 2) {
+            Button {} label: { Image(systemName: "xmark") }
+                .buttonStyle(CircleButtonStyle(active: true, size: 22))
+                .frame(width: OrbitCell.size, height: OrbitCell.size)
+            separator
+            ForEach(SourceMode.toolbarModes) { m in
+                OrbitCell(symbol: m.symbol, label: m.title, labels: labels, rounded: rounded, selected: source == m) { source = m }
+            }
+            separator
+            ForEach(LabDevices.all) { d in
+                OrbitCell(symbol: d.line, label: d.title, labels: labels, rounded: rounded, dim: !d.on) {}
+            }
+            separator
+            OrbitCell(symbol: "folder", label: "Recent", labels: labels, rounded: rounded) {}
+            OrbitCell(symbol: "gearshape", label: "Settings", labels: labels, rounded: rounded) {}
+        }
+        .padding(.horizontal, Self.inset)
+        .frame(height: Self.height)
+        .glassPanel(radius: barRadius, sheen: true)
+    }
+}
+
+/// One slot in the orbit bar, concentric with it: capsule/circle, or a rounded rectangle when the bar is one.
+private struct OrbitCell: View {
+    static let size: CGFloat = OrbitBar.height - 2 * OrbitBar.inset
+    let symbol: String
+    let label: String
+    let labels: Bool
+    let rounded: Bool
+    var selected = false
+    var dim = false
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            content
+                .foregroundStyle(selected ? Yap.title : (dim ? Yap.caption : Yap.label))
+                .frame(minWidth: Self.size, minHeight: Self.size, maxHeight: Self.size)
+                .background(shape.fill(Color.white.opacity(selected ? 0.24 : 0.08))
+                    .opacity(selected || hover ? 1 : 0).scaleEffect(selected || hover ? 1 : 0.9)
+                    .animation(selected || hover ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: selected || hover))
+                .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: rounded ? Yap.concentric(OrbitBar.radius, inset: OrbitBar.inset) : Self.size / 2,
+                         style: .continuous)
+    }
+
+    @ViewBuilder private var content: some View {
+        if labels {
+            VStack(spacing: 3) {
+                Image(systemName: symbol).font(.system(size: 16, weight: .regular)).frame(height: 19)
+                Text(label).font(.system(size: 10, weight: .medium)).lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+        } else {
+            Image(systemName: symbol).font(.system(size: 18, weight: .light))
+        }
+    }
+}
+
+/// Record on its own glass beside the bar (the slot of the search button in visionOS), same corner as the bar.
+private struct RecordSatellite: View {
+    let size: CGFloat
+    let radius: CGFloat
+    @State private var hover = false
+
+    var body: some View {
+        Circle().fill(Yap.record)
+            .frame(width: size * 0.36, height: size * 0.36)
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Color.white.opacity(hover ? 0.08 : 0)))
+            .glassPanel(radius: radius, sheen: true)
+            .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .onHover { hover = $0 }
+            .help("Start recording")
             .accessibilityLabel("Start recording")
     }
 }

@@ -26,10 +26,12 @@ public struct GlassSurface: View {
     var behindWindow: Bool
     /// Extra brightness for glass that sits in front of other glass (menus over panels).
     var lift: Double
+    /// Specular sheen in the upper right: the light source made visible (opt-in).
+    var sheen: Bool
     @State private var t = GlassTuning.shared
 
-    public init(radius: CGFloat, floating: Bool = true, behindWindow: Bool = true, lift: Double = 0) {
-        self.radius = radius; self.floating = floating; self.behindWindow = behindWindow; self.lift = lift
+    public init(radius: CGFloat, floating: Bool = true, behindWindow: Bool = true, lift: Double = 0, sheen: Bool = false) {
+        self.radius = radius; self.floating = floating; self.behindWindow = behindWindow; self.lift = lift; self.sheen = sheen
     }
 
     public var body: some View {
@@ -47,6 +49,10 @@ public struct GlassSurface: View {
             // Ambient light of the scene, from the lower left.
             RadialGradient(colors: [Color(red: 1, green: 140 / 255, blue: 60 / 255).opacity(t.warmth), .clear],
                            center: UnitPoint(x: 0.3, y: 1.1), startRadius: 0, endRadius: 360)
+            if sheen {
+                RadialGradient(colors: [Color.white.opacity(t.sheen), .clear],
+                               center: UnitPoint(x: 0.78, y: -0.3), startRadius: 0, endRadius: 280)
+            }
         }
         .clipShape(shape)
         // Rim light, strongest on top, plus a barely-there edge. No grey line.
@@ -62,8 +68,9 @@ public struct GlassSurface: View {
 public extension View {
     /// Places the view on a glass panel. `behindWindow` blurs the desktop (floating panels); false blurs
     /// window content (sheets, popovers inside the editor).
-    func glassPanel(radius: CGFloat = Yap.Radius.panel, floating: Bool = true, behindWindow: Bool = true, lift: Double = 0) -> some View {
-        background(GlassSurface(radius: radius, floating: floating, behindWindow: behindWindow, lift: lift))
+    func glassPanel(radius: CGFloat = Yap.Radius.panel, floating: Bool = true, behindWindow: Bool = true, lift: Double = 0,
+                    sheen: Bool = false) -> some View {
+        background(GlassSurface(radius: radius, floating: floating, behindWindow: behindWindow, lift: lift, sheen: sheen))
     }
 
     /// Dark-only window content with Yapcam's neutral tint (no accent colour for controls).

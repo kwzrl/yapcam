@@ -71,7 +71,10 @@ public struct CircleButtonStyle: ButtonStyle {
                 .font(.system(size: size * 0.4, weight: .semibold))
                 .foregroundStyle(active ? Color.black : Yap.label)
                 .frame(width: size, height: size)
-                .background(Circle().fill(active ? Color.white : Color.white.opacity(configuration.isPressed ? 0.14 : (hover ? 0.11 : 0.08))))
+                .background(Circle().fill(active ? Color.white : Color.white.opacity(configuration.isPressed ? 0.14 : (hover ? 0.14 : 0.08))))
+                .scaleEffect(configuration.isPressed ? 0.94 : (hover ? 1.06 : 1))
+                .animation(hover ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: hover)
+                .animation(.snappy(duration: 0.12), value: configuration.isPressed)
                 .contentShape(Circle())
                 .onHover { hover = $0 }
         }
@@ -159,6 +162,17 @@ public struct OptionRow<ID: Hashable, Cell: View>: View {
             }
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The plainest separator: one physical pixel of light, no groove, no fade.
+public struct Hairline: View {
+    var axis: Axis
+    @Environment(\.displayScale) private var scale
+    public init(axis: Axis = .vertical) { self.axis = axis }
+    public var body: some View {
+        Color.white.opacity(0.16)
+            .frame(width: axis == .vertical ? 1 / scale : nil, height: axis == .vertical ? nil : 1 / scale)
     }
 }
 

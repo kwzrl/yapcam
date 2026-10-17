@@ -6,6 +6,7 @@ import YapcamDesign
 /// turned on Reduce Transparency; a visible outline with Increase Contrast.
 struct PanelSurface: ViewModifier {
     var cornerRadius: CGFloat
+    var sheen = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -15,14 +16,16 @@ struct PanelSurface: ViewModifier {
             .environment(\.colorScheme, .dark).tint(Color.white)
             .background {
                 if reduceTransparency { shape.fill(Yap.ground) }
-                else { GlassSurface(radius: cornerRadius, floating: false) }
+                else { GlassSurface(radius: cornerRadius, floating: false, sheen: sheen) }
             }
             .overlay { if contrast == .increased || reduceTransparency { shape.strokeBorder(Color.white.opacity(contrast == .increased ? 0.6 : 0.16), lineWidth: contrast == .increased ? 1.5 : 1) } }
     }
 }
 
 extension View {
-    func panelSurface(cornerRadius: CGFloat = 14) -> some View { modifier(PanelSurface(cornerRadius: cornerRadius)) }
+    func panelSurface(cornerRadius: CGFloat = 14, sheen: Bool = false) -> some View {
+        modifier(PanelSurface(cornerRadius: cornerRadius, sheen: sheen))
+    }
 }
 
 /// Opacity helpers that respect Increase Contrast.

@@ -57,23 +57,25 @@ public enum Yap {
 /// Live-tunable glass parameters (the design lab edits `shared`; every glass surface reads it).
 @MainActor @Observable public final class GlassTuning {
     public static let shared = GlassTuning()
-    /// Opacity of the warm-grey glass body over the blur (Jupiter recipe: 0.55).
-    public var body: Double = 0.55
+    /// Opacity of the warm-grey glass body over the blur (tuned in the lab 2026-10-17).
+    public var body: Double = 0.19
     /// Extra opacity of the body's light at the top edge and at the bottom edge.
-    public var topLight: Double = 0.10
-    public var bottomLight: Double = 0.06
+    public var topLight: Double = 0.01
+    public var bottomLight: Double = 0.02
     /// Rim light along the top edge.
-    public var rim: Double = 0.18
+    public var rim: Double = 0.29
     /// Warm ambient glow from the lower left (light of the scene behind).
-    public var warmth: Double = 0.10
+    public var warmth: Double = 0.0
     /// Atmospheric shadow under floating panels.
-    public var shadow: Double = 0.35
+    public var shadow: Double = 0.57
+    /// Specular sheen on surfaces that opt in (`glassPanel(sheen: true)`).
+    public var sheen: Double = 0.09
     public init() {}
 
     public func reset() {
         let d = GlassTuning()
         body = d.body; topLight = d.topLight; bottomLight = d.bottomLight
-        rim = d.rim; warmth = d.warmth; shadow = d.shadow
+        rim = d.rim; warmth = d.warmth; shadow = d.shadow; sheen = d.sheen
     }
 }
 
