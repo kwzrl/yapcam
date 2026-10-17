@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - Selection
@@ -387,4 +388,140 @@ public struct ValueRow: View {
         .help(help)
         .accessibilityLabel(title).accessibilityValue(value)
     }
+}
+
+// MARK: - Switch
+
+/// On/off as a groove with a white knob, like the pill slider: off = recessed and dim, on = lit.
+public struct PillSwitch: View {
+    @Binding var isOn: Bool
+    public init(isOn: Binding<Bool>) { _isOn = isOn }
+
+    public var body: some View {
+        Button { isOn.toggle() } label: {
+            ZStack(alignment: isOn ? .trailing : .leading) {
+                Capsule().fill(isOn ? Color.white.opacity(0.32) : Yap.recess)
+                    .overlay(Capsule().strokeBorder(LinearGradient(colors: [.black.opacity(isOn ? 0.15 : 0.5), .white.opacity(0.06)],
+                                                                   startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                Circle().fill(Color.white.opacity(isOn ? 1 : 0.7))
+                    .frame(width: 14, height: 14).padding(3)
+                    .shadow(color: .white.opacity(isOn ? 0.35 : 0), radius: 6)
+            }
+            .frame(width: 36, height: 20)
+            .animation(Yap.Motion.select, value: isOn)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressStyle())
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
+    }
+}
+
+/// A setting that is on or off: label left, switch right; the whole row toggles.
+public struct SwitchRow: View {
+    let title: String
+    @Binding var isOn: Bool
+    public init(_ title: String, isOn: Binding<Bool>) { self.title = title; _isOn = isOn }
+
+    public var body: some View {
+        HStack {
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
+            Spacer(minLength: 8)
+            PillSwitch(isOn: $isOn).accessibilityLabel(title)
+        }
+        .frame(minHeight: 26)
+        .contentShape(Rectangle())
+        .onTapGesture { isOn.toggle() }
+    }
+}
+
+// MARK: - Choice menu
+
+/// A setting with more choices than fit a segment switch: label left, the current choice and a chevron right;
+/// a click opens the system menu.
+public struct ChoiceMenuRow: View {
+    let title: String
+    let options: [String]
+    @Binding var selection: String
+    @State private var hover = false
+
+    public init(_ title: String, options: [String], selection: Binding<String>) {
+        self.title = title; self.options = options; _selection = selection
+    }
+
+    public var body: some View {
+        HStack {
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
+            Spacer(minLength: 8)
+            Menu {
+                ForEach(options, id: \.self) { o in
+                    Button { selection = o } label: { if o == selection { Label(o, systemImage: "checkmark") } else { Text(o) } }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(selection).font(Yap.Font.body)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold))
+                }
+                .foregroundStyle(hover ? Yap.title : Yap.label)
+                .padding(.horizontal, 10).frame(height: 26)
+                .background(Platter(active: false, hover: hover, radius: 8))
+                .contentShape(Rectangle())
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .onHover { hover = $0 }
+            .accessibilityLabel(title).accessibilityValue(selection)
+        }
+    }
+}
+
+// MARK: - Colour
+
+/// A colour setting: label left, the hex value in yellow and a swatch right; a click opens the colour panel.
+public struct ColorSwatchRow: View {
+    let title: String
+    @Binding var color: Color
+    @State private var hover = false
+
+    public init(_ title: String, color: Binding<Color>) { self.title = title; _color = color }
+
+    public var body: some View {
+        HStack(spacing: 8) {
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label)
+            Spacer(minLength: 8)
+            Text(Self.hex(color)).technical()
+            Button { ColorPanelBridge.shared.open(color: NSColor(color)) { color = Color(nsColor: $0) } } label: {
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(color)
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.white.opacity(hover ? 0.6 : 0.25), lineWidth: 1))
+                    .frame(width: 26, height: 22)
+            }
+            .buttonStyle(PressStyle())
+            .onHover { hover = $0 }
+            .accessibilityLabel("\(title) colour")
+        }
+        .frame(minHeight: 26)
+    }
+
+    static func hex(_ c: Color) -> String {
+        let n = NSColor(c).usingColorSpace(.sRGB) ?? .black
+        return String(format: "#%02X%02X%02X", Int(n.redComponent * 255), Int(n.greenComponent * 255), Int(n.blueComponent * 255))
+    }
+}
+
+/// Routes the shared colour panel to whichever swatch opened it last.
+@MainActor final class ColorPanelBridge: NSObject {
+    static let shared = ColorPanelBridge()
+    private var onChange: ((NSColor) -> Void)?
+
+    func open(color: NSColor, onChange: @escaping (NSColor) -> Void) {
+        self.onChange = nil
+        let panel = NSColorPanel.shared
+        panel.color = color
+        panel.showsAlpha = false
+        panel.setTarget(self)
+        panel.setAction(#selector(changed(_:)))
+        self.onChange = onChange
+        panel.orderFront(nil)
+    }
+
+    @objc private func changed(_ panel: NSColorPanel) { onChange?(panel.color) }
 }
