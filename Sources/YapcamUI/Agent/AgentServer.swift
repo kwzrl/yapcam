@@ -141,6 +141,10 @@ import YapcamCore
             if activeCalls[activityID, default: 0] == 0 { activeCalls[activityID] = nil }
         }
         do {
+            if method == "tools/call", AgentVision.names.contains(name) {
+                rpc(try await AgentVision.handle(name: name, arguments: args, project: doc.project))
+                return
+            }
             if method == "tools/call", ["seek", "select", "transcribe", "transcription_status"].contains(name) {
                 switch name {
                 case "seek":
@@ -184,7 +188,7 @@ import YapcamCore
          ("transcribe", "Generate captions using the editor's on-device speech recognizer. Waits for completion, one undo step. Uses existing recording transcript when available.", [:]),
          ("transcription_status", "Read transcription status.", [:])].map { name, description, properties in
             ["name": name, "description": description, "inputSchema": ["type": "object", "properties": properties, "additionalProperties": false]]
-        }
+        } + AgentVision.tools
     }
     private func log(_ doc: EditorDocument, name: String, args: [String: Any], client: String) {
         func flatten(_ command: [String: Any]) -> [[String: Any]] {
