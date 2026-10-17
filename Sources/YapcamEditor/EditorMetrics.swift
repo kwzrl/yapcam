@@ -34,7 +34,9 @@ struct SliderRow<Content: View>: View {
     var body: some View {
         HStack(spacing: EditorMetrics.s) {
             Text(title).lineLimit(2).fixedSize(horizontal: false, vertical: true).frame(width: Self.labelWidth, alignment: .leading)
-            content.frame(maxWidth: .infinity)
+            // Inside a Form a control with a hidden-less empty label gets a leading label column of its own (it squeezed every
+            // slider track to ~47 pt, right-aligned); hiding the label lets the track fill the remaining width.
+            content.labelsHidden().frame(maxWidth: .infinity)
         }
         .accessibilityElement(children: .contain)
     }
