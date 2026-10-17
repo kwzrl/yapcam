@@ -1,4 +1,4 @@
-READY W3 HASH | A1.5, A7.3, X5, B.HW done | swift test --filter YapcamUITests 188 green; not run live
+READY W3 571c2e2 | A1.5, A7.3, X5, B.HW done | swift test --filter YapcamUITests 188 green; not run live
 READY R5 195d560 | every H/M row in ## R5 incoming requests (round 5b, read from main a96173e status files)
 | id | from | request | state |
 |---|---|---|---|
