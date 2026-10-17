@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.1 — fixes from the first hands-on test
+
+- Fixed a crash when pressing Start on the display/window source overlay (settings observer used
+  `objectWillChange.values`, which traps on back-to-back changes; now a debounced Combine sink).
+- The scissors tool now splits zooms, camera layouts and highlights at the click, not only clips.
+- Reel preview (TikTok/Instagram safe areas) is offered and drawn only on portrait canvases.
+
 ## 0.10.0 — release candidate (Screen Studio 4.0.4 parity pass)
 
 Rebuilt the workflow, layout, defaults and option sets to match Screen Studio 4.0.4 closely,
