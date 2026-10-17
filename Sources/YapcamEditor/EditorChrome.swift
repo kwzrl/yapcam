@@ -112,13 +112,32 @@ struct EditorTopBar: View {
     /// True while an export runs: Export is disabled with an explanation (the sheet shows its progress).
     var exportRunning = false
     @State private var presetNames: [String] = []
+    @State private var editingTitle = false
+    @State private var titleDraft = ""
+    @FocusState private var titleFocused: Bool
+    private func commitTitle() {
+        editingTitle = false
+        guard let packageURL, titleDraft != title else { return }
+        do { try EditorWindows.rename(package: packageURL, to: titleDraft) } catch { model.lastError = error.localizedDescription }
+    }
 
     var body: some View {
         HStack(spacing: EditorMetrics.m) {
             Button { if let packageURL { NSWorkspace.shared.activateFileViewerSelecting([packageURL]) } } label: { Image(systemName: "folder") }
                 .help("Show in Finder").accessibilityLabel("Show in Finder").disabled(packageURL == nil)
             Spacer()
-            Text(title).font(.headline).lineLimit(1).truncationMode(.middle)
+            if editingTitle {
+                TextField("Project name", text: $titleDraft)
+                    .textFieldStyle(.roundedBorder).frame(maxWidth: 280).multilineTextAlignment(.center).focused($titleFocused)
+                    .onSubmit { commitTitle() }
+                    .onExitCommand { editingTitle = false }
+                    .accessibilityLabel("Project name")
+            } else {
+                Text(title).font(.headline).lineLimit(1).truncationMode(.middle)
+                    .help(packageURL == nil ? "" : "Double-click to rename")
+                    .onTapGesture(count: 2) { if packageURL != nil { titleDraft = title; editingTitle = true; titleFocused = true } }
+                    .accessibilityAction(named: "Rename") { if packageURL != nil { titleDraft = title; editingTitle = true; titleFocused = true } }
+            }
             if case .failed = model.saveState { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help("Couldn't save the project") }
             Spacer()
             Divider().frame(height: 16)

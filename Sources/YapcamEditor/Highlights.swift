@@ -101,7 +101,7 @@ extension EditorModel {
                 }
             }
             return HighlightRegion(id: id, startNs: Int64(a), endNs: Int64(b), rect: rect.count == 4 ? rect : [0.25, 0.25, 0.5, 0.5], space: space,
-                                   radius: num(o["radius"], 12), opacity: num(o["opacity"], 1), dimOpacity: num(o["dim_opacity"], 0.4),
+                                   radius: num(o["radius"], 12), opacity: num(o["opacity"], 1), dimOpacity: num(o["dim_opacity"], 0.5),
                                    fill: fill.count == 4 ? fill : [1, 0.85, 0.2, 0], stroke: stroke.count == 4 ? stroke : [1, 0.85, 0.2, 1],
                                    strokeWidth: num(o["stroke_width"], 3), isBlur: { if case .string("blur")? = o["kind"] { true } else { false } }(),
                                    blurRadius: min(max(num(o["blur_radius"], HighlightRegion.defaultBlurRadius), 0), 128))

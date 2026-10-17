@@ -40,7 +40,9 @@ public final class FakeProject: EditingProject {
     private struct Snapshot { var clips: [TimelineClip]; var zooms: [TimelineZoom]; var settings: JSONValue }
     private var undoStack: [Snapshot] = [], redoStack: [Snapshot] = []
 
+    public let sourceDurationNs: Int64
     public init(durationNs: Int64 = 10_000_000_000) {
+        sourceDurationNs = durationNs
         clips = [TimelineClip(id: "c0", srcStartNs: 0, srcEndNs: durationNs)]
     }
 
@@ -110,6 +112,15 @@ public final class FakeProject: EditingProject {
             zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: scale, focusX: fx, focusY: fy))
         case .insertZoom(let s, let e):
             zooms.append(TimelineZoom(id: newID("z"), startNs: s, endNs: e, mode: .manual, scale: 2, focusX: 0.5, focusY: 0.5))
+        case .insertSource(let s, let e, let at, let speed, let mic, let sys, let hide, let smooth):
+            var t: Int64 = 0, index = clips.count
+            if at == 0 { index = 0 } else {
+                for (i, c) in clips.enumerated() { t += c.timelineDurationNs; if t == at { index = i + 1; break } }
+                if t != at && at != 0 && !(clips.map(\.timelineDurationNs).reduce(0, +) == at) { throw NSError(domain: "Fake", code: 5, userInfo: [NSLocalizedDescriptionKey: "not a clip boundary"]) }
+            }
+            var c = TimelineClip(id: newID("c"), srcStartNs: s, srcEndNs: e, speed: speed)
+            c.micGain = mic; c.systemGain = sys; c.hideCursor = hide; c.disableSmoothing = smooth
+            clips.insert(c, at: index)
         case .insertZoomWith(let st, let e, let patch):
             var z = TimelineZoom(id: newID("z"), startNs: st, endNs: e, mode: .manual, scale: 2, focusX: 0.5, focusY: 0.5)
             if case .number(let v)? = patch["scale"] { z.scale = v }
@@ -211,6 +222,21 @@ public final class FakeProject: EditingProject {
         let snap = Snapshot(clips: clips, zooms: zooms, settings: settings)
         settings = Self.setting(settings, ["canvas", "captions"][...], .array(rows))
         undoStack.append(snap); redoStack.removeAll()
+    }
+    public var musicLibrary: [LibraryTrack] = [
+        LibraryTrack(id: "open-road", name: "Open Road", category: "commercial", categoryTitle: "Commercial", beatsPerMinute: 112, durationNs: 17_000_000_000),
+        LibraryTrack(id: "pulse-grid", name: "Pulse Grid", category: "electronic", categoryTitle: "Electronic", beatsPerMinute: 120, durationNs: 16_000_000_000),
+        LibraryTrack(id: "felt-lines", name: "Felt Lines", category: "instrumental", categoryTitle: "Instrumental", beatsPerMinute: 80, durationNs: 24_000_000_000),
+        LibraryTrack(id: "window-seat", name: "Window Seat", category: "lo-fi", categoryTitle: "Lo-fi", beatsPerMinute: 76, durationNs: 25_000_000_000)]
+    public private(set) var libraryMusicAdded: [(String, Int64)] = []
+    public func addLibraryMusic(trackID: String, startNs: Int64) async throws {
+        guard let t = musicLibrary.first(where: { $0.id == trackID }) else { throw NSError(domain: "Fake", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unknown track"]) }
+        libraryMusicAdded.append((trackID, startNs))
+        var rows: [JSONValue] = []
+        if case .object(let a)? = Optional(settings), case .object(let audio)? = a["audio"], case .array(let r)? = audio["music"] { rows = r }
+        rows.append(.object(["id": .string("music-\(rows.count)"), "tl_start_ns": .number(Double(startNs)), "tl_end_ns": .number(Double(durationNs)),
+                             "source": .string("file"), "path": .string("assets/\(t.id).wav"), "gain_db": .number(-26.02), "loop": .bool(true)]))
+        settings = Self.setting(settings, ["audio", "music"][...], .array(rows))
     }
     public private(set) var importedMusic: [(URL, Int64)] = []
     public var importDelay: Duration = .zero

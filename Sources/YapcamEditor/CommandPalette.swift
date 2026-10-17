@@ -22,6 +22,9 @@ extension EditorModel {
             PaletteCommand(title: "Copy item settings", shortcut: "⌘C", enabled: hasSel) { [self] in copySelectedSettings() },
             PaletteCommand(title: "Paste item settings", shortcut: "⌘V", enabled: itemClipboard != nil && hasSel) { [self] in pasteSettings() },
             PaletteCommand(title: "Delete selection", shortcut: "⌫", enabled: hasSel) { [self] in deleteSelection() },
+            PaletteCommand(title: "Cut selection (copy settings, remove)", shortcut: "⌘X", enabled: hasSel) { [self] in cutSelection() },
+            PaletteCommand(title: "Reset trim of this clip", shortcut: "", enabled: { if case .clip = selection { hasTrimsOrCuts } else { false } }()) { [self] in if case .clip(let id) = selection { resetTrim(clipID: id) } },
+            PaletteCommand(title: "Reset all trims and cuts", shortcut: "", enabled: hasTrimsOrCuts) { [self] in resetAllTrimsAndCuts() },
             PaletteCommand(title: "Trim start to playhead", shortcut: "[", enabled: true) { [self] in trim(keepAfter: true) },
             PaletteCommand(title: "Trim end to playhead", shortcut: "]", enabled: true) { [self] in trim(keepAfter: false) },
             PaletteCommand(title: "Add zoom at playhead", shortcut: "Z", enabled: true) { [self] in addZoomAtPlayhead() },
@@ -37,7 +40,7 @@ extension EditorModel {
             PaletteCommand(title: "Add blur mask at playhead", shortcut: "", enabled: true) { [self] in addHighlightAtPlayhead(kind: .blur) },
             PaletteCommand(title: "Add cover mask at playhead", shortcut: "", enabled: true) { [self] in addHighlightAtPlayhead(kind: .mask) },
             PaletteCommand(title: "Generate captions from speech", shortcut: "", enabled: true) { [self] in generateCaptions() },
-            PaletteCommand(title: "Add calm background music", shortcut: "", enabled: true) { [self] in addBuiltInMusic(builtInMusic[0]) },
+            PaletteCommand(title: "Remove background audio", shortcut: "", enabled: !music.isEmpty) { [self] in removeAllMusic() },
             PaletteCommand(title: "Regenerate automatic zooms", shortcut: "", enabled: true) { [self] in regenerateAutoZooms() },
             PaletteCommand(title: "Add camera layout at playhead", shortcut: "", enabled: hasCamera) { [self] in addLayoutAtPlayhead() },
             PaletteCommand(title: "Hide cursor from playhead", shortcut: "", enabled: true) { [self] in addCursorHideAtPlayhead() },
@@ -57,7 +60,8 @@ extension EditorModel {
             PaletteCommand(title: smoothWaveform ? "Use detailed waveform" : "Use smooth waveform", shortcut: "", enabled: showWaveform) { [self] in setSmoothWaveform(!smoothWaveform) },
             PaletteCommand(title: "Toggle snapping", shortcut: "", enabled: true) { [self] in snappingEnabled.toggle() },
         ]
-        return actions + exportCommands + settingCommands
+        let musicCommands = project.musicLibrary.map { t in PaletteCommand(title: "Add background music: \(t.name) (\(t.categoryTitle))", shortcut: "", enabled: true) { [self] in addLibraryMusic(trackID: t.id) } }
+        return actions + exportCommands + musicCommands + settingCommands
     }
 
     public func filteredCommands(_ query: String) -> [PaletteCommand] {

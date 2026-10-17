@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Combine
 import YapcamCore
@@ -112,6 +113,13 @@ public final class EditorModel: ObservableObject {
     /// stale model can never journal over a reopened document's newer state.
     public private(set) var isClosed = false
     var musicTask: Task<Void, Never>?
+    /// Background-audio library UI state: track being previewed, the user's own audio folder, volumes remembered while muted.
+    @Published public internal(set) var previewingMusicID: String?
+    public var userMusicFolder = EditorModel.defaultMusicFolder
+    var musicPreviewTask: Task<Void, Never>?
+    var musicPlayer: AVAudioPlayer?
+    var musicPreviewFile: URL?
+    var mutedMusicGains: [String: Double] = [:]
 
     /// Saves pending edits, cancels all background work and makes the model inert.
     public func close() {
@@ -119,6 +127,7 @@ public final class EditorModel: ObservableObject {
         saveNow()
         isClosed = true
         autosaveTask?.cancel()
+        stopMusicPreview()
         for t in [silenceTask, captionTask, wallpaperTask, musicTask, pendingInvalidate, silenceRangesTask] { t?.cancel() }
         player.pause()
         project.close()      // core refuses any mutation from now on, even from work that was already past its last cancellation check

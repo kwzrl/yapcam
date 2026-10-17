@@ -153,3 +153,56 @@ extension EditorModel {
         return true
     }
 }
+
+// MARK: reset trims and cuts, cut (⌘X)
+
+extension EditorModel {
+    /// Spans of the original recording that are not on the timeline, each with the timeline boundary they belong at
+    /// (the end of the last clip, in timeline order, that ends at or before the gap; 0 when none).
+    func trimGaps() -> [(startNs: Int64, endNs: Int64, atNs: Int64)] {
+        let total = project.sourceDurationNs
+        guard total > 0 else { return [] }
+        let covered = clips.map { (a: $0.srcStartNs, b: $0.srcEndNs) }.sorted { $0.a < $1.a }
+        var gaps: [(Int64, Int64)] = [], cursor: Int64 = 0
+        for c in covered { if c.a > cursor { gaps.append((cursor, c.a)) }; cursor = max(cursor, c.b) }
+        if cursor < total { gaps.append((cursor, total)) }
+        let starts = clipStarts()
+        return gaps.map { g in
+            let before = starts.last { $0.clip.srcEndNs <= g.0 }
+            return (g.0, g.1, before.map { $0.startNs + $0.clip.timelineDurationNs } ?? 0)
+        }
+    }
+    private func restoreCommands(_ gaps: [(startNs: Int64, endNs: Int64, atNs: Int64)], like template: TimelineClip?) -> [EditorCommand] {
+        // Last boundary first, so earlier boundaries keep their timeline positions while clips are inserted.
+        gaps.sorted { $0.atNs > $1.atNs || ($0.atNs == $1.atNs && $0.startNs > $1.startNs) }.map {
+            .insertSource(startNs: $0.startNs, endNs: $0.endNs, atNs: $0.atNs, speed: template?.speed ?? 1,
+                          micGain: template?.micGain ?? 1, systemGain: template?.systemGain ?? 1,
+                          hideCursor: template?.hideCursor ?? false, disableSmoothing: template?.disableSmoothing ?? false)
+        }
+    }
+    /// Whether anything of the recording is cut away.
+    public var hasTrimsOrCuts: Bool { !trimGaps().isEmpty }
+    /// "Reset all trims and cuts": the whole recording is back on the timeline (one undo step); other clips are untouched.
+    public func resetAllTrimsAndCuts() {
+        let gaps = trimGaps()
+        guard !gaps.isEmpty else { return }
+        perform(.batch(restoreCommands(gaps, like: nil)))
+    }
+    /// "Reset trim" of one clip: the cut-away parts directly before and after it come back next to it with its speed and settings.
+    public func resetTrim(clipID: String) {
+        guard let entry = clipStarts().first(where: { $0.clip.id == clipID }) else { return }
+        let c = entry.clip, end = entry.startNs + c.timelineDurationNs
+        var cmds: [(startNs: Int64, endNs: Int64, atNs: Int64)] = []
+        for g in trimGaps() {
+            if g.endNs == c.srcStartNs { cmds.append((g.startNs, g.endNs, entry.startNs)) }
+            else if g.startNs == c.srcEndNs { cmds.append((g.startNs, g.endNs, end)) }
+        }
+        guard !cmds.isEmpty else { return }
+        perform(.batch(restoreCommands(cmds, like: c)))
+    }
+    /// ⌘X: copies the selected item's settings and removes the item (one undo step); nothing selected = false.
+    @discardableResult public func cutSelection() -> Bool {
+        guard selection != .none, copySelectedSettings() else { return false }
+        deleteSelection(); return true
+    }
+}

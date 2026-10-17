@@ -109,6 +109,7 @@ public final class CoreEditingProject: EditingProject {
                              crop: CGRect(x: f.screen_crop.x, y: f.screen_crop.y, width: f.screen_crop.w, height: f.screen_crop.h))
     }
     public var hasCamera: Bool { project.session.tracks.camera != nil }
+    public var sourceDurationNs: Int64 { project.session.segments.map { $0.srcStartNs + $0.durationNs }.max() ?? 0 }
     public var cameraPixelSize: (width: Int, height: Int)? {
         guard let s = project.session.tracks.camera?.pixelSize, s.count == 2, s[0] > 0, s[1] > 0 else { return nil }
         return (s[0], s[1])
@@ -186,6 +187,9 @@ public final class CoreEditingProject: EditingProject {
             if let mode { patch["mode"] = .string(mode.rawValue) }
             return .updateZoom(id: id, patch: patch)
         case .insertZoom(let s, let e): return .insertTimelineItem(.zoom, startNs: s, durationNs: e - s)
+        case .insertSource(let s, let e, let at, let speed, let mic, let sys, let hide, let smooth):
+            return .insertSource(startNs: s, endNs: e, atNs: at, speed: speed,
+                                 settings: ClipSettings(micGain: mic, systemGain: sys, hideCursor: hide, disableSmoothing: smooth))
         case .insertZoomWith(let s, let e, let patch): return .insertTimelineItem(.zoom, startNs: s, durationNs: e - s, patch: patch)
         case .coalesced(let key, let inner): return .coalescedEdit(key: key, command: map(inner))
         case .setZoomLens(let id, let lens):
@@ -208,7 +212,7 @@ public final class CoreEditingProject: EditingProject {
     /// Structural timeline edits go through core's checked envelope (minimum clip/zoom lengths, atomic, history-safe).
     private func isStructural(_ c: EditorCommand) -> Bool {
         switch c {
-        case .split, .deleteRange, .addZoom, .insertZoom, .insertZoomWith, .updateZoom, .setZoomLens, .processSilence: true
+        case .split, .deleteRange, .addZoom, .insertZoom, .insertSource, .insertZoomWith, .updateZoom, .setZoomLens, .processSilence: true
         case .batch(let cs): cs.contains(where: isStructural)
         case .coalesced(_, let inner): isStructural(inner)
         default: false
@@ -245,8 +249,16 @@ public final class CoreEditingProject: EditingProject {
     public func importPreset(from url: URL) throws { try project.importPreset(from: url); refresh() }
     public func importTranscript(_ data: Data) throws { try project.importTranscript(data); refresh() }
     public func importMusic(_ file: URL, startNs: Int64) async throws {
-        try await project.importMusic(file, startNs: startNs, endNs: nil, gainDb: -18, loop: true); refresh()
+        // The reference's background audio starts at 5 % volume (−26 dB).
+        try await project.importMusic(file, startNs: startNs, endNs: nil, gainDb: EditorModel.defaultMusicGainDb, loop: true); refresh()
     }
+    public var musicLibrary: [LibraryTrack] {
+        MusicLibrary.tracks.map { LibraryTrack(id: $0.id, name: $0.name, category: $0.category.rawValue, categoryTitle: $0.category.title, beatsPerMinute: $0.beatsPerMinute, durationNs: $0.durationNs) }
+    }
+    public func addLibraryMusic(trackID: String, startNs: Int64) async throws {
+        try await MusicLibrary.apply(trackID: trackID, to: project, startNs: startNs); refresh()
+    }
+    public func writeLibraryTrack(trackID: String, to url: URL) async throws { try await MusicLibrary.write(trackID: trackID, to: url) }
 
     private struct AudioRangeRow: Decodable {
         var track: String, path: String

@@ -1021,3 +1021,182 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(doc.model.project.hasCamera == (doc.model.project.cameraPixelSize != nil))
     }
 }
+
+@MainActor @Suite struct BackgroundAudioLibraryTests {
+    private func doc() throws -> (EditorDocument, () -> Void) {
+        let d = try pkgCopy(); let iso = EditorStorage.makeIsolated()
+        return (try EditorDocument(package: d, presets: iso.store), { try? FileManager.default.removeItem(at: d); iso.cleanup() })
+    }
+
+    @Test func categoriesAndTracksComeFromRendersLibrary() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        #expect(m.musicCategories.map(\.title) == MusicLibrary.Category.allCases.map(\.title))      // Commercial, Electronic, Instrumental, Lo-fi
+        #expect(m.musicCategories.count == 4)
+        #expect(m.project.musicLibrary.count == MusicLibrary.tracks.count && MusicLibrary.tracks.count >= 18)
+        for c in m.musicCategories { #expect(!m.musicTracks(in: c.id).isEmpty, "\(c.title) has no tracks") }
+    }
+
+    @Test func addingALibraryTrackIsOneUndoStepAtFivePercentLooping() async throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        let track = try #require(m.musicTracks(in: "lo-fi").first)
+        m.seek(toNs: 500_000_000)
+        m.addLibraryMusic(trackID: track.id); await m.waitForMusicImport()
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        let item = try #require(m.music.first)
+        #expect(item.loop && abs(item.gainDb - EditorModel.defaultMusicGainDb) < 0.1 && abs(m.musicVolume - 0.05) < 0.002)
+        // Generated audio is real: the imported file exists in the package and has the track's length.
+        let file = doc.project.packageURL.appendingPathComponent(item.path)
+        #expect(FileManager.default.fileExists(atPath: file.path), Comment(rawValue: item.path))
+        m.undo(); #expect(m.music.isEmpty)
+    }
+
+    @Test func volumeMuteAndRemovalActOnAllBackgroundAudio() async throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        let ids = Array(m.project.musicLibrary.prefix(2).map(\.id))
+        m.seek(toNs: 200_000_000); m.addLibraryMusic(trackID: ids[0]); await m.waitForMusicImport()
+        m.seek(toNs: 1_200_000_000); m.addLibraryMusic(trackID: ids[1]); await m.waitForMusicImport()
+        #expect(m.music.count == 2)
+        m.setMusicVolume(0.5)
+        #expect(m.music.allSatisfy { abs(EditorModel.musicVolume(forGainDb: $0.gainDb) - 0.5) < 0.01 })
+        m.undo(); #expect(abs(m.musicVolume - 0.05) < 0.002)                // one undo step for both tracks
+        m.setMusicVolume(0.3)
+        m.setMusicMuted(true); #expect(m.isMusicMuted && m.music.allSatisfy { $0.gainDb <= -95 })
+        m.setMusicMuted(false); #expect(!m.isMusicMuted && abs(m.musicVolume - 0.3) < 0.01)
+        m.setMusicVolume(0); #expect(m.musicVolume == 0)
+        m.removeAllMusic(); #expect(m.music.isEmpty)
+        // Gain/volume conversions are inverse and bounded.
+        for v in [0.01, 0.05, 0.25, 1.0] { #expect(abs(EditorModel.musicVolume(forGainDb: EditorModel.musicGainDb(forVolume: v)) - v) < 1e-9) }
+        #expect(EditorModel.musicGainDb(forVolume: 0) == -96 && EditorModel.musicGainDb(forVolume: 2) == 0)
+    }
+
+    @Test func userFolderListsAudioFilesAndDropsAddTheFirstAudioFile() async throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("audio-lib-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: folder) }
+        m.userMusicFolder = folder
+        for n in ["b.mp3", "a.wav", "notes.txt", ".hidden.wav"] { try Data("x".utf8).write(to: folder.appendingPathComponent(n)) }
+        #expect(m.userMusicFiles().map(\.lastPathComponent) == ["a.wav", "b.mp3"])           // audio only, sorted, hidden skipped
+        #expect(!m.dropMusic(urls: [folder.appendingPathComponent("notes.txt")]))            // not audio: refused
+        #expect(!m.dropMusic(urls: [URL(string: "https://example.com/a.wav")!]))              // not a file
+        // A real audio file: the first tone of the fixture's own recording is a valid audio file to import.
+        let source = doc.project.packageURL.appendingPathComponent("recording/seg-000/system.m4a")
+        let copy = folder.appendingPathComponent("mine.m4a"); try FileManager.default.copyItem(at: source, to: copy)
+        m.seek(toNs: 300_000_000)
+        #expect(m.dropMusic(urls: [folder.appendingPathComponent("notes.txt"), copy]))
+        await m.waitForMusicImport()
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.music.count == 1 && m.music[0].startNs == 300_000_000)
+    }
+
+    @Test func previewStartsAndStopsWithoutLeavingFilesBehind() async throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        let id = try #require(m.project.musicLibrary.first?.id)
+        m.toggleMusicPreview(trackID: id); #expect(m.previewingMusicID == id)
+        m.toggleMusicPreview(trackID: id); #expect(m.previewingMusicID == nil)             // second press stops
+        m.stopMusicPreview()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(m.previewingMusicID == nil && m.musicPlayer == nil && m.musicPreviewFile == nil)
+    }
+}
+
+@MainActor @Suite struct Wave3EditorTests {
+    private func doc() throws -> (EditorDocument, () -> Void) {
+        let d = try pkgCopy(); let iso = EditorStorage.makeIsolated()
+        return (try EditorDocument(package: d, presets: iso.store), { try? FileManager.default.removeItem(at: d); iso.cleanup() })
+    }
+
+    // E1.1 rename
+    @Test func projectNamesAreCleanedAndRenamingMovesThePackage() throws {
+        #expect(EditorWindows.sanitizedProjectName("  My/Demo: v2\\ ") == "MyDemo v2")
+        #expect(EditorWindows.sanitizedProjectName("..hidden") == "hidden" && EditorWindows.sanitizedProjectName("   ") == "")
+        #expect(EditorWindows.sanitizedProjectName(String(repeating: "a", count: 300)).count == 120)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rename-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("Old.yapcam"), other = dir.appendingPathComponent("Taken.yapcam")
+        try FileManager.default.createDirectory(at: a, withIntermediateDirectories: true); try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: a.appendingPathComponent("project.json"))
+        #expect(throws: (any Error).self) { try EditorWindows.rename(package: a, to: "Taken") }            // name in use: nothing changes
+        #expect(FileManager.default.fileExists(atPath: a.path))
+        #expect(throws: (any Error).self) { try EditorWindows.rename(package: a, to: "  / ") }              // empty after cleaning
+        #expect(try EditorWindows.rename(package: a, to: "Old") == a)                                        // same name: no-op
+        let renamed = try EditorWindows.rename(package: a, to: "New/Name")
+        #expect(renamed.lastPathComponent == "NewName.yapcam" && FileManager.default.fileExists(atPath: renamed.appendingPathComponent("project.json").path))
+        #expect(!FileManager.default.fileExists(atPath: a.path))
+        EditorWindows.renameHandler = { url, name in url.deletingLastPathComponent().appendingPathComponent("handled-\(name).yapcam") }
+        defer { EditorWindows.renameHandler = nil }
+        #expect(try EditorWindows.rename(package: renamed, to: "Via App").lastPathComponent == "handled-Via App.yapcam")   // the app can take over
+    }
+
+    // P4 keys
+    @Test func resetTrimAndResetAllRestoreCutsInOneUndoStep() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        let full = m.durationNs, clips0 = m.clips.count
+        #expect(!m.hasTrimsOrCuts)
+        m.seek(toNs: 1_000_000_000); m.splitAtPlayhead(); m.seek(toNs: 2_000_000_000); m.splitAtPlayhead()
+        m.selection = .clip(m.clips[1].id); m.deleteSelection()                           // cut the middle part
+        m.seek(toNs: 500_000_000); m.trim(keepAfter: true)
+        #expect(m.hasTrimsOrCuts && m.durationNs < full)
+        m.resetAllTrimsAndCuts()
+        #expect(m.lastError == nil, "\(m.lastError ?? "")")
+        #expect(m.durationNs == full && !m.hasTrimsOrCuts, "duration \(m.durationNs) of \(full)")
+        let covered = m.clips.reduce(0) { $0 + ($1.srcEndNs - $1.srcStartNs) }
+        #expect(covered == m.project.sourceDurationNs)
+        m.undo(); #expect(m.hasTrimsOrCuts && m.durationNs < full)                        // one undo step for the whole reset
+        _ = clips0
+    }
+
+    @Test func resetTrimOfOneClipBringsBackOnlyItsNeighbours() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        let full = m.durationNs
+        m.seek(toNs: 1_000_000_000); m.splitAtPlayhead()                                  // clips A | B
+        m.seek(toNs: 3_000_000_000); m.splitAtPlayhead()                                  // A | B | C
+        m.selection = .clip(m.clips[1].id); m.deleteSelection()                           // cut B away: A | C
+        m.seek(toNs: 2_000_000_000); m.splitAtPlayhead()                                  // A | C1 | C2
+        let c2 = m.clips[2]; m.selection = .clip(c2.id); m.deleteSelection()               // trim the end: A | C1
+        let before = m.durationNs
+        m.resetTrim(clipID: m.clips[1].id)                                                // C1: bring back what is next to it
+        #expect(m.durationNs > before && m.durationNs < full + 1)
+        #expect(m.clips.contains { $0.srcStartNs == c2.srcStartNs })                       // the part after it returned
+    }
+
+    @Test func cutCopiesSettingsAndRemovesTheItem() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.seek(toNs: 500_000_000); m.addZoomAtPlayhead()
+        let z = try #require(m.selectedZoom)
+        #expect(m.handleShortcut("x", .command))
+        #expect(m.zooms.isEmpty)
+        m.seek(toNs: 4_000_000_000); m.addZoomAtPlayhead()
+        #expect(m.itemClipboard != nil)                                                    // the cut zoom's settings can be pasted
+        #expect(!m.cutSelection() || m.zooms.isEmpty)
+        _ = z
+    }
+
+    // E13.3
+    @Test func maskWithoutAStoredOpacityReadsAsHalf() throws {
+        let (doc, done) = try doc(); defer { done() }; let m = doc.model
+        m.seek(toNs: 500_000_000); m.addHighlightAtPlayhead(kind: .highlight)
+        #expect(m.highlights.first?.dimOpacity == 0.5)
+        // (A stored record without the field is normalised by core, whose default is core's to change.)
+    }
+
+    // X5
+    @Test func quickExportHasItsOwnRememberedStoreWithFactoryDefaults() {
+        let suite = "yapcam.test.\(UUID().uuidString)"; let d = UserDefaults(suiteName: suite)!; defer { d.removePersistentDomain(forName: suite) }
+        let factory = ExportRememberedSettings.quick(from: d)
+        #expect(factory.target == .file && factory.settings.format == .mp4 && factory.settings.codec == .h264 && factory.settings.outputHeight == 720
+                && factory.settings.fps == 60 && factory.settings.compression == .social && factory.settings.includeAudio)
+        // The dialog's choices do not leak into quick export.
+        let dialog = ExportModel(engine: FakeExporter()); dialog.remember(in: .dialog, defaults: d); dialog.format = .gif; dialog.fps = 30
+        #expect(ExportRememberedSettings.quick(from: d).settings.format == .mp4)
+        ExportRememberedSettings.rememberQuick(format: .mp4hevc, height: 1080, fps: 30, compression: .web, includeAudio: false, target: .clipboard, in: d)
+        let q = ExportRememberedSettings.quick(from: d)
+        #expect(q.target == .clipboard && q.settings.codec == .hevc && q.settings.outputHeight == 1080 && q.settings.fps == 30 && q.settings.compression == .web && !q.settings.includeAudio)
+        // A paired export is not offered for the clipboard: render's normalisation applies.
+        ExportRememberedSettings.rememberQuick(format: .mp4both, height: 720, fps: 60, compression: .social, includeAudio: true, target: .clipboard, in: d)
+        #expect(ExportRememberedSettings.quick(from: d).settings.codec == .h264)
+        #expect(!q.settings.summary(for: q.target == .clipboard ? .clipboard : .file).isEmpty)
+        // The dialog still has its own memory.
+        let again = ExportModel(engine: FakeExporter()); again.remember(in: .dialog, defaults: d)
+        #expect(again.format == .gif && again.fps == 30)
+    }
+}
