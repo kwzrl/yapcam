@@ -172,6 +172,9 @@ struct QuickExportSettings: View {
             Toggle("Show quick export widget after recording", isOn: $s.showQuickExportWidget)
             Text("The widget offers Copy, Save and Edit instead of opening the editor right away. Quick export uses the settings above; Copy and Save in the widget, the Record menu and the shortcuts all use them.")
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle("Always keep the project after using the widget", isOn: $s.alwaysKeepProjectAfterQuickExport)
+            Text("Off: closing the widget after a Copy or Save asks whether to keep the project or move it to the Trash.")
+                .font(.caption).foregroundStyle(.secondary)
             Picker("After a quick export", selection: $s.actionAfterQuickExport) { ForEach(ActionAfterQuickExport.allCases) { Text($0.title).tag($0) } }
             Picker("After recording", selection: $s.afterRecording) { ForEach(AfterRecording.allCases) { Text($0.title).tag($0) } }
         }.formStyle(.grouped)

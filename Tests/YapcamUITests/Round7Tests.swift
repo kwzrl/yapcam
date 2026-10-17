@@ -314,4 +314,24 @@ import YapcamEditor
         await #expect(throws: RawExtract.ExtractError.self) { try await RawExtract.run([], into: dir) }
         await #expect(throws: RawExtract.ExtractError.self) { try await RawExtract.run(RawExtract.plan(package: fixturePackage), into: dir, isCancelled: { true }) }
     }
+
+    // S-09
+    @Test func closingTheWidgetAsksOnlyAfterAnExportAndNeverWhileRunning() {
+        typealias R = QuickExportCloseRule
+        func d(_ st: QuickExport.State, keep: Bool = false, pkg: Bool = true, editor: Bool = false) -> R.Decision {
+            R.decide(state: st, alwaysKeep: keep, hasPackage: pkg, openInEditor: editor)
+        }
+        #expect(d(.done("Copied")) == .askKeepOrTrash)
+        #expect(d(.done("Saved"), keep: true) == .justClose)         // the setting turns the question off
+        #expect(d(.idle) == .justClose && d(.failed("x")) == .justClose)    // closing without having exported asks nothing
+        #expect(d(.working(0.4)) == .justClose)                      // never trash while an export runs
+        #expect(d(.done("Copied"), pkg: false) == .justClose)
+        #expect(d(.done("Copied"), editor: true) == .justClose)      // Edit opened it: it stays
+    }
+    @Test func alwaysKeepSettingDefaultsOffAndResets() {
+        let s = AppSettings(store: UserDefaults(suiteName: "r7keep-\(UUID())")!)
+        #expect(!s.alwaysKeepProjectAfterQuickExport)
+        s.alwaysKeepProjectAfterQuickExport = true; s.resetToDefaults()
+        #expect(!s.alwaysKeepProjectAfterQuickExport)
+    }
 }

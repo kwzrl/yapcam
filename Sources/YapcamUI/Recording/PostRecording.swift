@@ -306,6 +306,35 @@ import YapcamRender
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
+    /// The widget's close button: after a Copy or Save (and nothing else holding the project) it asks Keep or Trash.
+    func requestClose() {
+        let pkg = model.package
+        let decision = QuickExportCloseRule.decide(state: QuickExport.shared.state, alwaysKeep: AppSettings.shared.alwaysKeepProjectAfterQuickExport,
+                                                    hasPackage: pkg != nil, openInEditor: pkg.map { EditorWindows.isOpen(package: $0) } ?? false)
+        guard decision == .askKeepOrTrash, let pkg else { panel?.orderOut(nil); return }
+        switch Self.confirmKeepOrTrash(pkg) {
+        case .keep(let dontAskAgain):
+            if dontAskAgain { AppSettings.shared.alwaysKeepProjectAfterQuickExport = true }
+            panel?.orderOut(nil)
+        case .trash:
+            do { try ProjectActions.trash(pkg); panel?.orderOut(nil); RecentProjectsWindow.shared.model.reload() }
+            catch { RecordingController.shared.alert = AppAlert(title: "Could not move to the Trash", error: error) }
+        }
+    }
+
+    enum KeepChoice: Equatable { case keep(dontAskAgain: Bool), trash }
+    /// Replaceable so tests never show the alert.
+    static var confirmKeepOrTrash: @MainActor (URL) -> KeepChoice = { pkg in
+        let a = NSAlert()
+        a.messageText = "Keep the project or move it to the Trash?"
+        a.informativeText = "“\(pkg.deletingPathExtension().lastPathComponent)” was exported with the widget. Keeping it lets you edit it later."
+        a.addButton(withTitle: "Keep"); a.addButton(withTitle: "Move to Trash")
+        a.showsSuppressionButton = true; a.suppressionButton?.title = "Don't ask again"
+        a.layout(); RecordingController.shared.engine.registerExcluded(a.window); defer { RecordingController.shared.engine.unregisterExcluded(a.window) }
+        let r = a.runModal()
+        return r == .alertSecondButtonReturn ? .trash : .keep(dontAskAgain: a.suppressionButton?.state == .on)
+    }
+
     func showProgress() { if model.package == nil { model.package = RecordingController.shared.lastPackage }; present() }
     func refresh() { model.objectWillChange.send() }
 
@@ -316,7 +345,7 @@ import YapcamRender
             p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true
             p.level = .floating; p.isMovableByWindowBackground = true; p.isReleasedWhenClosed = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            let host = NSHostingView(rootView: QuickExportWidgetView(model: model, close: { [weak self] in self?.panel?.orderOut(nil) })
+            let host = NSHostingView(rootView: QuickExportWidgetView(model: model, close: { [weak self] in self?.requestClose() })
                 .environmentObject(QuickExport.shared))
             host.sizingOptions = [.intrinsicContentSize]
             p.contentView = host
