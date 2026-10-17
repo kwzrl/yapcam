@@ -155,7 +155,7 @@ struct EditorTopBar: View {
                 .menuStyle(.borderlessButton).fixedSize()
                 .onAppear { presetNames = model.presetStore.names() }
                 .help("Apply or save a look")
-            // Filled with the accent colour in every window state (the system prominent style turns grey in inactive windows).
+            // Filled with the accent color in every window state (the system prominent style turns gray in inactive windows).
             Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
             .buttonStyle(PrimaryButtonStyle()).disabled(exportRunning)
             .keyboardShortcut("e", modifiers: [.command])

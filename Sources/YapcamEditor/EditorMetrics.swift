@@ -19,7 +19,7 @@ extension View {
 }
 
 extension NSColor {
-    /// Quiet neutral behind the preview: a hair darker than the window in light mode, the under-page colour in dark mode.
+    /// Quiet neutral behind the preview: a hair darker than the window in light mode, the under-page color in dark mode.
     static let previewSurround = NSColor(name: nil) { a in
         a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .underPageBackgroundColor : NSColor(white: 0.93, alpha: 1)
     }
@@ -42,8 +42,8 @@ struct SliderRow<Content: View>: View {
     }
 }
 
-/// The one primary action of a view: filled with the accent colour in every window state (the system prominent style
-/// turns grey in inactive windows), dimmed while pressed or disabled.
+/// The one primary action of a view: filled with the accent color in every window state (the system prominent style
+/// turns gray in inactive windows), dimmed while pressed or disabled.
 struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
@@ -54,7 +54,7 @@ struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: theme (own colours; structure follows the reference editor: dark stage, floating inspector card)
+// MARK: theme (own colors; structure follows the reference editor: dark stage, floating inspector card)
 
 enum EditorTheme {
     private static func dynamic(dark: NSColor, light: NSColor) -> Color {
@@ -71,24 +71,30 @@ enum EditorTheme {
 }
 
 /// Option group as separate rounded pills (selected = filled and outlined), like the reference's background type row.
+/// Pills size to their text with equal padding; when the row does not fit it scrolls sideways instead of squeezing the text.
 struct PillPicker<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [(label: String, value: Value)]
     var accessibilityTitle = ""
+
+    private func pill(_ o: (label: String, value: Value), fill: Bool) -> some View {
+        let on = o.value == selection
+        return Button { selection = o.value } label: {
+            Text(o.label).font(.callout).lineLimit(1).fixedSize()
+                .padding(.horizontal, EditorMetrics.m + 2).frame(maxWidth: fill ? .infinity : nil, minHeight: 28)
+                .foregroundStyle(on ? Color.primary : Color.secondary)
+                .background(on ? Color.accentColor.opacity(0.22) : EditorTheme.control, in: RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
+                .overlay(RoundedRectangle(cornerRadius: EditorTheme.pillRadius).strokeBorder(on ? Color.accentColor : .clear, lineWidth: 1.5))
+                .contentShape(RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(o.label).accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+    }
     var body: some View {
-        HStack(spacing: EditorMetrics.xs + 2) {
-            ForEach(Array(options.enumerated()), id: \.offset) { _, o in
-                let on = o.value == selection
-                Button { selection = o.value } label: {
-                    Text(o.label).font(.callout).lineLimit(1).minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity, minHeight: 28)
-                        .foregroundStyle(on ? Color.primary : Color.secondary)
-                        .background(on ? Color.accentColor.opacity(0.22) : EditorTheme.control, in: RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
-                        .overlay(RoundedRectangle(cornerRadius: EditorTheme.pillRadius).strokeBorder(on ? Color.accentColor : .clear, lineWidth: 1.5))
-                        .contentShape(RoundedRectangle(cornerRadius: EditorTheme.pillRadius))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(o.label).accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: EditorMetrics.xs + 2) { ForEach(Array(options.enumerated()), id: \.offset) { _, o in pill(o, fill: true) } }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: EditorMetrics.xs + 2) { ForEach(Array(options.enumerated()), id: \.offset) { _, o in pill(o, fill: false) } }
             }
         }
     }
@@ -121,7 +127,7 @@ struct LabeledPills<Value: Hashable>: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: EditorMetrics.xs + 2) {
-            Text(title).font(.subheadline).foregroundStyle(.secondary)
+            Text(title)
             PillPicker(selection: $selection, options: options, accessibilityTitle: title)
         }
         .padding(.vertical, EditorMetrics.xs)

@@ -23,7 +23,7 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
     nonisolated(unsafe) public static var transcriber: (@Sendable (URL) async throws -> Data)?
     /// Same, with the editor's keyterms and language (capture: `contextualStrings`, locale). Preferred over `transcriber` when set.
     nonisolated(unsafe) public static var transcriberWithOptions: (@Sendable (URL, TranscriptionOptions) async throws -> Data)?
-    /// Languages the on-device recogniser supports (from `SFSpeechRecognizer.supportedLocales()`); nil → only "Auto" is offered.
+    /// Languages the on-device recognizer supports (from `SFSpeechRecognizer.supportedLocales()`); nil → only "Auto" is offered.
     nonisolated(unsafe) public static var languageProvider: (@Sendable () -> [TranscriptionLanguage])?
 
     /// Settings > "Autosave while editing" (ui). When false the editor saves only on ⌘S and when the window closes.

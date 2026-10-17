@@ -80,10 +80,6 @@ struct TimelineView: View {
                 }
                 outsideEnd(g, contentW: contentW)
                 clipTrack(g)
-                if model.showWaveform && !model.waveform.isEmpty {
-                    WaveformLayer(points: model.waveform, geometry: g, width: contentW, height: TimelineLayout.clipTrackHeight)
-                        .offset(y: layout.clipTop)
-                }
                 zoomTrack(g)
                 if layout.lanes.contains(.typing) { typingLane(g) }
                 if layout.lanes.contains(.camera) { cameraLane(g) }
@@ -140,11 +136,21 @@ struct TimelineView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color.accentColor.opacity(selected ? 0.55 : 0.28))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.accentColor.opacity(selected ? 1 : 0.5), lineWidth: selected ? 2 : 1))
-                .overlay(alignment: .leading) {
+                .overlay(alignment: .topLeading) {
+                    if model.showWaveform && !model.waveform.isEmpty {
+                        WaveformLayer(points: model.waveform, geometry: g, width: g.contentWidth(durationNs: model.durationNs) + 40, height: TimelineLayout.clipTrackHeight, smooth: model.smoothWaveform)
+                            .offset(x: -x).frame(width: max(w - 1, 1), height: TimelineLayout.clipTrackHeight, alignment: .topLeading).clipped()
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    // Label on its own small backing, above the waveform (which is drawn below it at low opacity).
                     HStack(spacing: 4) {
-                        Text(clipLabel(entry.clip)).font(.callout.weight(.medium))
+                        Text(clipLabel(entry.clip)).font(.caption.weight(.semibold))
                         if entry.clip.speed != 1 { Text(String(format: "%.2g×", entry.clip.speed)).font(.caption2).foregroundStyle(.secondary) }
-                    }.padding(.leading, 8).lineLimit(1)
+                    }
+                    .lineLimit(1).padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 4))
+                    .foregroundStyle(.white).padding(4)
                 }
                 .frame(width: max(w - 1, 1), height: TimelineLayout.clipTrackHeight)
                 .offset(x: x, y: layout.clipTop)

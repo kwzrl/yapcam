@@ -3,7 +3,7 @@ import YapcamCore
 
 extension EditorModel {
     /// ⌘K can reach any editor setting: sections, aspect ratios, preview options, and the on/off and option settings of the inspector.
-    /// Each command applies the same change the inspector control makes (same paths, same undo behaviour).
+    /// Each command applies the same change the inspector control makes (same paths, same undo behavior).
     var settingCommands: [PaletteCommand] {
         var out: [PaletteCommand] = []
         func add(_ title: String, enabled: Bool = true, _ run: @escaping @MainActor () -> Void) { out.append(PaletteCommand(title: title, shortcut: "", enabled: enabled, run: run)) }
@@ -57,7 +57,7 @@ extension EditorModel {
             add("Click effect: \(label)", enabled: hasMouseData) { [self] in set("cursor.click_effect", string: v) }
         }
         for (label, v) in [("Dark", false), ("Light", true)] {
-            add("Caption colour: \(label)", enabled: hasMic) { [self] in var l = captionLook; l.light = v; setCaptionLook(l) }
+            add("Caption color: \(label)", enabled: hasMic) { [self] in var l = captionLook; l.light = v; setCaptionLook(l) }
         }
         add("Randomize wallpaper") { [self] in applyRandomWallpaper() }
         add("Randomize gradient") { [self] in randomizeGradient() }

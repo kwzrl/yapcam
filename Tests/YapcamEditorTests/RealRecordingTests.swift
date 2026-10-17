@@ -68,7 +68,7 @@ import YapcamCore
         let g = try #require(m.project.frameGeometry(atNs: mid))
         print("REAL zoom crop at mid: \(g.crop)")
         #expect(g.crop.width < 0.5 && g.crop.width > 0.3)                          // 2.5× zoom
-        #expect(abs(g.crop.midX - 0.3) < 0.1 || g.crop.minX <= 0.001)               // centred on the focus (or clamped to the left edge)
+        #expect(abs(g.crop.midX - 0.3) < 0.1 || g.crop.minX <= 0.001)               // centered on the focus (or clamped to the left edge)
         let zoomed = try FrameSnapshot.png(source: source, atNs: mid)
         let before = try FrameSnapshot.png(source: source, atNs: 500_000_000)
         let diff = meanAbsDiff(pixels(zoomed).bytes, pixels(before).bytes)

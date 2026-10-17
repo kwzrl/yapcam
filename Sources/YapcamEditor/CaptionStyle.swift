@@ -84,7 +84,7 @@ struct CaptionStyleControls: View {
     }
 }
 
-/// Caption language tag ("auto" or e.g. "en-US"); core validates the tag, the speech service decides what it can recognise.
+/// Caption language tag ("auto" or e.g. "en-US"); core validates the tag, the speech service decides what it can recognize.
 struct CaptionLanguageField: View {
     @ObservedObject var model: EditorModel
     @State private var text = "auto"

@@ -59,14 +59,15 @@ public final class EditorModel: ObservableObject {
     /// Microphone level across the edited timeline, drawn in the clip track (reference: "audio waveform on/off").
     @Published public internal(set) var waveform: [WavePoint] = []
     @Published public internal(set) var showWaveform = true
+    @Published public internal(set) var smoothWaveform = false
     /// Preview-only safe-area overlay of a vertical platform (remembered).
     @Published public internal(set) var reelMode: ReelMode = .off
     var lastInset: (size: Double, color: [Double])?
     /// Wallpapers starred by the user (right-click in the picker); remembered across projects.
-    @Published public internal(set) var favouriteWallpapers: Set<String> = []
-    public func toggleFavouriteWallpaper(_ id: String) {
-        if favouriteWallpapers.contains(id) { favouriteWallpapers.remove(id) } else { favouriteWallpapers.insert(id) }
-        defaults.set(Array(favouriteWallpapers).sorted(), forKey: "editor.favouriteWallpapers")
+    @Published public internal(set) var favoriteWallpapers: Set<String> = []
+    public func toggleFavoriteWallpaper(_ id: String) {
+        if favoriteWallpapers.contains(id) { favoriteWallpapers.remove(id) } else { favoriteWallpapers.insert(id) }
+        defaults.set(Array(favoriteWallpapers).sorted(), forKey: "editor.favoriteWallpapers")
     }
     public var timelineViewportWidth: Double = 900
     /// Set once the timeline view has fitted the project to its real width.
@@ -80,7 +81,7 @@ public final class EditorModel: ObservableObject {
     @Published public var captionState: CaptionState = .idle
     /// Supplies transcript JSON (RecordingTranscript). Set by the document; nil = transcription unavailable.
     public var captionSource: (@Sendable () async throws -> Data)?
-    /// Options-aware transcription (keyterms, language); `force` = ignore an existing transcript file and recognise again.
+    /// Options-aware transcription (keyterms, language); `force` = ignore an existing transcript file and recognize again.
     public var captionSourceWithOptions: (@Sendable (TranscriptionOptions, Bool) async throws -> Data)?
     var captionTask: Task<Void, Never>?
     /// Project changed through a path that bypassed `perform` (transcript import, music import).

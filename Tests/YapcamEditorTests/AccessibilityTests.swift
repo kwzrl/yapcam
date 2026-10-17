@@ -90,7 +90,7 @@ import AppKit
 
     @Test func backgroundTypeOptionsAreTheReferenceList() {
         // The pills are SwiftUI buttons (label + selected trait); AppKit's accessibility probe cannot see SwiftUI-only nodes,
-        // so this checks the option list; VoiceOver behaviour of the pills is NOT verified here.
+        // so this checks the option list; VoiceOver behavior of the pills is NOT verified here.
         #expect(BackgroundPanel.Mode.allCases.map(\.rawValue) == ["Wallpaper", "Gradient", "Color", "Image", "Blur"])
     }
 }

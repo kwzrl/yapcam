@@ -9,7 +9,7 @@ public let languageFillers: [String: Set<String>] = ["en": ["er", "ah"], "de": [
 /// The filler words for a language tag ("en-US", "de_DE", "auto"): the base list plus that language's extras.
 public func fillerWords(forLanguage tag: String) -> Set<String> {
     let lang = tag.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? "auto"
-    // Only the recognised-as-English list may treat "er"/"ah" as filler; other languages get the base list.
+    // Only the recognized-as-English list may treat "er"/"ah" as filler; other languages get the base list.
     return fillerWords.union(languageFillers[lang] ?? [])
 }
 
@@ -149,14 +149,14 @@ struct TranscriptPanel: View {
     }
 }
 
-/// What the speech recogniser should know: vocabulary hints and the language ("auto" = the recognizer's default).
+/// What the speech recognizer should know: vocabulary hints and the language ("auto" = the recognizer's default).
 public struct TranscriptionOptions: Equatable, Sendable {
     public var keyterms: [String] = []
     public var language = "auto"
     public init(keyterms: [String] = [], language: String = "auto") { self.keyterms = keyterms; self.language = language }
 }
 
-/// A language the on-device recogniser offers (the app supplies the list; the editor cannot link YapcamCapture).
+/// A language the on-device recognizer offers (the app supplies the list; the editor cannot link YapcamCapture).
 public struct TranscriptionLanguage: Equatable, Identifiable, Sendable {
     public var id: String, name: String
     public init(id: String, name: String) { self.id = id; self.name = name }

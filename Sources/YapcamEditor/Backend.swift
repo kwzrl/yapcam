@@ -78,7 +78,7 @@ public enum EditorCommand: Equatable, Sendable {
     case addZoom(startNs: Int64, endNs: Int64, scale: Double, focusX: Double, focusY: Double)
     case updateZoom(id: String, startNs: Int64?, endNs: Int64?, scale: Double?, focusX: Double?, focusY: Double?,
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
-    /// New zoom with the project's remembered (last edited) style; focus is centred.
+    /// New zoom with the project's remembered (last edited) style; focus is centered.
     case insertZoom(startNs: Int64, endNs: Int64)
     /// nil = classic style; otherwise the glass loupe with these parameters.
     case setZoomLens(id: String, lens: ZoomLensParams?)

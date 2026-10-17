@@ -7,7 +7,7 @@ public enum ReelMode: String, CaseIterable, Sendable, Identifiable {
     public var id: String { rawValue }
     public var label: String { switch self { case .off: "Off"; case .instagram: "Instagram Reels"; case .tiktok: "TikTok" } }
 
-    /// Zones in preview-normalised coordinates (x, y, width, height in 0…1) with a short name.
+    /// Zones in preview-normalized coordinates (x, y, width, height in 0…1) with a short name.
     public struct Zone: Equatable, Sendable { public var name: String; public var rect: CGRect }
     public var zones: [Zone] {
         switch self {

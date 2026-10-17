@@ -75,6 +75,7 @@ extension EditorModel {
         guard let points = try? await project.waveformPoints(), !isClosed, revision == started || true else { return }
         if points != waveform { waveform = points }
     }
+    public func setSmoothWaveform(_ on: Bool) { smoothWaveform = on; defaults.set(on, forKey: "editor.smoothWaveform") }
     public func setShowWaveform(_ on: Bool) {
         showWaveform = on; defaults.set(on, forKey: "editor.showWaveform")
         if on { Task { await refreshWaveform() } } else { waveform = [] }
@@ -86,6 +87,7 @@ struct WaveformLayer: View {
     let points: [WavePoint]
     let geometry: TimelineGeometry
     let width: CGFloat, height: CGFloat
+    var smooth = false
     var body: some View {
         Canvas { ctx, size in
             guard !points.isEmpty else { return }
@@ -95,14 +97,24 @@ struct WaveformLayer: View {
                 let c = Int(geometry.x(forNs: p.tlNs) / step)
                 if c >= 0 && c <= columns { peaks[c] = max(peaks[c], p.amp) }
             }
+            if smooth {      // moving average over 5 columns: the "smooth waveform" option
+                let src = peaks
+                for i in 0..<peaks.count { let lo = max(0, i - 2), hi = min(peaks.count - 1, i + 2); peaks[i] = src[lo...hi].reduce(0, +) / Float(hi - lo + 1) }
+            }
             var path = Path()
             let mid = size.height / 2
+            // A hairline marks where audio exists (silence = a flat line); bars appear only where the samples have signal.
+            var present = [Bool](repeating: false, count: columns + 1)
+            for p in points { let c = Int(geometry.x(forNs: p.tlNs) / step); if c >= 0 && c <= columns { present[c] = true } }
+            for (c, here) in present.enumerated() where here {
+                path.addRect(CGRect(x: CGFloat(c) * step, y: mid - 0.5, width: max(step - 0.4, 0.8), height: 1))
+            }
             for (c, a) in peaks.enumerated() where a > 0.002 {
                 // Perceptual curve so quiet speech is still visible.
                 let h = max(CGFloat(pow(a, 0.5)) * (size.height - 10) / 2, 0.5)
                 path.addRoundedRect(in: CGRect(x: CGFloat(c) * step, y: mid - h, width: max(step - 0.8, 0.8), height: h * 2), cornerSize: CGSize(width: 0.5, height: 0.5))
             }
-            ctx.fill(path, with: .color(.white.opacity(0.38)))
+            ctx.fill(path, with: .color(.white.opacity(0.32)))
         }
         .frame(width: width, height: height).allowsHitTesting(false).accessibilityHidden(true)
     }

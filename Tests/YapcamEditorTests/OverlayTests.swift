@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import AppKit
 import Testing
@@ -528,7 +529,7 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
         m.setInsetEnabled(true)
         #expect(m.number("canvas.inset") == 4 && m.color("canvas.inset_color") == [0.533, 0.533, 0.533, 0.25])
-        m.undo(); #expect(m.number("canvas.inset") == 0)                       // one step for size + colour
+        m.undo(); #expect(m.number("canvas.inset") == 0)                       // one step for size + color
         m.setInsetEnabled(true)
         m.set("canvas.inset", number: 9); m.set("canvas.inset_color", color: [1, 0, 0, 0.5])
         m.setInsetEnabled(false); #expect(m.number("canvas.inset") == 0)
@@ -559,14 +560,14 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(snapped(15) == 16 && snapped(17.4) == 16 && snapped(21) == 20 && snapped(40) == 40 && snapped(0.9) == 0)
     }
 
-    @Test func favouritesAreRemembered() throws {
+    @Test func favoritesAreRemembered() throws {
         let (doc, d, done) = try doc(); defer { done() }
         let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
         let m = try EditorDocument(package: d, presets: iso.store).model
-        m.toggleFavouriteWallpaper("aurora"); m.toggleFavouriteWallpaper("dune")
-        m.toggleFavouriteWallpaper("dune")
-        #expect(m.favouriteWallpapers == ["aurora"])
-        #expect(try EditorDocument(package: d, presets: iso.store).model.favouriteWallpapers == ["aurora"])
+        m.toggleFavoriteWallpaper("aurora"); m.toggleFavoriteWallpaper("dune")
+        m.toggleFavoriteWallpaper("dune")
+        #expect(m.favoriteWallpapers == ["aurora"])
+        #expect(try EditorDocument(package: d, presets: iso.store).model.favoriteWallpapers == ["aurora"])
         _ = doc
     }
 
@@ -621,5 +622,51 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(EditorWindows.appearance == .dark)
         #expect(EditorAppearance.allCases == [.dark, .light, .system])
         #expect(EditorAppearance.dark.nsAppearance?.name == .darkAqua && EditorAppearance.light.nsAppearance?.name == .aqua && EditorAppearance.system.nsAppearance == nil)
+    }
+}
+
+@MainActor @Suite struct WaveformAuthenticityTests {
+    /// 3 s mono 16-bit WAV at 8 kHz: silence, a 1 kHz tone of amplitude 0.5 from 1.0 to 2.0 s, silence.
+    private func makeWAV(tone: Bool) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("wave-\(UUID().uuidString).wav")
+        let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8_000, channels: 1, interleaved: true)!
+        let file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 24_000)!
+        buffer.frameLength = 24_000
+        let p = buffer.int16ChannelData![0]
+        for i in 0..<24_000 {
+            let t = Double(i) / 8_000
+            p[i] = tone && t >= 1 && t < 2 ? Int16((0.5 * sin(2 * .pi * 1_000 * t) * 32_767).rounded()) : 0
+        }
+        try file.write(from: buffer)
+        return url
+    }
+
+    @Test func peaksComeFromTheSamplesSilenceIsFlatAndABurstShowsOnlyWhereItIs() async throws {
+        let silent = try makeWAV(tone: false), burst = try makeWAV(tone: true)
+        defer { try? FileManager.default.removeItem(at: silent); try? FileManager.default.removeItem(at: burst) }
+        let flat = try await WaveformAnalysis.peaks(of: silent)
+        #expect(flat.count >= 148 && (flat.max() ?? 1) < 0.001, "silence must be flat, max \(flat.max() ?? -1)")
+        let p = try await WaveformAnalysis.peaks(of: burst)
+        #expect(p.count >= 148)
+        #expect(p[2..<48].allSatisfy { $0 < 0.01 })                                  // before the burst
+        #expect(p[55..<95].allSatisfy { (0.35...0.6).contains($0) })                 // inside: amplitude 0.5
+        #expect(p[104..<146].allSatisfy { $0 < 0.01 })                               // after
+        // Mapped onto an edited timeline at 2× speed the burst keeps its shape and takes half the time.
+        let pts = WaveformAnalysis.timelinePoints(rows: [("f", 0, 3_000_000_000, 0, 1_500_000_000)], peaks: ["f": p])
+        let loud = pts.filter { $0.amp > 0.2 }
+        #expect(!loud.isEmpty && loud.first!.tlNs >= 490_000_000 && loud.last!.tlNs <= 1_010_000_000)
+    }
+
+    @Test func realFixtureAudioIsNotPlaceholder() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        await m.refreshWaveform()
+        // The fixture's audio is a steady tone, so its envelope is steady; what matters is that it equals the file's real peaks.
+        let file = d.appendingPathComponent("recording/seg-000/system.m4a")
+        let real = try await WaveformAnalysis.peaks(of: file)
+        let shown = m.waveform.map(\.amp)
+        #expect(!real.isEmpty && (shown.max() ?? 0) == (real.max() ?? -1))
     }
 }

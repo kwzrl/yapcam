@@ -34,7 +34,7 @@ struct BackgroundPanel: View {
                 NumberRow(model: model, title: "Angle", path: "canvas.background.angle_deg", range: 0...360, unit: "°", format: "%.0f", defaultValue: 45)
             case .color:
                 ColorRow(model: model, title: "Color", path: "canvas.background.color")
-                Button { model.randomizeBackgroundColor() } label: { Label("Random colour", systemImage: "dice") }.buttonStyle(.borderless)
+                Button { model.randomizeBackgroundColor() } label: { Label("Random color", systemImage: "dice") }.buttonStyle(.borderless)
             case .image:
                 Button("Choose image…") { chooseImage() }
                 Text(kind == "image" && model.selectedWallpaperID == nil ? "An image is used as the background." : "Pick a picture to use behind the screen.")
@@ -75,7 +75,7 @@ struct BackgroundPanel: View {
     }
 }
 
-/// Inset border: toggle (restores the last-used inset, else size 4 / 25 % grey), size 0.125–24, colour with opacity, 2-D origin pad.
+/// Inset border: toggle (restores the last-used inset, else size 4 / 25 % gray), size 0.125–24, color with opacity, 2-D origin pad.
 struct InsetRows: View {
     @ObservedObject var model: EditorModel
     var body: some View {
@@ -91,7 +91,7 @@ struct InsetRows: View {
 extension EditorModel {
     static let insetRange = 0.125...24.0
     static let insetFallback = (size: 4.0, color: [0.533, 0.533, 0.533, 0.25])
-    /// Turning it off remembers size and colour; turning it on restores them (or the fallback), in one undo step.
+    /// Turning it off remembers size and color; turning it on restores them (or the fallback), in one undo step.
     public func setInsetEnabled(_ on: Bool) {
         if !on {
             let size = number("canvas.inset"), color = self.color("canvas.inset_color")
@@ -181,11 +181,11 @@ struct WallpaperBrowser: View {
     @State private var category = "all"
     var body: some View {
         let all = model.wallpapers
-        let categories = ["all", "favourites"] + (Array(NSOrderedSet(array: all.map(\.category))) as? [String] ?? [])
+        let categories = ["all", "favorites"] + (Array(NSOrderedSet(array: all.map(\.category))) as? [String] ?? [])
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(categories, id: \.self) { c in
-                    Button { category = c } label: { if c == "favourites" { Label("Favourites", systemImage: "star.fill").labelStyle(.titleAndIcon) } else { Text(c.capitalized) } }
+                    Button { category = c } label: { if c == "favorites" { Label("Favorites", systemImage: "star.fill").labelStyle(.titleAndIcon) } else { Text(c.capitalized) } }
                         .buttonStyle(.plain).font(.caption.weight(.medium))
                         .padding(.horizontal, 10).padding(.vertical, 4)
                         .background(category == c ? Color.accentColor.opacity(0.22) : Color.primary.opacity(0.07), in: Capsule())
@@ -194,18 +194,18 @@ struct WallpaperBrowser: View {
             }
         }
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 82), spacing: 8)], spacing: 8) {
-            ForEach(all.filter { category == "all" || (category == "favourites" ? model.favouriteWallpapers.contains($0.id) : $0.category == category) }) { w in
+            ForEach(all.filter { category == "all" || (category == "favorites" ? model.favoriteWallpapers.contains($0.id) : $0.category == category) }) { w in
                 Button { model.applyWallpaper(id: w.id) } label: {
                     WallpaperThumb(model: model, info: w, busy: model.wallpaperBusy == w.id, selected: model.selectedWallpaperID == w.id)
                 }
                 .buttonStyle(.plain).disabled(model.wallpaperBusy != nil)
                 .help(w.title).accessibilityLabel("Wallpaper \(w.title)")
-                .contextMenu { Button(model.favouriteWallpapers.contains(w.id) ? "Remove from favourites" : "Add to favourites") { model.toggleFavouriteWallpaper(w.id) } }
-                .accessibilityAction(named: model.favouriteWallpapers.contains(w.id) ? "Remove from favourites" : "Add to favourites") { model.toggleFavouriteWallpaper(w.id) }
+                .contextMenu { Button(model.favoriteWallpapers.contains(w.id) ? "Remove from favorites" : "Add to favorites") { model.toggleFavoriteWallpaper(w.id) } }
+                .accessibilityAction(named: model.favoriteWallpapers.contains(w.id) ? "Remove from favorites" : "Add to favorites") { model.toggleFavoriteWallpaper(w.id) }
                 .accessibilityAddTraits(model.selectedWallpaperID == w.id ? [.isButton, .isSelected] : .isButton)
             }
         }
-        if category == "favourites" && model.favouriteWallpapers.isEmpty { Text("Right-click a wallpaper to add it here.").font(.caption).foregroundStyle(.secondary) }
+        if category == "favorites" && model.favoriteWallpapers.isEmpty { Text("Right-click a wallpaper to add it here.").font(.caption).foregroundStyle(.secondary) }
         Button { model.applyRandomWallpaper() } label: { Label("Pick random", systemImage: "dice") }
             .disabled(model.wallpaperBusy != nil)
     }

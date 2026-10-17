@@ -92,7 +92,7 @@ struct RestingColorPicker: View {
         task?.cancel()
         task = Task { try? await Task.sleep(for: .milliseconds(350)); if !Task.isCancelled { flush() } }
     }
-    /// Swatch + hex field + eyedropper, like the reference's colour row.
+    /// Swatch + hex field + eyedropper, like the reference's color row.
     var body: some View {
         SliderRow(title) {
             HStack(spacing: EditorMetrics.s) {
@@ -111,7 +111,7 @@ struct RestingColorPicker: View {
                     .onChange(of: hexFocused) { _, f in editingHex = f; if !f { commitHex() } }
                 Button { sample() } label: { Image(systemName: "eyedropper").frame(width: 26, height: 26) }
                     .buttonStyle(.plain).background(EditorTheme.control, in: RoundedRectangle(cornerRadius: 7))
-                    .help("Pick a colour from the screen").accessibilityLabel("Pick \(title) from the screen")
+                    .help("Pick a color from the screen").accessibilityLabel("Pick \(title) from the screen")
             }
         }
         .onAppear { hexText = HexColor.string(current, alpha: opacity) }
@@ -178,6 +178,16 @@ public enum InspectorSection: String, CaseIterable, Identifiable {
     /// ⌘ digit that selects the section (1…9, then 0).
     public var shortcutDigit: Character { Self.digits[Self.allCases.firstIndex(of: self)!] }
     private static let digits: [Character] = Array("1234567890")
+    /// One short line shown in the panel (and the rail tooltip) when the recording has no input for this section.
+    public var unavailableReason: String {
+        switch self {
+        case .cursor: "This recording has no mouse data."
+        case .cameraLayout, .cameraStyle: "This recording has no camera."
+        case .captions, .transcript: "This recording has no microphone."
+        case .keys: "No keystrokes were recorded. Turn on “Record keystrokes” before recording."
+        default: ""
+        }
+    }
     @MainActor public func isAvailable(in m: EditorModel) -> Bool {
         switch self {
         case .background, .audio, .animations, .extras: true
@@ -209,15 +219,18 @@ struct InspectorRail: View {
     var body: some View {
         let section = model.inspectorSection
         VStack(spacing: 6) {
-            ForEach(model.availableSections) { s in
+            // One icon per section in the reference's order; sections without input stay reachable but dimmed (they explain why).
+            ForEach(InspectorSection.allCases) { s in
+                let available = s.isAvailable(in: model)
                 Button { model.showSection(s) } label: {
                     Image(systemName: s.symbol).font(.system(size: 19)).frame(width: 44, height: 44)
                         .background(section == s ? Color.accentColor.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 10))
                         .foregroundStyle(section == s ? Color.accentColor : .secondary)
+                        .opacity(available ? 1 : 0.4)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("\(s.title) (⌘\(String(s.shortcutDigit)))")
+                .help(available ? "\(s.title) (⌘\(String(s.shortcutDigit)))" : "\(s.title): \(s.unavailableReason)")
                 .accessibilityLabel(s.title)
                 .accessibilityAddTraits(section == s ? [.isButton, .isSelected] : .isButton)
             }
@@ -238,7 +251,7 @@ struct InspectorView: View {
         switch model.selection { case .zoom: "Zoom"; case .clip: "Clip"; default: nil }
     }
     private var section: InspectorSection {
-        model.availableSections.contains(model.inspectorSection) ? model.inspectorSection : .background
+        model.inspectorSection
     }
 
     var body: some View {
@@ -254,7 +267,7 @@ struct InspectorView: View {
                     if itemTitle != nil { itemInspector } else { sectionBody }
                 }.formStyle(.grouped).scrollContentBackground(.hidden)
             }
-            // Floating card on the stage, like the reference: rounded, own colour, hairline edge.
+            // Floating card on the stage, like the reference: rounded, own color, hairline edge.
             .background(EditorTheme.card, in: RoundedRectangle(cornerRadius: EditorTheme.cardRadius))
             .overlay(RoundedRectangle(cornerRadius: EditorTheme.cardRadius).strokeBorder(EditorTheme.hairline))
             .clipShape(RoundedRectangle(cornerRadius: EditorTheme.cardRadius))
@@ -274,6 +287,9 @@ struct InspectorView: View {
     }
 
     @ViewBuilder private var sectionBody: some View {
+        if !section.isAvailable(in: model) {
+            Section { Text(section.unavailableReason).foregroundStyle(.secondary) }
+        } else {
         switch section {
         case .background: BackgroundPanel(model: model)
         case .cursor: cursor
@@ -285,6 +301,7 @@ struct InspectorView: View {
         case .keys: keys
         case .animations: animations
         case .extras: extras
+        }
         }
     }
 
@@ -968,7 +985,7 @@ struct ClipVolumeRow: View {
     }
 }
 
-/// Glass loupe parameters: size of the lens, edge bevel and colour fringing.
+/// Glass loupe parameters: size of the lens, edge bevel and color fringing.
 struct ZoomLensRows: View {
     @ObservedObject var model: EditorModel
     let zoomID: String
