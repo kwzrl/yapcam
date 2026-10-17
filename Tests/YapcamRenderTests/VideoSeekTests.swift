@@ -18,6 +18,10 @@ final class VideoSeekTests: XCTestCase {
         for (requested,expected): (Int64,Int64) in [(0,0),(200_000_000,6),(1_000_000_000,6),(2_000_000_000,51),(5_000_000_000,89)] {
             let actual=VideoSeekStart.time(asset: asset,track: track,requested: CMTime(value: requested,timescale: 1_000_000_000))
             XCTAssertEqual(CMTimeCompare(actual,CMTime(value: expected,timescale: 30)),0,"VFR source ns=\(requested)")
+            let range=try XCTUnwrap(VideoSeekStart.neighbours(asset: asset,track: track,requested: CMTime(value: requested,timescale: 1_000_000_000)))
+            XCTAssertEqual(range.start,actual); XCTAssertGreaterThan(range.duration,.zero)
+            XCTAssertLessThanOrEqual(range.end,track.timeRange.end)
+            if requested==1_000_000_000 { XCTAssertGreaterThan(range.end,CMTime(value: 51,timescale: 30),"Keep the real successor across a long VFR gap") }
         }
     }
     func testPreciseStartMatchesThePreviousRealPresentationSample() throws {
@@ -35,6 +39,12 @@ final class VideoSeekTests: XCTestCase {
             let expected=try XCTUnwrap(times.last { $0<=requested } ?? times.first)
             let start=VideoSeekStart.time(asset: asset,track: track,requested: requested)
             XCTAssertEqual(CMTimeCompare(start,expected),0,"source ns=\(ns), firstPTS=\(times.first?.seconds ?? -1), start=\(start.seconds), expected=\(expected.seconds)")
+            let range=try XCTUnwrap(VideoSeekStart.neighbours(asset: asset,track: track,requested: requested))
+            XCTAssertEqual(range.start,expected)
+            if let next=times.first(where: { $0>expected }) {
+                XCTAssertGreaterThan(range.end,next)
+                XCTAssertLessThan(range.end,next+CMTime(value: 1,timescale: 30))
+            } else { XCTAssertEqual(range.end,track.timeRange.end) }
         }
     }
 }

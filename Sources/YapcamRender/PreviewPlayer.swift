@@ -65,13 +65,13 @@ struct PreviewAudioStartupDiagnostics: Encodable {
     private var redrawRevision = 0
     weak var view: MTKView?
 
-    public init(project: any RenderProjectSource,speechEnhancement: SpeechEnhancementSettings? = nil) throws {
+    public init(project: any RenderProjectSource,speechEnhancement: SpeechEnhancementSettings? = nil,reuseVideoSeekReader: Bool = true) throws {
         try speechEnhancement?.validate()
         speechEnhancementSettings=speechEnhancement
         self.project = project
         renderProject = try project.renderSnapshot()
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw RenderError.metal("Metal preview unavailable") }
-        self.queue = queue; compositor = try FrameCompositor(device: device, project: project)
+        self.queue = queue; compositor = try FrameCompositor(device: device, project: project,reuseVideoSeekReader: reuseVideoSeekReader)
         rebuildAudio()
     }
     func observeChanges(name: Notification.Name,object: AnyObject) {

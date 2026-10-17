@@ -1,3 +1,5 @@
+READY R4 fbb0179 | F17 retained seek reader + F18 callback video readiness;16 owned files pending Lead checkpoint (1 NEW run_round4.py), native target acceptance OPEN | release Render155 PASS/77 explicit skips + Core Swift81 PASS; signed canonical/standalone apps PASS; Python ownership3 + quality checker4 cases PASS. Native A/B/strict suite blocked by unavailable Metal and invisible Cocoa session; no new after-performance or actual-export PSNR claim.
+
 READY 543317c +7 owned pending files (2 NEW) / GAP-ED-16 shared Gaussian masks / RELEASE / M4 macOS26.3 Codex: Core adapter + ordered preview/export pass, radius/opacity/rounded clipping, opaque covers retained. Release Render154 PASS/76 explicit skips + Core Swift81 PASS + Rust113 PASS/1 ignore; canonical Yapcam Dev Signing app + strict codesign PASS; offline Metal compile PASS. Lead checkpoint/review ALL7 files and run strict host command below; native pixels/RSS OPEN, partial mask + local-glass-lens limitation explicit. Git index remains read-only.
 
 RC0.9.0 freeze handoff (Lead deadline approximately22:10, 2026-10-16): no new scope or source changes after the signed green package above. F17/F18 candidates are integrated on mainb1859a4; both remain **open-medium** after Lead's native release remeasurement on synthetic4K60:
@@ -83,6 +85,42 @@ READY 8fa2162 authored cursor library + M3 measurement harness: 12 palettes x 10
 READY prior M1/M2 packages: Lead reported 86/86 renderer cases on Metal at main a02a89e; NEW cursor native acceptance now verified in 12:43 package log below
 
 # Render status
+
+## Round 4 — F17/F18 candidates and matched native handoff (2026-10-17)
+
+Base fbb0179 contains main6d6e873. Explicit Round4 authorization supersedes the previous RC0.9.0 freeze for these performance changes only. No Core/Editor/Capture/UI/default-quality/codec changes; Lead commits all16 owned files. This is source readiness, not native performance/quality acceptance.
+
+| Requirement | Known native baseline (Lead, mainb1859a4, synthetic3840x2160 HEVC60) | R4 after |
+|---|---|---|
+| F17 random seek p95≤150ms | p50=149ms, p95=232ms | UNMEASURED; target OPEN-MEDIUM |
+| F18 4K60 export≥1.3× realtime (new R4 target) | ~0.98× realtime;120s media /122.701s wall | UNMEASURED; target OPEN-MEDIUM |
+| Identical dimensions/codec, ten sampled frames PSNR≥45dB, strict Render suite green | existing RC baseline | New native comparison and strict suite NOT VERIFIED in this sandbox |
+
+Evidence and changes:
+
+- Retained baseline a2fe8e48-ad08-4267-8b9b-0f08f4d527e7/export-2160.json: writer_ready_seconds113.987, CPU render7.352, GPU execution15.047, GPU join0.312, append0.698,7200 frames. Stages overlap, so do not sum them. Readiness time includes the old2ms Task.sleep polling/scheduler wakeups and native encoder backpressure; it does not prove a hardware encoder throughput cap. No after speedup is inferred from these baseline timings.
+- F18: AVAssetWriterInput.requestMediaDataWhenReady now drives video on its own serial request queue, independently of the existing audio pump. The same bounded1/2-frame producer, exact grid/VFR selection, GPU-completion-before-append, frame order, BGRA pool, bitrate/codec/color/audio/duration settings remain. Last-frame completion forces the EOF read even when the native writer becomes unready after that append, avoiding an end-of-stream stall. Cancellation/error joins queued/current GPU work before releasing its surfaces (including cancellation between read and append). Polling remains an internal matched-baseline option; writer_readiness_mode is included in diagnostics.
+- F17: precise sample metadata bounds a window to predecessor+successor, including long VFR gaps and the real held tail. A separate supportsRandomAccess AVAssetReader is fully drained through NULL before reset(forReadingTimeRanges:), honoring AVFoundation's required reset lifecycle. Repeated distant/backward seeks reuse it; resumed sequential playback uses the ordinary sequential stream. Unknown precise metadata keeps the former conservative path. Cache remains4 frames and at most one sequential plus one drained seek reader per source; destruction/invalidation cancels both. GOP dependency decoding still exists; whether reuse reaches150ms requires native measurements, not a metadata-only timing claim.
+- Tests: CPU fixture metadata covers exact CFR/B-frame predecessor/successor bounds, VFR long-gap/EOF bounds; callback EOF test verifies the final append can remove writer readiness without stranding completion. New native fresh-vs-reused reader comparison requires exact PTS/pixels across repeated jumps and sequential resumption, with reader-reset/start counts. Native H.264/HEVC export-order test now covers both callback/polling and both depths; existing F6/audio-tail/cancellation/VFR/blur tests remain in the suite.
+- Matched harness: run_round4.py builds the signed Round3 runner once, generates ONE synthetic input, fingerprints it, runs baseline polling/fresh-reader and candidate callback/reused-reader scrub+export modes on copies of those identical files, retains outputs only for comparison, and checks1080p/4K exports and re-export. Independent ffprobe checks codec/dimensions/fps/frame count; ffmpeg checks ten distinct evenly spaced decoded RGB frames per file, requiring EVERY sample PSNR≥45dB. Positive identical/negative altered-pixel fixtures, codec mismatch and differing-input fingerprints are checker self-tests, not actual R4 output acceptance. R3 input/retained-output configuration fields are optional for existing configs.
+- Gate on this exact source: fresh release Render232 total=155 PASS/77 explicit native-or-opt-in skips; Core Swift81 PASS. Release Rust archive rebuilt; Rust source untouched (no new Rust change/test claim). Full SwiftPM targets compile. Standalone run_round3.py --build-only and canonical scripts/build-app.sh release PASS; both signed Yapcam Dev Signing / mov.yapcam.Yapcam, strict codesign verified. Existing icon untouched. Python ownership3 PASS; quality checker4 cases PASS; launcher syntax PASS. Logs /tmp/yapcam-render-r4-{swift,harness-build,app,core-build,python,quality,probe,metal,native-attempt}.log. Initial test assertion syntax error corrected before final passing gate.
+- Native blocker: probe/actual matched-driver invocation return no visible Cocoa application session; independent framework probe reports metal_device=unavailable. No app/window launched, no other PID signalled, no permissions reset. Current blocked metadata: ~/Library/Logs/Yapcam/render-round4/d45ad4d7-5e2b-43b5-88e6-3561a8b8227e/result.json. Consequently AFTER p50/p95/speed/RSS and actual-export PSNR are UNMEASURED; the last measured limits remain232ms/~0.98×. This establishes an environment limit here, not that the targets are unreachable on the M4. Do not merge/close the medium findings as accepted without host results.
+- Cleanup: own module caches, wrapper directories, quality movies/stats and generated Python bytecode were listed and removed. No source recording/export added to Git. Matched runs remove their unique render-owned source/output directory in finally after comparison; an unsuccessful run preserves it only if an app lock leaves process ownership uncertain. Metadata-only logs persist. No temporary repository copy is needed.
+
+Lead checkpoint ALL16 owned files together, including NEW Tests/YapcamRenderTests/run_round4.py:
+
+Sources/YapcamRender/{Exporter.swift,ExportVideoDiagnostics.swift,FrameSource.swift,VideoSeekStart.swift,FrameCompositor.swift,PreviewPlayer.swift,MediaInputPump.swift}; Tests/YapcamRenderTests/{ExportPipelineTests.swift,FrameSourceTests.swift,VideoSeekTests.swift,MediaInputPumpTests.swift,Round3PerformanceSupport.swift,Round3Runner.swift,run_round3.py,run_round4.py NEW}; docs/status/render.md. Required other-family review: reader-reset/EOF invariants and callback cancellation/GPU lifetime before merge. Lead owns Git metadata/checkpoint/rebase; no commit or push is claimed by this run.
+
+Host procedure after checkpoint (strict tests are offscreen; the driver checks QA lock/session/other instances before launching its own signed app via open -n -W):
+
+```sh
+CARGO_BUILD_JOBS=4 scripts/build-core.sh
+swift package --disable-sandbox clean
+YAPCAM_REQUIRE_RENDER_HARDWARE=1 swift test --disable-sandbox -c release -j 4 --filter YapcamRenderTests
+python3 Tests/YapcamRenderTests/run_round4.py
+```
+
+The driver emits ~/Library/Logs/Yapcam/render-round4/<run-id>/result.json with all four Round3 run directories, both scrub resolutions,4K throughput/RSS/stages, quality checks and thresholds150ms/1.3×/45dB. Baseline switches are --reuse-seek-reader0 and --video-readiness polling; candidate1/callback. Shared depth remains2. Driver source hash and harness/source fingerprints are retained. Return that result for the measured after limits/reasons. No unrelated feature or quality reduction was started; stopped at this green source handoff.
 
 ## GAP-ED-16 — shared blur masks (source READY; native pixels OPEN)
 
@@ -764,6 +802,8 @@ swift test --disable-sandbox -j 4 --filter AudioPreviewPerformanceTests/testAudi
 - Decoder subprocesses use null stdin, file-backed stderr, bounded threads and joined hard deadlines (15s calibration / 30s audio window / 300s full video). Export metrics are retained before decode. Export watchdog cancels/joins after one hour. All synthetic media fixtures use defer/teardown cleanup and are never committed.
 
 ## Next / requests to Lead
+
+R4 CURRENT: checkpoint/review the16-file performance candidate and run the strict suite + matched driver above. F17≤150ms/F18≥1.3× and actual ten-frame PSNR remain OPEN; old RC readiness/pending lists below are historical. No new independent Render scope before the native evidence.
 
 0. Current source handoff: GAP-ED-16 Gaussian mask pass/adapter/regressions source READY in7 owned files (2 NEW), signed release/portable gate green; see current section. Lead checkpoint the whole package, review the GPU ordering/lifetime/color path, then run the strict offscreen command. F17/F18 and RSS candidates were checkpointed0767f8c; Lead remeasured integrated mainb1859a4 and both findings remain OPEN-MEDIUM; earlier13-file pending requests are historical.
 0a. CUR-06 renderer is complete; Core14-id/Original factory/variants now synced and adapter expectations aligned in the preceding integrate/2022 package. Native original-vs-null pixel acceptance and Editor/Capture remaining picker/sidecar/pressed wiring keep their explicit owner verification states. No request to change the agreed Original default.

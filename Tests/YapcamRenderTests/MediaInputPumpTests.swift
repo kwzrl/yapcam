@@ -14,7 +14,25 @@ private final class InterleaveGate: @unchecked Sendable {
     var isFinished: Bool { lock.withLock { finished } }
 }
 
+private final class FinalVideoGate: @unchecked Sendable {
+    var next=0, appended: [Int]=[]
+    var ended=false
+    var finished: Bool { appended.count==12 }
+    // Native writers may stop accepting data immediately after the final frame.
+    var writerReady: Bool { !finished }
+}
+
 final class MediaInputPumpTests: XCTestCase {
+    func testVideoCallbackMarksEOFEvenWhenFinalAppendRemovesWriterReadiness() async throws {
+        let state=FinalVideoGate()
+        let pump=MediaInputPump<Int>(name: "video",request: { queue,callback in queue.async(execute: callback) },
+            ready: { state.finished || state.writerReady },read: {
+                guard state.next<12 else { return nil }; defer { state.next+=1 }; return state.next
+            },append: { state.appended.append($0) },end: { state.ended=true },stop: {},cancelSource: {})
+        try await pump.run()
+        XCTAssertEqual(state.appended,Array(0..<12)); XCTAssertTrue(state.ended)
+        XCTAssertFalse(state.writerReady,"EOF must not depend on another native readiness transition")
+    }
     func testFrameLimitedAudioFeedingStallsButIndependentPumpDrains() async throws {
         let old=InterleaveGate()
         var stoppedAt=0

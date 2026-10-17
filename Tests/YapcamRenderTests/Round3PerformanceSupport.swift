@@ -20,6 +20,10 @@ struct Round3Configuration: Codable, Sendable {
     var syntheticSeconds: Double
     var exportSeconds: Double?
     var videoPipelineDepth: Int?
+    var reuseVideoSeekReader: Bool?
+    var callbackVideo: Bool?
+    var sourcePackage: String?
+    var retainedExports: String?
 }
 
 enum Round3Data {

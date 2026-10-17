@@ -29,6 +29,11 @@ private final class CancellationProgress: @unchecked Sendable {
     private var maximum=0.0
     func record(_ value: Double) { lock.withLock { maximum=max(maximum,value) } }
     var value: Double { lock.withLock { maximum } }
+    // The exporter may report progress from a dispatch queue (callback video path), where no
+    // current task exists; cancel the export task from outside, as the editor's Cancel button does.
+    private var task: Task<URL,Error>?
+    func attach(_ task: Task<URL,Error>) { lock.withLock { self.task=task } }
+    func cancel() { lock.withLock { task }?.cancel() }
 }
 
 final class RenderTests: XCTestCase {
@@ -263,7 +268,8 @@ final class RenderTests: XCTestCase {
             let output=temp.appendingPathComponent("mid-cancel-\(includeAudio).mp4")
             let exporter=try Exporter(project: source,settings: .init(outputHeight: 720,includeAudio: includeAudio),destination: output)
             let progress=CancellationProgress()
-            let task=Task { try await exporter.run { value in progress.record(value); if value>0.1 { withUnsafeCurrentTask { $0?.cancel() } } } }
+            let task=Task { try await exporter.run { value in progress.record(value); if value>0.1 { progress.cancel() } } }
+            progress.attach(task)
             let timeout=Task { try await Task.sleep(for: .seconds(20)); task.cancel() }
             defer { timeout.cancel() }
             do { _ = try await task.value; XCTFail("Expected mid-export cancellation") } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }

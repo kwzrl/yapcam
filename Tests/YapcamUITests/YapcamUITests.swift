@@ -1339,6 +1339,8 @@ private struct OrderPlayer: CuePlayer {
         let (oldFront, oldActivate) = (OverlayFocus.frontmost, OverlayFocus.activate)
         defer { OverlayFocus.frontmost = oldFront; OverlayFocus.activate = oldActivate; OverlayFocus.restore() }
         var activated: [String?] = []
+        OverlayFocus.activate = { _ in }
+        OverlayFocus.restore()                                    // a remembered app left by an overlay test must not leak in
         OverlayFocus.frontmost = { finder }
         OverlayFocus.activate = { activated.append($0.bundleIdentifier) }
         OverlayFocus.remember(); OverlayFocus.remember()
@@ -1760,5 +1762,41 @@ extension UISmokeTests {
         let p = try Project.create(package: only)
         #expect(ProjectActions.lastProject(excluding: only, in: dir) == nil)
         ProjectActions.applyInitialLook(to: p, package: only, reuseLast: true, in: dir)     // must not throw or crash
+    }
+}
+
+// MARK: - Editor hooks (autosave, variable frame rate)
+
+@MainActor @Suite struct EditorHooksTests {
+    private func store() -> UserDefaults {
+        let name = "yapcam.test.hooks.\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!; d.removePersistentDomain(forName: name); return d
+    }
+
+    @Test func autosaveDefaultsOnPersistsAndReachesTheEditor() {
+        let savedA = EditorWindows.autosaveEnabled, savedV = EditorWindows.variableFrameRate
+        defer { EditorWindows.autosaveEnabled = savedA; EditorWindows.variableFrameRate = savedV }
+        let d = store()
+        let s = AppSettings(store: d)
+        #expect(s.autosaveEnabled)
+        EditorHooks.install(s)
+        #expect(EditorWindows.autosaveEnabled)
+        s.autosaveEnabled = false
+        #expect(!EditorWindows.autosaveEnabled)
+        #expect(!AppSettings(store: d).autosaveEnabled)
+        s.autosaveEnabled = true
+        #expect(EditorWindows.autosaveEnabled)
+    }
+
+    @Test func variableFrameRateToggleIsReadAtExportTime() {
+        let savedA = EditorWindows.autosaveEnabled, savedV = EditorWindows.variableFrameRate
+        defer { EditorWindows.autosaveEnabled = savedA; EditorWindows.variableFrameRate = savedV }
+        let s = AppSettings(store: store())
+        EditorHooks.install(s)
+        #expect(EditorWindows.variableFrameRate() == false)
+        s.experimentalVariableFrameRate = true
+        #expect(EditorWindows.variableFrameRate() == true)
+        s.experimentalVariableFrameRate = false
+        #expect(EditorWindows.variableFrameRate() == false)
     }
 }

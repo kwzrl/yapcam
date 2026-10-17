@@ -4,6 +4,7 @@ import Foundation
 /// hardware encoding run together; they are not additive wall-clock phases.
 struct ExportVideoDiagnostics: Sendable, Encodable {
     var pipelineDepth: Int
+    var writerReadinessMode="poll_2ms"
     var renderedFrames=0
     var peakPendingFrames=0
     var encodedFrames=0

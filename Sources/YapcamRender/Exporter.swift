@@ -11,11 +11,64 @@ private final class PendingExportFrame {
     let surface: TextureFrame
     let command: MTLCommandBuffer
     init(index: Int,surface: TextureFrame,command: MTLCommandBuffer) { self.index=index; self.surface=surface; self.command=command }
+    deinit { join() }
     func join() { command.waitUntilCompleted() }
     func complete() throws {
         join()
         guard command.status == .completed else { throw RenderError.metal(command.error?.localizedDescription ?? "GPU export failed") }
     }
+}
+
+/// All mutable state is confined to the video request queue. Only completed
+/// diagnostics are read after the pump joins; GPU resources are joined on exit.
+private final class CallbackVideoSequence: @unchecked Sendable {
+    var profile: ExportVideoDiagnostics
+    private let count: Int, fps: Int, depth: Int
+    private let variable: Bool
+    private let submit: (Int) throws -> PendingExportFrame
+    private let append: (CVPixelBuffer,CMTime) throws -> Void
+    private let progress: (Int) -> Void
+    private var nextIndex=0, processed=0
+    private var pending: [PendingExportFrame]=[]
+    private var deduplicator=ExactFrameDeduplicator()
+    private var idleStart=ProcessInfo.processInfo.systemUptime
+    var finished: Bool { processed == count }
+    init(count: Int,fps: Int,depth: Int,variable: Bool,profile: ExportVideoDiagnostics,
+         submit: @escaping (Int) throws -> PendingExportFrame,
+         append: @escaping (CVPixelBuffer,CMTime) throws -> Void,progress: @escaping (Int) -> Void) {
+        self.count=count; self.fps=fps; self.depth=depth; self.variable=variable
+        self.profile=profile; self.submit=submit; self.append=append; self.progress=progress
+    }
+    func next() throws -> PendingExportFrame? {
+        profile.writerReadySeconds+=ProcessInfo.processInfo.systemUptime-idleStart
+        while pending.count<depth,nextIndex<count {
+            let start=ProcessInfo.processInfo.systemUptime
+            pending.append(try autoreleasepool { try submit(nextIndex) })
+            profile.cpuRenderSeconds+=ProcessInfo.processInfo.systemUptime-start
+            profile.renderedFrames+=1; profile.peakPendingFrames=max(profile.peakPendingFrames,pending.count)
+            nextIndex+=1
+        }
+        return pending.isEmpty ? nil : pending.removeFirst()
+    }
+    func consume(_ frame: PendingExportFrame) throws {
+        // Even an append/cancellation failure cannot release an in-flight surface.
+        defer { frame.join() }
+        try Task.checkCancellation()
+        let wait=ProcessInfo.processInfo.systemUptime
+        try frame.complete()
+        profile.gpuWaitSeconds+=ProcessInfo.processInfo.systemUptime-wait
+        let gpu=frame.command.gpuEndTime-frame.command.gpuStartTime
+        if gpu.isFinite,gpu>0 { profile.gpuExecutionSeconds+=gpu; profile.gpuTimedFrames+=1 }
+        let shouldAppend = try !variable || deduplicator.shouldAppend(frame.surface.pixelBuffer,isLast: frame.index==count-1)
+        if shouldAppend {
+            let start=ProcessInfo.processInfo.systemUptime
+            try append(frame.surface.pixelBuffer,CMTime(value: Int64(frame.index),timescale: Int32(fps)))
+            profile.appendSeconds+=ProcessInfo.processInfo.systemUptime-start; profile.encodedFrames+=1
+        }
+        processed+=1; progress(frame.index)
+        idleStart=ProcessInfo.processInfo.systemUptime
+    }
+    func join() { for frame in pending { frame.join() }; pending.removeAll() }
 }
 
 public final class Exporter: @unchecked Sendable {
@@ -24,6 +77,7 @@ public final class Exporter: @unchecked Sendable {
     private let settings: ExportSettings
     private let destination: URL
     private let videoPipelineDepth: Int
+    private let callbackVideo: Bool
     private let lock = NSLock()
     private var running = false
     private var completedMetrics: ExportMetrics?
@@ -46,7 +100,8 @@ public final class Exporter: @unchecked Sendable {
     }
     // Depth 1 retains the serial baseline for matched host profiling. The public
     // path bounds overlap to two frames; no unbounded render-ahead queue.
-    init(project: any RenderProjectSource, settings: ExportSettings, destination: URL,videoPipelineDepth: Int) throws {
+    init(project: any RenderProjectSource, settings: ExportSettings, destination: URL,videoPipelineDepth: Int,callbackVideo: Bool = true) throws {
+        self.callbackVideo=callbackVideo
         guard (1...2).contains(videoPipelineDepth) else { throw RenderError.invalidSettings("Invalid export pipeline depth") }
         self.videoPipelineDepth=videoPipelineDepth
         self.project = try project.renderSnapshot()
@@ -125,7 +180,7 @@ public final class Exporter: @unchecked Sendable {
         var children: [Exporter] = []
         for (i,codec) in [ExportSettings.Codec.h264,.hevc].enumerated() {
             var options = settings; options.codec = codec
-            let child = try Exporter(project: project,settings: options,destination: directory.appendingPathComponent("\(i).\(settings.format.rawValue)"),videoPipelineDepth: videoPipelineDepth)
+            let child = try Exporter(project: project,settings: options,destination: directory.appendingPathComponent("\(i).\(settings.format.rawValue)"),videoPipelineDepth: videoPipelineDepth,callbackVideo: callbackVideo)
             _ = try await child.renderInSlot { value in progress((Double(i)+value)/2) }
             children.append(child)
         }
@@ -176,6 +231,7 @@ public final class Exporter: @unchecked Sendable {
     private func writeVideo(_ url: URL, range: Range<Int64>, count: Int, width: Int, height: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @escaping @Sendable (Double) -> Void) async throws {
         let profileStart=ProcessInfo.processInfo.systemUptime
         var profile=ExportVideoDiagnostics(pipelineDepth: videoPipelineDepth)
+        profile.writerReadinessMode=callbackVideo ? "callback" : "poll_2ms"
         let writer = try AVAssetWriter(outputURL: url, fileType: settings.format == .mp4 ? .mp4 : .mov)
         defer { if writer.status != .completed { writer.cancelWriting() } }
         let compression: [String: Any] = [AVVideoAverageBitRateKey: settings.videoBitrate(width: width, height: height), AVVideoExpectedSourceFrameRateKey: settings.fps, AVVideoMaxKeyFrameIntervalKey: settings.fps * 2, AVVideoAllowFrameReorderingKey: false]
@@ -247,6 +303,23 @@ public final class Exporter: @unchecked Sendable {
                     }
                     progress(preparationWeight+Double(frame.index+1)/Double(count)*(0.95-preparationWeight))
                 }
+                if callbackVideo {
+                    let sequence=CallbackVideoSequence(count: count,fps: settings.fps,depth: videoPipelineDepth,variable: settings.variableFrameRate,profile: profile,
+                        submit: { [self] index in try submitRender(index: index,range: range,pool: pool,compositor: compositor,queue: queue,cache: cache) },
+                        append: { buffer,time in
+                            guard adaptor.append(buffer,withPresentationTime: time) else { throw RenderError.write(writer.error?.localizedDescription ?? "Cannot append video") }
+                        },progress: { index in progress(preparationWeight+Double(index+1)/Double(count)*(0.95-preparationWeight)) })
+                    defer { sequence.join() }
+                    let pump=MediaInputPump<PendingExportFrame>(name: "video",
+                        request: { queue,callback in video.requestMediaDataWhenReady(on: queue,using: callback) },
+                        ready: { sequence.finished || video.isReadyForMoreMediaData },
+                        read: {
+                            guard writer.status == .writing else { throw RenderError.write(writer.error?.localizedDescription ?? "Video writer stopped") }
+                            return try sequence.next()
+                        },append: { try sequence.consume($0) },end: { video.markAsFinished() },stop: {},cancelSource: { writer.cancelWriting() })
+                    try await pump.run()
+                    profile=sequence.profile; encodedFrames=profile.encodedFrames
+                } else {
                 for index in 0..<count {
                     try Task.checkCancellation()
                     let readyStart=ProcessInfo.processInfo.systemUptime
@@ -263,6 +336,7 @@ public final class Exporter: @unchecked Sendable {
                 }
                 while !pending.isEmpty { try await append(pending[0]); pending.removeFirst() }
                 video.markAsFinished()
+                }
                 try await audioTask?.value
                 writer.endSession(atSourceTime: CMTime(value: Int64(count), timescale: Int32(settings.fps)))
                 let finishStart=ProcessInfo.processInfo.systemUptime

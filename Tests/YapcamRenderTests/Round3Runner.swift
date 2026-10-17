@@ -76,21 +76,33 @@ import YapcamCore
         guard let device=MTLCreateSystemDefaultDevice() else { throw RenderError.metal("Metal unavailable in signed LaunchServices runner") }
         sourceInfo["device"]=device.name
         sourceInfo["video_pipeline_depth"]=config.videoPipelineDepth ?? 2
+        sourceInfo["reuse_video_seek_reader"]=config.reuseVideoSeekReader ?? true
+        sourceInfo["video_readiness"]=config.callbackVideo == false ? "poll_2ms" : "callback"
         if config.mode=="probe" { return }
         guard config.previewSeconds>0,config.previewSeconds<=60,config.soakSeconds>=0,config.soakSeconds<=1800,
               config.scrubSamples>0,config.scrubSamples<=200 else { throw RenderError.invalidSettings("Invalid Round3 run limits") }
         try FileManager.default.createDirectory(at: work,withIntermediateDirectories: true)
         defer { print("Cleanup render-owned media scratch: \(work.lastPathComponent)"); try? FileManager.default.removeItem(at: work) }
         let package=work.appendingPathComponent("source.yapcam",isDirectory: true)
-        let original=config.originalPackage.map { URL(fileURLWithPath: $0,isDirectory: true) }
+        let original=(config.sourcePackage ?? config.originalPackage).map { URL(fileURLWithPath: $0,isDirectory: true) }
         var originals: [String:String]=[:]
-        if config.source=="recorded" {
+        if let original,FileManager.default.fileExists(atPath: original.path) {
+            originals=try Round3Data.fingerprints(original)
+            try FileManager.default.copyItem(at: original,to: package)
+        } else if config.source=="recorded" {
             guard let original else { throw RenderError.missingMedia("No real recording selected") }
             originals=try Round3Data.fingerprints(original)
             try FileManager.default.copyItem(at: original,to: package)
         } else if config.source=="synthetic4k" {
             try await Task.detached { try Round3Synthetic.create(at: package,seconds: self.config.syntheticSeconds) }.value
+            if let original {
+                // Explicit reusable synthetic input; never regenerate for the
+                // comparison run or write into an existing input package.
+                try FileManager.default.copyItem(at: package,to: original)
+                originals=try Round3Data.fingerprints(original)
+            }
         } else { throw RenderError.invalidSettings("Unknown Round3 source") }
+        if !originals.isEmpty { sourceInfo["input_fingerprints"]=originals }
         defer {
             if let original, !originals.isEmpty {
                 do { try write("original-integrity",["original_intact":try Round3Data.fingerprints(original)==originals]) }
@@ -130,7 +142,7 @@ import YapcamCore
 
     private func withView(_ source: any RenderProjectSource,height: Int,
                           operation: (PreviewPlayer,Round3View) async throws -> Void) async throws {
-        let player=try PreviewPlayer(project: source)
+        let player=try PreviewPlayer(project: source,reuseVideoSeekReader: config.reuseVideoSeekReader ?? true)
         let view=Round3View(frame: NSRect(x: 0,y: 0,width: 640,height: 360),device: player.compositor.device)
         let delegate=PreviewView.Coordinator(player: player)
         view.player=player; view.colorPixelFormat = .bgra8Unorm_srgb; view.framebufferOnly=true
@@ -246,7 +258,7 @@ import YapcamCore
             if height==1080 { published=output; publishedHash=try Round3Data.hash(output) }
         }
         let cancelled=work.appendingPathComponent("cancelled.mp4")
-        let exporter=try Exporter(project: source,settings: settings(2160,end: end),destination: cancelled,videoPipelineDepth: config.videoPipelineDepth ?? 2)
+        let exporter=try Exporter(project: source,settings: settings(2160,end: end),destination: cancelled,videoPipelineDepth: config.videoPipelineDepth ?? 2,callbackVideo: config.callbackVideo ?? true)
         let cancel=Round3Cancellation()
         let task=Task { try await exporter.run { cancel.progress($0) } }
         cancel.attach(task)
@@ -264,7 +276,7 @@ import YapcamCore
         .init(format: .mp4,codec: .hevc,outputHeight: height,fps: 60,includeAudio: true,rangeStartNs: 0,rangeEndNs: end,compression: .social)
     }
     private func oneExport(_ source: any RenderProjectSource,height: Int,end: Int64,output: URL,label: String) async throws {
-        let exporter=try Exporter(project: source,settings: settings(height,end: end),destination: output,videoPipelineDepth: config.videoPipelineDepth ?? 2)
+        let exporter=try Exporter(project: source,settings: settings(height,end: end),destination: output,videoPipelineDepth: config.videoPipelineDepth ?? 2,callbackVideo: config.callbackVideo ?? true)
         let task=Task { try await exporter.run { _ in } }
         var samples: [[String:Any]]=[]
         let start=CACurrentMediaTime()
@@ -284,6 +296,12 @@ import YapcamCore
             throw RenderError.verification("Export verification failed duration/audio check")
         }
         let stageEncoder=JSONEncoder(); stageEncoder.keyEncodingStrategy = .convertToSnakeCase
+        if let retained=config.retainedExports {
+            let directory=URL(fileURLWithPath: retained,isDirectory: true)
+            try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: output,to: directory.appendingPathComponent(label+".mp4"))
+            try JSONSerialization.data(withJSONObject: ["input_fingerprints":sourceInfo["input_fingerprints"] ?? [:],"revision":config.revision],options: [.sortedKeys]).write(to: directory.appendingPathComponent("manifest.json"),options: .atomic)
+        }
         try write(label,["height":height,"width":height*16/9,"media_seconds":metrics.mediaSeconds,
             "video_stages":try JSONSerialization.jsonObject(with: stageEncoder.encode(exporter.videoDiagnostics)),
             "elapsed_s":metrics.elapsedSeconds,"x_realtime":metrics.mediaSeconds/metrics.elapsedSeconds,
