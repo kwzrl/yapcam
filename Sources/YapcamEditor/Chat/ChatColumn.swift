@@ -37,10 +37,9 @@ struct ChatColumn: View {
             Text("Chat").font(Yap.Font.label).foregroundStyle(Yap.title)
             Text(log.connection ?? "Not connected").font(Yap.Font.caption).foregroundStyle(Yap.faint).lineLimit(1)
             Spacer()
-            SlotButton(symbol: "power", label: "Turn off agent", help: "Turn off the agent: no chat, no blocks bar",
-                       active: false, compact: true) { withAnimation(Yap.Motion.select) { model.agentEnabled = false } }
         }
-        .padding(.leading, 16).padding(.trailing, 2).frame(height: Yap.Grid.cell + 4)
+        // No off switch here: the sparkles toggle in the title row turns the agent on and off.
+        .padding(.horizontal, 16).frame(height: Yap.Grid.cell + 4)
     }
 
     private var history: some View {

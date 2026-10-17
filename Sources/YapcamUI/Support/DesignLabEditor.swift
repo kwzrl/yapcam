@@ -520,10 +520,8 @@ private struct ChatColumn: View {
                 Text("Chat").font(Yap.Font.label).foregroundStyle(Yap.title)
                 Text("Claude Code").font(Yap.Font.caption).foregroundStyle(Yap.faint)
                 Spacer()
-                SlotButton(symbol: "power", label: "Turn off agent", help: "Turn off the agent: no chat, no suggestions",
-                           active: false, compact: true) { withAnimation(Yap.Motion.select) { mock.agent = .off } }
             }
-            .padding(.leading, 16).padding(.trailing, 2).frame(height: Yap.Grid.cell + 4)
+            .padding(.horizontal, 16).frame(height: Yap.Grid.cell + 4)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     UserBubble(text: "Tighten this")
