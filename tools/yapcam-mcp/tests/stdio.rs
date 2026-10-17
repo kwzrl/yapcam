@@ -360,22 +360,160 @@ fn craft_tools_use_seconds_and_one_undo_per_call() {
 }
 
 #[test]
+fn craft_view_activity_context_and_short_typing_contract() {
+    let f = Fixture::new();
+    let events = [
+        json!({"t":0,"type":"focus","window_title":"Before"}),
+        json!({"t":1_500_000_000,"type":"down","x":80,"y":100}),
+        json!({"t":1_800_000_000,"type":"focus","window_title":"After"}),
+        json!({"t":2_000_000_000,"type":"down","x":240,"y":100}),
+        json!({"t":2_500_000_000_i64,"type":"key","key":"h"}),
+        json!({"t":2_600_000_000_i64,"type":"key","key":"i"}),
+    ];
+    fs::write(
+        f.0.join("recording/seg-000/events.jsonl"),
+        events
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n",
+    )
+    .unwrap();
+    fs::write(f.0.join("recording/seg-001/events.jsonl"), "").unwrap();
+    fs::write(
+        f.0.join("recording/transcript.json"),
+        json!({"schema_version":1,"words":[
+            {"text":"First.","src_start_ns":100_000_000,"src_end_ns":400_000_000},
+            {"text":"Last.","src_start_ns":2_800_000_000_i64,"src_end_ns":2_900_000_000_i64}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let mut c = Client::new(&f.0);
+    c.init();
+    let before = c.ok("read_project", json!({}));
+    let m = c.ok("moments", json!({}));
+    assert_eq!(m["view_changes"].as_array().unwrap().len(), 2);
+    let rows = m["moments"].as_array().unwrap();
+    assert_eq!(
+        rows.iter().find(|r| r["kind"] == "click").unwrap()["view_change_s"],
+        1.8
+    );
+    assert_eq!(
+        rows.iter().find(|r| r["kind"] == "typing").unwrap()["text"],
+        "hi"
+    );
+    assert!(rows.iter().all(|r| r["kind"] != "key"));
+    for args in [
+        json!({"click_index":0}),
+        json!({"click_index":0,"start_s":0.2,"end_s":1.7,"scale":4,"include":[1,{"x":0.2,"y":0.3,"w":0.6,"h":0.4}]}),
+    ] {
+        let z = c.ok("zoom_on_click", args.clone());
+        if args.get("include").is_some() {
+            assert!((z["scale"].as_f64().unwrap() - 1.0 / 0.6).abs() < 1e-9);
+            assert_eq!(z["target"], json!([0.5, 0.5]));
+            assert_eq!(z["from_s"], 0.2);
+            assert_eq!(z["to_s"], 1.7);
+        } else {
+            assert_eq!(z["from_s"], 0.75);
+            assert_eq!(z["to_s"], 1.75);
+            assert_eq!(z["clamped"], true);
+        }
+        assert_eq!(c.ok("project_summary", json!({}))["undo_steps"], 1);
+        c.ok("undo", json!({}));
+        assert_eq!(c.ok("read_project", json!({})), before);
+    }
+    let issues = c.ok("check", json!({}));
+    assert!(issues["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["kind"] == "activity_pause" && r["severity"] == "info"));
+    let r = c.ok("tighten_pauses", json!({}));
+    assert_eq!(r["activity_pauses_kept"].as_array().unwrap().len(), 1);
+    assert!((r["removed_s"].as_f64().unwrap() - 1.3).abs() < 1e-9);
+    c.ok("undo", json!({}));
+    assert_eq!(c.ok("read_project", json!({})), before);
+    assert_eq!(
+        c.call(
+            "zoom_on_click",
+            json!({"click_index":0,"include":[{"x":0,"y":0,"w":1,"h":1}]})
+        )["isError"],
+        true
+    );
+    assert_eq!(c.ok("read_project", json!({})), before);
+}
+
+#[test]
+fn craft_typing_warning_uses_retained_fast_bursts() {
+    let f = Fixture::new();
+    let events: Vec<_> = (0..7)
+        .map(|i| json!({"t":100_000_000+i*300_000_000,"type":"key","key":"a"}).to_string())
+        .collect();
+    fs::write(
+        f.0.join("recording/seg-000/events.jsonl"),
+        events.join("\n") + "\n",
+    )
+    .unwrap();
+    fs::write(f.0.join("recording/seg-001/events.jsonl"), "").unwrap();
+    let mut c = Client::new(&f.0);
+    c.init();
+    c.ok("apply",json!({"command":{"op":"add_zoom","tl_start_ns":0,"tl_end_ns":2_000_000_000,"target":[0.5,0.5],"scale":1.8}}));
+    assert!(c.ok("check", json!({}))["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["kind"] == "zoom_during_typing" && r["severity"] == "warning"));
+    c.ok("undo", json!({}));
+    assert!(!c.ok("check", json!({}))["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["kind"] == "zoom_during_typing"));
+}
+
+#[test]
 fn handbook_instructions_resources_and_prompts() {
     let f = Fixture::new();
     let before = tree(&f.0);
     let mut c = Client::new(&f.0);
     assert_eq!(c.rpc("resources/list", json!({}))["error"]["code"], -32000);
-    let r = c.rpc("initialize", json!({"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test"}}));
-    assert!(r["result"]["instructions"].as_str().unwrap().contains("yapcam://playbook"));
-    assert!(r["result"]["capabilities"]["resources"].is_object() && r["result"]["capabilities"]["prompts"].is_object());
+    let r = c.rpc(
+        "initialize",
+        json!({"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test"}}),
+    );
+    assert!(r["result"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains("yapcam://playbook"));
+    assert!(
+        r["result"]["capabilities"]["resources"].is_object()
+            && r["result"]["capabilities"]["prompts"].is_object()
+    );
     let list = c.rpc("resources/list", json!({}));
     assert_eq!(list["result"]["resources"][0]["uri"], "yapcam://playbook");
     let read = c.rpc("resources/read", json!({"uri":"yapcam://playbook"}));
-    assert!(read["result"]["contents"][0]["text"].as_str().unwrap().starts_with("# Yapcam playbook"));
-    assert_eq!(c.rpc("resources/read", json!({"uri":"yapcam://x"}))["error"]["code"], -32002);
-    assert_eq!(c.rpc("prompts/list", json!({}))["result"]["prompts"].as_array().unwrap().len(), 3);
+    assert!(read["result"]["contents"][0]["text"]
+        .as_str()
+        .unwrap()
+        .starts_with("# Yapcam playbook"));
+    assert_eq!(
+        c.rpc("resources/read", json!({"uri":"yapcam://x"}))["error"]["code"],
+        -32002
+    );
+    assert_eq!(
+        c.rpc("prompts/list", json!({}))["result"]["prompts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
     let get = c.rpc("prompts/get", json!({"name":"walkthrough"}));
-    assert_eq!(get["result"]["messages"][3]["content"]["resource"]["uri"], "yapcam://examples/walkthrough");
+    assert_eq!(
+        get["result"]["messages"][3]["content"]["resource"]["uri"],
+        "yapcam://examples/walkthrough"
+    );
     drop(c);
     assert_eq!(tree(&f.0), before);
 }
