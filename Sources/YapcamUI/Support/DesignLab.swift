@@ -314,7 +314,8 @@ private struct OrbitBar: View {
                 OrbitCell(symbol: d.line, label: d.title, labels: labels, rounded: rounded, dim: !d.on) {}
             }
             separator
-            OrbitCell(symbol: "folder", label: "Recent", labels: labels, rounded: rounded) {}
+            OrbitCell(symbol: "film", label: "Edit", labels: labels, rounded: rounded) {}
+            OrbitCell(symbol: "folder", label: "Library", labels: labels, rounded: rounded) {}
             OrbitCell(symbol: "gearshape", label: "Settings", labels: labels, rounded: rounded) {}
         }
         .padding(.horizontal, Self.inset)

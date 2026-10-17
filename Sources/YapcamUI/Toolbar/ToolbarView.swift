@@ -16,6 +16,7 @@ struct ToolbarView: View {
     @ObservedObject private var picker = PickerState.shared
     @ObservedObject private var recovery = RecoveryModel.shared
     @ObservedObject private var devices = DeviceModel.shared
+    @ObservedObject private var library = RecentProjectsWindow.shared.model
     @State private var open: ToolbarPopover?
 
     private var vertical: Bool { layout.vertical }
@@ -105,15 +106,29 @@ struct ToolbarView: View {
                     RecoveryFlow.run(silentWhenNone: false); recovery.refresh()
                 }
             }
-            ToolbarButton(symbol: "folder", label: "Recent", help: "Recent projects", active: open == .recents || settings.showRecentsWithPicker, compact: vertical) { toggle(.recents) }
+            editButton
+            ToolbarButton(symbol: "folder", label: "Library", help: "All recordings", active: open == .recents || settings.showRecentsWithPicker, compact: vertical) { toggle(.recents) }
                 .popover(isPresented: binding(.recents), arrowEdge: edge) { RecentsPopover(dismiss: { open = nil }) }
             settingsMenu
         }
         .onChange(of: open) { _, new in if new == .recents { settings.showRecentsWithPicker = true } else if settings.showRecentsWithPicker, new == nil { settings.showRecentsWithPicker = false } }
-        .onAppear { recovery.refresh(); startMeterIfNeeded(); if settings.showRecentsWithPicker { open = .recents } }
+        .onAppear { recovery.refresh(); library.reload(); startMeterIfNeeded(); if settings.showRecentsWithPicker { open = .recents } }
         .onDisappear { devices.stopMeter() }
         .onChange(of: settings.microphoneID) { _, _ in startMeterIfNeeded() }
         .onChange(of: perms.state(.microphone)) { _, _ in startMeterIfNeeded() }
+    }
+
+    /// Opens the latest recording in the editor; its first frame stands in for the icon.
+    private var editButton: some View {
+        let last = library.projects.first
+        return ToolbarButton(symbol: "film", label: "Edit", help: last.map { "Open “\($0.name)” in the editor" } ?? "No recording to edit yet",
+                             active: false, enabled: last != nil, compact: vertical, image: last.flatMap { library.thumbnails[$0.url] }) {
+            guard let last else { return }
+            open = nil
+            rec.engine.openEditor(package: last.url)
+        }
+        .onAppear { if let last { library.loadThumbnail(last) } }
+        .onChange(of: last?.url) { _, _ in if let first = library.projects.first { library.loadThumbnail(first) } }
     }
 
     /// Display / Window / Area: one click selects the mode and shows its overlay with **Start recording**.
@@ -338,6 +353,8 @@ struct ToolbarButton: View {
     var enabled: Bool = true
     /// Icon only (vertical bar); the label stays in the tooltip and for VoiceOver.
     var compact = false
+    /// A picture in place of the symbol (the Edit button shows the latest recording).
+    var image: NSImage?
     let action: () -> Void
     @State private var hover = false
 
@@ -360,15 +377,26 @@ struct ToolbarButton: View {
 
     @ViewBuilder private var content: some View {
         if compact {
-            Image(systemName: symbol).font(.system(size: 17, weight: .regular)).frame(width: Self.size, height: Self.size)
+            glyph(17).frame(width: Self.size, height: Self.size)
         } else {
             VStack(spacing: 3) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .regular)).frame(height: 19)
+                glyph(16).frame(height: 19)
                 Text(label).font(.system(size: 10, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
                     .frame(maxWidth: 104)
             }
             .padding(.horizontal, 12)
             .frame(minWidth: Self.size, minHeight: Self.size, maxHeight: Self.size)
+        }
+    }
+
+    @ViewBuilder private func glyph(_ size: CGFloat) -> some View {
+        if let image {
+            let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+            Image(nsImage: image).resizable().scaledToFill()
+                .frame(width: 30, height: 19).clipShape(shape)
+                .overlay(shape.strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5))
+        } else {
+            Image(systemName: symbol).font(.system(size: size, weight: .regular))
         }
     }
 }
