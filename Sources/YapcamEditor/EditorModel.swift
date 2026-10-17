@@ -59,6 +59,15 @@ public final class EditorModel: ObservableObject {
     /// Microphone level across the edited timeline, drawn in the clip track (reference: "audio waveform on/off").
     @Published public internal(set) var waveform: [WavePoint] = []
     @Published public internal(set) var showWaveform = true
+    /// Preview-only safe-area overlay of a vertical platform (remembered).
+    @Published public internal(set) var reelMode: ReelMode = .off
+    var lastInset: (size: Double, color: [Double])?
+    /// Wallpapers starred by the user (right-click in the picker); remembered across projects.
+    @Published public internal(set) var favouriteWallpapers: Set<String> = []
+    public func toggleFavouriteWallpaper(_ id: String) {
+        if favouriteWallpapers.contains(id) { favouriteWallpapers.remove(id) } else { favouriteWallpapers.insert(id) }
+        defaults.set(Array(favouriteWallpapers).sorted(), forKey: "editor.favouriteWallpapers")
+    }
     public var timelineViewportWidth: Double = 900
     /// Set once the timeline view has fitted the project to its real width.
     var timelineFitted = false
@@ -153,6 +162,11 @@ public final class EditorModel: ObservableObject {
     public func set(_ path: String, _ value: JSONValue) {
         if path == "canvas.background.kind" { selectedWallpaperID = nil }
         perform(.set(path: path, value: value))
+    }
+    /// Several settings as one command = one undo step.
+    public func setMany(_ items: [(path: String, value: JSONValue)]) {
+        guard !items.isEmpty else { return }
+        perform(.batch(items.map { .set(path: $0.path, value: $0.value) }))
     }
     public func set(_ path: String, number v: Double) { set(path, .number(v)) }
     public func set(_ path: String, bool v: Bool) { set(path, .bool(v)) }

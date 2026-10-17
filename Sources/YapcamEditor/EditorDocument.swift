@@ -40,6 +40,8 @@ import UniformTypeIdentifiers
         export.remember(in: .dialog, defaults: presets.defaults)
         model.presetStore = presets; model.defaults = presets.defaults
         model.loadStoredPreviewOptions()
+        model.favouriteWallpapers = Set(presets.defaults.stringArray(forKey: "editor.favouriteWallpapers") ?? [])
+        model.reelMode = ReelMode(rawValue: presets.defaults.string(forKey: "editor.reelMode") ?? "") ?? .off
         model.showWaveform = presets.defaults.object(forKey: "editor.showWaveform") as? Bool ?? true
         struct Library: Decodable { struct Item: Decodable { var id: String }; var sets: [Item] }
         model.cursorSetIDs = ((try? project.query("{\"q\":\"cursor_library\"}", as: Library.self))?.sets ?? []).map(\.id)

@@ -517,3 +517,90 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(m.selection == .zoom(m.zooms[0].id) || m.selection == .none)
     }
 }
+
+@MainActor @Suite struct R5BackgroundAndCommandTests {
+    private func doc() throws -> (EditorDocument, URL, () -> Void) {
+        let d = try pkgCopy(); let iso = EditorStorage.makeIsolated()
+        return (try EditorDocument(package: d, presets: iso.store), d, { try? FileManager.default.removeItem(at: d); iso.cleanup() })
+    }
+
+    @Test func insetRestoresLastUseElseFallbackAndIsOneUndoStep() throws {
+        let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
+        m.setInsetEnabled(true)
+        #expect(m.number("canvas.inset") == 4 && m.color("canvas.inset_color") == [0.533, 0.533, 0.533, 0.25])
+        m.undo(); #expect(m.number("canvas.inset") == 0)                       // one step for size + colour
+        m.setInsetEnabled(true)
+        m.set("canvas.inset", number: 9); m.set("canvas.inset_color", color: [1, 0, 0, 0.5])
+        m.setInsetEnabled(false); #expect(m.number("canvas.inset") == 0)
+        m.setInsetEnabled(true)
+        #expect(m.number("canvas.inset") == 9 && m.color("canvas.inset_color") == [1, 0, 0, 0.5])   // restores last use
+        m.set("canvas.inset", number: 0.125); #expect(m.lastError == nil && m.number("canvas.inset") == 0.125)   // lowest size of the reference
+        m.set("canvas.inset_origin", .array([.number(-0.5), .number(0.75)])); #expect(m.lastError == nil)
+    }
+
+    @Test func gradientHueRotatesBothStopsTogetherAndPresetsApplyInOneStep() throws {
+        let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
+        m.applyGradientPreset(0)
+        #expect(m.string("canvas.background.kind") == "gradient")
+        let (a, b) = (m.color("canvas.background.color"), m.color("canvas.background.color2"))
+        m.rotateGradientHue(by: 90)
+        let (a2, b2) = (m.color("canvas.background.color"), m.color("canvas.background.color2"))
+        #expect(a2 != a && b2 != b)
+        let dh = { (x: [Double], y: [Double]) -> Double in var d = GradientPresets.hue(y) - GradientPresets.hue(x); if d < 0 { d += 360 }; return d }
+        #expect(abs(dh(a, a2) - 90) < 1.5 && abs(dh(b, b2) - 90) < 1.5)
+        m.undo(); #expect(m.color("canvas.background.color") == a && m.color("canvas.background.color2") == b)
+        #expect(GradientPresets.all.count >= 16)
+    }
+
+    @Test func cornerSliderSnapsToTheReferenceValues() {
+        // 0, 12, 16, 20, 26: a value within 1.2 % of the 0…128 range of a suggestion sticks to it.
+        let snaps = [0.0, 12, 16, 20, 26], tol = 128 * 0.012
+        func snapped(_ v: Double) -> Double { snaps.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) <= tol ? $0 : nil } ?? v }
+        #expect(snapped(15) == 16 && snapped(17.4) == 16 && snapped(21) == 20 && snapped(40) == 40 && snapped(0.9) == 0)
+    }
+
+    @Test func favouritesAreRemembered() throws {
+        let (doc, d, done) = try doc(); defer { done() }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        m.toggleFavouriteWallpaper("aurora"); m.toggleFavouriteWallpaper("dune")
+        m.toggleFavouriteWallpaper("dune")
+        #expect(m.favouriteWallpapers == ["aurora"])
+        #expect(try EditorDocument(package: d, presets: iso.store).model.favouriteWallpapers == ["aurora"])
+        _ = doc
+    }
+
+    @Test func loopAndHideCursorFollowTheReference() throws {
+        let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
+        m.set("cursor.loop_to_start", bool: false)
+        m.setMany([("cursor.loop_to_start", .bool(true)), ("cursor.loop_duration_ns", .number(1_000_000_000))])
+        #expect(m.bool("cursor.loop_to_start") && m.number("cursor.loop_duration_ns") == 1_000_000_000)
+        m.undo(); #expect(!m.bool("cursor.loop_to_start"))
+    }
+
+    @Test func reelModeZonesStayInsideTheFrameAndAreRemembered() throws {
+        for mode in ReelMode.allCases {
+            for z in mode.zones { #expect(CGRect(x: 0, y: 0, width: 1, height: 1).contains(z.rect), "\(mode) \(z.name)") }
+            #expect(CGRect(x: 0, y: 0, width: 1, height: 1).contains(mode.safeRect))
+            for z in mode.zones { #expect(!z.rect.intersects(mode.safeRect.insetBy(dx: 0.001, dy: 0.001)) || mode == .off, "\(mode) safe area overlaps \(z.name)") }
+        }
+        #expect(ReelMode.off.zones.isEmpty)
+        let (doc, d, done) = try doc(); defer { done() }
+        doc.model.setReelMode(.tiktok); #expect(doc.model.reelMode == .tiktok)
+        _ = d
+    }
+
+    @Test func commandMenuReachesSettingsWithTheSameEffectAsTheInspector() throws {
+        let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
+        func run(_ title: String) { m.filteredCommands(title).first { $0.title == title }?.run() }
+        #expect(m.paletteCommands.count > 100)
+        run("Aspect ratio: Vertical 9:16"); #expect(m.string("canvas.aspect") == "9:16")
+        run("Go to Audio"); #expect(m.inspectorSection == .audio)
+        run("Turn on window frame"); #expect(m.bool("canvas.window_chrome"))
+        run("Background: Gradient"); #expect(m.string("canvas.background.kind") == "gradient")
+        run("Reel preview: Instagram Reels"); #expect(m.reelMode == .instagram)
+        run("Preview resolution: Half"); #expect(m.previewOptions.resolution == 0.5)
+        #expect(m.filteredCommands("filler").contains { $0.title == "Remove filler words" })
+        #expect(m.lastError == nil)
+    }
+}

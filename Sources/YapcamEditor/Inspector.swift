@@ -10,13 +10,15 @@ struct NumberRow: View {
     let range: ClosedRange<Double>
     var unit = "", format = "%.2f", scale = 1.0      // scale: display = stored * scale
     var defaultValue: Double? = nil                  // shows a reset button when the value differs
+    var snaps: [Double] = []                         // suggested values the slider sticks to (in stored units × scale)
+    var snapDistance = 0.012                         // fraction of the range
     @State private var value = 0.0
     @State private var editing = false
 
     var body: some View {
         SliderRow(title) {
             HStack {
-                Slider(value: $value, in: range) { isEditing in
+                Slider(value: Binding(get: { value }, set: { value = snapped($0) }), in: range) { isEditing in
                     editing = isEditing
                     if !isEditing { model.set(path, number: value) }
                 }
@@ -34,6 +36,10 @@ struct NumberRow: View {
         }
         .onAppear { value = model.number(path) }
         .onChange(of: model.revision) { _, _ in if !editing { value = model.number(path) } }
+    }
+    private func snapped(_ v: Double) -> Double {
+        let tolerance = (range.upperBound - range.lowerBound) * snapDistance
+        return snaps.map { $0 / scale }.filter { range.contains($0) }.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) <= tolerance ? $0 : nil } ?? v
     }
 }
 
@@ -411,7 +417,8 @@ struct InspectorView: View {
 
     @ViewBuilder private var cursor: some View {
         Section("Appearance") {
-            ToggleRow(model: model, title: "Show cursor", path: "cursor.visible", defaultValue: true)
+            Toggle("Hide cursor", isOn: Binding(get: { !model.bool("cursor.visible", default: true) }, set: { model.set("cursor.visible", bool: !$0) }))
+            if model.bool("cursor.visible", default: true) {
             if model.usesCursorPoints {
                 NumberRow(model: model, title: "Size", path: "cursor.size_points", range: 16...128, unit: "px", format: "%.0f", defaultValue: 48)
             } else {
@@ -438,9 +445,13 @@ struct InspectorView: View {
             HoldCursorRow(model: model)
             PickerRow(model: model, title: "Click effect", path: "cursor.click_effect",
                       options: [("None", "none"), ("Circle", "ring"), ("Ripple", "highlight")])
-            ToggleRow(model: model, title: "Loop cursor to start", path: "cursor.loop_to_start")
+            // Turning the loop on sets 1 s (the reference's value); it is one undo step with the switch.
+            Toggle("Loop cursor to start", isOn: Binding(get: { model.bool("cursor.loop_to_start") }, set: { on in
+                var items: [(path: String, value: JSONValue)] = [("cursor.loop_to_start", .bool(on))]
+                if on && model.number("cursor.loop_duration_ns") < 1_000_000_000 { items.append(("cursor.loop_duration_ns", .number(1_000_000_000))) }
+                model.setMany(items) }))
             if model.bool("cursor.loop_to_start") {
-                DurationRow(model: model, title: "Loop position takes", path: "cursor.loop_duration_ns", default: 400_000_000, range: 1...4)
+                DurationRow(model: model, title: "Loop position takes", path: "cursor.loop_duration_ns", default: 1_000_000_000, range: 1...4)
             }
             PickerRow(model: model, title: "Cursor style", path: "cursor.style",
                       options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch"), ("Arrow", "arrow")])
@@ -450,6 +461,7 @@ struct InspectorView: View {
             PickerRow(model: model, title: "Cursor size", path: "cursor.logical_size", options: cursorSizes)
             NumberRow(model: model, title: "Motion blur", path: "cursor.motion_blur", range: 0...1)
             NumberRow(model: model, title: "Spotlight radius", path: "cursor.spotlight_radius", range: 0...600, unit: "px", format: "%.0f")
+            }   // visible
         }
         Section("Hidden sections") {
             if case .cursorHide(let i) = model.selection, let h = model.cursorHides.first(where: { $0.index == i }) {

@@ -67,6 +67,7 @@ public struct EditorContent<Preview: View>: View {
             }
             preview
                 .aspectRatio(model.previewAspect, contentMode: .fit)
+                .overlay { if model.reelMode != .off { ReelOverlay(mode: model.reelMode) } }
                 .overlay { if model.selectedZoom != nil { FocusPickerOverlay(model: model, playhead: model.playhead) } }
                 .overlay { rectEditor }
                 .scaleEffect(model.previewZoom)
