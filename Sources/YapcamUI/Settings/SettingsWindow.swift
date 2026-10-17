@@ -245,7 +245,7 @@ struct AdvancedSettings: View {
             Picker("Frame rate", selection: $s.maxFPS) { Text("Automatic (display rate)").tag(0); Text("Up to 30 fps").tag(30); Text("Up to 60 fps").tag(60) }
             Text("Automatic follows your display's refresh rate. A cap is only for slower Macs or smaller files.").font(.caption).foregroundStyle(.secondary)
             Toggle("Hide desktop icons while recording", isOn: $s.hideDesktopIcons)
-            Text("Restarts Finder briefly. Icons are restored when recording ends, and on the next launch if Yapcam quit unexpectedly.")
+            Text("Desktop icons are excluded from the recording. Finder and your desktop stay unchanged.")
                 .font(.caption).foregroundStyle(.secondary)
             Button("Reset toolbar position") {
                 for key in AppDefaults.store.dictionaryRepresentation().keys where key.hasPrefix(ToolbarPanelController.positionKeyPrefix) {
