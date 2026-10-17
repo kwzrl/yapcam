@@ -10,9 +10,7 @@ struct CameraLayoutSettings: View {
     var body: some View {
         Section("Camera") {
             ToggleRow(model: model, title: "Show camera", path: "camera.visible", defaultValue: true)
-            Picker("Layout", selection: Binding(get: { mode }, set: { model.set(p + "mode", string: $0) })) {
-                Text("Overlay").tag("overlay"); Text("Cutout").tag("cutout"); Text("Split").tag("split")
-            }.pickerStyle(.segmented)
+            LabeledPills("Layout", selection: Binding(get: { mode }, set: { model.set(p + "mode", string: $0) }), options: [("Overlay", "overlay"), ("Cutout", "cutout"), ("Split", "split")])
         }
         switch mode {
         case "cutout": cutout
@@ -50,9 +48,7 @@ struct CameraLayoutSettings: View {
 
     @ViewBuilder private var cutout: some View {
         Section("Cutout") {
-            Picker("Position", selection: Binding(get: { cutoutPosition }, set: { model.set(p + "cutout_position", .array([.number($0), .number(1)])) })) {
-                Text("Left").tag(0.0); Text("Center").tag(0.5); Text("Right").tag(1.0)
-            }.pickerStyle(.segmented)
+            LabeledPills("Position", selection: Binding(get: { cutoutPosition }, set: { model.set(p + "cutout_position", .array([.number($0), .number(1)])) }), options: [("Left", 0.0), ("Center", 0.5), ("Right", 1.0)])
             NumberRow(model: model, title: "Size", path: p + "cutout_size", range: 0.2...1, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.5)
             NumberRow(model: model, title: "Edge softness", path: p + "edge_softness", range: 0...1, defaultValue: 0.2)
             NumberRow(model: model, title: "Edge inset", path: p + "edge_inset", range: 0...8, unit: "px", format: "%.0f", defaultValue: 0)
@@ -61,9 +57,7 @@ struct CameraLayoutSettings: View {
 
     @ViewBuilder private var split: some View {
         Section("Split") {
-            Picker("Ratio", selection: Binding(get: { ratioKey }, set: { setRatio($0) })) {
-                Text("Auto").tag("auto"); Text("½").tag("half"); Text("⅔").tag("twoThirds")
-            }.pickerStyle(.segmented)
+            LabeledPills("Ratio", selection: Binding(get: { ratioKey }, set: { setRatio($0) }), options: [("Auto", "auto"), ("½", "half"), ("⅔", "twoThirds")])
             ToggleRow(model: model, title: "Flip sides", path: p + "split_flip")
             ToggleRow(model: model, title: "Padded", path: p + "split_padded")
         }
@@ -149,10 +143,8 @@ struct LayoutOwnSettings: View {
                 slider("Edge softness", "edge_softness", 0...1, 0.2)
                 slider("Edge inset", "edge_inset", 0...8, 0, unit: "px")
             case "split":
-                Picker("Ratio", selection: Binding(get: { ratioKey }, set: { k in
-                    model.setLayoutSetting(id: layout.id, key: "split_ratio", k == "auto" ? .null : .number(k == "half" ? 0.5 : 2.0 / 3)) })) {
-                    Text("Auto").tag("auto"); Text("½").tag("half"); Text("⅔").tag("twoThirds")
-                }.pickerStyle(.segmented)
+                LabeledPills("Ratio", selection: Binding(get: { ratioKey }, set: { k in
+                    model.setLayoutSetting(id: layout.id, key: "split_ratio", k == "auto" ? .null : .number(k == "half" ? 0.5 : 2.0 / 3)) }), options: [("Auto", "auto"), ("½", "half"), ("⅔", "twoThirds")])
                 Toggle("Flip sides", isOn: Binding(get: { flag("split_flip") }, set: { model.setLayoutSetting(id: layout.id, key: "split_flip", .bool($0)) }))
                 Toggle("Padded", isOn: Binding(get: { flag("split_padded") }, set: { model.setLayoutSetting(id: layout.id, key: "split_padded", .bool($0)) }))
             default:

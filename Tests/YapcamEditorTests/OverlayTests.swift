@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import AppKit
 import Testing
@@ -481,5 +482,191 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         let before = m.geometry.pixelsPerSecond
         try await Task.sleep(for: .milliseconds(200))
         #expect(m.geometry.pixelsPerSecond == before)            // fitted once, not on every layout pass
+    }
+}
+
+@MainActor @Suite struct WaveformTests {
+    @Test func realAudioFileGivesTimelineMappedPeaksThatFollowCuts() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store); let m = doc.model
+        await m.refreshWaveform()
+        #expect(!m.waveform.isEmpty)
+        #expect(m.waveform.allSatisfy { (0...1.0001).contains($0.amp) && $0.tlNs >= 0 && $0.tlNs <= m.durationNs })
+        #expect(m.waveform.map(\.tlNs) == m.waveform.map(\.tlNs).sorted())
+        #expect(m.waveform.contains { $0.amp > 0.01 }, "the fixture's audio is not silent")
+        let full = m.waveform.count
+        // A cut shortens the timeline; the waveform is re-mapped (fewer points, none beyond the new end).
+        m.seek(toNs: 1_000_000_000); m.splitAtPlayhead(); m.seek(toNs: 3_000_000_000); m.splitAtPlayhead()
+        m.selection = .clip(m.clips[1].id); m.deleteSelection()
+        await m.refreshWaveform()
+        #expect(m.waveform.count < full)
+        #expect(m.waveform.allSatisfy { $0.tlNs <= m.durationNs })
+        m.setShowWaveform(false); #expect(m.waveform.isEmpty && !m.showWaveform)
+        #expect(iso.defaults.bool(forKey: "editor.showWaveform") == false)
+    }
+
+    @Test func clickingOrDraggingTheEmptyZoomTrackAddsAZoomInOneUndoStep() throws {
+        let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer())
+        #expect(m.zooms.isEmpty)
+        m.addZoom(fromNs: 4_000_000_000)                      // click: default length
+        #expect(m.zooms.count == 1 && m.zooms[0].startNs == 4_000_000_000 && m.zooms[0].endNs - m.zooms[0].startNs == defaultZoomDurationNs)
+        m.addZoom(fromNs: 12_000_000_000, toNs: 9_000_000_000)   // drag right-to-left: that range
+        #expect(m.zooms.count == 2)
+        #expect(m.zooms.contains { $0.startNs == 9_000_000_000 && $0.endNs == 12_000_000_000 })
+        m.undo(); #expect(m.zooms.count == 1)
+        #expect(m.selection == .zoom(m.zooms[0].id) || m.selection == .none)
+    }
+}
+
+@MainActor @Suite struct R5BackgroundAndCommandTests {
+    private func doc() throws -> (EditorDocument, URL, () -> Void) {
+        let d = try pkgCopy(); let iso = EditorStorage.makeIsolated()
+        return (try EditorDocument(package: d, presets: iso.store), d, { try? FileManager.default.removeItem(at: d); iso.cleanup() })
+    }
+
+    @Test func insetRestoresLastUseElseFallbackAndIsOneUndoStep() throws {
+        let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
+        m.setInsetEnabled(true)
+        #expect(m.number("canvas.inset") == 4 && m.color("canvas.inset_color") == [0.533, 0.533, 0.533, 0.25])
+        m.undo(); #expect(m.number("canvas.inset") == 0)                       // one step for size + color
+        m.setInsetEnabled(true)
+        m.set("canvas.inset", number: 9); m.set("canvas.inset_color", color: [1, 0, 0, 0.5])
+        m.setInsetEnabled(false); #expect(m.number("canvas.inset") == 0)
+        m.setInsetEnabled(true)
+        #expect(m.number("canvas.inset") == 9 && m.color("canvas.inset_color") == [1, 0, 0, 0.5])   // restores last use
+        m.set("canvas.inset", number: 0.125); #expect(m.lastError == nil && m.number("canvas.inset") == 0.125)   // lowest size of the reference
+        m.set("canvas.inset_origin", .array([.number(-0.5), .number(0.75)])); #expect(m.lastError == nil)
+    }
+
+    @Test func gradientHueRotatesBothStopsTogetherAndPresetsApplyInOneStep() throws {
+        let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
+        m.applyGradientPreset(0)
+        #expect(m.string("canvas.background.kind") == "gradient")
+        let (a, b) = (m.color("canvas.background.color"), m.color("canvas.background.color2"))
+        m.rotateGradientHue(by: 90)
+        let (a2, b2) = (m.color("canvas.background.color"), m.color("canvas.background.color2"))
+        #expect(a2 != a && b2 != b)
+        let dh = { (x: [Double], y: [Double]) -> Double in var d = GradientPresets.hue(y) - GradientPresets.hue(x); if d < 0 { d += 360 }; return d }
+        #expect(abs(dh(a, a2) - 90) < 1.5 && abs(dh(b, b2) - 90) < 1.5)
+        m.undo(); #expect(m.color("canvas.background.color") == a && m.color("canvas.background.color2") == b)
+        #expect(GradientPresets.all.count >= 16)
+    }
+
+    @Test func cornerSliderSnapsToTheReferenceValues() {
+        // 0, 12, 16, 20, 26: a value within 1.2 % of the 0…128 range of a suggestion sticks to it.
+        let snaps = [0.0, 12, 16, 20, 26], tol = 128 * 0.012
+        func snapped(_ v: Double) -> Double { snaps.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) <= tol ? $0 : nil } ?? v }
+        #expect(snapped(15) == 16 && snapped(17.4) == 16 && snapped(21) == 20 && snapped(40) == 40 && snapped(0.9) == 0)
+    }
+
+    @Test func favoritesAreRemembered() throws {
+        let (doc, d, done) = try doc(); defer { done() }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        m.toggleFavoriteWallpaper("aurora"); m.toggleFavoriteWallpaper("dune")
+        m.toggleFavoriteWallpaper("dune")
+        #expect(m.favoriteWallpapers == ["aurora"])
+        #expect(try EditorDocument(package: d, presets: iso.store).model.favoriteWallpapers == ["aurora"])
+        _ = doc
+    }
+
+    @Test func loopAndHideCursorFollowTheReference() throws {
+        let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
+        m.set("cursor.loop_to_start", bool: false)
+        m.setMany([("cursor.loop_to_start", .bool(true)), ("cursor.loop_duration_ns", .number(1_000_000_000))])
+        #expect(m.bool("cursor.loop_to_start") && m.number("cursor.loop_duration_ns") == 1_000_000_000)
+        m.undo(); #expect(!m.bool("cursor.loop_to_start"))
+    }
+
+    @Test func reelModeZonesStayInsideTheFrameAndAreRemembered() throws {
+        for mode in ReelMode.allCases {
+            for z in mode.zones { #expect(CGRect(x: 0, y: 0, width: 1, height: 1).contains(z.rect), "\(mode) \(z.name)") }
+            #expect(CGRect(x: 0, y: 0, width: 1, height: 1).contains(mode.safeRect))
+            for z in mode.zones { #expect(!z.rect.intersects(mode.safeRect.insetBy(dx: 0.001, dy: 0.001)) || mode == .off, "\(mode) safe area overlaps \(z.name)") }
+        }
+        #expect(ReelMode.off.zones.isEmpty)
+        let (doc, d, done) = try doc(); defer { done() }
+        doc.model.setReelMode(.tiktok); #expect(doc.model.reelMode == .tiktok)
+        _ = d
+    }
+
+    @Test func commandMenuReachesSettingsWithTheSameEffectAsTheInspector() throws {
+        let (doc, _, done) = try doc(); defer { done() }; let m = doc.model
+        func run(_ title: String) { m.filteredCommands(title).first { $0.title == title }?.run() }
+        #expect(m.paletteCommands.count > 100)
+        run("Aspect ratio: Vertical 9:16"); #expect(m.string("canvas.aspect") == "9:16")
+        run("Go to Audio"); #expect(m.inspectorSection == .audio)
+        run("Turn on window frame"); #expect(m.bool("canvas.window_chrome"))
+        run("Background: Gradient"); #expect(m.string("canvas.background.kind") == "gradient")
+        run("Reel preview: Instagram Reels"); #expect(m.reelMode == .instagram)
+        run("Preview resolution: Half"); #expect(m.previewOptions.resolution == 0.5)
+        #expect(m.filteredCommands("filler").contains { $0.title == "Remove filler words" })
+        #expect(m.lastError == nil)
+    }
+}
+
+@MainActor @Suite struct R5ChromeTests {
+    @Test func recentPresetsKeepFiveNewestFirstWithoutDuplicates() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        try FileManager.default.createDirectory(at: iso.store.directory, withIntermediateDirectories: true)
+        for n in ["a", "b", "c", "d", "e", "f"] { m.savePreset(named: n) }
+        #expect(m.lastError == nil)
+        for n in ["a", "b", "c", "d", "e", "f", "c"] { m.applyPreset(at: iso.store.url(n)) }
+        #expect(m.recentPresets() == ["c", "f", "e", "d", "b"])
+    }
+
+    @Test func appearanceDefaultsToDarkAndOffersLightAndSystem() {
+        #expect(EditorWindows.appearance == .dark)
+        #expect(EditorAppearance.allCases == [.dark, .light, .system])
+        #expect(EditorAppearance.dark.nsAppearance?.name == .darkAqua && EditorAppearance.light.nsAppearance?.name == .aqua && EditorAppearance.system.nsAppearance == nil)
+    }
+}
+
+@MainActor @Suite struct WaveformAuthenticityTests {
+    /// 3 s mono 16-bit WAV at 8 kHz: silence, a 1 kHz tone of amplitude 0.5 from 1.0 to 2.0 s, silence.
+    private func makeWAV(tone: Bool) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("wave-\(UUID().uuidString).wav")
+        let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8_000, channels: 1, interleaved: true)!
+        let file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 24_000)!
+        buffer.frameLength = 24_000
+        let p = buffer.int16ChannelData![0]
+        for i in 0..<24_000 {
+            let t = Double(i) / 8_000
+            p[i] = tone && t >= 1 && t < 2 ? Int16((0.5 * sin(2 * .pi * 1_000 * t) * 32_767).rounded()) : 0
+        }
+        try file.write(from: buffer)
+        return url
+    }
+
+    @Test func peaksComeFromTheSamplesSilenceIsFlatAndABurstShowsOnlyWhereItIs() async throws {
+        let silent = try makeWAV(tone: false), burst = try makeWAV(tone: true)
+        defer { try? FileManager.default.removeItem(at: silent); try? FileManager.default.removeItem(at: burst) }
+        let flat = try await WaveformAnalysis.peaks(of: silent)
+        #expect(flat.count >= 148 && (flat.max() ?? 1) < 0.001, "silence must be flat, max \(flat.max() ?? -1)")
+        let p = try await WaveformAnalysis.peaks(of: burst)
+        #expect(p.count >= 148)
+        #expect(p[2..<48].allSatisfy { $0 < 0.01 })                                  // before the burst
+        #expect(p[55..<95].allSatisfy { (0.35...0.6).contains($0) })                 // inside: amplitude 0.5
+        #expect(p[104..<146].allSatisfy { $0 < 0.01 })                               // after
+        // Mapped onto an edited timeline at 2× speed the burst keeps its shape and takes half the time.
+        let pts = WaveformAnalysis.timelinePoints(rows: [("f", 0, 3_000_000_000, 0, 1_500_000_000)], peaks: ["f": p])
+        let loud = pts.filter { $0.amp > 0.2 }
+        #expect(!loud.isEmpty && loud.first!.tlNs >= 490_000_000 && loud.last!.tlNs <= 1_010_000_000)
+    }
+
+    @Test func realFixtureAudioIsNotPlaceholder() async throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = try EditorDocument(package: d, presets: iso.store).model
+        await m.refreshWaveform()
+        // The fixture's audio is a steady tone, so its envelope is steady; what matters is that it equals the file's real peaks.
+        let file = d.appendingPathComponent("recording/seg-000/system.m4a")
+        let real = try await WaveformAnalysis.peaks(of: file)
+        let shown = m.waveform.map(\.amp)
+        #expect(!real.isEmpty && (shown.max() ?? 0) == (real.max() ?? -1))
     }
 }

@@ -65,8 +65,24 @@ import YapcamCore
         m.selection = .zoom(m.zooms[0].id)
         try await Self.shoot("03-window-zoom-selected", in: dir) { window(.animations) }
         m.selection = .none
+        // The real fixture has no camera, microphone or keystrokes; sections that need them are rendered from a fake project that
+        // does (with a short transcript, a camera layout and a recorded-keys flag), so every 04-* file shows its own section.
+        let fake = EditorModel(project: FakeProject(durationNs: 12_000_000_000), player: FakePlayer())
+        let words = ["Hello", "um", "and", "welcome", "to", "the", "uh", "demo", "today", "we", "look", "at", "the", "new", "editor"]
+        let json = "{\"schema_version\":1,\"engine\":\"x\",\"locale\":\"en\",\"words\":[" + words.enumerated().map {
+            "{\"text\":\"\($1)\",\"src_start_ns\":\(Int64($0) * 600_000_000),\"src_end_ns\":\(Int64($0) * 600_000_000 + 450_000_000)}" }.joined(separator: ",") + "]}"
+        fake.captionSource = { Data(json.utf8) }
+        fake.generateCaptions(); await fake.waitForCaptions()
+        fake.seek(toNs: 2_000_000_000); fake.addLayoutAtPlayhead(); fake.seek(toNs: 1_200_000_000)
+        let gradient = LinearGradient(colors: [Color(red: 0.2, green: 0.3, blue: 0.5), Color(red: 0.5, green: 0.3, blue: 0.6)], startPoint: .topLeading, endPoint: .bottomTrailing)
         for s in InspectorSection.allCases {
-            try await Self.shoot("04-inspector-\(s.rawValue)", in: dir) { window(s) }
+            if s.isAvailable(in: m) {
+                try await Self.shoot("04-inspector-\(s.rawValue)", in: dir) { window(s) }
+            } else {
+                try await Self.shoot("04-inspector-\(s.rawValue)", in: dir) {
+                    EditorContent(model: fake, export: ExportModel(engine: FakeExporter()), title: title, initialSection: s) { gradient }
+                }
+            }
         }
         if let h = m.highlights.first { m.selection = .highlight(h.id) }
         try await Self.shoot("05-inspector-blur-mask", in: dir) { window(.extras) }

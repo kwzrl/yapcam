@@ -78,7 +78,7 @@ public enum EditorCommand: Equatable, Sendable {
     case addZoom(startNs: Int64, endNs: Int64, scale: Double, focusX: Double, focusY: Double)
     case updateZoom(id: String, startNs: Int64?, endNs: Int64?, scale: Double?, focusX: Double?, focusY: Double?,
                     easeInNs: Int64? = nil, easeOutNs: Int64? = nil, enabled: Bool? = nil, mode: TimelineZoom.Mode? = nil)
-    /// New zoom with the project's remembered (last edited) style; focus is centred.
+    /// New zoom with the project's remembered (last edited) style; focus is centered.
     case insertZoom(startNs: Int64, endNs: Int64)
     /// nil = classic style; otherwise the glass loupe with these parameters.
     case setZoomLens(id: String, lens: ZoomLensParams?)
@@ -182,6 +182,8 @@ public protocol EditingProject: AnyObject {
     func importPreset(from url: URL) throws
     /// Silent stretches of the main audio track in timeline time (decodes audio; may take a moment).
     func silentSpans() async throws -> [TimeSpan]
+    /// Microphone (else system audio) loudness mapped onto the edited timeline; empty when there is no audio.
+    func waveformPoints() async throws -> [WavePoint]
 }
 
 @MainActor
@@ -272,7 +274,10 @@ public extension ExportEngine {
              status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL { try await run(request, progress: progress) }
 }
 
-public extension EditingProject { var markerTimesNs: [Int64] { [] } }
+public extension EditingProject {
+    var markerTimesNs: [Int64] { [] }
+    func waveformPoints() async throws -> [WavePoint] { [] }
+}
 
 /// One keystroke burst occurrence on the timeline, identified by core's source-stable suggestion id.
 public struct TypingRecord: Equatable, Sendable { public var id: String; public var span: TimeSpan }

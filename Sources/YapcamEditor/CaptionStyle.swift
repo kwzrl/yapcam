@@ -73,30 +73,18 @@ struct CaptionStyleControls: View {
                 Text(String(format: "%.1f%%", size * 100)).monospacedDigit().frame(width: 46, alignment: .trailing)
             }
         }
-        Picker("Color", selection: Binding(get: { look.light }, set: { v in var l = look; l.light = v; model.setCaptionLook(l) })) {
-            Text("Dark").tag(false); Text("Light").tag(true)
-        }.pickerStyle(.segmented)
-        Picker("Position", selection: Binding(get: { look.center }, set: { v in var l = look; l.center = v; model.setCaptionLook(l) })) {
-            Text("Bottom").tag(false); Text("Center").tag(true)
-        }.pickerStyle(.segmented)
-        Picker("Font", selection: Binding(get: { model.captionTypographyValue("font_family", default: "sans") }, set: { model.setCaptionTypography("font_family", $0) })) {
-            Text("Sans").tag("sans"); Text("Serif").tag("serif"); Text("Mono").tag("mono")
-        }
-        Picker("Reveal", selection: Binding(get: { model.captionTypographyValue("reveal", default: "line") }, set: { model.setCaptionTypography("reveal", $0) })) {
-            Text("Whole line").tag("line"); Text("Word by word").tag("word")
-        }.pickerStyle(.segmented)
-        Picker("Growth", selection: Binding(get: { model.captionTypographyValue("growth", default: "full") }, set: { model.setCaptionTypography("growth", $0) })) {
-            Text("Full box").tag("full"); Text("Expanding").tag("expanding"); Text("Centered").tag("centered")
-        }
-        Picker("Entrance", selection: Binding(get: { model.captionTypographyValue("entrance", default: "appear") }, set: { model.setCaptionTypography("entrance", $0) })) {
-            Text("Appear").tag("appear"); Text("Fade").tag("fade"); Text("Slide").tag("slide")
-        }
+        LabeledPills("Color", selection: Binding(get: { look.light }, set: { v in var l = look; l.light = v; model.setCaptionLook(l) }), options: [("Dark", false), ("Light", true)])
+        LabeledPills("Position", selection: Binding(get: { look.center }, set: { v in var l = look; l.center = v; model.setCaptionLook(l) }), options: [("Bottom", false), ("Center", true)])
+        LabeledPills("Font", selection: Binding(get: { model.captionTypographyValue("font_family", default: "sans") }, set: { model.setCaptionTypography("font_family", $0) }), options: [("Sans", "sans"), ("Serif", "serif"), ("Mono", "mono")])
+        LabeledPills("Reveal", selection: Binding(get: { model.captionTypographyValue("reveal", default: "line") }, set: { model.setCaptionTypography("reveal", $0) }), options: [("Whole line", "line"), ("Word by word", "word")])
+        LabeledPills("Growth", selection: Binding(get: { model.captionTypographyValue("growth", default: "full") }, set: { model.setCaptionTypography("growth", $0) }), options: [("Full box", "full"), ("Expanding", "expanding"), ("Centered", "centered")])
+        LabeledPills("Entrance", selection: Binding(get: { model.captionTypographyValue("entrance", default: "appear") }, set: { model.setCaptionTypography("entrance", $0) }), options: [("Appear", "appear"), ("Fade", "fade"), ("Slide", "slide")])
         CaptionLanguageField(model: model)
         .onAppear { size = look.size }
     }
 }
 
-/// Caption language tag ("auto" or e.g. "en-US"); core validates the tag, the speech service decides what it can recognise.
+/// Caption language tag ("auto" or e.g. "en-US"); core validates the tag, the speech service decides what it can recognize.
 struct CaptionLanguageField: View {
     @ObservedObject var model: EditorModel
     @State private var text = "auto"

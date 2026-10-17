@@ -10,13 +10,15 @@ struct NumberRow: View {
     let range: ClosedRange<Double>
     var unit = "", format = "%.2f", scale = 1.0      // scale: display = stored * scale
     var defaultValue: Double? = nil                  // shows a reset button when the value differs
+    var snaps: [Double] = []                         // suggested values the slider sticks to (in stored units × scale)
+    var snapDistance = 0.012                         // fraction of the range
     @State private var value = 0.0
     @State private var editing = false
 
     var body: some View {
         SliderRow(title) {
             HStack {
-                Slider(value: $value, in: range) { isEditing in
+                Slider(value: Binding(get: { value }, set: { value = snapped($0) }), in: range) { isEditing in
                     editing = isEditing
                     if !isEditing { model.set(path, number: value) }
                 }
@@ -34,6 +36,10 @@ struct NumberRow: View {
         }
         .onAppear { value = model.number(path) }
         .onChange(of: model.revision) { _, _ in if !editing { value = model.number(path) } }
+    }
+    private func snapped(_ v: Double) -> Double {
+        let tolerance = (range.upperBound - range.lowerBound) * snapDistance
+        return snaps.map { $0 / scale }.filter { range.contains($0) }.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) <= tolerance ? $0 : nil } ?? v
     }
 }
 
@@ -76,15 +82,51 @@ struct RestingColorPicker: View {
     var transform: ([Double]) -> [Double] = { $0 }        // e.g. keep the stored alpha for pickers without opacity
     @State private var pending: [Double]?
     @State private var task: Task<Void, Never>?
+    @State private var hexText = ""
+    @State private var editingHex = false
+    @FocusState private var hexFocused: Bool
+
+    private var current: [Double] { pending ?? get() }
+    private func stage(_ c: [Double]) {
+        pending = c
+        task?.cancel()
+        task = Task { try? await Task.sleep(for: .milliseconds(350)); if !Task.isCancelled { flush() } }
+    }
+    /// Swatch + hex field + eyedropper, like the reference's color row.
     var body: some View {
-        ColorPicker(title, selection: Binding(
-            get: { let c = pending ?? get(); return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: opacity ? c[3] : 1) },
-            set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
-                   pending = [n.redComponent, n.greenComponent, n.blueComponent, opacity ? n.alphaComponent : get()[3]].map { Double($0) }
-                   task?.cancel()
-                   task = Task { try? await Task.sleep(for: .milliseconds(350)); if !Task.isCancelled { flush() } } }),
-                    supportsOpacity: opacity)
+        SliderRow(title) {
+            HStack(spacing: EditorMetrics.s) {
+                ColorPicker(title, selection: Binding(
+                    get: { let c = current; return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: opacity ? c[3] : 1) },
+                    set: { let n = NSColor($0).usingColorSpace(.sRGB) ?? .black
+                           stage([n.redComponent, n.greenComponent, n.blueComponent, opacity ? n.alphaComponent : get()[3]].map { Double($0) }) }),
+                            supportsOpacity: opacity)
+                    .labelsHidden()
+                TextField("Hex", text: $hexText)
+                    .textFieldStyle(.plain).font(.system(.callout, design: .monospaced)).focused($hexFocused)
+                    .padding(.horizontal, EditorMetrics.s).frame(height: 26)
+                    .background(EditorTheme.control, in: RoundedRectangle(cornerRadius: 7))
+                    .accessibilityLabel("\(title) hex value")
+                    .onSubmit { commitHex() }
+                    .onChange(of: hexFocused) { _, f in editingHex = f; if !f { commitHex() } }
+                Button { sample() } label: { Image(systemName: "eyedropper").frame(width: 26, height: 26) }
+                    .buttonStyle(.plain).background(EditorTheme.control, in: RoundedRectangle(cornerRadius: 7))
+                    .help("Pick a color from the screen").accessibilityLabel("Pick \(title) from the screen")
+            }
+        }
+        .onAppear { hexText = HexColor.string(current, alpha: opacity) }
+        .onChange(of: current) { _, c in if !editingHex { hexText = HexColor.string(c, alpha: opacity) } }
         .onDisappear { task?.cancel(); flush() }
+    }
+    private func commitHex() {
+        if let c = HexColor.parse(hexText, keepAlpha: current[3]) { stage(opacity ? c : [c[0], c[1], c[2], get()[3]]) }
+        hexText = HexColor.string(current, alpha: opacity)
+    }
+    private func sample() {
+        NSColorSampler().show { picked in
+            guard let n = picked?.usingColorSpace(.sRGB) else { return }
+            DispatchQueue.main.async { stage([n.redComponent, n.greenComponent, n.blueComponent, opacity ? current[3] : get()[3]].map { Double($0) }) }
+        }
     }
     private func flush() { if let p = pending { pending = nil; set(transform(p)) } }
 }
@@ -136,6 +178,16 @@ public enum InspectorSection: String, CaseIterable, Identifiable {
     /// ⌘ digit that selects the section (1…9, then 0).
     public var shortcutDigit: Character { Self.digits[Self.allCases.firstIndex(of: self)!] }
     private static let digits: [Character] = Array("1234567890")
+    /// One short line shown in the panel (and the rail tooltip) when the recording has no input for this section.
+    public var unavailableReason: String {
+        switch self {
+        case .cursor: "This recording has no mouse data."
+        case .cameraLayout, .cameraStyle: "This recording has no camera."
+        case .captions, .transcript: "This recording has no microphone."
+        case .keys: "No keystrokes were recorded. Turn on “Record keystrokes” before recording."
+        default: ""
+        }
+    }
     @MainActor public func isAvailable(in m: EditorModel) -> Bool {
         switch self {
         case .background, .audio, .animations, .extras: true
@@ -166,24 +218,26 @@ struct InspectorRail: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         let section = model.inspectorSection
-        VStack(spacing: 4) {
-            ForEach(model.availableSections) { s in
+        VStack(spacing: 6) {
+            // One icon per section in the reference's order; sections without input stay reachable but dimmed (they explain why).
+            ForEach(InspectorSection.allCases) { s in
+                let available = s.isAvailable(in: model)
                 Button { model.showSection(s) } label: {
-                    Image(systemName: s.symbol).font(.system(size: 15)).frame(width: 34, height: 34)
-                        .background(section == s ? Color.accentColor.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                    Image(systemName: s.symbol).font(.system(size: 19)).frame(width: 44, height: 44)
+                        .background(section == s ? Color.accentColor.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 10))
                         .foregroundStyle(section == s ? Color.accentColor : .secondary)
+                        .opacity(available ? 1 : 0.4)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("\(s.title) (⌘\(String(s.shortcutDigit)))")
+                .help(available ? "\(s.title) (⌘\(String(s.shortcutDigit)))" : "\(s.title): \(s.unavailableReason)")
                 .accessibilityLabel(s.title)
                 .accessibilityAddTraits(section == s ? [.isButton, .isSelected] : .isButton)
             }
             Spacer()
         }
-        .padding(.vertical, 8).padding(.horizontal, 5)
-        .frame(width: 44)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.vertical, EditorMetrics.m).padding(.horizontal, EditorMetrics.xs)
+        .frame(width: 54)
     }
 }
 
@@ -197,25 +251,27 @@ struct InspectorView: View {
         switch model.selection { case .zoom: "Zoom"; case .clip: "Clip"; default: nil }
     }
     private var section: InspectorSection {
-        model.availableSections.contains(model.inspectorSection) ? model.inspectorSection : .background
+        model.inspectorSection
     }
 
     var body: some View {
         HStack(spacing: 0) {
             InspectorRail(model: model)
-            Divider()
             VStack(spacing: 0) {
                 HStack {
-                    Text(itemTitle ?? section.title).font(.headline); Spacer()
+                    Text(itemTitle ?? section.title).font(.title3.weight(.semibold)); Spacer()
                     if itemTitle != nil { Button("Done") { model.selection = .none }.buttonStyle(.borderless).help("Back to the section (Esc)") }
                 }
                 .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.m)
-                .background(Color(nsColor: .windowBackgroundColor))
-                Divider()
                 Form {
                     if itemTitle != nil { itemInspector } else { sectionBody }
-                }.formStyle(.grouped)
+                }.formStyle(.grouped).scrollContentBackground(.hidden)
             }
+            // Floating card on the stage, like the reference: rounded, own color, hairline edge.
+            .background(EditorTheme.card, in: RoundedRectangle(cornerRadius: EditorTheme.cardRadius))
+            .overlay(RoundedRectangle(cornerRadius: EditorTheme.cardRadius).strokeBorder(EditorTheme.hairline))
+            .clipShape(RoundedRectangle(cornerRadius: EditorTheme.cardRadius))
+            .padding(.vertical, EditorMetrics.s).padding(.trailing, EditorMetrics.s)
         }
         .onAppear { if let initialSection { model.inspectorSection = initialSection } }
         .onChange(of: model.selection) { _, s in
@@ -231,6 +287,9 @@ struct InspectorView: View {
     }
 
     @ViewBuilder private var sectionBody: some View {
+        if !section.isAvailable(in: model) {
+            Section { Text(section.unavailableReason).foregroundStyle(.secondary) }
+        } else {
         switch section {
         case .background: BackgroundPanel(model: model)
         case .cursor: cursor
@@ -242,6 +301,7 @@ struct InspectorView: View {
         case .keys: keys
         case .animations: animations
         case .extras: extras
+        }
         }
     }
 
@@ -336,12 +396,8 @@ struct InspectorView: View {
 
     private func zoomSection(_ z: TimelineZoom) -> some View {
         Section(z.mode == .auto ? "Zoom (automatic)" : "Zoom") {
-            Picker("Type", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) })) {
-                Text("Auto").tag(TimelineZoom.Mode.auto); Text("Manual").tag(TimelineZoom.Mode.manual)
-            }.pickerStyle(.segmented)
-            Picker("Style", selection: Binding(get: { z.lens != nil }, set: { model.setZoomLens(id: z.id, $0 ? ZoomLensParams() : nil) })) {
-                Text("Classic").tag(false); Text("Glass loupe").tag(true)
-            }.pickerStyle(.segmented)
+            LabeledPills("Type", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) }), options: [("Auto", TimelineZoom.Mode.auto), ("Manual", TimelineZoom.Mode.manual)])
+            LabeledPills("Style", selection: Binding(get: { z.lens != nil }, set: { model.setZoomLens(id: z.id, $0 ? ZoomLensParams() : nil) }), options: [("Classic", false), ("Glass loupe", true)])
             if let l = z.lens { ZoomLensRows(model: model, zoomID: z.id, lens: l) }
             ZoomScaleRow(model: model, zoom: z)
             LabeledContent("Focus") { Text(String(format: "%.0f%%, %.0f%%", z.focusX * 100, z.focusY * 100)).monospacedDigit() }
@@ -378,7 +434,8 @@ struct InspectorView: View {
 
     @ViewBuilder private var cursor: some View {
         Section("Appearance") {
-            ToggleRow(model: model, title: "Show cursor", path: "cursor.visible", defaultValue: true)
+            Toggle("Hide cursor", isOn: Binding(get: { !model.bool("cursor.visible", default: true) }, set: { model.set("cursor.visible", bool: !$0) }))
+            if model.bool("cursor.visible", default: true) {
             if model.usesCursorPoints {
                 NumberRow(model: model, title: "Size", path: "cursor.size_points", range: 16...128, unit: "px", format: "%.0f", defaultValue: 48)
             } else {
@@ -391,23 +448,31 @@ struct InspectorView: View {
                 DurationRow(model: model, title: "Idle after", path: "cursor.idle_timeout_ns", default: 2_000_000_000, range: 0.5...5)
             }
             ToggleRow(model: model, title: "Always use the default arrow", path: "cursor.always_default")
-            PickerRow(model: model, title: "Rotation", path: "cursor.rotation_mode", options: [("Fixed angle", "static"), ("Follow movement", "tilt")])
-            if model.string("cursor.rotation_mode", default: "static") == "tilt" {
-                NumberRow(model: model, title: "Tilt amount", path: "cursor.tilt_amount", range: 0...2, defaultValue: 1)
-            } else {
-                NumberRow(model: model, title: "Angle", path: "cursor.rotation_degrees", range: -180...180, unit: "°", format: "%.0f", defaultValue: 0)
+            DisclosureGroup("Rotation") {
+                NumberRow(model: model, title: "Rotate cursor", path: "cursor.rotation_degrees", range: -180...180, unit: "°", format: "%.0f", defaultValue: 0)
+                LabeledPills("Rotate while moving", selection: Binding(get: { model.string("cursor.rotation_mode", default: "static") }, set: { model.set("cursor.rotation_mode", string: $0) }),
+                             options: [("Off", "static"), ("Tilt", "tilt")])
+                if model.string("cursor.rotation_mode", default: "static") == "tilt" {
+                    NumberRow(model: model, title: "Tilt amount", path: "cursor.tilt_amount", range: 0...2, defaultValue: 1)
+                }
             }
-            ToggleRow(model: model, title: "Remove tiny shakes", path: "cursor.remove_shakes")
-            if model.bool("cursor.remove_shakes") {
-                NumberRow(model: model, title: "Shake threshold", path: "cursor.shake_threshold", range: 100...2000, unit: "pt", format: "%.2f", scale: 0.001, defaultValue: 500)
+            DisclosureGroup("Advanced") {
+                HoldCursorRow(model: model)
+                ToggleRow(model: model, title: "Remove tiny shakes", path: "cursor.remove_shakes")
+                if model.bool("cursor.remove_shakes") {
+                    NumberRow(model: model, title: "Shake threshold", path: "cursor.shake_threshold", range: 100...2000, unit: "pt", format: "%.2f", scale: 0.001, defaultValue: 500)
+                }
+                ToggleRow(model: model, title: "Reduce cursor-type flicker", path: "cursor.optimize_types")
             }
-            ToggleRow(model: model, title: "Reduce cursor-type flicker", path: "cursor.optimize_types")
-            HoldCursorRow(model: model)
             PickerRow(model: model, title: "Click effect", path: "cursor.click_effect",
                       options: [("None", "none"), ("Circle", "ring"), ("Ripple", "highlight")])
-            ToggleRow(model: model, title: "Loop cursor to start", path: "cursor.loop_to_start")
+            // Turning the loop on sets 1 s (the reference's value); it is one undo step with the switch.
+            Toggle("Loop cursor to start", isOn: Binding(get: { model.bool("cursor.loop_to_start") }, set: { on in
+                var items: [(path: String, value: JSONValue)] = [("cursor.loop_to_start", .bool(on))]
+                if on && model.number("cursor.loop_duration_ns") < 1_000_000_000 { items.append(("cursor.loop_duration_ns", .number(1_000_000_000))) }
+                model.setMany(items) }))
             if model.bool("cursor.loop_to_start") {
-                DurationRow(model: model, title: "Loop position takes", path: "cursor.loop_duration_ns", default: 400_000_000, range: 1...4)
+                DurationRow(model: model, title: "Loop position takes", path: "cursor.loop_duration_ns", default: 1_000_000_000, range: 1...4)
             }
             PickerRow(model: model, title: "Cursor style", path: "cursor.style",
                       options: [("Recorded", "recorded"), ("Pointer", "pointer"), ("Touch", "touch"), ("Arrow", "arrow")])
@@ -417,6 +482,7 @@ struct InspectorView: View {
             PickerRow(model: model, title: "Cursor size", path: "cursor.logical_size", options: cursorSizes)
             NumberRow(model: model, title: "Motion blur", path: "cursor.motion_blur", range: 0...1)
             NumberRow(model: model, title: "Spotlight radius", path: "cursor.spotlight_radius", range: 0...600, unit: "px", format: "%.0f")
+            }   // visible
         }
         Section("Hidden sections") {
             if case .cursorHide(let i) = model.selection, let h = model.cursorHides.first(where: { $0.index == i }) {
@@ -919,7 +985,7 @@ struct ClipVolumeRow: View {
     }
 }
 
-/// Glass loupe parameters: size of the lens, edge bevel and colour fringing.
+/// Glass loupe parameters: size of the lens, edge bevel and color fringing.
 struct ZoomLensRows: View {
     @ObservedObject var model: EditorModel
     let zoomID: String

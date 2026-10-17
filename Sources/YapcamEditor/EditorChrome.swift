@@ -93,8 +93,12 @@ extension EditorModel {
         do { try FileManager.default.trashItem(at: presetStore.url(name), resultingItemURL: nil); if presetStore.defaultName == name { presetStore.defaultName = nil } }
         catch { lastError = "Couldn't remove the preset: \(error.localizedDescription)" }
     }
+    /// Names of the presets applied most recently (newest first, at most 5; remembered).
+    public func recentPresets() -> [String] { defaults.stringArray(forKey: "editor.recentPresets") ?? [] }
     public func applyPreset(at url: URL) {
         guard !isClosed else { return }
+        let name = url.deletingPathExtension().lastPathComponent
+        defaults.set(Array(([name] + recentPresets().filter { $0 != name }).prefix(5)), forKey: "editor.recentPresets")
         do { try project.importPreset(from: url); selectedWallpaperID = nil; noteExternalEdit() }
         catch { lastError = "Couldn't apply the preset: \(error.localizedDescription)" }
     }
@@ -105,6 +109,8 @@ struct EditorTopBar: View {
     let title: String
     let packageURL: URL?
     @Binding var showExport: Bool
+    /// True while an export runs: Export is disabled with an explanation (the sheet shows its progress).
+    var exportRunning = false
     @State private var presetNames: [String] = []
 
     var body: some View {
@@ -120,12 +126,17 @@ struct EditorTopBar: View {
                 .help("Undo (⌘Z)").accessibilityLabel("Undo")
             Button { model.redo() } label: { Image(systemName: "arrow.uturn.forward") }.disabled(!model.canRedo)
                 .help("Redo (⇧⌘Z)").accessibilityLabel("Redo")
-            Button { model.paletteVisible = true } label: { Image(systemName: "command") }
+            Button { model.paletteVisible = true } label: { Image(systemName: "command.circle") }
                 .help("Command palette (⌘K)").accessibilityLabel("Commands")
             Divider().frame(height: 16)
             Menu {
                 Button("Create preset from this look…") { if let n = EditorPresets.promptName() { model.savePreset(named: n); presetNames = model.presetStore.names() } }
                 Divider()
+                let recent = model.recentPresets().filter { presetNames.contains($0) }
+                if !recent.isEmpty {
+                    Section("Recently used") { ForEach(recent, id: \.self) { n in Button(n) { model.applyPreset(at: model.presetStore.url(n)) } } }
+                    Divider()
+                }
                 if presetNames.isEmpty { Text("No presets yet") }
                 ForEach(presetNames, id: \.self) { n in
                     let badges = [model.presetMatchesProject(named: n) ? "Matches project" : nil, model.presetStore.defaultName == n ? "Default" : nil].compactMap { $0 }
@@ -140,19 +151,18 @@ struct EditorTopBar: View {
                         Button("Remove", role: .destructive) { model.removePreset(named: n); presetNames = model.presetStore.names() }
                     }
                 }
-            } label: { Label("Presets", systemImage: "square.stack") }
+            } label: { Label("Presets", systemImage: "wand.and.rays") }
                 .menuStyle(.borderlessButton).fixedSize()
                 .onAppear { presetNames = model.presetStore.names() }
                 .help("Apply or save a look")
-            // Filled with the accent colour in every window state (the system prominent style turns grey in inactive windows).
-            Button("Export") { showExport = true }
-            .buttonStyle(PrimaryButtonStyle())
+            // Filled with the accent color in every window state (the system prominent style turns gray in inactive windows).
+            Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
+            .buttonStyle(PrimaryButtonStyle()).disabled(exportRunning)
             .keyboardShortcut("e", modifiers: [.command])
-            .help("Export the video (⌘E)").accessibilityLabel("Export")
+            .help(exportRunning ? "An export is running — wait for it to finish" : "Export the video (⌘E)").accessibilityLabel("Export")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.s)
-        .background(Color(nsColor: .windowBackgroundColor))
         .confirmationDialog("Move “\(title)” to the Trash?", isPresented: $model.trashRequested, titleVisibility: .visible) {
             Button("Move to Trash", role: .destructive) {
                 guard let url = packageURL else { return }
@@ -181,11 +191,21 @@ struct PreviewControlsBar: View {
                 }
             } label: { Label(aspectTitle, systemImage: "rectangle.dashed") }
                 .menuStyle(.borderlessButton).fixedSize().help("Aspect ratio of the output")
+            Menu {
+                ForEach(ReelMode.allCases) { m in
+                    Button { model.setReelMode(m) } label: { if model.reelMode == m { Label(m.label, systemImage: "checkmark") } else { Text(m.label) } }
+                }
+            } label: { Label(model.reelMode == .off ? "Reel preview" : model.reelMode.label, systemImage: "iphone") }
+                .menuStyle(.borderlessButton).fixedSize().help("Show a platform's safe areas over the preview (preview only, not exported)")
             Button { showCrop = true } label: { Label("Crop", systemImage: "crop") }
                 .popover(isPresented: $showCrop) { Form { CropSection(model: model) }.formStyle(.grouped).frame(width: 300, height: 300) }
                 .help("Crop the recording")
             Spacer()
             PreviewOptionsMenu(model: model)
+            Button { model.zoomPreview(by: 0.8) } label: { Image(systemName: "minus.magnifyingglass") }
+                .help("Zoom the preview out").accessibilityLabel("Zoom preview out")
+            Button { model.zoomPreview(by: 1.25) } label: { Image(systemName: "plus.magnifyingglass") }
+                .help("Zoom the preview in").accessibilityLabel("Zoom preview in")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 12).padding(.vertical, 6)
@@ -201,14 +221,11 @@ struct PreviewLeftRail: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         VStack(spacing: 6) {
-            railButton("plus.magnifyingglass", "Zoom preview in") { model.zoomPreview(by: 1.25) }
-            railButton("minus.magnifyingglass", "Zoom preview out") { model.zoomPreview(by: 0.8) }
             railButton("arrow.up.left.and.down.right.magnifyingglass", "Fit preview") { model.resetPreviewZoom() }
             if model.previewZoom > 1 { Text("\(Int(model.previewZoom * 100))%").font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
             Spacer()
         }
-        .padding(.vertical, 8).frame(width: 40)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.vertical, EditorMetrics.s).frame(width: 44)
     }
     private func railButton(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).frame(width: 28, height: 28).contentShape(Rectangle()) }
@@ -232,7 +249,8 @@ struct TransportBar: View {
             Toggle(isOn: $model.cutToolActive) { Image(systemName: "scissors") }
                 .toggleStyle(.button).help("Cut tool: click a clip to split it there (S splits at the playhead)")
                 .accessibilityLabel("Cut tool")
-            HStack(spacing: 8) {
+            Spacer()
+            HStack(spacing: 12) {
                 Text(formatTimecode(playhead.ns, showFraction: false)).monospacedDigit().frame(minWidth: 38, alignment: .trailing)
                 Button { model.jumpToEditPoint(forward: false) } label: { Image(systemName: "backward.end.fill") }
                     .help("Previous edit point (⌥←)").accessibilityLabel("Previous edit point")
@@ -269,8 +287,7 @@ struct TransportBar: View {
             }
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 14).padding(.vertical, 6)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, EditorMetrics.l).padding(.vertical, EditorMetrics.xs + 2)
     }
 }
 

@@ -23,19 +23,18 @@ struct BackgroundPanel: View {
 
     var body: some View {
         Section {
-            Picker("Background type", selection: Binding(get: { effectiveMode }, set: { newMode in choose(newMode) })) {
-                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented).labelsHidden().controlSize(.small).accessibilityLabel("Background type")
+            PillPicker(selection: Binding(get: { effectiveMode }, set: { newMode in choose(newMode) }),
+                       options: Mode.allCases.map { ($0.rawValue, $0) }, accessibilityTitle: "Background type")
             switch effectiveMode {
             case .wallpaper: WallpaperBrowser(model: model)
             case .gradient:
                 ColorRow(model: model, title: "From", path: "canvas.background.color")
                 ColorRow(model: model, title: "To", path: "canvas.background.color2")
+                GradientExtras(model: model)
                 NumberRow(model: model, title: "Angle", path: "canvas.background.angle_deg", range: 0...360, unit: "°", format: "%.0f", defaultValue: 45)
             case .color:
                 ColorRow(model: model, title: "Color", path: "canvas.background.color")
-                HexField(model: model, path: "canvas.background.color")
+                Button { model.randomizeBackgroundColor() } label: { Label("Random color", systemImage: "dice") }.buttonStyle(.borderless)
             case .image:
                 Button("Choose image…") { chooseImage() }
                 Text(kind == "image" && model.selectedWallpaperID == nil ? "An image is used as the background." : "Pick a picture to use behind the screen.")
@@ -49,7 +48,7 @@ struct BackgroundPanel: View {
                 NumberRow(model: model, title: "Background blur", path: "canvas.background.blur", range: 0...100, format: "%.0f", defaultValue: model.factoryDefault(backgroundBlur: true))
             }
             PaddingRow(model: model)
-            NumberRow(model: model, title: "Rounded corners", path: "canvas.radius", range: 0...128, unit: "pt", format: "%.0f", defaultValue: model.factoryDefault(radius: true))
+            NumberRow(model: model, title: "Rounded corners", path: "canvas.radius", range: 0...128, unit: "pt", format: "%.0f", defaultValue: model.factoryDefault(radius: true), snaps: [0, 12, 16, 20, 26])
             InsetRows(model: model)
             ShadowRows(model: model)
             NumberRow(model: model, title: "Texture", path: "canvas.background.noise", range: 0...1, defaultValue: 0)
@@ -76,36 +75,67 @@ struct BackgroundPanel: View {
     }
 }
 
+/// Inset border: toggle (restores the last-used inset, else size 4 / 25 % gray), size 0.125–24, color with opacity, 2-D origin pad.
 struct InsetRows: View {
     @ObservedObject var model: EditorModel
     var body: some View {
-        Toggle("Inset border", isOn: Binding(get: { model.number("canvas.inset") > 0 }, set: { model.set("canvas.inset", number: $0 ? 4 : 0) }))
+        Toggle("Inset border", isOn: Binding(get: { model.number("canvas.inset") > 0 }, set: { model.setInsetEnabled($0) }))
         if model.number("canvas.inset") > 0 {
-            NumberRow(model: model, title: "Inset width", path: "canvas.inset", range: 1...24, unit: "pt", format: "%.0f", defaultValue: 4)
+            NumberRow(model: model, title: "Inset size", path: "canvas.inset", range: EditorModel.insetRange, unit: "pt", format: "%.2f", defaultValue: EditorModel.insetFallback.size)
             ColorRow(model: model, title: "Inset color", path: "canvas.inset_color", opacity: true)
-            InsetOriginRows(model: model)
+            InsetOriginPad(model: model)
         }
     }
 }
 
-/// Moves the inset border toward an edge (`canvas.inset_origin` [x, y] in -1…1; 0 = centered).
-struct InsetOriginRows: View {
+extension EditorModel {
+    static let insetRange = 0.125...24.0
+    static let insetFallback = (size: 4.0, color: [0.533, 0.533, 0.533, 0.25])
+    /// Turning it off remembers size and color; turning it on restores them (or the fallback), in one undo step.
+    public func setInsetEnabled(_ on: Bool) {
+        if !on {
+            let size = number("canvas.inset"), color = self.color("canvas.inset_color")
+            if size > 0 { lastInset = (size, color) }
+            set("canvas.inset", number: 0); return
+        }
+        let r = lastInset ?? Self.insetFallback
+        setMany([("canvas.inset", .number(r.size)), ("canvas.inset_color", .array(r.color.map { .number($0) }))])
+    }
+}
+
+/// 16:9 pad: drag the dot to weight the border toward a side (`canvas.inset_origin`, −1…1 each); previews while dragging, one undo step on release.
+struct InsetOriginPad: View {
     @ObservedObject var model: EditorModel
-    @State private var x = 0.0
-    @State private var y = 0.0
-    private func current() -> (Double, Double) { let v = model.numbers("canvas.inset_origin"); return (v.first ?? 0, v.count > 1 ? v[1] : 0) }
-    private func commit() { model.set("canvas.inset_origin", .array([.number(x), .number(y)])) }
+    @State private var dot: CGPoint?              // −1…1 while dragging
+    private func current() -> CGPoint { let v = model.numbers("canvas.inset_origin"); return CGPoint(x: v.first ?? 0, y: v.count > 1 ? v[1] : 0) }
     var body: some View {
-        LabeledContent("Border position, left ↔ right") {
-            Slider(value: $x, in: -1...1) { e in if !e { commit() } }.accessibilityLabel("Inset border horizontal position")
+        SliderRow("Border position") {
+            GeometryReader { g in
+                let p = dot ?? current()
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(EditorTheme.control)
+                    RoundedRectangle(cornerRadius: 6).strokeBorder(EditorTheme.hairline)
+                    Path { path in
+                        path.move(to: CGPoint(x: g.size.width / 2, y: 4)); path.addLine(to: CGPoint(x: g.size.width / 2, y: g.size.height - 4))
+                        path.move(to: CGPoint(x: 4, y: g.size.height / 2)); path.addLine(to: CGPoint(x: g.size.width - 4, y: g.size.height / 2))
+                    }.stroke(EditorTheme.hairline, lineWidth: 1)
+                    Circle().fill(Color.accentColor).frame(width: 12, height: 12)
+                        .position(x: (p.x + 1) / 2 * g.size.width, y: (p.y + 1) / 2 * g.size.height)
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { v in dot = CGPoint(x: min(max(v.location.x / g.size.width * 2 - 1, -1), 1), y: min(max(v.location.y / g.size.height * 2 - 1, -1), 1)) }
+                    .onEnded { _ in if let d = dot { dot = nil; model.set("canvas.inset_origin", .array([.number(d.x), .number(d.y)])) } })
+            }
+            .aspectRatio(16.0 / 9, contentMode: .fit).frame(maxWidth: 150)
         }
-        LabeledContent("Border position, top ↔ bottom") {
-            Slider(value: $y, in: -1...1) { e in if !e { commit() } }.accessibilityLabel("Inset border vertical position")
+        .accessibilityElement(children: .ignore).accessibilityLabel("Border position")
+        .accessibilityValue(String(format: "%.0f percent across, %.0f percent down", (current().x + 1) * 50, (current().y + 1) * 50))
+        .accessibilityAdjustableAction { dir in
+            let c = current(), step = dir == .increment ? 0.25 : -0.25
+            model.set("canvas.inset_origin", .array([.number(min(max(c.x + step, -1), 1)), .number(c.y)]))
         }
-        if x != 0 || y != 0 { Button("Center the border") { x = 0; y = 0; commit() }.buttonStyle(.borderless) }
-        Color.clear.frame(height: 0)
-            .onAppear { (x, y) = current() }
-            .onChange(of: model.revision) { _, _ in (x, y) = current() }
+        if current() != .zero { Button("Center the border") { model.set("canvas.inset_origin", .array([.number(0), .number(0)])) }.buttonStyle(.borderless) }
     }
 }
 
@@ -151,11 +181,11 @@ struct WallpaperBrowser: View {
     @State private var category = "all"
     var body: some View {
         let all = model.wallpapers
-        let categories = ["all"] + (Array(NSOrderedSet(array: all.map(\.category))) as? [String] ?? [])
+        let categories = ["all", "favorites"] + (Array(NSOrderedSet(array: all.map(\.category))) as? [String] ?? [])
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(categories, id: \.self) { c in
-                    Button(c.capitalized) { category = c }
+                    Button { category = c } label: { if c == "favorites" { Label("Favorites", systemImage: "star.fill").labelStyle(.titleAndIcon) } else { Text(c.capitalized) } }
                         .buttonStyle(.plain).font(.caption.weight(.medium))
                         .padding(.horizontal, 10).padding(.vertical, 4)
                         .background(category == c ? Color.accentColor.opacity(0.22) : Color.primary.opacity(0.07), in: Capsule())
@@ -164,15 +194,18 @@ struct WallpaperBrowser: View {
             }
         }
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 82), spacing: 8)], spacing: 8) {
-            ForEach(all.filter { category == "all" || $0.category == category }) { w in
+            ForEach(all.filter { category == "all" || (category == "favorites" ? model.favoriteWallpapers.contains($0.id) : $0.category == category) }) { w in
                 Button { model.applyWallpaper(id: w.id) } label: {
                     WallpaperThumb(model: model, info: w, busy: model.wallpaperBusy == w.id, selected: model.selectedWallpaperID == w.id)
                 }
                 .buttonStyle(.plain).disabled(model.wallpaperBusy != nil)
                 .help(w.title).accessibilityLabel("Wallpaper \(w.title)")
+                .contextMenu { Button(model.favoriteWallpapers.contains(w.id) ? "Remove from favorites" : "Add to favorites") { model.toggleFavoriteWallpaper(w.id) } }
+                .accessibilityAction(named: model.favoriteWallpapers.contains(w.id) ? "Remove from favorites" : "Add to favorites") { model.toggleFavoriteWallpaper(w.id) }
                 .accessibilityAddTraits(model.selectedWallpaperID == w.id ? [.isButton, .isSelected] : .isButton)
             }
         }
+        if category == "favorites" && model.favoriteWallpapers.isEmpty { Text("Right-click a wallpaper to add it here.").font(.caption).foregroundStyle(.secondary) }
         Button { model.applyRandomWallpaper() } label: { Label("Pick random", systemImage: "dice") }
             .disabled(model.wallpaperBusy != nil)
     }
@@ -195,9 +228,7 @@ struct ShadowRows: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         if model.hasShadowStyle {
-            Picker("Shadow", selection: Binding(get: { model.string("canvas.shadow.style", default: "classic") }, set: { model.set("canvas.shadow.style", string: $0) })) {
-                Text("Classic").tag("classic"); Text("Directional").tag("directional")
-            }.pickerStyle(.segmented)
+            LabeledPills("Shadow", selection: Binding(get: { model.string("canvas.shadow.style", default: "classic") }, set: { model.set("canvas.shadow.style", string: $0) }), options: [("Classic", "classic"), ("Directional", "directional")])
         }
         NumberRow(model: model, title: "Shadow intensity", path: "canvas.shadow.opacity", range: 0...0.6, defaultValue: 0.3)
         if model.hasShadowStyle && model.string("canvas.shadow.style") == "directional" {

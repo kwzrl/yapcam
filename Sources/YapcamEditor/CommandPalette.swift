@@ -12,7 +12,7 @@ extension EditorModel {
     /// Everything reachable from the ⌘K palette; also the single source for the shortcut cheat sheet.
     public var paletteCommands: [PaletteCommand] {
         let hasSel = selection != .none
-        return [
+        let actions: [PaletteCommand] = [
             PaletteCommand(title: isPlaying ? "Pause" : "Play", shortcut: "Space", enabled: true) { [self] in togglePlay() },
             PaletteCommand(title: "Split at playhead", shortcut: "C", enabled: true) { [self] in splitContextAware() },
             PaletteCommand(title: "Ripple delete to previous cut", shortcut: "X", enabled: true) { [self] in rippleDeleteToPreviousCut() },
@@ -50,8 +50,14 @@ extension EditorModel {
             PaletteCommand(title: "Zoom timeline out", shortcut: "⌘-", enabled: true) { [self] in zoomTimeline(by: 0.8) },
             PaletteCommand(title: "Fit timeline to window", shortcut: "⇧Z", enabled: true) { [self] in fitTimeline(width: timelineViewportWidth) },
             PaletteCommand(title: "Move recording to Trash…", shortcut: "", enabled: true) { [self] in trashRequested = true },
+            PaletteCommand(title: showWaveform ? "Hide audio waveform" : "Show audio waveform", shortcut: "", enabled: true) { [self] in setShowWaveform(!showWaveform) },
+            PaletteCommand(title: "Reel preview: Off", shortcut: "", enabled: reelMode != .off) { [self] in setReelMode(.off) },
+            PaletteCommand(title: "Reel preview: Instagram Reels", shortcut: "", enabled: reelMode != .instagram) { [self] in setReelMode(.instagram) },
+            PaletteCommand(title: "Reel preview: TikTok", shortcut: "", enabled: reelMode != .tiktok) { [self] in setReelMode(.tiktok) },
+            PaletteCommand(title: smoothWaveform ? "Use detailed waveform" : "Use smooth waveform", shortcut: "", enabled: showWaveform) { [self] in setSmoothWaveform(!smoothWaveform) },
             PaletteCommand(title: "Toggle snapping", shortcut: "", enabled: true) { [self] in snappingEnabled.toggle() },
         ]
+        return actions + settingCommands
     }
 
     public func filteredCommands(_ query: String) -> [PaletteCommand] {
