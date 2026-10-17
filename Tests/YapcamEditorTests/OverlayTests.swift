@@ -1305,3 +1305,25 @@ final class RecordingEngine: ExportEngine, @unchecked Sendable {
         #expect(e.target == .clipboard)                                                     // chosen by the user: stays
     }
 }
+
+@MainActor @Suite struct FinalReviewTests {
+    @Test func pillRowFadesOnlyTheEdgesWithMorePills() {
+        typealias S = ScrollingPills<String, EmptyView>
+        #expect(S.edgesWithMore(offset: 0, contentWidth: 359, viewportWidth: 260) == (false, true))        // at the start: more on the right
+        #expect(S.edgesWithMore(offset: -50, contentWidth: 359, viewportWidth: 260) == (true, true))       // in the middle: both
+        #expect(S.edgesWithMore(offset: -99, contentWidth: 359, viewportWidth: 260) == (true, false))      // at the end: more on the left
+        #expect(S.edgesWithMore(offset: 0, contentWidth: 200, viewportWidth: 260) == (false, false))       // fits: no fade
+    }
+
+    @Test func exportSheetShowsSizeAndTimeFromTheRealEngineAndDefaultsMatchTheReference() throws {
+        let d = try pkgCopy(); defer { try? FileManager.default.removeItem(at: d) }
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let doc = try EditorDocument(package: d, presets: iso.store); let e = doc.export
+        // Spec 3.1 "Default MP4 settings (saved)": MP4, 60 fps, Social Media, 720p, H.264 (GIF: 15 fps, 480p).
+        #expect(e.format == .mp4h264 && e.fps == 60 && e.preset == .social && e.height == 720 && e.target == .file)
+        let est = try #require(e.estimate)
+        #expect(est.height == 720 && est.width % 2 == 0 && est.bytes > 0 && est.renderSeconds > 0)       // the sheet's "W×H · about N MB · roughly N s" line
+        e.format = .gif; #expect(e.fps == 15 && ExportFormat.gif.options.heights.contains(e.height))   // 60 fps does not exist for GIF: its default 15 applies; a valid size is kept
+        #expect(e.estimate != nil)
+    }
+}

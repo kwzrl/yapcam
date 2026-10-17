@@ -99,7 +99,7 @@ struct PillPicker<Value: Hashable>: View {
 }
 
 /// The row that does not fit: scrolls sideways, brings the selected pill into view, and fades the edge where more pills continue.
-private struct ScrollingPills<Value: Hashable, Pill: View>: View {
+struct ScrollingPills<Value: Hashable, Pill: View>: View {
     let options: [Value]
     let selected: Value
     let pill: (Int) -> Pill
@@ -107,11 +107,11 @@ private struct ScrollingPills<Value: Hashable, Pill: View>: View {
     @State private var contentWidth: CGFloat = 0
     @State private var viewportWidth: CGFloat = 0
     init(options: [Value], selected: Value, @ViewBuilder pill: @escaping (Int) -> Pill) { self.options = options; self.selected = selected; self.pill = pill }
-    private struct Metrics: PreferenceKey {
-        static var defaultValue: [CGFloat] { [] }
-        static func reduce(value: inout [CGFloat], nextValue: () -> [CGFloat]) { value = nextValue() }
-    }
     private let fade: CGFloat = 22
+    /// Which edges have more pills beyond them: (leading, trailing). `offset` is where the content starts inside the viewport.
+    static func edgesWithMore(offset: CGFloat, contentWidth: CGFloat, viewportWidth: CGFloat) -> (leading: Bool, trailing: Bool) {
+        (offset < -1, contentWidth + offset > viewportWidth + 1)
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -119,16 +119,21 @@ private struct ScrollingPills<Value: Hashable, Pill: View>: View {
                 HStack(spacing: EditorMetrics.xs + 2) {
                     ForEach(Array(options.enumerated()), id: \.offset) { i, _ in pill(i).id(i) }
                 }
-                .background(GeometryReader { g in Color.clear.preference(key: Metrics.self, value: [g.frame(in: .named("pills")).minX, g.size.width]) })
+                .background(GeometryReader { g in
+                    let f = g.frame(in: .named("pills"))
+                    Color.clear
+                        .onAppear { offset = f.minX; contentWidth = f.width }
+                        .onChange(of: f.minX) { _, v in offset = v }
+                        .onChange(of: f.width) { _, w in contentWidth = w }
+                })
             }
             .coordinateSpace(name: "pills")
             .background(GeometryReader { g in Color.clear.onAppear { viewportWidth = g.size.width }.onChange(of: g.size.width) { _, w in viewportWidth = w } })
-            .onPreferenceChange(Metrics.self) { if $0.count == 2 { offset = $0[0]; contentWidth = $0[1] } }
             .mask(
                 HStack(spacing: 0) {
-                    LinearGradient(colors: [.black.opacity(offset < -1 ? 0 : 1), .black], startPoint: .leading, endPoint: .trailing).frame(width: fade)
+                    LinearGradient(colors: [.black.opacity(Self.edgesWithMore(offset: offset, contentWidth: contentWidth, viewportWidth: viewportWidth).leading ? 0 : 1), .black], startPoint: .leading, endPoint: .trailing).frame(width: fade)
                     Rectangle().fill(.black)
-                    LinearGradient(colors: [.black, .black.opacity(contentWidth + offset > viewportWidth + 1 ? 0 : 1)], startPoint: .leading, endPoint: .trailing).frame(width: fade)
+                    LinearGradient(colors: [.black, .black.opacity(Self.edgesWithMore(offset: offset, contentWidth: contentWidth, viewportWidth: viewportWidth).trailing ? 0 : 1)], startPoint: .leading, endPoint: .trailing).frame(width: fade)
                 }
             )
             .onAppear { if let i = options.firstIndex(of: selected) { proxy.scrollTo(i, anchor: nil) } }
