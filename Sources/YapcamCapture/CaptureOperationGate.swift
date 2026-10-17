@@ -18,4 +18,12 @@ import Foundation
     func waitUntilAvailable() async {
         while isBusy { await withCheckedContinuation { waiters.append($0) } }
     }
+
+    /// Wait for the current operation and claim the gate before another resumed
+    /// waiter can begin. Cleanup operations use this when they must not be lost
+    /// merely because stream startup or another stop is still in flight.
+    func acquire() async {
+        while isBusy { await withCheckedContinuation { waiters.append($0) } }
+        setBusy(true)
+    }
 }

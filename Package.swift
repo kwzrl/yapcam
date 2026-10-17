@@ -16,10 +16,11 @@ let package = Package(
         ),
         .target(name: "YapcamCapture"),
         .target(name: "YapcamRender", dependencies: ["YapcamCore"]),
-        .target(name: "YapcamEditor", dependencies: ["YapcamCore", "YapcamRender"]),
+        .target(name: "YapcamDesign"),
+        .target(name: "YapcamEditor", dependencies: ["YapcamCore", "YapcamRender", "YapcamDesign"]),
         .target(
             name: "YapcamUI",
-            dependencies: ["YapcamCore", "YapcamCapture", "YapcamRender", "YapcamEditor"]
+            dependencies: ["YapcamCore", "YapcamCapture", "YapcamRender", "YapcamEditor", "YapcamDesign"]
         ),
         .executableTarget(name: "Yapcam", dependencies: ["YapcamUI"], path: "Sources/Yapcam"),
         .testTarget(name: "YapcamCoreTests", dependencies: ["YapcamCore"]),

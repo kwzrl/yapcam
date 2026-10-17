@@ -1,3 +1,46 @@
+READY R6 2dc6514+worktree | Render crash audit fixed preview-clock integer traps and zero-span/out-of-range audio clock mapping; F17/F18 and strict native GPU acceptance are BLOCKED by unverifiable app ownership plus unavailable Metal/media services | release Render 172 PASS / 82 explicit skips / 0 failures; strict 172 PASS / 10 skips / 72 explicit unavailable failures; harness self-tests PASS.
+
+## Round 6 — Render hardening
+
+Two user/media-controlled arithmetic paths are now total. Preview seeks no longer
+evaluate `durationNs - 1` for a malformed nonpositive duration, and invalid or
+huge finite AVPlayer seconds saturate before conversion to `Int64`. Evaluated
+audio ranges now clamp external clock queries before subtraction; a legitimate
+zero-length physical device tail maps to its start instead of dividing by zero.
+Both fixes have boundary regressions covering `Int64.min`/`max`, non-finite and
+huge player clocks, out-of-range queries, and a zero physical span.
+
+F17/F18 are **BLOCKED with no measurements claimed**. The required initial
+`pgrep -fl Yapcam.app/Contents/MacOS` could not read the process list on this
+host, and the harness's independent NSWorkspace check reported no visible Cocoa
+application session. It therefore failed closed before launch, as required;
+later strict-suite coverage also observed the shared app lock in use. No app was
+launched, signalled, or killed. `run_round3.py --self-test` passed 3/3 and
+`run_round4.py --self-test` passed its positive/negative PSNR gates and cleanup.
+A native logged-in host with confirmed app ownership must run
+`Tests/YapcamRenderTests/run_round4.py` to supply the F17 <=150 ms p95 and F18
+>=1.3x numbers.
+
+Crash-class audit disposition:
+
+| Class | Result |
+|---|---|
+| Combine async publishers | No `objectWillChange.values`, `publisher.values`, or Combine `for await` exists in `Sources/YapcamRender`. |
+| Main-actor isolation | The sole `MainActor.assumeIsolated` is guarded by `Thread.isMainThread`; the non-main draw path and notification callback both hop through `Task { @MainActor ... }` before touching player/view state. |
+| Traps, force unwraps, indexing | Fixed the two reachable arithmetic traps above. Remaining preconditions are private state-machine/cache invariants fed by validated callers; force unwraps are immediately preceded by insertion/nonempty checks or are CoreText/Metal typed API invariants. Frame and asset lookup indexing occurs under the compositor lock after successful construction. |
+| Re-entrancy | No `@Published` observer mutation, SwiftUI body mutation, `NSAlert`, or modal loop exists in Render. Preview state mutations are main-actor isolated. |
+| Teardown/cancellation | Preview GPU work owns an idempotent two-slot ticket and weak view hop; exporter cancellation joins pending GPU buffers and audio work, while `MediaInputPump` resolves its locked terminal continuation once. Notification tokens invalidate without touching UI off-main. |
+| Overflow/division | Preview-clock and audio-range gaps are fixed and regression-tested. Remaining geometry/export divisions consume validated positive dimensions, rates, frame counts, or fixed nonzero constants; manifest additions use overflow reporting before publication. |
+
+Verification after rebuilding the current Core release archive: ordinary release
+`YapcamRenderTests` executed **254 tests: 172 PASS / 82 explicit hardware-or-opt-in
+skips / 0 failures**. The required strict command executed the same 254 tests:
+**172 PASS / 10 opt-in skips / 72 explicit failures**, all from the deliberate
+`Metal/media services unavailable in this execution environment; host verification
+required` gate. Focused new boundary coverage is 4/4 PASS. `git diff --check`
+passes. Lead should checkpoint the five Render source/test paths, this status,
+and deletion of the accidentally generated Python bytecode; no UI source changed.
+
 READY RV 24feacf+worktree | R5 finding 3 Render side complete: Core `highlight`/`spotlight` purposes pass lens validation; only `privacy_mask` and conservative legacy untagged opaque covers fail closed, while blur protection remains intrinsic | 14 PASS / 8 explicit Metal-media skips; real export regression added for host gate.
 
 ## R5 review — finding 3

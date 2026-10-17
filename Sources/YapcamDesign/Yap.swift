@@ -1,0 +1,85 @@
+import AppKit
+import SwiftUI
+
+/// Yapcam's design tokens, after the visionOS "Jupiter" panel: one tinted glass material, hierarchy through
+/// brightness only, no accent colour for state. Colour comes from content (recordings, timeline items),
+/// yellow only marks technical text (timecodes, sizes, values), red only marks recording.
+public enum Yap {
+    // Text: white at falling opacity.
+    public static let title = Color.white
+    public static let label = Color.white.opacity(0.9)
+    public static let body = Color.white.opacity(0.6)
+    public static let caption = Color.white.opacity(0.55)
+    public static let faint = Color.white.opacity(0.32)
+
+    // Brightness steps on glass.
+    public static let platter = Color.white.opacity(0.08)       // selected
+    public static let platterHover = Color.white.opacity(0.05)  // looked at / hovered
+    public static let hairline = Color.white.opacity(0.10)
+    public static let recess = Color.black.opacity(0.45)        // passive: grooves, tracks
+
+    // The only colours chrome may use.
+    public static let technical = Color(red: 0xfa / 255, green: 0xd5 / 255, blue: 0x2a / 255)   // #fad52a
+    public static let record = Color(red: 1.0, green: 0.27, blue: 0.23)
+
+    // Content colours (timeline items).
+    public static let clipTop = Color(red: 0xfa / 255, green: 0xd5 / 255, blue: 0x2a / 255)
+    public static let clipBottom = Color(red: 0.96, green: 0.66, blue: 0.10)
+    public static let zoom = Color(red: 0.55, green: 0.45, blue: 1.0)
+    public static let zoomAuto = Color(red: 0.42, green: 0.58, blue: 1.0)
+
+    /// Body of the glass: a neutral grey that is almost opaque (user preferred it over see-through glass).
+    public static let glassGray = Color(white: 0.21)
+
+    /// Ground of opaque windows (editor) and the dark end of the glass tint.
+    public static let ground = Color(red: 0.075, green: 0.072, blue: 0.07)
+    public static let nsGround = NSColor(srgbRed: 0.075, green: 0.072, blue: 0.07, alpha: 1)
+
+    public enum Radius {
+        public static let control: CGFloat = 10
+        public static let card: CGFloat = 16
+        public static let panel: CGFloat = 26
+    }
+
+    /// Radius of an element inset by `inset` inside a container of `outer` radius, so corners stay concentric.
+    public static func concentric(_ outer: CGFloat, inset: CGFloat) -> CGFloat { max(outer - inset, 0) }
+
+    public enum Font {
+        public static func title(_ size: CGFloat = 22) -> SwiftUI.Font { .system(size: size, weight: .bold).width(.standard) }
+        public static let label = SwiftUI.Font.system(size: 13, weight: .medium)
+        public static let body = SwiftUI.Font.system(size: 13)
+        public static let caption = SwiftUI.Font.system(size: 11, weight: .medium)
+        /// Technical values: monospaced digits, shown in `Yap.technical`.
+        public static let technical = SwiftUI.Font.system(size: 12, weight: .medium).monospacedDigit()
+    }
+}
+
+/// Live-tunable glass parameters (the design lab edits `shared`; every glass surface reads it).
+@MainActor @Observable public final class GlassTuning {
+    public static let shared = GlassTuning()
+    /// Opacity of the warm-grey glass body over the blur (tuned in the lab 2026-10-17).
+    public var body: Double = 0.19
+    /// Extra opacity of the body's light at the top edge and at the bottom edge.
+    public var topLight: Double = 0.01
+    public var bottomLight: Double = 0.02
+    /// Rim light along the top edge.
+    public var rim: Double = 0.29
+    /// Warm ambient glow from the lower left (light of the scene behind).
+    public var warmth: Double = 0.0
+    /// Atmospheric shadow under floating panels.
+    public var shadow: Double = 0.57
+    /// Specular sheen on surfaces that opt in (`glassPanel(sheen: true)`).
+    public var sheen: Double = 0.09
+    public init() {}
+
+    public func reset() {
+        let d = GlassTuning()
+        body = d.body; topLight = d.topLight; bottomLight = d.bottomLight
+        rim = d.rim; warmth = d.warmth; shadow = d.shadow; sheen = d.sheen
+    }
+}
+
+public extension Text {
+    /// Technical value styling: monospaced digits in yellow.
+    func technical() -> some View { font(Yap.Font.technical).foregroundStyle(Yap.technical) }
+}

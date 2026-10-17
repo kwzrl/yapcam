@@ -1,6 +1,7 @@
 import AppKit
 import YapcamCapture
 import SwiftUI
+import YapcamDesign
 
 // MARK: - Pure geometry / hit testing (unit-tested)
 
@@ -133,11 +134,31 @@ struct SourceCard: View {
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 .accessibilityLabel("Recording options")
             }
-            Text("Esc to cancel").font(.system(size: 11)).foregroundStyle(.secondary)
+            CancelHint()
         }
         .padding(18)
         .panelSurface(cornerRadius: 16)
         .shadow(color: .black.opacity(0.25), radius: 18, y: 6)
+    }
+}
+
+/// "Esc to cancel" that can also be clicked: the same path as the key (closes the overlay, clears the mode).
+private struct CancelHint: View {
+    @State private var hover = false
+
+    var body: some View {
+        Button { SourcePicker.escape() } label: {
+            Text("Esc to cancel").font(.system(size: 11, weight: hover ? .medium : .regular))
+                .foregroundStyle(hover ? Yap.title : Yap.caption)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(Capsule().fill(Color.white.opacity(0.08)).opacity(hover ? 1 : 0).scaleEffect(hover ? 1 : 0.9))
+                .animation(hover ? .snappy(duration: 0.14) : .smooth(duration: 0.3), value: hover)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help("Cancel (Esc)")
+        .accessibilityLabel("Cancel")
     }
 }
 
@@ -185,15 +206,20 @@ struct SourceCard: View {
             Prompt.text(title: "Window size", message: "Width × height in points, for example 1280x720",
                         initial: "\(Int(w.bounds.width))x\(Int(w.bounds.height))")
         }) else { return }
+        applyTypedSize(text, to: w)
+    }
+
+    /// What the "Custom…" prompt does with the text typed: resize, or explain what is accepted.
+    func applyTypedSize(_ text: String, to w: WindowRow) {
         guard let size = WindowAX.parseSize(text) else { notice = "Enter two numbers between 150 and 8192, like 1280x720."; return }
         resize(w, toSize: size)
     }
 
-    func saveSize(of w: WindowRow) {
+    func saveSize(of w: WindowRow, in settings: AppSettings = .shared) {
         let t = "\(Int(w.bounds.width))x\(Int(w.bounds.height))"
-        var list = AppSettings.shared.savedWindowSizes
+        var list = settings.savedWindowSizes
         list.removeAll { $0 == t }; list.insert(t, at: 0)
-        AppSettings.shared.savedWindowSizes = Array(list.prefix(8))
+        settings.savedWindowSizes = Array(list.prefix(8))
     }
 
     struct AppWindows: Identifiable { let app: String; let rows: [WindowRow]; var id: String { app } }
@@ -448,14 +474,12 @@ private final class OverlayWindow: NSWindow {
     }
 
     private func startDisplay(_ id: UInt32) {
-        let s = AppSettings.shared
-        s.displayID = id; s.sourceMode = .display
+        SourceChoice.display(id).apply(to: AppSettings.shared)
         hide(); beginSoon()
     }
 
     private func startWindow(_ id: UInt32) {
-        let s = AppSettings.shared
-        s.windowID = id; s.sourceMode = .window
+        SourceChoice.window(id).apply(to: AppSettings.shared)
         hide(); beginSoon()
     }
 

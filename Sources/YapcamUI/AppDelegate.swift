@@ -21,6 +21,7 @@ import YapcamEditor
     private var recordingObserver: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)   // Yapcam is dark-only (glass design)
         DispatchQueue.global(qos: .utility).async { QuickExport.pruneCache() }
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--probe-record") {
@@ -69,6 +70,11 @@ import YapcamEditor
             Task { if kind == "full" { await LiveE2E.run(into: dir) } else { await LiveE2E.scenario(kind, into: dir) } }
             return
         }
+
+        if let i = args.firstIndex(of: "--design-lab-snapshot"), args.indices.contains(i + 1) {
+            DesignLab.snapshot(into: URL(filePath: args[i + 1], directoryHint: .isDirectory)); return
+        }
+        if args.contains("--design-lab") { DesignLab.show(); return }
 
         if let i = args.firstIndex(of: "--snapshot-ui"), args.indices.contains(i + 1) {
             let dir = URL(filePath: args[i + 1], directoryHint: .isDirectory)
@@ -261,7 +267,7 @@ import YapcamEditor
             if dest != u { RecordingController.shared.engine.openEditor(package: dest) }
         } catch { RecordingController.shared.alert = AppAlert(title: "Could not rename", error: error) }
     }
-    @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { NSWorkspace.shared.activateFileViewerSelecting([u]) } }
+    @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { FinderReveal.show(u) } }
     @objc func showRecordings() { RecentProjectsWindow.shared.show() }
     @objc func importVideo() { ProjectActions.importVideo() }
     @objc func exportDiagnostics() { ProjectActions.exportDiagnostics() }

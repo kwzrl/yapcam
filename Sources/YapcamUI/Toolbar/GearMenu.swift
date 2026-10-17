@@ -19,6 +19,8 @@ import AppKit
         }
         func header(_ title: String) { let h = NSMenuItem(title: title, action: nil, keyEquivalent: ""); h.isEnabled = false; menu.addItem(h) }
 
+        check("Vertical Toolbar", ToolbarPanelController.shared.isVertical) { ToolbarPanelController.shared.toggleVertical() }
+        menu.addItem(.separator())
         header("While Recording")
         check("Hide Desktop Icons", s.hideDesktopIcons) { s.hideDesktopIcons.toggle() }
         check("Hide Dock Icon", s.hideDockWhileRecording) { s.hideDockWhileRecording.toggle() }

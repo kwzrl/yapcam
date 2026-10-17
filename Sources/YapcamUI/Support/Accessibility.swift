@@ -1,26 +1,31 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
 
-/// Surface for floating panels: translucent material normally, solid when the user turned on
-/// Reduce Transparency; stronger outline with Increase Contrast.
+/// Surface for floating panels: Yapcam glass over the desktop (always dark); solid ground when the user
+/// turned on Reduce Transparency; a visible outline with Increase Contrast.
 struct PanelSurface: ViewModifier {
     var cornerRadius: CGFloat
+    var sheen = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
+            .environment(\.colorScheme, .dark).tint(Color.white)
             .background {
-                if reduceTransparency { shape.fill(Color(nsColor: .windowBackgroundColor)) }
-                else { shape.fill(.regularMaterial) }
+                if reduceTransparency { shape.fill(Yap.ground) }
+                else { GlassSurface(radius: cornerRadius, floating: false, sheen: sheen) }
             }
-            .overlay(shape.strokeBorder(Color.primary.opacity(contrast == .increased ? 0.6 : 0.12), lineWidth: contrast == .increased ? 1.5 : 1))
+            .overlay { if contrast == .increased || reduceTransparency { shape.strokeBorder(Color.white.opacity(contrast == .increased ? 0.6 : 0.16), lineWidth: contrast == .increased ? 1.5 : 1) } }
     }
 }
 
 extension View {
-    func panelSurface(cornerRadius: CGFloat = 14) -> some View { modifier(PanelSurface(cornerRadius: cornerRadius)) }
+    func panelSurface(cornerRadius: CGFloat = 14, sheen: Bool = false) -> some View {
+        modifier(PanelSurface(cornerRadius: cornerRadius, sheen: sheen))
+    }
 }
 
 /// Opacity helpers that respect Increase Contrast.
@@ -45,7 +50,7 @@ extension EnvironmentValues {
     }
 
     static func timeDescription(_ t: TimeInterval) -> String {
-        let s = Int(t), h = s / 3600, m = (s / 60) % 60, sec = s % 60
+        let s = t.isFinite ? Int(min(max(t, 0), 1e9)) : 0, h = s / 3600, m = (s / 60) % 60, sec = s % 60
         var parts: [String] = []
         if h > 0 { parts.append("\(h) hour\(h == 1 ? "" : "s")") }
         if m > 0 { parts.append("\(m) minute\(m == 1 ? "" : "s")") }

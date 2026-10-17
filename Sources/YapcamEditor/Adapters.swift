@@ -319,8 +319,8 @@ final class PreviewPlayerAdapter: PlaybackEngine {
 
     init(player: PreviewPlayer) {
         self.player = player
-        player.$currentNs.sink { [weak self] v in MainActor.assumeIsolated { self?.currentNs = v; self?.onChange?() } }.store(in: &bag)
-        player.$isPlaying.sink { [weak self] v in MainActor.assumeIsolated { self?.isPlaying = v; self?.onChange?() } }.store(in: &bag)
+        player.$currentNs.sink { [weak self] v in onMain { self?.currentNs = v; self?.onChange?() } }.store(in: &bag)
+        player.$isPlaying.sink { [weak self] v in onMain { self?.isPlaying = v; self?.onChange?() } }.store(in: &bag)
     }
     func play() { player.play() }
     func pause() { player.pause() }
@@ -365,8 +365,8 @@ struct RenderExportEngine: ExportEngine {
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void) async throws -> URL {
         try await run(request, progress: progress, status: { _ in })
     }
-    func clipboardHistory() -> [URL] { (try? MainActor.assumeIsolated { try ClipboardExport.previousExports() }) ?? [] }
-    func copyToClipboard(_ url: URL) throws { try MainActor.assumeIsolated { try ClipboardExport.copyFile(url) } }
+    func clipboardHistory() -> [URL] { (try? onMainSync { try ClipboardExport.previousExports() }) ?? [] }
+    func copyToClipboard(_ url: URL) throws { try onMainSync { try ClipboardExport.copyFile(url) } }
 
     func run(_ request: ExportRequest, progress: @Sendable @escaping (Double) -> Void,
              status: @Sendable @escaping (ExportQueueStatus) -> Void) async throws -> URL {

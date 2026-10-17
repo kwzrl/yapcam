@@ -7,11 +7,16 @@ import Foundation
     private static var handlers: [UInt32: () -> Void] = [:]
     private static var installed = false
 
-    private var ref: EventHotKeyRef?
+    nonisolated(unsafe) private var ref: EventHotKeyRef?
     private let id: UInt32
 
     init() { id = Self.nextID; Self.nextID += 1; Self.installHandlerOnce() }
-    deinit { MainActor.assumeIsolated { unregister() } }
+    /// A deinit can run on any thread: release the Carbon key here and clear the main-actor handler table on main.
+    deinit {
+        if let ref { UnregisterEventHotKey(ref) }
+        let id = id
+        DispatchQueue.main.async { MainActor.assumeIsolated { GlobalHotKey.handlers[id] = nil } }
+    }
 
     @discardableResult
     func register(_ combo: KeyCombo, action: @escaping () -> Void) -> Bool {

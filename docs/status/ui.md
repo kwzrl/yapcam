@@ -1,4 +1,5 @@
-READY R5-last a74a081 | B.Shortcuts: Editing keys rebindable via EditorKeyBindings (reset per key + restore defaults, conflicts refused); B.Advanced c93bec6 wiring confirmed on origin/team/ui and origin/main | YapcamUITests 193 green; not run live
+READY R6b 53cb006 | R6-QA-U1: AreaMouseDown.decide, RecorderKey.decide/decideEditing, tests on the real targets of Custom size / Save current size / Ignore / Adjust area / Export diagnostics / Show in Finder (FinderReveal); privacy-scan fixture paths | YapcamUITests 208 green; not run live
+READY R6 d2e148f | crash-class audit (4 fixes), SourceChoice start decisions testable, speaker notes/saved sizes confirmed | YapcamUITests 200 green; not run live
 READY W3 571c2e2 | A1.5, A7.3, X5, B.HW done | swift test --filter YapcamUITests 188 green; not run live
 READY R5 195d560 | every H/M row in ## R5 incoming requests (round 5b, read from main a96173e status files)
 | id | from | request | state |
@@ -407,3 +408,16 @@ Follow-up: `appLaunchedWithSnapshotFlagRendersEverything` now skips itself while
 | X5 quick export store | done on the ui side: Quick export has its own store (`quickExport.v1`, tested separate from the editor dialog). Editor's `remember(in: .dialog)` is editor's; no ui call needed |
 | B.Advanced HW accel (R5-L01) | done: Settings > Advanced "Disable hardware-accelerated encoding" (off); quick export passes `hardwareEncodingEnabled`. Request to editor: export dialog should read UserDefaults `disableHardwareEncoding` (Bool) and set `ExportSettings.hardwareEncodingEnabled = !value`. No decode toggle (Lead decision) |
 | R5-L02 | out of scope (Lead) |
+
+## R6 crash-class audit (Sources/YapcamUI)
+| Class | Result |
+|---|---|
+| `objectWillChange.values` / `.values` / `for await` on publishers | none left (AppDelegate uses a debounced sink); `Hotkeys.swift:91 keys.values` is a dictionary |
+| `MainActor.assumeIsolated` off main | all other sites run in `queue: .main` observers, main-run-loop Timers, `DispatchQueue.main` blocks, or main-thread NSEvent monitors: safe. FIXED `GlobalHotKey.deinit` (can run on any thread; now releases the Carbon key directly and clears the handler table on main) and `EditorHooks` variableFrameRate closure (editor reads it at export start, possibly off main; now reads the UserDefaults store) |
+| fatalError / try! / as! | only `required init?(coder:) { fatalError() }` in 3 NSView/NSObject subclasses never created from archives: safe |
+| force unwraps | FIXED `CFDataGetBytePtr(layout)!` (AppSettings key naming) and `track!` in LiveE2E; `warnings.first!` is behind `guard !isEmpty`: safe; `saved!` in `cap` is behind a non-nil check |
+| indexing / division | `AreaAspect.fit` ratio comes only from validated presets (0.05..20); `parts[0..1]`/`p[0..1]` are behind count checks; `remainingText` guarded; FIXED `Announcer.timeDescription` (`Int(NaN/inf)` trap) and added `isFinite` to `remainingText` |
+| runModal while overlay up | overlay prompts go through `SourceOverlay.loweredWhile`; the rest run from menus/Settings with no overlay: safe |
+| re-entrancy (@Published in didSet/body) | start paths now go through `SourceChoice.apply` (one place, tested with 150 back-to-back changes + the debounced observer) |
+
+R6 tasks: 2. A4.1 Show Speaker Notes (⌘⌥/) exists in the gear menu and as a hotkey (test added); A2.6 saved area sizes exist (Saved sizes menu, persisted; existing tests). 3. `SourceChoice` (display/window/area) is the single decision for Start/window pick/area confirm; tiny areas are refused; tests in Round6Tests.swift.

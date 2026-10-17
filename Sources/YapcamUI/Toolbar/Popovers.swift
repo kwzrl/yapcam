@@ -42,8 +42,8 @@ private struct SelectableRow<Content: View>: View {
         guard let screen = Displays.screen(for: settings.areaDisplayID) ?? NSScreen.main else { return }
         let keep = settings.areaDisplayID == screen.displayID ? settings.areaRect : nil
         AreaSelector.shared.begin(on: screen, initial: keep) { rect in
-            guard let rect, let id = screen.displayID else { return }
-            settings.areaDisplayID = id; settings.areaRect = rect; settings.sourceMode = .area
+            guard let id = screen.displayID, let choice = SourceChoice.confirmedArea(display: id, rect: rect) else { return }
+            choice.apply(to: settings)
             // The overlay has left the screen by the time the countdown/recording starts.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { RecordingController.shared.begin() }
         }

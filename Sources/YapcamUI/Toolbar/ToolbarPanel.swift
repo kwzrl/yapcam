@@ -21,13 +21,15 @@ import SwiftUI
                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
-        p.hasShadow = true
+        // The system window shadow draws a hard dark ring around transparent windows; ToolbarView draws its own.
+        p.hasShadow = false
         p.level = .floating
         p.isMovableByWindowBackground = true
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         p.title = "Yapcam Toolbar"
+        p.appearance = NSAppearance(named: .darkAqua)
         p.delegate = self
         panel = p
 
@@ -47,6 +49,8 @@ import SwiftUI
             windowDidMove(Notification(name: NSWindow.didMoveNotification))
         }
 
+        layout.$vertical.removeDuplicates().dropFirst()
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.refit() } }.store(in: &bag)
         RecordingController.shared.$phase.removeDuplicates()
             .sink { [weak self] phase in DispatchQueue.main.async { self?.refit(); if phase == .recording { self?.stepAsideFromArea() } } }.store(in: &bag)
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
@@ -81,6 +85,15 @@ import SwiftUI
     }
 
     func hide() { panel.orderOut(nil); CameraPreviewPanel.shared.update() }
+    var isVertical: Bool { layout.vertical }
+    func toggleVertical() { layout.vertical.toggle() }
+
+    /// Snapshot harness: flip orientation without touching the saved preference.
+    func debugSetVertical(_ v: Bool) {
+        let saved = AppDefaults.store.bool(forKey: "toolbarVertical")
+        layout.vertical = v
+        AppDefaults.store.set(saved, forKey: "toolbarVertical")
+    }
     var isVisible: Bool { panel.isVisible }
     func toggle() { isVisible ? hide() : show() }
 
@@ -178,6 +191,10 @@ import SwiftUI
 @MainActor final class ToolbarLayoutModel: ObservableObject {
     @Published var onLeftHalf = false
     @Published var inLowerHalf = true
+    /// Bar runs top to bottom instead of left to right (toggled by the rotate button, remembered).
+    @Published var vertical = AppDefaults.store.bool(forKey: "toolbarVertical") {
+        didSet { AppDefaults.store.set(vertical, forKey: "toolbarVertical") }
+    }
     /// Moves the toolbar by (dx, dy) points; used by VoiceOver actions and keyboard users.
     var move: (CGFloat, CGFloat) -> Void = { _, _ in }
 }

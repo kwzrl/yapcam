@@ -302,41 +302,10 @@ struct TimelineView: View {
 
     // MARK: gestures
 
-    private func hitZoom(at x: CGFloat, _ g: TimelineGeometry) -> (TimelineZoom, DragKind)? {
-        for z in model.zooms.reversed() {
-            let r = model.displayedRange(of: z)
-            let x0 = g.x(forNs: r.start), x1 = g.x(forNs: r.end)
-            let h = min(TimelineLayout.edgeHandle, (x1 - x0) / 3)
-            if x >= x0 - 2 && x <= x1 + 2 {
-                if x <= x0 + h { return (z, .zoomStart(id: z.id)) }
-                if x >= x1 - h { return (z, .zoomEnd(id: z.id)) }
-                return (z, .zoomMove(id: z.id, grabOffsetNs: g.ns(forX: x) - z.startNs))
-            }
-        }
-        return nil
-    }
-
     /// Scissors on a selected zoom, layout or highlight: split it at the click, unsnapped so it never lands on its own edge.
     private func cutSelected(at ns: Int64) {
         model.seek(toNs: ns, precise: true)
         model.splitContextAware()
-    }
-
-    private func hitRange(at p: CGPoint, _ g: TimelineGeometry) -> DragKind? {
-        var items: [(key: String, span: TimeSpan, top: CGFloat, sel: EditorSelection)] = []
-        if model.hasCamera { items += model.layouts.map { ($0.id, TimeSpan(startNs: $0.startNs, endNs: $0.endNs), layout.cameraTop, .layout($0.id)) } }
-        items += model.allText.map { ($0.kind == .caption ? EditorModel.textKey($0) : EditorModel.textKey($0), $0.span, $0.kind == .caption ? layout.captionTop : layout.textTop, .text($0.kind, $0.id)) }
-        items += model.music.map { ($0.id, $0.span, layout.musicTop, .music($0.id)) }
-        items += model.highlights.map { ($0.id, $0.span, layout.highlightTop, .highlight($0.id)) }
-        items += model.cursorHides.map { (EditorModel.cursorKey($0.index), $0.span, layout.cursorTop, .cursorHide($0.index)) }
-        guard let hit = LaneHitTest.topmost(x: p.x, y: p.y, items: items.map { LaneHitTest.Item(key: $0.key, span: $0.span, top: $0.top, tag: $0.sel) },
-                                            preview: model.zoomPreview, geometry: g) else { return nil }
-        model.selection = hit.tag
-        switch hit.part {
-        case .start: return .rangeStart(key: hit.key)
-        case .end: return .rangeEnd(key: hit.key)
-        case .body(let off): return .rangeMove(key: hit.key, grabOffsetNs: off)
-        }
     }
 
     private func currentSpan(_ key: String) -> TimeSpan? {
@@ -392,60 +361,65 @@ struct TimelineView: View {
 
     private func begin(at p: CGPoint, _ g: TimelineGeometry) -> DragKind {
         if !(p.y >= layout.zoomTop && p.y < layout.lanesTop) { model.extraZoomSelection = [] }
-        if p.y < layout.clipTop {
-            model.selection = .none
+        let flags = NSEvent.modifierFlags
+        var items: [LaneHitTest.Item] = []
+        func add(_ key: String, _ span: TimeSpan, _ top: CGFloat, _ sel: EditorSelection) { items.append(.init(key: key, span: span, top: top, tag: sel)) }
+        if model.hasCamera { for l in model.layouts { add(l.id, TimeSpan(startNs: l.startNs, endNs: l.endNs), layout.cameraTop, .layout(l.id)) } }
+        for t in model.allText { add(EditorModel.textKey(t), t.span, t.kind == .caption ? layout.captionTop : layout.textTop, .text(t.kind, t.id)) }
+        for m in model.music { add(m.id, m.span, layout.musicTop, .music(m.id)) }
+        for h in model.highlights { add(h.id, h.span, layout.highlightTop, .highlight(h.id)) }
+        for h in model.cursorHides { add(EditorModel.cursorKey(h.index), h.span, layout.cursorTop, .cursorHide(h.index)) }
+        let input = TimelineClick.Input(
+            point: p, layout: layout, geometry: g, cutTool: model.cutToolActive, multiSelect: flags.contains(.shift) || flags.contains(.command),
+            durationNs: model.durationNs,
+            zooms: model.zooms.map { z in let r = model.displayedRange(of: z); return (z.id, r.start, r.end) },
+            rangeItems: items, rangePreview: model.zoomPreview,
+            typing: model.typingSuggestions.map { ($0.startNs, $0.endNs) },
+            clips: model.clipStarts().map { ($0.clip.id, $0.startNs, $0.startNs + $0.clip.timelineDurationNs) })
+        switch TimelineClick.decide(input) {
+        case .scrub(let clip):
+            model.selection = clip.map { .clip($0) } ?? .none
+            if p.y >= layout.clipTop { model.seek(toNs: model.snapped(g.ns(forX: p.x), includePlayhead: false), precise: false) }
             return .scrub
-        }
-        if layout.lanes.contains(.typing), p.y >= layout.typingTop, p.y < layout.typingTop + TimelineLayout.laneHeight,
-           let sp = model.typingSuggestions.first(where: { p.x >= g.x(forNs: $0.startNs) - 2 && p.x <= g.x(forNs: $0.endNs) + 2 }) {
-            model.typingPopover = sp.startNs; return .inert
-        }
-        if p.y >= layout.lanesTop, let kind = hitRange(at: p, g) {
-            switch model.selection {
-            case .layout, .highlight: if model.cutToolActive { cutSelected(at: g.ns(forX: p.x)); return .inert }
-            default: break
+        case .typingPopover(let ns): model.typingPopover = ns; return .inert
+        case .rangeDrag(let key, let part, let sel):
+            model.selection = sel
+            switch part {
+            case .start: return .rangeStart(key: key)
+            case .end: return .rangeEnd(key: key)
+            case .body(let off): return .rangeMove(key: key, grabOffsetNs: off)
             }
-            return kind
-        }
-        if p.y >= layout.zoomTop, p.y < layout.lanesTop, hitZoom(at: p.x, g) == nil, p.x >= 0, g.ns(forX: p.x) < model.durationNs {
+        case .rangeSelectOnly(let sel): model.selection = sel; return .inert
+        case .rangeCut(let sel, let ns): model.selection = sel; cutSelected(at: ns); return .inert
+        case .zoomCreate(let ns):
             model.selection = .none
-            return .zoomCreate(startNs: model.snapped(g.ns(forX: p.x), includePlayhead: false))
-        }
-        if p.y >= layout.zoomTop, p.y < layout.lanesTop, let (z, kind) = hitZoom(at: p.x, g) {
-            if model.cutToolActive {
-                // Scissors on a zoom: split that zoom at the click (C does the same at the playhead).
-                model.extraZoomSelection = []
-                model.selection = .zoom(z.id)
-                cutSelected(at: g.ns(forX: p.x)); return .inert
+            return .zoomCreate(startNs: model.snapped(ns, includePlayhead: false))
+        case .zoomCut(let id, let ns):
+            // Scissors on a zoom: split that zoom at the click (C does the same at the playhead).
+            model.extraZoomSelection = []; model.selection = .zoom(id); cutSelected(at: ns); return .inert
+        case .zoomToggleSelect(let id):
+            // Multi-select: toggle membership; no drag.
+            if case .zoom(let primary) = model.selection {
+                if id == primary { model.selection = model.extraZoomSelection.first.map { .zoom($0) } ?? .none
+                                   if let n = model.extraZoomSelection.first { model.extraZoomSelection.remove(n) } }
+                else if model.extraZoomSelection.contains(id) { model.extraZoomSelection.remove(id) }
+                else { model.extraZoomSelection.insert(id) }
+            } else { model.selection = .zoom(id) }
+            return .inert
+        case .zoomDrag(let id, let part):
+            model.extraZoomSelection = []; model.selection = .zoom(id)
+            switch part {
+            case .start: return .zoomStart(id: id)
+            case .end: return .zoomEnd(id: id)
+            case .move(let off): return .zoomMove(id: id, grabOffsetNs: off)
             }
-            if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.command) {
-                // Multi-select: toggle membership; no drag.
-                if case .zoom(let primary) = model.selection {
-                    if z.id == primary { model.selection = model.extraZoomSelection.first.map { .zoom($0) } ?? .none
-                                         if let n = model.extraZoomSelection.first { model.extraZoomSelection.remove(n) } }
-                    else if model.extraZoomSelection.contains(z.id) { model.extraZoomSelection.remove(z.id) }
-                    else { model.extraZoomSelection.insert(z.id) }
-                } else { model.selection = .zoom(z.id) }
-                return .inert
-            }
-            model.extraZoomSelection = []
-            model.selection = .zoom(z.id)
-            return kind
+        case .clipCut(let ns):
+            // Scissors: a click on a clip splits it there (snapped to edit points).
+            model.seek(toNs: model.snapped(ns, includePlayhead: false), precise: true)
+            model.splitAtPlayhead()
+            return .inert
+        case .nothing: return .inert
         }
-        if p.y < layout.zoomTop - TimelineLayout.gap,
-           let hit = model.clipStarts().first(where: { p.x >= g.x(forNs: $0.startNs) && p.x < g.x(forNs: $0.startNs + $0.clip.timelineDurationNs) }) {
-            if model.cutToolActive {
-                // Scissors: a click on a clip splits it there (snapped to edit points).
-                model.seek(toNs: model.snapped(g.ns(forX: p.x), includePlayhead: false), precise: true)
-                model.splitAtPlayhead()
-                return .inert
-            }
-            model.selection = .clip(hit.clip.id)
-        } else {
-            model.selection = .none
-        }
-        model.seek(toNs: model.snapped(g.ns(forX: p.x), includePlayhead: false), precise: false)
-        return .scrub
     }
 }
 
@@ -468,7 +442,7 @@ struct Ruler: View {
             let step = geometry.rulerStepSeconds()
             let minor = step / 5
             let maxT = Double(width) / geometry.pixelsPerSecond
-            for i in 0...Int(maxT / minor) {
+            for i in 0...((maxT / minor).isFinite ? Int(min(max(maxT / minor, 0), 100_000)) : 0) {
                 let t = Double(i) * minor
                 let x = t * geometry.pixelsPerSecond
                 let isMajor = i % 5 == 0

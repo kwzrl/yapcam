@@ -1,3 +1,46 @@
+READY R6 11ce970+worktree | queued stop/start serialization, source-loss and malformed-input crash hardening; countdown UI handoff | 179 capture tests / 6 suites pass
+
+## R6 capture hardening (2026-10-17)
+
+- **Start/stop races fixed:** `stop()` now atomically waits for an in-flight start,
+  resume, pause, or stop and then completes exactly once. Two stops queued behind
+  startup return the same finished package; a second Start while preparing is
+  rejected without creating another stream or package. Cancel uses the same atomic
+  gate, including when its calling task is already cancelled.
+- **Source-loss outcomes covered with fakes:** injected display unplug and window
+  close both finalize the stream/writer, persist `interrupted`, release the package
+  lease, and publish `sourceUnavailable`. Existing regressions cover SCK failure,
+  permission revocation, USB source loss, and camera/microphone loss (auxiliary loss
+  warns and leaves screen capture running). No real device or permission change was
+  needed.
+- **Trap hardening:** capture source point arrays are validated before indexing or
+  package creation; malformed geometry now returns a typed writer error. Segment
+  stop/preroll/PTS comparisons no longer force-unwrap optionals. Voice-isolation
+  buffer/channel allocation and AudioUnit input pointers now fail explicitly rather
+  than force-unwrapping; allocation failure has a regression.
+- **Crash-class audit:** no Combine async publisher iteration, `fatalError`, `try!`,
+  or unguarded user/disk array indexing remains in capture. The retained
+  `MainActor.assumeIsolated` sites are main-thread-bound: timers are scheduled by
+  main-actor methods, the CG tap source is installed on the main run loop, and
+  AppKit's global event monitor delivers on main. The two AX forced casts are safe
+  only after exact `AXValueGetTypeID` checks. SCK callbacks hop to MainActor and
+  reject stale segment generations; AV callbacks enter locked/writer queues, and
+  teardown removes observers and delegates on their control queues. The retained
+  `dispatchPrecondition` checks enforce queues explicitly assigned to SCK/AV
+  delegates and the private disk worker; no notification callback enters them
+  directly. Frame-rate,
+  geometry, marker, timeline, camera-area, and voice-latency arithmetic is range
+  checked before division, multiplication, addition, or conversion.
+- **UI request R6-CAP-UI1 (Lead route, priority):** Stop during the UI-owned
+  countdown must cancel the pending countdown and prove through the actual click
+  path that `RecordingSession.start()` is never called. Once capture startup has
+  been invoked, the engine now queues Stop safely. Capture does not own countdown
+  state or the button gesture and made no UI-source change.
+- **Validation:** isolated repository runner passed **179 tests in 6 suites** in
+  46.517s; eight hardware/native opt-ins remained skipped. `git diff --check`
+  passes. No app launch, recording, TCC prompt/change, Finder restart, or files
+  outside capture ownership.
+
 READY RV fa01ec3+worktree | review finding 4 fixed: heartbeat cannot suppress newer real pixels; injected timestamp regression + 174 capture tests pass
 READY W3 9c67775+worktree | A4.1/W4 desktop-icon filter wired end to end; no recording-time Finder mutation/restart; 173 capture + focused UI tests pass, live permission check untested
 READY R5b 9acadbe +8 owned paths | 173 capture tests /127 Rust /signed main app green; 8 incoming requests delivered/resolvable, 3 explicitly blocked

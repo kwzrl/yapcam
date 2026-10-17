@@ -15,31 +15,43 @@ struct NumberRow: View {
     @State private var value = 0.0
     @State private var editing = false
 
+    private var valueText: String { String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)") }
+
+    private var slider: some View {
+        Slider(value: Binding(get: { value }, set: { value = snapped($0) }), in: range) { isEditing in
+            editing = isEditing
+            if !isEditing { model.set(path, number: value) }
+        }
+        .accessibilityLabel(title)
+        .accessibilityValue(valueText)
+    }
+
+    @ViewBuilder private var reset: some View {
+        if let d = defaultValue {
+            let changed = abs(value - d) > 1e-9
+            Button { value = d; model.set(path, number: d) } label: { Image(systemName: "arrow.counterclockwise") }
+                .buttonStyle(.borderless).help("Reset to default").accessibilityLabel("Reset \(title)")
+                .opacity(changed ? 1 : 0.25).disabled(!changed)
+                .frame(width: EditorMetrics.resetSlot)
+        } else { Color.clear.frame(width: EditorMetrics.resetSlot, height: 1) }
+    }
+
     var body: some View {
         SliderRow(title) {
             HStack {
-                Slider(value: Binding(get: { value }, set: { value = snapped($0) }), in: range) { isEditing in
-                    editing = isEditing
-                    if !isEditing { model.set(path, number: value) }
-                }
-                    .accessibilityLabel(title)
-                    .accessibilityValue(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
-                Text(String(format: format, value * scale) + (unit.isEmpty ? "" : " \(unit)"))
-                    .sliderValueLabel()
-                if let d = defaultValue {
-                    Button { value = d; model.set(path, number: d) } label: { Image(systemName: "arrow.counterclockwise") }
-                        .buttonStyle(.borderless).help("Reset to default").accessibilityLabel("Reset \(title)")
-                        .opacity(abs(value - d) > 1e-9 ? 1 : 0.25).disabled(abs(value - d) <= 1e-9)
-                        .frame(width: EditorMetrics.resetSlot)
-                } else { Color.clear.frame(width: EditorMetrics.resetSlot, height: 1) }
+                slider
+                Text(valueText).sliderValueLabel()
+                reset
             }
         }
         .onAppear { value = model.number(path) }
         .onChange(of: model.revision) { _, _ in if !editing { value = model.number(path) } }
     }
     private func snapped(_ v: Double) -> Double {
-        let tolerance = (range.upperBound - range.lowerBound) * snapDistance
-        return snaps.map { $0 / scale }.filter { range.contains($0) }.min { abs($0 - v) < abs($1 - v) }.flatMap { abs($0 - v) <= tolerance ? $0 : nil } ?? v
+        let tolerance: Double = (range.upperBound - range.lowerBound) * snapDistance
+        let candidates: [Double] = snaps.map { $0 / scale }.filter { range.contains($0) }
+        guard let nearest = candidates.min(by: { abs($0 - v) < abs($1 - v) }), abs(nearest - v) <= tolerance else { return v }
+        return nearest
     }
 }
 
@@ -313,14 +325,16 @@ struct InspectorView: View {
     @ViewBuilder private var animations: some View {
         AnimationPresets(model: model)
         Section("Zooms") {
-            ToggleRow(model: model, title: "Automatic zooms", path: "zoom_settings.automatic", defaultValue: true)
-            ToggleRow(model: model, title: "Follow cursor while zoomed", path: "zoom_settings.follow_cursor", defaultValue: true)
+            if model.hasMouseData {        // automatic zooms and cursor following both need recorded mouse data
+                ToggleRow(model: model, title: "Automatic zooms", path: "zoom_settings.automatic", defaultValue: true)
+                ToggleRow(model: model, title: "Follow cursor while zoomed", path: "zoom_settings.follow_cursor", defaultValue: true)
+            }
             PickerRow(model: model, title: "Transition speed", path: "zoom_settings.speed_preset", options: speedPresets)
             PickerRow(model: model, title: "Screen animation", path: "zoom_settings.animation_style",
                       options: [("Custom", "custom"), ("Focused (settles fast)", "focused"), ("Smooth (fluid)", "smooth")])
             ToggleRow(model: model, title: "Start animation early", path: "zoom_settings.start_early")
             NumberRow(model: model, title: "Default zoom level", path: "zoom_settings.default_scale", range: 1...4, unit: "×", format: "%.1f", defaultValue: 2)
-            Button("Regenerate automatic zooms") { model.regenerateAutoZooms() }
+            if model.hasMouseData { Button("Regenerate automatic zooms") { model.regenerateAutoZooms() } }
         }
         Section("Motion blur") {
             NumberRow(model: model, title: "Motion blur", path: "canvas.motion_blur", range: 0...1, defaultValue: model.factoryMotionBlur)
@@ -397,7 +411,9 @@ struct InspectorView: View {
 
     private func zoomSection(_ z: TimelineZoom) -> some View {
         Section(z.mode == .auto ? "Zoom (automatic)" : "Zoom") {
+            if model.hasMouseData || z.mode == .auto {
             LabeledPills("Type", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) }), options: [("Auto", TimelineZoom.Mode.auto), ("Manual", TimelineZoom.Mode.manual)])
+            }
             LabeledPills("Style", selection: Binding(get: { z.lens != nil }, set: { model.setZoomLens(id: z.id, $0 ? ZoomLensParams() : nil) }), options: [("Classic", false), ("Glass loupe", true)])
             if let l = z.lens { ZoomLensRows(model: model, zoomID: z.id, lens: l) }
             ZoomScaleRow(model: model, zoom: z)
@@ -426,8 +442,10 @@ struct InspectorView: View {
             Button("Apply this speed to all clips") { model.applySpeedToAll(c.speed) }.disabled(model.clips.count < 2)
             if model.hasMic { ClipVolumeRow(model: model, title: "Microphone volume", system: false, clip: c) }
             ClipVolumeRow(model: model, title: "System audio volume", system: true, clip: c)
-            Toggle("Hide the cursor in this part", isOn: Binding(get: { c.hideCursor }, set: { model.setClipCursor(hide: $0) }))
-            Toggle("Smooth cursor movement off", isOn: Binding(get: { c.disableSmoothing }, set: { model.setClipCursor(smoothingOff: $0) }))
+            if model.hasMouseData {            // nothing to hide or smooth without mouse data
+                Toggle("Hide the cursor in this part", isOn: Binding(get: { c.hideCursor }, set: { model.setClipCursor(hide: $0) }))
+                Toggle("Smooth cursor movement off", isOn: Binding(get: { c.disableSmoothing }, set: { model.setClipCursor(smoothingOff: $0) }))
+            }
             LabeledContent("Length") { Text(formatTimecode(c.timelineDurationNs)).monospacedDigit() }
             Button("Reset trim") { model.resetTrim(clipID: c.id) }.disabled(!model.hasTrimsOrCuts)
                 .help("Bring back the parts of the recording that were cut away next to this clip")
@@ -542,10 +560,12 @@ struct InspectorView: View {
             ToggleRow(model: model, title: "Mute", path: "audio.system_muted")
             NumberRow(model: model, title: "Volume", path: "audio.system_gain_db", range: -48...12, unit: "dB", format: "%.0f")
         }
-        Section("Click sounds") {
-            ToggleRow(model: model, title: "Play a sound on clicks", path: "audio.click_sound.enabled")
-            PickerRow(model: model, title: "Sound", path: "audio.click_sound.variant", options: [("Soft", "soft"), ("Crisp", "crisp")])
-            NumberRow(model: model, title: "Volume", path: "audio.click_sound.gain_db", range: -48...12, unit: "dB", format: "%.0f")
+        if model.hasMouseData {            // click sounds follow recorded clicks
+            Section("Click sounds") {
+                ToggleRow(model: model, title: "Play a sound on clicks", path: "audio.click_sound.enabled")
+                PickerRow(model: model, title: "Sound", path: "audio.click_sound.variant", options: [("Soft", "soft"), ("Crisp", "crisp")])
+                NumberRow(model: model, title: "Volume", path: "audio.click_sound.gain_db", range: -48...12, unit: "dB", format: "%.0f")
+            }
         }
         Section("Volume changes over time") {
             ForEach(model.audioRanges) { r in
