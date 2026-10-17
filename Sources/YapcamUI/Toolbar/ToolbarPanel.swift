@@ -71,14 +71,16 @@ import SwiftUI
 
     func show() {
         installKeys()
+        CameraPreviewPanel.shared.start()
         refit(initial: true)
         panel.orderFrontRegardless()
+        CameraPreviewPanel.shared.update()
         // SwiftUI reports its real size only after the first layout pass; fit again once it has run.
         DispatchQueue.main.async { [weak self] in self?.refit() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refit() }
     }
 
-    func hide() { panel.orderOut(nil) }
+    func hide() { panel.orderOut(nil); CameraPreviewPanel.shared.update() }
     var isVisible: Bool { panel.isVisible }
     func toggle() { isVisible ? hide() : show() }
 
