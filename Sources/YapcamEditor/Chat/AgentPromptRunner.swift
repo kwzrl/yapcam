@@ -198,7 +198,9 @@ final class ClaudeProcess: @unchecked Sendable {
         }
         child.executableURL = executable; child.currentDirectoryURL = workingDirectory ?? directory
         var arguments = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--mcp-config", file.path,
-                         "--strict-mcp-config", "--allowedTools", "mcp__yapcam__*", "--tools", "",
+                         "--strict-mcp-config", "--allowedTools", "mcp__yapcam__*,ListMcpResourcesTool,ReadMcpResourceTool",
+                         // Only the tools that read MCP resources (yapcam://playbook); no shell, files or web.
+                         "--tools", "ListMcpResourcesTool,ReadMcpResourceTool",
                          "--permission-mode", "acceptEdits", "--system-prompt", system]
         if let resume { arguments += ["--resume", resume] }
         if let model { arguments += ["--model", model] }
