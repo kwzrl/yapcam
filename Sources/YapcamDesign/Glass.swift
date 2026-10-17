@@ -36,7 +36,7 @@ public struct GlassSurface: View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         ZStack {
             BackdropBlur(behindWindow: behindWindow)
-            Yap.ground.opacity(1 - t.clarity)
+            Yap.glassGray.opacity(1 - t.clarity)
             LinearGradient(stops: [
                 .init(color: .white.opacity(t.topLight + lift), location: 0),
                 .init(color: .white.opacity(lift * 0.6), location: 0.45),

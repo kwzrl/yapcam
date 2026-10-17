@@ -28,6 +28,9 @@ public enum Yap {
     public static let zoom = Color(red: 0.55, green: 0.45, blue: 1.0)
     public static let zoomAuto = Color(red: 0.42, green: 0.58, blue: 1.0)
 
+    /// Body of the glass: a neutral grey that is almost opaque (user preferred it over see-through glass).
+    public static let glassGray = Color(white: 0.21)
+
     /// Ground of opaque windows (editor) and the dark end of the glass tint.
     public static let ground = Color(red: 0.075, green: 0.072, blue: 0.07)
     public static let nsGround = NSColor(srgbRed: 0.075, green: 0.072, blue: 0.07, alpha: 1)
@@ -54,8 +57,8 @@ public enum Yap {
 /// Live-tunable glass parameters (the design lab edits `shared`; every glass surface reads it).
 @MainActor @Observable public final class GlassTuning {
     public static let shared = GlassTuning()
-    /// How much of the blurred backdrop shows through (0 = opaque ground, 1 = bare system material).
-    public var clarity: Double = 1.0
+    /// How much of the blurred backdrop shows through (0 = solid grey, 1 = bare system material).
+    public var clarity: Double = 0.15
     /// Brightness lift of the tint at the top edge and the bottom edge ("lit from above and below").
     public var topLight: Double = 0.20
     public var bottomLight: Double = 0.16

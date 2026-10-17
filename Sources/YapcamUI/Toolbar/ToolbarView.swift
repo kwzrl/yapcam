@@ -46,7 +46,7 @@ struct ToolbarView: View {
             }
             .padding(vertical ? .bottom : .trailing, 8)
         }
-        .frame(width: vertical ? thickness + (rec.phase == .idle ? 30 : 0) : nil, height: vertical ? nil : thickness)
+        .frame(width: vertical ? max(thickness, 96) : nil, height: vertical ? nil : thickness)
         .panelSurface(cornerRadius: rec.phase == .recording || rec.phase == .paused ? 24 : 26)
         .padding(2)
         .accessibilityElement(children: .contain)
@@ -227,34 +227,31 @@ struct ToolbarView: View {
 
 // MARK: - Components
 
-/// Bar handle: close (idle only), rotate between horizontal and vertical, and the drag grip. Stacked across the bar.
+/// Bar handle: close (idle only), rotate between horizontal and vertical, and the drag grip.
+/// Same icon size as the toolbar buttons, side by side in both orientations.
 private struct Grabber: View {
     var vertical: Bool
     var onClose: (() -> Void)?
     var onRotate: () -> Void
 
     var body: some View {
-        let stack = vertical ? AnyLayout(HStackLayout(spacing: 1)) : AnyLayout(VStackLayout(spacing: 0))
-        stack {
+        HStack(spacing: 0) {
             if let onClose {
                 HandleButton(symbol: "xmark", help: "Close (Esc)", label: "Close toolbar", action: onClose)
             }
             HandleButton(symbol: vertical ? "rectangle.split.2x1" : "rectangle.split.1x2",
                          help: vertical ? "Make the toolbar horizontal" : "Make the toolbar vertical",
                          label: vertical ? "Make toolbar horizontal" : "Make toolbar vertical", action: onRotate)
-            Grid(horizontalSpacing: 3, verticalSpacing: 3) {
-                ForEach(0..<(vertical ? 2 : 3), id: \.self) { _ in
-                    GridRow { ForEach(0..<(vertical ? 3 : 2), id: \.self) { _ in Circle().frame(width: 3, height: 3) } }
-                }
+            Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+                ForEach(0..<3, id: \.self) { _ in GridRow { ForEach(0..<2, id: \.self) { _ in Circle().frame(width: 3.5, height: 3.5) } } }
             }
-            .foregroundStyle(Yap.faint)
-            .frame(width: 18, height: 16)
-            .help("Drag to move")
-            .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
+                .foregroundStyle(Yap.caption)
+                .frame(width: 30, height: 44)
+                .contentShape(Rectangle())
+                .help("Drag to move")
+                .accessibilityHidden(true)      // VoiceOver users move the toolbar with the actions on the toolbar itself
         }
-        .frame(width: vertical ? nil : 30, height: vertical ? 30 : nil)
-        .frame(maxWidth: vertical ? .infinity : nil, maxHeight: vertical ? nil : .infinity)
-        .contentShape(Rectangle())
+        .padding(vertical ? .top : .leading, 6)
     }
 }
 
@@ -264,11 +261,12 @@ private struct HandleButton: View {
     @State private var hover = false
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 9, weight: .bold))
-                .foregroundStyle(hover ? Yap.label : Yap.caption)
-                .frame(width: 18, height: 18)
-                .background(Circle().fill(Color.white.opacity(hover ? 0.10 : 0)))
-                .contentShape(Circle())
+            Image(systemName: symbol).font(.system(size: 15, weight: .medium))
+                .foregroundStyle(hover ? Yap.title : Yap.caption)
+                .frame(width: 30, height: 44)
+                .background(RoundedRectangle(cornerRadius: Yap.concentric(26, inset: 9), style: .continuous)
+                    .fill(Color.white.opacity(hover ? 0.05 : 0)))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain).onHover { hover = $0 }
         .help(help).accessibilityLabel(label)
