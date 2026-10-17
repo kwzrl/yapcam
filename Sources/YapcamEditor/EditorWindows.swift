@@ -17,7 +17,13 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
     /// Re-applies `appearance` to every open editor window.
     public static func applyAppearance() { controllers.values.forEach { $0.window?.appearance = NSAppearance(named: .darkAqua) } }
 
-    private static var controllers: [String: EditorWindowController] = [:]
+    private static var controllers: [String: EditorWindowController] = [:] {
+        didSet { if controllers.count != oldValue.count { NotificationCenter.default.post(name: openCountDidChange, object: nil, userInfo: ["count": controllers.count]) } }
+    }
+    /// Posted on the main actor when an editor window opens or closes; `userInfo["count"]` is how many are open now.
+    /// The app hides its floating recording toolbar while editors are open.
+    public static let openCountDidChange = Notification.Name("YapcamEditorWindowsOpenCountDidChange")
+    public static var openCount: Int { controllers.count }
     public static var openDocuments: [EditorDocument] { controllers.values.map(\.editorDocument) }
     public static var frontDocument: EditorDocument? {
         NSApp.orderedWindows.compactMap { window in controllers.values.first { $0.window === window }?.editorDocument }.first

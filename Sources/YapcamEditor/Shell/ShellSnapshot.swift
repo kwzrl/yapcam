@@ -63,7 +63,7 @@ import SwiftUI
         let t = m.durationNs
         m.agentLog.connection = "Claude Code"
         m.agentLog.append(AgentEntry(role: .user, source: "Chat", text: "Tighten this"))
-        m.agentLog.append(AgentEntry(role: .agent, source: "Claude Code via MCP", text: "Removed the pauses and zoomed on the deploy click.",
+        m.agentLog.append(AgentEntry(role: .agent, source: "Claude Code via MCP", text: "Removed the pauses and zoomed on the deploy click, so the build output is readable while you explain what changed in this release.\n\nThe intro still starts on the first word; the tail ends 0.6 s after the last sentence.",
                                      changes: [AgentChange(label: "Removed 2 pauses", timeNs: t / 10, symbol: "scissors"),
                                                AgentChange(label: "Zoom on Deploy click", timeNs: t * 3 / 10, symbol: "plus.magnifyingglass")],
                                      decision: .kept))
