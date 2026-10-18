@@ -262,6 +262,29 @@ Not done: user-input flows, hardware, Screen Studio comparison, clipboard conten
 
 **Round 6 follow-up (main 1a9c309, merged as 0f01e40):** rebuilt debug app; Swift Testing 783 passed, XCTest 278 executed, 0 failures. Drive-input soak after the chime fix: 40/40 pass, no new crash report (before: 19/20 with one SIGSEGV; 1 in 260 race, so this is consistent with the fix, not proof). Programmatic, not user interaction.
 
+## Round 7 (2026-10-18): release soak and P0 verification on main 39cc258 (0.11.0)
+
+Build: `scripts/build-app.sh debug` (signed app). Suites on 39cc258: Swift Testing 973 passed, XCTest 288, Rust core 182, tools/yapcam-mcp 12.
+(After the core rebuild the incremental Swift test objects were stale and failed to link; `swift package clean` fixed it. Not a code bug.)
+
+| Check | Result |
+|---|---|
+| `--ui-record-selftest` display/window/area x create/widget/copy/save, 5 runs each | 60/60 PASS |
+| `--drive-input-selftest`, 10 runs | 10/10 PASS |
+| New `Yapcam-*.ips` crash reports during the soak | none (newest is from 2026-10-17, before the soak) |
+| Recordings made by the soak | deleted after each run; the user's own instance (pid 77506) was never touched |
+| Earlier integrations | fff0368: 12/12 live PASS; 59fd0bc: 8/8 live PASS |
+
+P0 list verification (code wiring + named tests; all pass in the 973): BS-1/3/4 and CAM-06/14/21 (core Rust tests), S-EDT-23/26, CAM-31/37,
+Dock menu (B-01), picker-first start/stop (B-03), camera preview in take (B-02/CAM-46), speaker notes (B-04/05), File > Save and Open Recent (S-01/02),
+timeline context menus (S-EDT-21/22, BS-6, CAM-54/55), edge-drag trim, cut markers, cmd-C frame copy. Every `R7` status line names a test that exists in the repo (87 of 102 lines name a test; the rest are notes).
+
+Not live-verified (no way to do it without a person or hardware, or it would disturb the user's running instance): real Dock click, global hotkeys
+(cmd-ctrl-return, speaker notes), right-click menus and mouse gestures in the editor, camera and microphone paths, Speech language detection, 4K export speed (F17/F18).
+Self-tests are not user interaction; the user should click through the P0 list once.
+
+Open: the "Camera disconnected" placeholder, B-18 update check, B-19 macOS 13/14 and Intel, Quick Look preview (all documented in KNOWN_LIMITATIONS); F17/F18 unmeasured.
+
 ## Update log (keep current with each Lead integration)
 | Date | Main | What changed in this report |
 |---|---|---|

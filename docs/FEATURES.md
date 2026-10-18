@@ -357,106 +357,106 @@ only; capture-side A/V sync on a real recording stays open (TCC).
 
 Parity matrix on a12448c (135 rows, match = equal in code, not user-verified): 127 match; 6 out of scope; 2 gaps open (B.Shortcuts, B.Advanced); wave 3 closed the other rows (W4 shares R5-02). Per area match/total: Recording flow 41/44, Settings 7/9, Editor 49/50, Project/timeline 6/6, Export 9/10, Project handling 6/6, Website 9/10 (final recount on a12448c).
 
-## S. Round 7 website-parity gaps (research files in the fleet's round7/research, main 4397417; status is the state BEFORE round 7 builds, updated at READY R7)
+## S. Round 7 website-parity gaps (research files in the fleet's round7/research, main 4397417; status updated at READY R7 on main 39cc258)
 | ID | Area | Reference behavior (spec id) | Team | Status | Evidence |
 |---|---|---|---|---|---|
-| R7-REC-B-01 | Recording | Dock right-click menu (recording.md B-01) | ui | partial | P0; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-01 | Recording | Dock right-click menu (recording.md B-01) | ui | integrated | R7 landed: DockMenu.items / dockMenuIsBuiltForTheCurrentPhase; live: not verified (soak 39cc258 covers record paths only) |
 | R7-REC-B-02 | Recording | Camera preview visible during recording (recording.md B-02) | ui | partial | P0; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-03 | Recording | Start/Finish shortcut opens the picker when idle (recording.md B-03) | ui | partial | P0; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-04 | Recording | Speaker notes as one window with a working prompter (recording.md B-04) | ui | partial | P0; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-05 | Recording | Show speaker notes as global shortcut (recording.md B-05) | ui | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-06 | Recording | Microphone menu: noise reduction at record time (recording.md B-06) | ui+core | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-07 | Recording | Use-last-project-settings default and precedence (recording.md B-07) | ui | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-08 | Recording | Hide Dock Icon semantics (recording.md B-08) | ui | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-03 | Recording | Start/Finish shortcut opens the picker when idle (recording.md B-03) | ui | integrated | R7 landed: startStopOpensThePickerFirst; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-04 | Recording | Speaker notes as one window with a working prompter (recording.md B-04) | ui | integrated | R7 landed: prompter* + notesAreOneWindow...; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-05 | Recording | Show speaker notes as global shortcut (recording.md B-05) | ui | integrated | R7 landed: speakerNotesShortcutIsGlobal; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-06 | Recording | Microphone menu: noise reduction at record time (recording.md B-06) | ui+core | integrated | R7 landed: cleanVoiceOnRecordTurnsOnTheProjectsVoiceCleanup; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-07 | Recording | Use-last-project-settings default and precedence (recording.md B-07) | ui | integrated | R7 landed: initialLookPrecedence; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-08 | Recording | Hide Dock Icon semantics (recording.md B-08) | ui | integrated | R7 landed: activationPolicyKeepsTheDockIconWhileAnEditorIsOpen; live: not verified (soak 39cc258 covers record paths only) |
 | R7-REC-B-09 | Recording | Editor Shortcuts Guide on Cmd+/ (recording.md B-09) | editor | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-10 | Recording | Window button context menu (recording.md B-10) | ui | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-11 | Recording | Hide recording widget from its context menu (recording.md B-11) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-12 | Recording | Menu-bar icon click opens the picker (recording.md B-12) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-13 | Recording | Display card size in points (recording.md B-13) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-14 | Recording | Hardware decoding switch (recording.md B-14) | ui+render | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-15 | Recording | Reduce export memory usage (recording.md B-15) | ui+render | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-REC-B-16 | Recording | Fuller diagnostics report (recording.md B-16) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-10 | Recording | Window button context menu (recording.md B-10) | ui | integrated | R7 landed: windowMenuGroupsByApp...; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-11 | Recording | Hide recording widget from its context menu (recording.md B-11) | ui | integrated | R7 landed: hidingControlsAppliesToOneTakeOnly; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-12 | Recording | Menu-bar icon click opens the picker (recording.md B-12) | ui | integrated | R7 landed: menuBarIconOpensThePickerWhenIdle; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-13 | Recording | Display card size in points (recording.md B-13) | ui | integrated | R7 landed: displayCardShowsPoints; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-14 | Recording | Hardware decoding switch (recording.md B-14) | ui+render | integrated | R7 landed: `ReferenceExportTests.testSoftwareDecoderAndLowMemoryPoliciesReachReaderAndExporter`; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-15 | Recording | Reduce export memory usage (recording.md B-15) | ui+render | integrated | R7 landed: `ReferenceExportTests.testSoftwareDecoderAndLowMemoryPoliciesReachReaderAndExporter`; live: not verified (soak 39cc258 covers record paths only) |
+| R7-REC-B-16 | Recording | Fuller diagnostics report (recording.md B-16) | ui | integrated | R7 landed: diagnosticsListsMachineAndDevices; live: not verified (soak 39cc258 covers record paths only) |
 | R7-REC-B-17 | Recording | Device frames for phone recordings (out of scope: device frames) (recording.md B-17) | editor+render+core | excluded by user | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
 | R7-REC-B-18 | Recording | Update check and release notes (needs decision) (recording.md B-18) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
 | R7-REC-B-19 | Recording | OS and CPU coverage (decision first) (recording.md B-19) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
-| R7-CZ-BS-1 | Cursor/zoom | Smooth cursor on by default at full strength (cursor-zoom.md BS-1) | core | partial | P0; research spec |
+| R7-CZ-BS-1 | Cursor/zoom | Smooth cursor on by default at full strength (cursor-zoom.md BS-1) | core | integrated | R7 landed: `parity_tests::bs1_factory_cursor_glides_at_full_strength_and_slice_opt_out_stays_raw`; live: not verified (soak 39cc258 covers record paths only) |
 | R7-CZ-BS-2 | Cursor/zoom | One cursor-animation control (cursor-zoom.md BS-2) | editor | partial | P1; research spec |
-| R7-CZ-BS-3 | Cursor/zoom | Zoom transitions about 1 s, critically damped (cursor-zoom.md BS-3) | core | partial | P0; research spec |
-| R7-CZ-BS-4 | Cursor/zoom | Smooth follow camera by default (cursor-zoom.md BS-4) | core+editor | partial | P0; research spec |
+| R7-CZ-BS-3 | Cursor/zoom | Zoom transitions about 1 s, critically damped (cursor-zoom.md BS-3) | core | integrated | R7 landed: `motion::tests::bs3_new_zoom_spring_is_centered_monotonic_and_uncompressed`; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CZ-BS-4 | Cursor/zoom | Smooth follow camera by default (cursor-zoom.md BS-4) | core+editor | integrated | R7 landed: `motion::pan_and_camera_regressions::bs4_auto_follow_uses_screen_spring_and_none_is_raw`; live: not verified (soak 39cc258 covers record paths only) |
 | R7-CZ-BS-5 | Cursor/zoom | Connected zooms (NOT confirmed in the reference, qa-reference-answers.md) (cursor-zoom.md BS-5) | core | partial | P1; research spec |
-| R7-CZ-BS-6 | Cursor/zoom | Timeline context menus (zoom/clip chips) (cursor-zoom.md BS-6) | editor | partial | P0; research spec |
-| R7-CZ-BS-7 | Cursor/zoom | Disabled zooms look disabled (cursor-zoom.md BS-7) | editor | partial | P1; research spec |
-| R7-CZ-BS-8 | Cursor/zoom | Slice cursor badges (cursor-zoom.md BS-8) | editor | partial | P1; research spec |
+| R7-CZ-BS-6 | Cursor/zoom | Timeline context menus (zoom/clip chips) (cursor-zoom.md BS-6) | editor | integrated | R7 landed: TimelineMenuTests (target hit test, entries, each action + one undo); live: not verified (soak 39cc258 covers record paths only) |
+| R7-CZ-BS-7 | Cursor/zoom | Disabled zooms look disabled (cursor-zoom.md BS-7) | editor | integrated | R7 landed: live: not verified; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CZ-BS-8 | Cursor/zoom | Slice cursor badges (cursor-zoom.md BS-8) | editor | integrated | R7 landed: live: not verified; live: not verified (soak 39cc258 covers record paths only) |
 | R7-CZ-BS-9 | Cursor/zoom | Slice Cursor group (cursor-zoom.md BS-9) | editor | partial | P2; research spec |
 | R7-CZ-BS-10 | Cursor/zoom | Click sound under Cursor with preview (cursor-zoom.md BS-10) | inspector | partial | P1; research spec |
 | R7-CZ-BS-11 | Cursor/zoom | Zoom panel parity (cursor-zoom.md BS-11) | inspector | partial | P1; research spec |
 | R7-CZ-BS-12 | Cursor/zoom | Manual target thumbnail (cursor-zoom.md BS-12) | inspector | partial | P1; research spec |
-| R7-CZ-BS-13 | Cursor/zoom | Eased tilt (cursor-zoom.md BS-13) | core | partial | P2; research spec |
-| R7-CZ-BS-14 | Cursor/zoom | Fade cursor visibility (cursor-zoom.md BS-14) | core | partial | P2; research spec |
-| R7-CZ-BS-15 | Cursor/zoom | Auto zoom without clicks (decision) (cursor-zoom.md BS-15) | core | partial | P2; research spec |
+| R7-CZ-BS-13 | Cursor/zoom | Eased tilt (cursor-zoom.md BS-13) | core | integrated | R7 landed: `motion::tests::revision_four_tilt_filters_six_frame_jitter_and_tracks_constant_velocity`; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CZ-BS-14 | Cursor/zoom | Fade cursor visibility (cursor-zoom.md BS-14) | core | integrated | R7 landed: no positive reference verification was published; the spec says verify before building. MK; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CZ-BS-15 | Cursor/zoom | Auto zoom without clicks (decision) (cursor-zoom.md BS-15) | core | integrated | R7 landed: `editing::tests::inserted_auto_zoom_targets_the_cursor_at_its_start`; live: not verified (soak 39cc258 covers record paths only) |
 | R7-CZ-BS-16 | Cursor/zoom | Small placement fixes (cursor-zoom.md BS-16) | inspector | partial | P2; research spec |
-| R7-CAM-CAM-46 | Camera/audio | Camera preview visible while recording (camera-audio.md CAM-46) | ui+capture | partial | P0; research spec |
-| R7-CAM-CAM-06 | Camera/audio | Shrink camera during zoom on by default (camera-audio.md CAM-06) | core | partial | P0; research spec |
-| R7-CAM-CAM-37 | Camera/audio | Library music spans the whole timeline (camera-audio.md CAM-37) | editor+core | partial | P0; research spec |
-| R7-CAM-CAM-54/55 | Camera/audio | Clip right-click Set volume (camera-audio.md CAM-54/55) | editor | partial | P0; research spec |
+| R7-CAM-CAM-46 | Camera/audio | Camera preview visible while recording (camera-audio.md CAM-46) | ui+capture | integrated | R7 landed: lifecycleFakeCameraFramesReachPreviewAndDisconnectStopsDelivery; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CAM-CAM-06 | Camera/audio | Shrink camera during zoom on by default (camera-audio.md CAM-06) | core | integrated | R7 landed: `parity_tests::revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_proj; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CAM-CAM-37 | Camera/audio | Library music spans the whole timeline (camera-audio.md CAM-37) | editor+core | integrated | R7 landed: `effects::tests::cam37_replacing_library_music_is_atomic_and_preserves_user_tracks`; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CAM-CAM-54/55 | Camera/audio | Clip right-click Set volume (camera-audio.md CAM-54/55) | editor | integrated | R7 landed: TimelineMenuTests; live: not verified |
 | R7-CAM-CAM-15/16 | Camera/audio | Per-layout camera position and size (camera-audio.md CAM-15/16) | editor | partial | P0; research spec |
-| R7-CAM-CAM-21 | Camera/audio | Animated layout transitions (camera-audio.md CAM-21) | core | partial | P1; research spec |
-| R7-CAM-CAM-11 | Camera/audio | Click or drag to add on the Layouts lane (camera-audio.md CAM-11) | editor | partial | P1; research spec |
-| R7-CAM-CAM-14 | Camera/audio | Fullscreen fills the frame (camera-audio.md CAM-14) | core | partial | P1; research spec |
+| R7-CAM-CAM-21 | Camera/audio | Animated layout transitions (camera-audio.md CAM-21) | core | integrated | R7 landed: `camera_layout::tests::cam21_layout_boundaries_animate_geometry_and_hidden_opacity` + `leg; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CAM-CAM-11 | Camera/audio | Click or drag to add on the Layouts lane (camera-audio.md CAM-11) | editor | integrated | R7 landed: live: not verified; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CAM-CAM-14 | Camera/audio | Fullscreen fills the frame (camera-audio.md CAM-14) | core | integrated | R7 landed: `camera_layout::tests::cam14_fullscreen_fills_canvas_and_reports_centered_aspect_fill_crop; live: not verified (soak 39cc258 covers record paths only) |
 | R7-CAM-CAM-13 | Camera/audio | Layout type control (camera-audio.md CAM-13) | editor | partial | P2; research spec |
-| R7-CAM-CAM-22 | Camera/audio | Lane visibility menu (camera-audio.md CAM-22) | editor | partial | P2; research spec |
+| R7-CAM-CAM-22 | Camera/audio | Lane visibility menu (camera-audio.md CAM-22) | editor | integrated | R7 landed: live: not verified. Deviation: an explicit hide wins over content (CAM-22); the Layouts la; live: not verified (soak 39cc258 covers record paths only) |
 | R7-CAM-CAM-03 | Camera/audio | Mirror default and placement (camera-audio.md CAM-03) | core+editor | partial | P2; research spec |
-| R7-CAM-CAM-04 | Camera/audio | Roundness slider (camera-audio.md CAM-04) | editor+core | partial | P2; research spec |
+| R7-CAM-CAM-04 | Camera/audio | Roundness slider (camera-audio.md CAM-04) | editor+core | integrated | R7 landed: `camera_layout::tests::camera_roundness_one_tracks_half_the_evaluated_short_edge`; live: not verified (soak 39cc258 covers record paths only) |
 | R7-CAM-CAM-25/26 | Camera/audio | Whisper transcription method (camera-audio.md CAM-25/26) | capture+editor | partial | P2; research spec |
-| R7-CAM-CAM-27 | Camera/audio | Language auto-detection (camera-audio.md CAM-27) | capture | partial | P1; research spec |
-| R7-CAM-CAM-31 | Camera/audio | Hide captions toggle (camera-audio.md CAM-31) | core+editor | partial | P1; research spec |
+| R7-CAM-CAM-27 | Camera/audio | Language auto-detection (camera-audio.md CAM-27) | capture | integrated | R7 landed: automaticLanguageDetectionRetranscribesGermanAndPersistsDetectedLocale; live: not verified (soak 39cc258 covers record paths only) |
+| R7-CAM-CAM-31 | Camera/audio | Hide captions toggle (camera-audio.md CAM-31) | core+editor | integrated | R7 landed: `layers::tests::cam31_hidden_captions_skip_layers_without_mutating_records`; live: not verified (soak 39cc258 covers record paths only) |
 | R7-CAM-CAM-32 | Camera/audio | Caption size Reset (camera-audio.md CAM-32) | editor | partial | P2; research spec |
 | R7-CAM-CAM-33 | Camera/audio | Edit transcript (camera-audio.md CAM-33) | editor | partial | P1; research spec |
 | R7-CAM-CAM-42 | Camera/audio | Add own background audio (camera-audio.md CAM-42) | editor | partial | P1; research spec |
 | R7-CAM-CAM-50 | Camera/audio | Noise reduction choice in mic menu (camera-audio.md CAM-50) | ui+editor | partial | P1; research spec |
 | R7-CAM-CAM-57 | Camera/audio | Reactions warning and Video Effects shortcut (camera-audio.md CAM-57) | ui | partial | P2; research spec |
-| R7-EXP-S-01 | Export/project | Explicit Save Cmd+S (export.md S-01) | ui+editor | partial | P0; research spec |
-| R7-EXP-S-02 | Export/project | Open Recent + Dock recents (export.md S-02) | ui | partial | P0; research spec |
+| R7-EXP-S-01 | Export/project | Explicit Save Cmd+S (export.md S-01) | ui+editor | integrated | R7 landed: fileMenuHasSaveAndOpenRecent; live: not verified (soak 39cc258 covers record paths only) |
+| R7-EXP-S-02 | Export/project | Open Recent + Dock recents (export.md S-02) | ui | integrated | R7 landed: openRecentMenu..., choosingAMovedProject..., projectsOpenedAreReported...; live: not verified (soak 39cc258 covers record paths only) |
 | R7-EXP-S-03 | Export/project | Export dialog parity: segmented rows, descriptions, speed note (export.md S-03) | editor | partial | P1; research spec |
-| R7-EXP-S-04 | Export/project | Web compression at 4K: Web and Web (Low) shown but disabled (reference confirmed) (export.md S-04) | editor+render | partial | P2; research spec |
+| R7-EXP-S-04 | Export/project | Web compression at 4K: Web and Web (Low) shown but disabled (reference confirmed) (export.md S-04) | editor+render | integrated | R7 landed: ReferenceExportTests.testWebCompressionStaysVisibleButDoesNotSupport4K; live: not verified (soak 39cc258 covers record paths only) |
 | R7-EXP-S-05 | Export/project | Full destination path in progress view (export.md S-05) | editor | partial | P2; research spec |
 | R7-EXP-S-06 | Export/project | Long GIF warning (export.md S-06) | editor | partial | P2; research spec |
-| R7-EXP-S-07 | Export/project | Preview mode Quality/Performance + power saving (export.md S-07) | editor | partial | P2; research spec |
+| R7-EXP-S-07 | Export/project | Preview mode Quality/Performance + power saving (export.md S-07) | editor | integrated | R7 landed: PreviewSettingsTests.testPowerSavingCapsOnlyPreviewPresentationRate + testControlsResizeBa; live: not verified (soak 39cc258 covers record paths only) |
 | R7-EXP-S-08 | Export/project | Quick widget: double-click to edit (export.md S-08) | ui | partial | P2; research spec |
-| R7-EXP-S-09 | Export/project | Always save project when using quick export + discard on close (export.md S-09) | ui | partial | P1; research spec |
+| R7-EXP-S-09 | Export/project | Always save project when using quick export + discard on close (export.md S-09) | ui | integrated | R7 landed: closingTheWidgetAsksOnly...; live: not verified (soak 39cc258 covers record paths only) |
 | R7-EXP-S-10 | Export/project | Presets dropdown parity (export.md S-10) | editor | partial | P1; research spec |
-| R7-EXP-S-11 | Export/project | Preset file type + Import preset (export.md S-11) | editor | partial | P1; research spec |
+| R7-EXP-S-11 | Export/project | Preset file type + Import preset (export.md S-11) | editor | integrated | R7 landed: presetFileTypeIsDeclared...; live: not verified (soak 39cc258 covers record paths only) |
 | R7-EXP-S-12 | Export/project | Presets folder unreadable (export.md S-12) | editor | partial | P2; research spec |
 | R7-EXP-S-13 | Export/project | Save As continues on the copy (export.md S-13) | ui | partial | P2; research spec |
 | R7-EXP-S-14 | Export/project | File-menu items Shift+Cmd+O, recent clipboard exports (export.md S-14) | ui | partial | P2; research spec |
-| R7-EXP-S-15 | Export/project | Export menu in the menu bar (export.md S-15) | ui | partial | P1; research spec |
-| R7-ED-S-EDT-21/22 | Editing | Timeline context menus (editing.md S-EDT-21/22) | editor | partial | P0; research spec |
-| R7-ED-S-EDT-23 | Editing | Edge-drag trim on clips (editing.md S-EDT-23) | editor+core | partial | P0; research spec |
-| R7-ED-S-EDT-06 | Editing | Always keep zoomed in (editing.md S-EDT-06) | core+render+editor | partial | P1; research spec |
+| R7-EXP-S-15 | Export/project | Export menu in the menu bar (export.md S-15) | ui | integrated | R7 landed: exportMenuHoldsEditorExportsAndQuickExport; live: not verified (soak 39cc258 covers record paths only) |
+| R7-ED-S-EDT-21/22 | Editing | Timeline context menus (editing.md S-EDT-21/22) | editor | integrated | R7 landed: TimelineMenuTests; live: not verified |
+| R7-ED-S-EDT-23 | Editing | Edge-drag trim on clips (editing.md S-EDT-23) | editor+core | integrated | R7 landed: live: not verified. Note: the start edge keeps its timeline position (ripple), so growing ; live: not verified (soak 39cc258 covers record paths only) |
+| R7-ED-S-EDT-06 | Editing | Always keep zoomed in (editing.md S-EDT-06) | core+render+editor | integrated | R7 landed: `frame::m2_tests::keep_zoomed_covers_vertical_canvas_and_idle_cursor_fades_both_directions; live: not verified (soak 39cc258 covers record paths only) |
 | R7-ED-S-EDT-09/10/11/13 | Editing | Crop tool window (editing.md S-EDT-09/10/11/13) | editor | partial | P1; research spec |
-| R7-ED-S-EDT-24 | Editing | Cut/trim bubbles on the ruler (editing.md S-EDT-24) | editor | partial | P1; research spec |
-| R7-ED-S-EDT-26 | Editing | Merge with next / previous (editing.md S-EDT-26) | core+editor | partial | P1; research spec |
-| R7-ED-S-EDT-31 | Editing | Audio scrubbing (editing.md S-EDT-31) | render+editor | partial | P1; research spec |
-| R7-ED-S-EDT-36/37/85 | Editing | Lane visibility menu, Mask button, key 4 (editing.md S-EDT-36/37/85) | editor | partial | P1; research spec |
+| R7-ED-S-EDT-24 | Editing | Cut/trim bubbles on the ruler (editing.md S-EDT-24) | editor | integrated | R7 landed: live: not verified (bubble hit area = pure `CutMarker.hits`; no hover tooltip: the label i; live: not verified (soak 39cc258 covers record paths only) |
+| R7-ED-S-EDT-26 | Editing | Merge with next / previous (editing.md S-EDT-26) | core+editor | integrated | R7 landed: `ClipTrimTests.mergeMenuEntriesNeedAContiguousNeighbourAndMergeOneUndoStep`; live: not verified (soak 39cc258 covers record paths only) |
+| R7-ED-S-EDT-31 | Editing | Audio scrubbing (editing.md S-EDT-31) | render+editor | integrated | R7 landed: `AudioScrubberTests` 2 PASS; live: not verified (soak 39cc258 covers record paths only) |
+| R7-ED-S-EDT-36/37/85 | Editing | Lane visibility menu, Mask button, key 4 (editing.md S-EDT-36/37/85) | editor | integrated | R7 landed: lane menu + layout/mask lane add (editor R7 lines); live: not verified |
 | R7-ED-S-EDT-47/63 | Editing | Export current frame as image + palette export entries (editing.md S-EDT-47/63) | editor+ui | partial | P1; research spec |
-| R7-ED-S-EDT-53 | Editing | Single-key suppression while typing (editing.md S-EDT-53) | core | partial | P1; research spec |
-| R7-ED-S-EDT-54 | Editing | Shortcuts timeline + per-occurrence disable (editing.md S-EDT-54) | core+editor | partial | P1; research spec |
+| R7-ED-S-EDT-53 | Editing | Single-key suppression while typing (editing.md S-EDT-53) | core | integrated | R7 landed: `key_overlay::tests::typing_bursts_are_suppressed_and_individual_events_can_be_disabled`; live: not verified (soak 39cc258 covers record paths only) |
+| R7-ED-S-EDT-54 | Editing | Shortcuts timeline + per-occurrence disable (editing.md S-EDT-54) | core+editor | integrated | R7 landed: `key_overlay::tests::typing_bursts_are_suppressed_and_individual_events_can_be_disabled`; live: not verified (soak 39cc258 covers record paths only) |
 | R7-ED-S-EDT-57 | Editing | Advanced motion blur reachable (editing.md S-EDT-57) | editor | partial | P1; research spec |
-| R7-ED-S-EDT-60/61 | Editing | Copy frame semantics + preview context menu (editing.md S-EDT-60/61) | editor | partial | P1; research spec |
+| R7-ED-S-EDT-60/61 | Editing | Copy frame semantics + preview context menu (editing.md S-EDT-60/61) | editor | integrated | R7 landed: FrameCopyTests, ReferenceKeyMapTests; live: not verified |
 | R7-ED-S-EDT-69 | Editing | Background blur for wallpaper/image (editing.md S-EDT-69) | editor | partial | P1; research spec |
 | R7-ED-S-EDT-74 | Editing | Save Cmd+S (editing.md S-EDT-74) | ui+editor | partial | P1; research spec |
 | R7-ED-S-EDT-77 | Editing | Open Recent + Dock recents (editing.md S-EDT-77) | ui | partial | P1; research spec |
-| R7-ED-S-EDT-83 | Editing | Extract raw recording files from the editor (editing.md S-EDT-83) | ui+core | partial | P1; research spec |
+| R7-ED-S-EDT-83 | Editing | Extract raw recording files from the editor (editing.md S-EDT-83) | ui+core | integrated | R7 landed: extract* tests; live: not verified (soak 39cc258 covers record paths only) |
 | R7-ED-S-EDT-86 | Editing | Fix cut-tool tooltips (editing.md S-EDT-86) | editor | partial | P1; research spec |
 
-## Status counts (round-7 start, main 4397417; round-5 base as before; 9 rows corrected from integrated to partial by the research (ANI-03, PRJ-02, CUR-03, CUR-04, ANI-01, ZOM-06, ZOM-07, CAM-07, EDT-08); section S adds 88 research rows (87 partial, 1 excluded) BEFORE round-7 builds; final recount at READY R7)
+## Status counts (READY R7 recount, main 39cc258: section S now 52 integrated / 35 partial / 1 excluded; 'integrated' for R7 rows = landed with a named test, live not verified except the record paths soaked on 39cc258. Earlier note: round-7 start, main 4397417; round-5 base as before; 9 rows corrected from integrated to partial by the research (ANI-03, PRJ-02, CUR-03, CUR-04, ANI-01, ZOM-06, ZOM-07, CAM-07, EDT-08); section S adds 88 research rows (87 partial, 1 excluded) BEFORE round-7 builds; final recount at READY R7)
 | Status | Rows |
 |---|---:|
 | verified live (programmatic, signed app) | 21 |
 | verified (named test / native measurement) | 29 |
-| integrated | 70 |
+| integrated | 122 |
 | implemented | 33 |
-| partial | 106 |
+| partial | 54 |
 | limited (no hardware) | 10 |
 | excluded by user | 7 |
 | extra | 8 (section M list; their technical status is counted above) |
