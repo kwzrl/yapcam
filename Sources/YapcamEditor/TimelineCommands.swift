@@ -13,6 +13,8 @@ public enum ItemClipboard: Equatable {
     case zoom(scale: Double, focusX: Double, focusY: Double, easeIn: Int64, easeOut: Int64, enabled: Bool)
     case clipSpeed(Double)
     case layoutMode(String)
+    /// MKT-125: a pasted layout keeps everything but its time range (mode and its camera settings).
+    case layout(mode: String, settings: [String: JSONValue]?)
     case region(HighlightRegion.Kind, fill: [Double], stroke: [Double], strokeWidth: Double, radius: Double, dim: Double, opacity: Double)
 }
 
@@ -147,7 +149,7 @@ extension EditorModel {
         switch selection {
         case .zoom: if let z = selectedZoom { itemClipboard = .zoom(scale: z.scale, focusX: z.focusX, focusY: z.focusY, easeIn: z.easeInNs, easeOut: z.easeOutNs, enabled: z.enabled) }
         case .clip(let id): if let c = clips.first(where: { $0.id == id }) { itemClipboard = .clipSpeed(c.speed) }
-        case .layout(let id): if let l = layouts.first(where: { $0.id == id }) { itemClipboard = .layoutMode(l.mode) }
+        case .layout(let id): if let l = layouts.first(where: { $0.id == id }) { itemClipboard = .layout(mode: l.mode, settings: l.settings) }
         case .highlight(let id):
             if let h = highlights.first(where: { $0.id == id }) { itemClipboard = .region(h.kind, fill: h.fill, stroke: h.stroke, strokeWidth: h.strokeWidth, radius: h.radius, dim: h.dimOpacity, opacity: h.opacity) }
         default: return false
@@ -162,6 +164,8 @@ extension EditorModel {
             perform(.updateZoom(id: id, startNs: nil, endNs: nil, scale: s, focusX: fx, focusY: fy, easeInNs: ei, easeOutNs: eo, enabled: en))
         case (.clipSpeed(let v), .clip(let id)): setSpeed(clipID: id, v)
         case (.layoutMode(let m), .layout(let id)): setLayoutMode(id: id, m)
+        case (.layout(let m, let settings), .layout(let id)):
+            setLayoutLook(id: id, mode: m, settings: settings)
         case (.region(_, let fill, let stroke, let sw, let r, let dim, let op), .highlight(let id)):
             updateHighlight(id: id) { $0.fill = fill; $0.stroke = stroke; $0.strokeWidth = sw; $0.radius = r; $0.dimOpacity = dim; $0.opacity = op }
         default: return false

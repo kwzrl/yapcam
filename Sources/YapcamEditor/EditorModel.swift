@@ -88,6 +88,7 @@ public final class EditorModel: ObservableObject {
     /// Audio scrubbing (S-EDT-31): attached by the app once render provides a scrubber; the user switch is remembered.
     public var audioScrubber: (any AudioScrubbing)?
     var scrubVelocity = ScrubVelocity()
+    var scrubPrepare: Task<Void, Never>?
     public var scrubAudioEnabled: Bool { get { defaults.bool(forKey: "editor.scrubAudio") } set { defaults.set(newValue, forKey: "editor.scrubAudio") } }
     /// Project path under which the playhead position is remembered (set by the document).
     var playheadMemoryPath: String?
@@ -425,6 +426,7 @@ public final class EditorModel: ObservableObject {
     private func didEdit(visualOnly: Bool = false, history: Bool = false) {
         if !history { undoNames.pushUnnamed() }              // `perform` names it right after; other edits stay unnamed
         revision += 1
+        if project.supportsAudioScrubbing, scrubAudioEnabled { audioScrubber?.stopScrubbing(); audioScrubber = nil; prepareAudioScrubber() }   // stale after an edit
         applySpeechToPlayer()
         if case .found = silenceState { silenceState = .idle }   // stale after any edit
         requestPlayerRefresh(visualOnly: visualOnly)

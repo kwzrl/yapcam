@@ -265,6 +265,14 @@ public final class FakeProject: EditingProject {
     public func close() { closed = true }
     public var saveAttempts = 0
     public var chords: [KeyChord] = []
+    /// Set to make the fake project offer audio scrubbing; counts how often a scrubber was built.
+    public var scrubberFactory: (@MainActor () -> any AudioScrubbing)?
+    public private(set) var scrubbersBuilt = 0
+    public var supportsAudioScrubbing: Bool { scrubberFactory != nil }
+    public func makeAudioScrubber() async throws -> (any AudioScrubbing)? {
+        scrubbersBuilt += 1
+        return scrubberFactory?()
+    }
     public func keyChords() -> [KeyChord] { chords }
     public func silentSpans() async throws -> [TimeSpan] { try await Task.sleep(for: silenceDelay); return silences }
     public func save() throws {

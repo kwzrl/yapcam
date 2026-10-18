@@ -71,6 +71,10 @@ extension EditorModel {
         // The cutout takes the camera's own aspect (null), not the overlay's square one.
         writeLayouts(layouts.map { var l = $0; if l.id == id { l.mode = mode; if mode == "cutout", l.settings != nil { l.settings?["aspect"] = .null } }; return l })
     }
+    /// Paste of a layout's look: mode and camera settings, never its time range.
+    func setLayoutLook(id: String, mode: String, settings: [String: JSONValue]?) {
+        writeLayouts(layouts.map { var l = $0; if l.id == id { l.mode = mode; l.settings = settings }; return l })
+    }
     /// Default camera layout (overlay / cutout / split). Selecting Cutout also clears the aspect, in the same undo step.
     public func setCameraLayoutMode(_ mode: String) {
         var items: [(path: String, value: JSONValue)] = [("camera.layout_settings.mode", .string(mode))]

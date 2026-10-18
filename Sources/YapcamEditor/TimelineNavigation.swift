@@ -1,3 +1,4 @@
+import YapcamRender
 import AppKit
 import SwiftUI
 
@@ -115,7 +116,7 @@ struct TimelineScrollHost: NSViewRepresentable {
 
 // MARK: audio scrubbing (editor side of S-EDT-31)
 
-/// What the editor needs from render's `AudioScrubber` (not in render yet: see the request in docs/status/editor.md).
+/// What the editor needs from render's `AudioScrubber`.
 @MainActor public protocol AudioScrubbing: AnyObject {
     /// Plays a short grain at `ns`; `velocityNsPerSec` is the playhead speed (negative = reversed grain). Silence follows by itself.
     func scrub(toNs ns: Int64, velocityNsPerSec: Double)
@@ -141,4 +142,32 @@ extension EditorModel {
         if let v = scrubVelocity.sample(ns: ns, at: time) { scrubber.scrub(toNs: ns, velocityNsPerSec: v) }
     }
     func endAudioScrub() { scrubVelocity.reset(); audioScrubber?.stopScrubbing() }
+}
+
+extension AudioScrubber: AudioScrubbing {
+    public func scrub(toNs ns: Int64, velocityNsPerSec: Double) { scrub(toNs: ns, velocity: velocityNsPerSec) }
+    public func stopScrubbing() { silence() }
+}
+
+extension EditorModel {
+    /// The transport switch is shown only for projects that can build a scrubber.
+    public var canScrubAudio: Bool { project.supportsAudioScrubbing }
+    public func setScrubAudio(_ on: Bool) {
+        objectWillChange.send()
+        scrubAudioEnabled = on
+        if on { prepareAudioScrubber() } else { audioScrubber?.stopScrubbing(); audioScrubber = nil; scrubPrepare?.cancel() }
+    }
+    /// Builds the scrubber over the current timeline in the background; edits make it stale (`didEdit` calls this again).
+    func prepareAudioScrubber() {
+        guard scrubAudioEnabled, project.supportsAudioScrubbing, !isClosed else { return }
+        scrubPrepare?.cancel()
+        let project = project
+        scrubPrepare = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))            // debounce a burst of edits
+            guard !Task.isCancelled else { return }
+            let s = try? await project.makeAudioScrubber()
+            guard !Task.isCancelled, let self, self.scrubAudioEnabled else { return }
+            self.audioScrubber = s
+        }
+    }
 }
