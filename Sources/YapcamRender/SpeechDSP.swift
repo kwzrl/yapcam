@@ -9,14 +9,29 @@ public struct SpeechEnhancementSettings: Sendable, Codable, Equatable {
     public var targetLUFS: Double
     public var peakCeilingDBFS: Double
     public var normalizeLoudness: Bool
-    public init(highPassHz: Double = 90,noiseThresholdDB: Double = -45,noiseReductionDB: Double = 30,compressorThresholdDB: Double = -24,compressorRatio: Double = 3,targetLUFS: Double = -16,peakCeilingDBFS: Double = -1,normalizeLoudness: Bool = true) {
+    /// Optional keeps older saved settings source-compatible: nil and false both
+    /// mean the existing deterministic DSP-only path.
+    public var voiceIsolation: Bool?
+    public init(highPassHz: Double = 90,noiseThresholdDB: Double = -45,noiseReductionDB: Double = 30,compressorThresholdDB: Double = -24,compressorRatio: Double = 3,targetLUFS: Double = -16,peakCeilingDBFS: Double = -1,normalizeLoudness: Bool = true,voiceIsolation: Bool? = nil) {
         self.highPassHz=highPassHz; self.noiseThresholdDB=noiseThresholdDB; self.noiseReductionDB=noiseReductionDB
         self.compressorThresholdDB=compressorThresholdDB; self.compressorRatio=compressorRatio
         self.targetLUFS=targetLUFS; self.peakCeilingDBFS=peakCeilingDBFS; self.normalizeLoudness=normalizeLoudness
+        self.voiceIsolation=voiceIsolation
     }
     func validate() throws {
         guard highPassHz.isFinite,(20...300).contains(highPassHz),noiseThresholdDB.isFinite,(-70 ... -15).contains(noiseThresholdDB),noiseReductionDB.isFinite,(0...60).contains(noiseReductionDB),compressorThresholdDB.isFinite,(-60...0).contains(compressorThresholdDB),compressorRatio.isFinite,(1...10).contains(compressorRatio),targetLUFS.isFinite,(-36 ... -10).contains(targetLUFS),peakCeilingDBFS.isFinite,(-12...0).contains(peakCeilingDBFS) else { throw RenderError.invalidSettings("Invalid offline speech processing settings") }
     }
+}
+
+/// YapcamRender cannot depend on YapcamCapture. The app installs Capture's
+/// on-device VoiceIsolationService here; absence or failure deliberately falls
+/// back to the existing DSP path without making export unavailable.
+public enum VoiceIsolationBridge {
+    public typealias Processor = @Sendable (_ source: URL,_ destination: URL) async throws -> URL
+    private static let lock=NSLock()
+    nonisolated(unsafe) private static var installed: Processor?
+    public static func install(_ processor: Processor?) { lock.withLock { installed=processor } }
+    static func processor() -> Processor? { lock.withLock { installed } }
 }
 
 struct AudioBiquad {

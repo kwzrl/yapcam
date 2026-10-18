@@ -2,7 +2,42 @@ import XCTest
 import AVFoundation
 @testable import YapcamRender
 
+private final class LockedCallCounter: @unchecked Sendable {
+    private let lock=NSLock()
+    private var count=0
+    func increment() { lock.withLock { count+=1 } }
+    var value: Int { lock.withLock { count } }
+}
+
 final class SpeechEnhancementTests: XCTestCase {
+    func testVoiceIsolationBridgeIsOptionalAndSettingsRoundTrip() async throws {
+        defer { VoiceIsolationBridge.install(nil) }
+        let settings=SpeechEnhancementSettings(voiceIsolation: true)
+        XCTAssertEqual(try JSONDecoder().decode(SpeechEnhancementSettings.self,from: JSONEncoder().encode(settings)),settings)
+        let legacy=try JSONDecoder().decode(SpeechEnhancementSettings.self,from: Data(#"{"highPassHz":90,"noiseThresholdDB":-45,"noiseReductionDB":30,"compressorThresholdDB":-24,"compressorRatio":3,"targetLUFS":-16,"peakCeilingDBFS":-1,"normalizeLoudness":true}"#.utf8))
+        XCTAssertNil(legacy.voiceIsolation)
+
+        let calls=LockedCallCounter()
+        VoiceIsolationBridge.install { source,destination in
+            calls.increment()
+            try FileManager.default.copyItem(at: source,to: destination)
+            return destination
+        }
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-isolation-bridge-\(UUID())")
+        try FileManager.default.createDirectory(at: root,withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input=root.appendingPathComponent("voice.wav")
+        try ProceduralAudio.wav(Array(repeating: Int16(100),count: 4_800)).write(to: input)
+        let preparation=try SpeechAudioPreparation(root: root)
+        try await preparation.process([input],settings: settings,mono: false,progress: { _ in })
+        XCTAssertEqual(calls.value,1)
+        XCTAssertNotNil(preparation.files[input])
+
+        VoiceIsolationBridge.install { _,_ in throw RenderError.unavailable("injected unavailable isolation") }
+        let fallback=try SpeechAudioPreparation(root: root)
+        try await fallback.process([input],settings: settings,mono: false,progress: { _ in })
+        XCTAssertNotNil(fallback.files[input],"Unavailable isolation must retain deterministic DSP output")
+    }
     func tone(seconds: Double,frequency: Double,amplitude: Double) -> [Float] {
         (0..<Int(seconds*48_000)).map { Float(amplitude*sin(2*Double.pi*frequency*Double($0)/48_000)) }
     }

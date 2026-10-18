@@ -248,6 +248,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     }
     if let Some(style) = &p.insertion_styles.mask {
         if !matches!(style.kind.as_str(), "highlight" | "blur")
+            || !matches!(style.fill_policy.as_str(), "custom" | "auto_sampled")
             || !(0.0..=128.0).contains(&style.blur_radius)
             || !(0.0..=16384.0).contains(&style.radius)
             || !(0.0..=16384.0).contains(&style.stroke_width)
@@ -397,6 +398,9 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     if !(0.01..=1.0).contains(&cam.size)
         || cam.position.iter().any(|v| !(0.0..=1.0).contains(v))
         || !(0.0..=16384.0).contains(&cam.radius)
+        || cam
+            .roundness
+            .is_some_and(|value| !(0.0..=1.0).contains(&value))
         || !(0.0..=1.0).contains(&cam.opacity)
         || !matches!(cam.shape.as_str(), "rounded_rect" | "circle" | "squircle")
         || !(0.25..=4.0).contains(&cam.zoom_scale)
@@ -533,6 +537,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             || h.tl_end_ns <= h.tl_start_ns
             || !matches!(h.space.as_str(), "source" | "canvas")
             || !matches!(h.kind.as_str(), "highlight" | "blur")
+            || !matches!(h.fill_policy.as_str(), "custom" | "auto_sampled")
             || !(0.0..=128.0).contains(&h.blur_radius)
             || h.rect.iter().any(|v| !v.is_finite())
             || h.rect[0] < 0.0

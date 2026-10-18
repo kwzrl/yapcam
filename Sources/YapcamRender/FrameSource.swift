@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import Metal
 import CoreVideo
+import VideoToolbox
 
 final class TextureFrame: @unchecked Sendable {
     let pixelBuffer: CVPixelBuffer
@@ -29,7 +30,8 @@ final class FrameSource {
     private var output: AVAssetReaderTrackOutput?
     private var frames: [TextureFrame] = []
     private var exhausted = false
-    private let capacity = 4
+    private let capacity: Int
+    private let hardwareDecodingEnabled: Bool
     private let reuseSeekReader: Bool
     private let onDecode: ((TextureFrame) throws -> Void)?
     private var seekReader: AVAssetReader?
@@ -40,8 +42,12 @@ final class FrameSource {
     private(set) var decodedFrameCount = 0
     private(set) var readerResetCount = 0
     init(url: URL, cache: CVMetalTextureCache,reuseSeekReader: Bool = true,
+         hardwareDecodingEnabled: Bool = true,frameCacheCapacity: Int = 4,
          onDecode: ((TextureFrame) throws -> Void)? = nil) throws {
+        guard (2...4).contains(frameCacheCapacity) else { throw RenderError.invalidSettings("Decoder frame cache must contain 2...4 frames") }
         self.reuseSeekReader=reuseSeekReader
+        self.hardwareDecodingEnabled=hardwareDecodingEnabled
+        capacity=frameCacheCapacity
         self.onDecode=onDecode
         asset = AVURLAsset(url: url,options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         guard let track = asset.tracks(withMediaType: .video).first else { throw RenderError.decode("No video track in \(url.lastPathComponent)") }
@@ -51,13 +57,20 @@ final class FrameSource {
         mediaEnd=end
     }
     deinit { reader?.cancelReading(); seekReader?.cancelReading() }
+    static func outputSettings(hardwareDecodingEnabled: Bool) -> [String: Any] {
+        [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+         kCVPixelBufferIOSurfacePropertiesKey as String: [:],
+         AVVideoDecompressionPropertiesKey: [
+            kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder as String: hardwareDecodingEnabled
+         ]]
+    }
     /// Optional device media may end before the recording segment; do not invent later frames.
     func hasEnded(atNs ns: Int64) -> Bool { CMTime(value: ns,timescale: 1_000_000_000)>=mediaEnd }
     private func restart(at time: CMTime) throws {
         randomWindow=false
         reader?.cancelReading()
         let r = try AVAssetReader(asset: asset)
-        let o = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA, kCVPixelBufferIOSurfacePropertiesKey as String: [:]])
+        let o = AVAssetReaderTrackOutput(track: track,outputSettings: Self.outputSettings(hardwareDecodingEnabled: hardwareDecodingEnabled))
         o.alwaysCopiesSampleData = false
         guard r.canAdd(o) else { throw RenderError.decode("Cannot add video reader output") }
         r.add(o)
@@ -80,7 +93,7 @@ final class FrameSource {
             readerResetCount+=1
         } else {
             let r=try AVAssetReader(asset: asset)
-            let o=AVAssetReaderTrackOutput(track: track,outputSettings: [kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA,kCVPixelBufferIOSurfacePropertiesKey as String:[:]])
+            let o=AVAssetReaderTrackOutput(track: track,outputSettings: Self.outputSettings(hardwareDecodingEnabled: hardwareDecodingEnabled))
             o.alwaysCopiesSampleData=false; o.supportsRandomAccess=true
             guard r.canAdd(o) else { throw RenderError.decode("Cannot add random-access video output") }
             r.add(o); r.timeRange=range

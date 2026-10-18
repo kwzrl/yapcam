@@ -22,6 +22,58 @@ final class CameraProjectTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: json).write(to: url)
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: package) }
+    func testNewProjectZoomTransitionRenderedFramesAreMonotonicAndOneSecond() throws {
+        let project=try Project.create(package: package)
+        try project.apply(.insertTimelineItem(.zoom,startNs: 1_000_000_000,durationNs: 2_000_000_000,patch: [
+            "mode": .string("manual"), "target": .array([.number(0.5),.number(0.5)]), "scale": .number(2)
+        ]))
+        let source=try project.renderSnapshot()
+        let step: Int64=16_666_667
+        var widths: [(Int64,Double)]=[]
+        for index in 0...60 {
+            let time=min(1_000_000_000,Int64(index)*step)
+            widths.append((time,try source.frame(atNs: time).screen_crop.w))
+        }
+        XCTAssertEqual(widths[0].1,1,accuracy: 0.000_001)
+        XCTAssertEqual(widths[widths.count-1].1,0.5,accuracy: 0.000_001)
+        for pair in zip(widths,widths.dropFirst()) {
+            XCTAssertLessThanOrEqual(pair.1.1-pair.0.1,0.000_000_1,"Zoom-in crop width must never reverse or overshoot")
+            XCTAssertGreaterThanOrEqual(pair.1.1,0.5-0.000_000_1)
+        }
+        let firstChanged=try XCTUnwrap(widths.first { abs($0.1-1)>0.000_001 }?.0)
+        let firstSettled=try XCTUnwrap(widths.first { abs($0.1-0.5)<0.000_001 }?.0)
+        XCTAssertLessThanOrEqual(firstChanged,step*2)
+        XCTAssertGreaterThanOrEqual(firstSettled,900_000_000)
+        XCTAssertLessThanOrEqual(firstSettled,1_000_000_000)
+    }
+    func testLegacyProjectCameraLayoutGeometryStaysByteIdentical() throws {
+        let schema=URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/schema/v1-minimal.json")
+        let original=try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: schema)) as? [String:Any])
+        func equals(_ rect: YcRect,_ expected: [Double]) -> Bool {
+            zip([rect.x,rect.y,rect.w,rect.h],expected).allSatisfy { abs($0.0-$0.1)<=0.000_001 }
+        }
+        for revision in 0...3 {
+            let revisionPackage=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-render-legacy-camera-r\(revision)-\(UUID().uuidString).yapcam")
+            try FileManager.default.copyItem(at: package,to: revisionPackage)
+            defer { try? FileManager.default.removeItem(at: revisionPackage) }
+            var json=original; json["defaults_revision"]=revision
+            try JSONSerialization.data(withJSONObject: json).write(to: revisionPackage.appendingPathComponent("project.json"),options: .atomic)
+            let project=try Project.open(package: revisionPackage)
+            try project.apply(.set(path: "camera.layouts",value: .array([.object([
+                "id": .string("legacy-fullscreen"), "tl_start_ns": .integer(1_000_000_000),
+                "tl_end_ns": .integer(2_000_000_000), "mode": .string("camera")
+            ])])))
+            let snapshot=try project.renderSnapshot()
+            try project.save()
+            let reopened=try Project.open(package: revisionPackage)
+            for source in [project as any RenderProjectSource,snapshot,reopened] {
+                let before=try source.frame(atNs: 950_000_000)
+                XCTAssertTrue(equals(before.camera_dest,[1363.2,710.4,422.4,264]),"Revision \(revision) must hard-cut from the byte-identical legacy overlay")
+                let fullscreen=try source.frame(atNs: 1_500_000_000)
+                XCTAssertTrue(equals(fullscreen.camera_dest,[172.8,48,1574.4,984]),"Revision \(revision) must retain byte-identical padded fullscreen geometry")
+            }
+        }
+    }
     func testCameraZoomScaleGeometryFromCoreReachesFrozenRendererSource() throws {
         let project=try Project.create(package: package)
         // Isolate zoom scaling from factory2's larger square camera, which is
@@ -41,7 +93,7 @@ final class CameraProjectTests: XCTestCase {
         XCTAssertEqual(zoomed.camera_dest.h,normal.h*1.5,accuracy: 0.000_001)
         XCTAssertGreaterThanOrEqual(zoomed.camera_dest.x,0)
         XCTAssertLessThanOrEqual(zoomed.camera_dest.x+zoomed.camera_dest.w,Double(zoomed.canvas_w))
-        XCTAssertEqual(try source.frame(atNs: 0).camera_dest.w,normal.w,accuracy: 0.000_001)
+        XCTAssertEqual(try source.frame(atNs: 0).camera_dest.w,zoomed.camera_dest.w,accuracy: 0.000_001,"A new-project zoom clamped to timeline zero is fully active at its boundary")
         try project.apply(.set(path: "camera.zoom_scale",value: .number(1)))
         XCTAssertEqual(try source.frame(atNs: 1_000_000_000).camera_dest.w,zoomed.camera_dest.w)
         XCTAssertEqual(try project.frame(atNs: 1_000_000_000).camera_dest.w,normal.w,accuracy: 0.000_001)
@@ -52,16 +104,17 @@ final class CameraProjectTests: XCTestCase {
         let initial=try factory.frame(atNs: 0)
         XCTAssertEqual(initial.camera_dest.w,864,accuracy: 0.000001)
         XCTAssertEqual(initial.camera_dest.h,864,accuracy: 0.000001)
-        XCTAssertEqual(initial.camera_dest.x+initial.camera_dest.w,Double(initial.canvas_w)-54,accuracy: 0.000001)
-        XCTAssertEqual(initial.camera_dest.y+initial.camera_dest.h,Double(initial.canvas_h)-54,accuracy: 0.000001)
+        let factoryEdge=Double(min(initial.canvas_w,initial.canvas_h))*0.03
+        XCTAssertEqual(initial.camera_dest.x+initial.camera_dest.w,Double(initial.canvas_w)-factoryEdge,accuracy: 0.000001)
+        XCTAssertEqual(initial.camera_dest.y+initial.camera_dest.h,Double(initial.canvas_h)-factoryEdge,accuracy: 0.000001)
         XCTAssertEqual(initial.camera_corner_radius,129.6,accuracy: 0.0001)
         try project.apply(.batch([
             .set(path: "zoom_settings.smart_framing",value: .bool(false)),
             .addZoom(.init(startNs: 0,endNs: 2_000_000_000,target: [0.5,0.5],scale: 2,easeInNs: 0,easeOutNs: 0))
         ]))
         let zoom=try project.frame(atNs: 1_000_000_000)
-        XCTAssertEqual(zoom.camera_dest.w,864*0.8,accuracy: 0.000001)
-        XCTAssertEqual(zoom.camera_dest.h,864*0.8,accuracy: 0.000001)
+        XCTAssertEqual(zoom.camera_dest.w,864*0.6,accuracy: 0.000001)
+        XCTAssertEqual(zoom.camera_dest.h,864*0.6,accuracy: 0.000001)
         try project.apply(.batch([
             .set(path: "camera.size",value: .number(0.22)),
             .set(path: "camera.position",value: .array([.number(0.82),.number(0.78)])),

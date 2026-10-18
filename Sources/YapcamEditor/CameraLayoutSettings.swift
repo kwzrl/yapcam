@@ -26,7 +26,10 @@ struct CameraLayoutSettings: View {
     @ViewBuilder private var overlay: some View {
         CameraPositionRow(model: model)
         ChoiceRow("Aspect", selection: Binding(get: { aspectKey }, set: { setAspect($0) }),
-                  options: [("Same as the camera", "none"), ("16:9", "16:9"), ("4:3", "4:3"), ("1:1", "1:1"), ("3:4", "3:4"), ("9:16", "9:16")], forceMenu: true)
+                  options: [("Same as the camera", "none"), ("16:9", "16:9"), ("4:3", "4:3"), ("1:1", "1:1"), ("3:4", "3:4"), ("9:16", "9:16"), ("Custom…", "custom")], forceMenu: true)
+        if aspectKey == "custom" {
+            NumberRow(model: model, title: "Width ÷ height", path: p + "aspect", range: 0.4...3, format: "%.2f", defaultValue: 1)
+        }
         NumberRow(model: model, title: "Size", path: "camera.size", range: 0.1...0.75, unit: "%", format: "%.0f", scale: 100, defaultValue: 0.22)
         SwitchRow("Make smaller during zoom", isOn: Binding(get: { model.number("camera.zoom_scale", default: 1) < 0.999 },
                                                             set: { model.set("camera.zoom_scale", number: $0 ? 0.6 : 1) }))
@@ -61,10 +64,11 @@ struct CameraLayoutSettings: View {
     // MARK: stored values ↔ menu keys
     private var aspectKey: String {
         guard case .number(let v)? = model.value(p + "aspect") else { return "none" }
-        return [("16:9", 16.0 / 9), ("4:3", 4.0 / 3), ("1:1", 1), ("3:4", 0.75), ("9:16", 9.0 / 16)].min { abs($0.1 - v) < abs($1.1 - v) }?.0 ?? "none"
+        return CameraAspect.key(for: v)
     }
     private func setAspect(_ k: String) {
         let values: [String: Double] = ["16:9": 16.0 / 9, "4:3": 4.0 / 3, "1:1": 1, "3:4": 0.75, "9:16": 9.0 / 16]
+        if k == "custom" { let v = model.number(p + "aspect", default: 1); model.set(p + "aspect", .number(min(3, v + 0.01))); return }   // MKT-138
         model.set(p + "aspect", values[k].map { .number($0) } ?? .null)
     }
     private var ratioKey: String {
@@ -164,5 +168,13 @@ struct LayoutOwnSettings: View {
     private var ratioKey: String {
         guard case .number(let v)? = layout.settings?["split_ratio"] else { return "auto" }
         return abs(v - 0.5) < 0.01 ? "half" : "twoThirds"
+    }
+}
+
+
+/// The overlay camera's aspect presets; any other ratio is "custom" (MKT-138).
+enum CameraAspect {
+    static func key(for v: Double) -> String {
+        [("16:9", 16.0 / 9), ("4:3", 4.0 / 3), ("1:1", 1), ("3:4", 0.75), ("9:16", 9.0 / 16)].first { abs($0.1 - v) < 0.005 }?.0 ?? "custom"
     }
 }

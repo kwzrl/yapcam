@@ -3,6 +3,12 @@ import XCTest
 import AVFoundation
 
 final class AudioOverlayTests: XCTestCase {
+    func testPublicClickPreviewUsesExactExportSynthesis() throws {
+        for variant in [AudioOverlay.Click.soft,.crisp] {
+            let expected=ProceduralAudio.wav(try ProceduralAudio.samples(for: .click(variant)))
+            XCTAssertEqual(ProceduralAudio.clickSampleWAV(variant: variant),expected)
+        }
+    }
     var temp: URL!
     override func setUpWithError() throws {
         temp=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-audio-tests-\(UUID().uuidString)")

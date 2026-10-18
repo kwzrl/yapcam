@@ -72,7 +72,13 @@ public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
         case textBackground = "text_background"
         case privacyMask = "privacy_mask"
     }
+    public enum FillPolicy: String, Decodable, Sendable {
+        case custom
+        case autoSampled = "auto_sampled"
+    }
     public var purpose: Purpose?
+    /// Explicit fill interpretation. Nil only when decoding an older Core.
+    public var fillPolicy: FillPolicy?
     public var id: String
     public var kind: String
     public var rect: [Double]
@@ -88,6 +94,12 @@ public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
     public var color: [Float]?
     public var fontFamily: TextStyle.FontFamily?
     public var caption: CoreCaptionEvaluation?
+    public var keycaps: [CoreKeycap]?
+}
+public struct CoreKeycap: Decodable, Sendable, Equatable {
+    public var glyph: String
+    public var name: String?
+    public var rect: [Double]
 }
 
 /// Supplemental mask instructions; indices match frameExtras.highlights on the

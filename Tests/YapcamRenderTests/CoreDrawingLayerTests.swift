@@ -19,6 +19,33 @@ final class CoreDrawingLayerTests: XCTestCase {
         XCTAssertThrowsError(try decode(color: [1,1,1]).drawingLayer())
         XCTAssertThrowsError(try decode("unsupported").drawingLayer())
     }
+    func testSemanticKeycapsExpandPlateGlyphAndModifierNameWithLegacyFallback() throws {
+        let decoder=JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        func row(_ value: [String:Any]) throws -> CoreDrawingLayer {
+            try decoder.decode(CoreDrawingLayer.self,from: JSONSerialization.data(withJSONObject: value))
+        }
+        let common: [String:Any]=["rect":[10,20,300,60],"corner_radius":12,"opacity":1,
+          "dim_opacity":0,"fill":[0.1,0.1,0.1,0.9],"stroke":[1,1,1,0.2],"stroke_width":1]
+        var plate=common; plate["id"]="core:key-overlay:background"; plate["kind"]="highlight"; plate["purpose"]="text_background"
+        var text=common; text["id"]="core:key-overlay"; text["kind"]="text"; text["text"]="⌘K"; text["font_size"]=36; text["color"]=[1,1,1,1]
+        text["keycaps"]=[
+          ["glyph":"⌘","name":"command","rect":[10,20,145.63,60]],
+          ["glyph":"K","rect":[164.37,20,145.63,60]]
+        ]
+        let expanded=try coreDrawingLayers([row(plate),row(text)])
+        XCTAssertEqual(expanded.count,4)
+        XCTAssertEqual(expanded[0].rect.minX,10,accuracy: 0.001)
+        XCTAssertEqual(expanded[1].rect.minX,164.37,accuracy: 0.001)
+        guard case .keycap(let glyph,let name,_,_)=expanded[2].content else { return XCTFail("Expected semantic keycap") }
+        XCTAssertEqual(glyph,"⌘"); XCTAssertEqual(name,"command")
+        guard case .keycap(let key,let keyName,_,_)=expanded[3].content else { return XCTFail("Expected named keycap") }
+        XCTAssertEqual(key,"K"); XCTAssertNil(keyName)
+
+        text.removeValue(forKey: "keycaps")
+        let legacy=try coreDrawingLayers([row(plate),row(text)])
+        XCTAssertEqual(legacy.count,2)
+        guard case .text("⌘K",_,_)=legacy[1].content else { return XCTFail("Expected joined legacy text") }
+    }
     func testRealCoreAnnotationsCaptionsReactionsAndFinalFadeUseOneLayerList() throws {
         let fixture=URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
         let package=FileManager.default.temporaryDirectory.appendingPathComponent("yapcam-core-text-\(UUID().uuidString).yapcam")

@@ -10,7 +10,16 @@ struct ProjectRenderOptions: Decodable {
     let insetOrigin: SIMD2<Float>?
     let screenQuality: ScreenQualitySettings?
     let cameraMatte: CameraMatteSettings?
-    private enum CodingKeys: String, CodingKey { case glassLoupe, cameraColor, cameraMatte, insetOrigin, screenQuality }
+    let cameraSourceCrop: SIMD4<Float>?
+    let screenOpacity: Float?
+    let cameraBlur: Float?
+    let cursorClickEffect: RenderConfiguration.CursorClickEffect?
+    let cursorClickDurationNs: Int64?
+    private enum CodingKeys: String, CodingKey {
+        case glassLoupe, cameraColor, cameraMatte, insetOrigin, screenQuality
+        case cameraSourceCrop, screenOpacity, cameraBlur
+        case cursorClickEffect, cursorClickDurationNs
+    }
     init(from decoder: Decoder) throws {
         base = try ProjectRenderBaseOptions(from: decoder)
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -29,6 +38,23 @@ struct ProjectRenderOptions: Decodable {
             return ScreenQualitySettings(improveQuality: Float(quality.improveQuality),upscaling: quality.upscaling)
         }
         cameraMatte = try c.decodeIfPresent(CameraMatteSettings.self,forKey: .cameraMatte)
+        cameraSourceCrop = try c.decodeIfPresent([Double].self,forKey: .cameraSourceCrop).map { values in
+            guard values.count==4,values.allSatisfy(\.isFinite),
+                  values[0]>=0,values[1]>=0,values[2]>0,values[3]>0,
+                  values[0]+values[2]<=1.000_001,values[1]+values[3]<=1.000_001 else {
+                throw RenderError.invalidSettings("Core returned an invalid camera source crop")
+            }
+            return SIMD4(Float(values[0]),Float(values[1]),Float(values[2]),Float(values[3]))
+        }
+        screenOpacity = try c.decodeIfPresent(Float.self,forKey: .screenOpacity)
+        cameraBlur = try c.decodeIfPresent(Float.self,forKey: .cameraBlur)
+        cursorClickEffect = try c.decodeIfPresent(RenderConfiguration.CursorClickEffect.self,forKey: .cursorClickEffect)
+        cursorClickDurationNs = try c.decodeIfPresent(Int64.self,forKey: .cursorClickDurationNs)
+        guard screenOpacity.map({ $0.isFinite && (0...1).contains($0) }) ?? true,
+              cameraBlur.map({ $0.isFinite && (0...1).contains($0) }) ?? true,
+              cursorClickDurationNs.map({ $0 > 0 && $0 <= 10_000_000_000 }) ?? true else {
+            throw RenderError.invalidSettings("Core returned an invalid render transition or click effect")
+        }
     }
 }
 

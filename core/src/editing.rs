@@ -91,6 +91,7 @@ pub(crate) fn zoom_style(z: &Zoom) -> ZoomInsertionStyle {
 pub(crate) fn mask_style(h: &Highlight) -> MaskInsertionStyle {
     MaskInsertionStyle {
         kind: h.kind.clone(),
+        fill_policy: h.fill_policy.clone(),
         blur_radius: h.blur_radius,
         radius: h.radius,
         opacity: h.opacity,
@@ -201,6 +202,22 @@ pub(crate) fn command(
                 if let Some(style) = &p.insertion_styles.zoom {
                     merge_style(&mut row, serde_json::to_value(style)?);
                 }
+                if !patch.contains_key("target") {
+                    if let Some((_clip, src)) = time::timeline_to_source(&p.timeline.clips, start) {
+                        let screen = time::sample(&context.session, "screen", src);
+                        let segment = screen.segment as usize;
+                        let local = src - context.session.segments[segment].src_start_ns;
+                        if let Some(point) =
+                            context.input[segment].position_filtered(local, p.cursor.remove_shakes)
+                        {
+                            let bounds = context.session.source.content_rect_points;
+                            row["target"] = json!([
+                                (point.x / bounds[2]).clamp(0.0, 1.0),
+                                (point.y / bounds[3]).clamp(0.0, 1.0)
+                            ]);
+                        }
+                    }
+                }
             }
             if op == "insert_mask" {
                 if p.defaults_revision >= 2 {
@@ -256,7 +273,7 @@ pub(crate) fn command(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::tests::Fixture;
+    use crate::{input::InputCache, project::tests::Fixture};
     #[test]
     fn insertion_styles_follow_edits_history_and_persistence_without_geometry() {
         let f = Fixture::new();
@@ -274,7 +291,7 @@ mod tests {
         let next = reopened.data.zooms.last().unwrap();
         assert_eq!(next.scale, 2.5);
         assert_eq!(next.mode, "manual");
-        assert_eq!(next.target, [0.5, 0.5]);
+        assert_eq!(next.target, [0.515625, 0.5125]);
         assert!(next.enabled);
         assert_eq!(next.ease_in_ns, 0);
         p.undo().unwrap();
@@ -291,6 +308,28 @@ mod tests {
         assert_eq!(next.radius, 30.0);
         assert_eq!(next.opacity, 0.6);
         assert_eq!(next.rect, [0.25, 0.25, 0.5, 0.5]);
+    }
+    #[test]
+    fn inserted_auto_zoom_targets_the_cursor_at_its_start() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        p.data.autosave = false;
+        p.events[0] = vec![serde_json::from_value(json!({
+            "t": 1_000_000_000_i64,
+            "type": "move",
+            "x": 256.0,
+            "y": 60.0
+        }))
+        .unwrap()];
+        p.input[0] = InputCache::new(&p.events[0]);
+        p.apply(&json!({"op":"insert_zoom","tl_start_ns":1_000_000_000_i64}))
+            .unwrap();
+        assert_eq!(p.data.zooms.last().unwrap().target, [0.8, 0.3]);
+
+        p.apply(&json!({"op":"insert_zoom","tl_start_ns":2_000_000_000_i64,
+            "patch":{"target":[0.2,0.4]}}))
+            .unwrap();
+        assert_eq!(p.data.zooms.last().unwrap().target, [0.2, 0.4]);
     }
     #[test]
     fn coalesced_history_groups_and_caps_without_changing_discrete_commands() {

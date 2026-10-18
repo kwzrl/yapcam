@@ -11,6 +11,9 @@ public struct PreviewSettings: Equatable, Sendable {
     public var maximumHeight: Int?
     public var resolution: Resolution
     public var playbackRate: Double
+    /// Caps only interactive preview presentation. Exports always use their
+    /// independently configured frame rate and quality.
+    public var powerSaving: Bool
     /// Matches ExportSettings.screenQuality when a local processing preference
     /// should apply to both paths. Nil inherits evaluated project settings.
     public var screenQuality: ScreenQualitySettings?
@@ -18,11 +21,13 @@ public struct PreviewSettings: Equatable, Sendable {
     public var reelMode: ReelPreviewMode
 
     public init(maximumHeight: Int? = nil, resolution: Resolution = .full, playbackRate: Double = 1,
-                screenQuality: ScreenQualitySettings? = nil,reelMode: ReelPreviewMode = .off) {
+                powerSaving: Bool = false,screenQuality: ScreenQualitySettings? = nil,reelMode: ReelPreviewMode = .off) {
         self.maximumHeight=maximumHeight; self.resolution=resolution; self.playbackRate=playbackRate
+        self.powerSaving=powerSaving
         self.screenQuality=screenQuality
         self.reelMode=reelMode
     }
+    public var preferredFramesPerSecond: Int { powerSaving ? 30 : 60 }
     public func validate() throws {
         try screenQuality?.validate()
         guard maximumHeight.map(Self.maximumHeights.contains) ?? true,

@@ -3,6 +3,55 @@ import Metal
 @testable import YapcamRender
 
 final class CursorCompositorTests: XCTestCase {
+    func testRippleIsThreeDistinctStaggeredRingsOnHost() throws {
+        let device=try requireRenderDevice()
+        let fixture=URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let queue=try XCTUnwrap(device.makeCommandQueue())
+        let target=try XCTUnwrap(device.makeTexture(descriptor: .texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb,width: 240,height: 200,mipmapped: false)))
+        func render(_ effect: RenderConfiguration.CursorClickEffect) throws -> [UInt8] {
+            var configuration=RenderConfiguration()
+            configuration.cursorSetID="classic"; configuration.cursorStyle = .arrow
+            configuration.cursorClickEffect=effect; configuration.cursorClickDurationNs=450_000_000
+            let source=TestSource(package: fixture,configuration: configuration) { _ in
+                var frame=YcFrame(); frame.canvas_w=240; frame.canvas_h=200
+                frame.background_color=(0.08,0.08,0.08,1)
+                frame.cursor_visible=1; frame.cursor_opacity=1; frame.cursor_scale=3
+                frame.cursor_x=18; frame.cursor_y=18
+                frame.click_x=120; frame.click_y=100
+                // 300 ms: all three 450 ms rings are active at distinct radii.
+                frame.click_progress=300.0/590.0
+                return frame
+            }
+            let cb=try XCTUnwrap(queue.makeCommandBuffer())
+            try FrameCompositor(device: device,project: source).encode(source.frame(atNs: 0),to: target,in: cb)
+            cb.commit(); cb.waitUntilCompleted()
+            XCTAssertEqual(cb.status,.completed,cb.error?.localizedDescription ?? "")
+            var bytes=[UInt8](repeating: 0,count: 240*200*4)
+            target.getBytes(&bytes,bytesPerRow: 240*4,from: MTLRegionMake2D(0,0,240,200),mipmapLevel: 0)
+            return bytes
+        }
+        let circle=try render(.circle), ripple=try render(.ripple)
+        var changed=0
+        for i in stride(from: 0,to: circle.count,by: 4) {
+            let blue=abs(Int(circle[i])-Int(ripple[i]))
+            let green=abs(Int(circle[i+1])-Int(ripple[i+1]))
+            let red=abs(Int(circle[i+2])-Int(ripple[i+2]))
+            if blue+green+red>12 { changed += 1 }
+        }
+        XCTAssertGreaterThan(changed,150,"Ripple must be materially distinct from Circle")
+
+        let base=(100*240+230)*4
+        let background=[Int(ripple[base]),Int(ripple[base+1]),Int(ripple[base+2])]
+        var activeRuns=0, inside=false
+        for x in 125..<230 {
+            let i=(100*240+x)*4
+            let score=(0..<3).map { abs(Int(ripple[i+$0])-background[$0]) }.max()!
+            if score>10 && !inside { activeRuns += 1 }
+            inside=score>10
+        }
+        XCTAssertEqual(activeRuns,3,"Ripple must expose three separated radial ring maxima")
+    }
+
     func testOriginalSidecarTypedReplacementVariantsAndTouchPressOnHost() throws {
         let device = try requireRenderDevice()
         let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")

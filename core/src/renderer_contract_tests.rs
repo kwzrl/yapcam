@@ -15,8 +15,8 @@ fn mkt019_circle_and_ripple_have_distinct_render_contracts() {
     let circle_frame = p.frame(1_800_000_000).unwrap();
     let circle_after_lifetime = p.frame(2_150_000_000).unwrap();
     assert_eq!(circle["cursor_click_effect"], "ring");
-    assert_eq!(circle["cursor_click_duration_ns"], 450_000_000_i64);
-    assert!((circle_frame.click_progress - (100.0 / 450.0)).abs() < 1e-6);
+    assert_eq!(circle["cursor_click_duration_ns"], 400_000_000_i64);
+    assert!((circle_frame.click_progress - 0.25).abs() < 1e-6);
     assert_eq!(circle_after_lifetime.click_progress, -1.0);
 
     p.apply(&json!({"op":"set","path":"cursor.click_effect","value":"highlight"}))
@@ -38,7 +38,7 @@ fn mkt019_revision_four_uses_450ms_rings_while_legacy_keeps_400ms_circle() {
     p.data.autosave = false;
     p.data.cursor.click_effect = "highlight".into();
     assert_eq!(p.data.defaults_revision, 4);
-    assert_eq!(p.data.cursor.click_duration_ns, 450_000_000);
+    assert_eq!(p.data.cursor.click_duration_ns, 400_000_000);
     assert_eq!(
         p.query(&json!({"q":"render_options_at","tl_ns":1_800_000_000_i64}))
             .unwrap()["cursor_click_effect"],

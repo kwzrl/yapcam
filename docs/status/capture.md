@@ -1,4 +1,22 @@
-READY R7 fff0368+worktree | CAM-46, CAM-27, REC B-06, MKT-107 merged; R7b MKT-097 camera 30/60 fps policy ready; consumer requests and dependency-bound P2 rows documented | YapcamCaptureTests 192 pass / 7 suites; live camera/mic/Speech not verified
+READY R7 59fd0bc+worktree | R7 capture work integrated; FocusEvents stale-lookup regression is now synchronization-driven and deterministic | FocusEvents 7 pass + flaky case 50/50 repetitions + YapcamCaptureTests 192 pass / 7 suites
+
+R7 FOCUS-FLAKE | 59fd0bc+worktree | appSwitchDuringLookupDiscardsStaleSnapshot | live: deterministic test fix; production periodic polling remains enabled
+
+## Round 7 follow-up — deterministic focus lookup regression
+
+The failure was in test timing, not stale-result rejection. The fake provider's
+blocking semaphore had a five-second timeout; under full-suite load the main actor
+could be delayed long enough for that timeout to release the supposedly blocked
+lookup. The test also started the real 250 ms timer, so a legitimate second lookup
+of the newly frontmost app could increment the same counter before the assertion.
+
+The fixture now signals provider entry through a checked-continuation handshake and
+waits for an explicit release with no deadline. `FocusEventPoller.waitUntilIdle()`
+provides an exact completion boundary covering rejection/delivery, and manually
+driven tests start with periodic polling disabled. Production `start()` still
+defaults to periodic polling. Validation: all seven `FocusEventsTests` pass; the
+formerly flaky case passes 50/50 separate test-process repetitions; the full
+capture suite passes 192 tests in seven suites under concurrent load.
 
 R7 MKT-097 | fff0368+worktree | cameraFrameRateDefaultsToThirtyIndependentOfScreenCadence | live: not verified (no camera hardware)
 

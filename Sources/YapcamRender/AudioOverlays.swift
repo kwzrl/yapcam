@@ -47,19 +47,12 @@ public struct AudioOverlay: Sendable, Equatable {
 }
 
 /// Original procedural sounds, generated on demand. No third-party samples or recorded audio.
-enum ProceduralAudio {
-    static let sampleRate = 48_000
-    static func samples(for source: AudioOverlay.Source) throws -> [Int16] {
+public enum ProceduralAudio {
+    public static let sampleRate = 48_000
+    public static func samples(for source: AudioOverlay.Source) throws -> [Int16] {
         switch source {
         case .media: throw RenderError.invalidSettings("Media audio must be read from the project")
-        case .click(let variant):
-            let length = variant == .soft ? 0.08 : 0.05
-            return (0..<Int(length*Double(sampleRate))).map { i in
-                let t=Double(i)/Double(sampleRate)
-                let f = variant == .soft ? 900.0 : 1800.0
-                let signal = sin(2 * .pi * f * t) * exp(-t * 100) * 0.6 + sin(2 * .pi * f * 2.3 * t) * exp(-t * 180) * 0.15
-                return Int16(max(-32767,min(32767,signal*32767)))
-            }
+        case .click(let variant): return clickSamples(variant)
         case .music(let style):
             let roots: [Double] = style == .calm ? [130.8128,174.6141,146.8324,195.9977] : [261.6256,329.6276,349.2282,391.9954]
             return (0..<(8*sampleRate)).map { i in
@@ -71,7 +64,20 @@ enum ProceduralAudio {
             }
         }
     }
-    static func wav(_ samples: [Int16]) -> Data {
+    /// The exact click used by preview and export, wrapped as mono 48 kHz PCM WAV.
+    public static func clickSampleWAV(variant: AudioOverlay.Click) -> Data {
+        wav(clickSamples(variant))
+    }
+    private static func clickSamples(_ variant: AudioOverlay.Click) -> [Int16] {
+        let length = variant == .soft ? 0.08 : 0.05
+        return (0..<Int(length*Double(sampleRate))).map { i in
+            let t=Double(i)/Double(sampleRate)
+            let f = variant == .soft ? 900.0 : 1800.0
+            let signal = sin(2 * .pi * f * t) * exp(-t * 100) * 0.6 + sin(2 * .pi * f * 2.3 * t) * exp(-t * 180) * 0.15
+            return Int16(max(-32767,min(32767,signal*32767)))
+        }
+    }
+    public static func wav(_ samples: [Int16]) -> Data {
         var data = Data()
         func ascii(_ value: String) { data.append(contentsOf: value.utf8) }
         func u32(_ value: UInt32) { var le=value.littleEndian; withUnsafeBytes(of: &le) { data.append(contentsOf: $0) } }

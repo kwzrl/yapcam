@@ -144,6 +144,20 @@ mod tests {
     use super::*;
     use crate::project::tests::Fixture;
     #[test]
+    fn revision_four_zoom_at_frame_zero_starts_fully_zoomed() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.data.autosave = false;
+        p.apply(
+            &json!({"op":"insert_zoom","tl_start_ns":0,"duration_ns":2_000_000_000_i64,
+            "patch":{"mode":"manual","target":[0.5,0.5],"scale":2}}),
+        )
+        .unwrap();
+        let frame = p.frame(0).unwrap();
+        assert!((frame.screen_crop.w - 0.5).abs() < 1e-9);
+        assert!((frame.screen_crop.h - 0.5).abs() < 1e-9);
+    }
+    #[test]
     fn lens_shares_timing_without_changing_base_crop_and_inherits_style() {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();

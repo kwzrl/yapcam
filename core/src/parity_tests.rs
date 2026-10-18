@@ -17,8 +17,12 @@ fn revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projec
     assert_eq!(p.data.camera.layout_settings.aspect, Some(1.0));
     assert_eq!(p.data.camera.layout_settings.corner_ratio, Some(0.15));
     assert_eq!(p.data.camera.layout_settings.edge_padding_ratio, 0.5);
+    assert_eq!(
+        p.data.camera.layout_settings.edge_distance_ratio,
+        Some(0.03)
+    );
     assert_eq!(p.data.cursor.loop_duration_ns, 1_000_000_000);
-    assert_eq!(p.data.cursor.click_duration_ns, 450_000_000);
+    assert_eq!(p.data.cursor.click_duration_ns, 400_000_000);
     assert!(p.data.cursor.remove_shakes && p.data.cursor.optimize_types);
     assert_eq!(p.data.cursor.rotation_mode, "tilt");
     assert_eq!(p.data.cursor.tilt_amount, 0.5);
@@ -55,10 +59,10 @@ fn revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projec
     assert_eq!(frame.camera_mirror, 0);
     assert!((frame.camera_dest.w / frame.camera_dest.h - 1.0).abs() < 1e-9);
     assert!(
-        (frame.camera_dest.x + frame.camera_dest.w - frame.canvas_w as f64 + 54.0).abs() < 1e-9
+        (frame.camera_dest.x + frame.camera_dest.w - frame.canvas_w as f64 + 32.4).abs() < 1e-9
     );
     assert!(
-        (frame.camera_dest.y + frame.camera_dest.h - frame.canvas_h as f64 + 54.0).abs() < 1e-9
+        (frame.camera_dest.y + frame.camera_dest.h - frame.canvas_h as f64 + 32.4).abs() < 1e-9
     );
     assert!((frame.camera_corner_radius as f64 - frame.camera_dest.w * 0.15).abs() < 1e-4);
     p.data.zooms.push(Zoom {
@@ -212,13 +216,13 @@ fn smart_auto_framing_keeps_cursor_clear_across_aspects_and_source_edges() {
     synthetic_camera(&mut p);
     p.data.autosave = false;
     p.events[0] =
-        vec![serde_json::from_value(json!({"type":"move","t":0,"x":280,"y":170})).unwrap()];
+        vec![serde_json::from_value(json!({"type":"move","t":0,"x":310,"y":190})).unwrap()];
     p.input = p
         .events
         .iter()
         .map(|events| crate::input::InputCache::new(events))
         .collect();
-    p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":3_000_000_000_i64,"mode":"auto","scale":2,"target":[0.875,0.85],"ease_in_ns":0,"ease_out_ns":0})).unwrap();
+    p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":3_000_000_000_i64,"mode":"auto","scale":2,"target":[0.96875,0.95],"ease_in_ns":0,"ease_out_ns":0})).unwrap();
     let covered = |f: crate::frame::Frame| {
         f.cursor_x >= f.camera_dest.x
             && f.cursor_x <= f.camera_dest.x + f.camera_dest.w

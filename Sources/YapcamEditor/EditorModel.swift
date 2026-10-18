@@ -68,7 +68,7 @@ public final class EditorModel: ObservableObject {
     @Published public internal(set) var showWaveform = true
     @Published public internal(set) var smoothWaveform = false
     /// The document's export model (set by `EditorDocument`) and what the window does to show its export sheet.
-    weak var exportModel: ExportModel?
+    weak var exportModel: ExportModel? { didSet { exportModel?.onStart = { [weak self] in self?.pause() } } }   // starting an export stops playback (MKT-122)
     var showExportPickerHandler: (@MainActor () -> Void)?
     var exportTitle = "Recording"
     /// Rebindable single-key shortcuts (the app's Settings edit `EditorKeyBindings.shared`; tests inject their own).

@@ -54,14 +54,22 @@ pub struct Frame {
     pub system_gain: f32,
 }
 
-/// Ripple renders three rings whose starts are separated by 70 ms. The stored
-/// click duration remains the lifetime of each ring; the evaluated frame clock
-/// spans the two additional delays so the last ring can finish.
-pub(crate) fn click_effect_duration_ns(defaults_revision: u32, cursor: &Cursor) -> i64 {
+/// Revision-4 Ripple owns a fixed 450 ms per-ring lifetime. Circle and legacy
+/// projects retain the stored 400 ms default.
+pub(crate) fn click_ring_duration_ns(defaults_revision: u32, cursor: &Cursor) -> i64 {
     if defaults_revision >= 4 && cursor.click_effect == "highlight" {
-        cursor.click_duration_ns.saturating_add(140_000_000)
+        450_000_000
     } else {
         cursor.click_duration_ns
+    }
+}
+/// Ripple renders three rings whose starts are separated by 70 ms, so its
+/// evaluated frame clock spans the two additional delays.
+pub(crate) fn click_effect_duration_ns(defaults_revision: u32, cursor: &Cursor) -> i64 {
+    if defaults_revision >= 4 && cursor.click_effect == "highlight" {
+        click_ring_duration_ns(defaults_revision, cursor).saturating_add(140_000_000)
+    } else {
+        click_ring_duration_ns(defaults_revision, cursor)
     }
 }
 fn fit(area: Rect, aspect: f64) -> Rect {
@@ -209,7 +217,11 @@ fn camera_layout_geometry(
         _ => {}
     }
     if camera_dest.w == 0.0 {
-        let edge = settings.edge_padding_ratio * pad;
+        let edge = settings
+            .edge_distance_ratio
+            .map_or(settings.edge_padding_ratio * pad, |ratio| {
+                ratio * canvas.w.min(canvas.h)
+            });
         let width = (canvas.w * size * zoom_camera_factor)
             .min((canvas.w - 2.0 * edge).max(0.0))
             .min((canvas.h - 2.0 * edge).max(0.0) * camera_aspect);
@@ -234,6 +246,8 @@ fn camera_layout_geometry(
         || p.defaults_revision >= 4 && mode == "camera"
     {
         0.0
+    } else if let Some(roundness) = p.camera.roundness {
+        (camera_dest.w.min(camera_dest.h) * roundness / 2.0) as f32
     } else if let Some(ratio) = settings.corner_ratio {
         (camera_dest.w.min(camera_dest.h) * ratio) as f32
     } else {
@@ -368,15 +382,17 @@ impl Project {
         let p = &self.data;
         let c = &p.canvas;
         let capabilities = self.capabilities();
-        let crop = if capabilities.can_crop {
+        let mut crop = if capabilities.can_crop {
             c.crop
         } else {
             [0.0, 0.0, 1.0, 1.0]
         };
+        let authored_crop = crop;
         let pixels = self.session.tracks.screen.pixel_size;
-        let source_aspect = pixels[0] as f64 / pixels[1] as f64 * crop[2] / crop[3];
+        let pixel_aspect = pixels[0] as f64 / pixels[1] as f64;
+        let authored_source_aspect = pixel_aspect * crop[2] / crop[3];
         let aspect = match c.aspect.as_str() {
-            "source" => source_aspect,
+            "source" => authored_source_aspect,
             "custom" => c.output_size[0] as f64 / c.output_size[1] as f64,
             s => {
                 let mut parts = s.split(':');
@@ -393,10 +409,53 @@ impl Project {
             w: width as f64,
             h: height as f64,
         };
-        let pad = c
-            .padding_ratio
-            .map_or(c.padding, |ratio| ratio * canvas.w.min(canvas.h))
-            .min((canvas.w.min(canvas.h) - 2.0).max(0.0) / 2.0);
+        if c.keep_zoomed {
+            let canvas_aspect = canvas.w / canvas.h;
+            if authored_source_aspect > canvas_aspect {
+                let width = crop[2] * canvas_aspect / authored_source_aspect;
+                crop[0] += (crop[2] - width) / 2.0;
+                crop[2] = width;
+            } else {
+                let height = crop[3] * authored_source_aspect / canvas_aspect;
+                crop[1] += (crop[3] - height) / 2.0;
+                crop[3] = height;
+            }
+            let screen = time::sample(&self.session, "screen", src);
+            let segment = screen.segment as usize;
+            let local = src - self.session.segments[segment].src_start_ns;
+            if let Some((x, y, _)) = self.smoothed_cursor_source_position(segment, local, clip_i) {
+                let point = [
+                    x / self.session.source.content_rect_points[2],
+                    y / self.session.source.content_rect_points[3],
+                ];
+                let followed = follow_pan(
+                    Rect {
+                        x: crop[0],
+                        y: crop[1],
+                        w: crop[2],
+                        h: crop[3],
+                    },
+                    point,
+                    0.5,
+                    Rect {
+                        x: authored_crop[0],
+                        y: authored_crop[1],
+                        w: authored_crop[2],
+                        h: authored_crop[3],
+                    },
+                );
+                crop[0] = followed.x;
+                crop[1] = followed.y;
+            }
+        }
+        let source_aspect = pixel_aspect * crop[2] / crop[3];
+        let pad = if c.keep_zoomed {
+            0.0
+        } else {
+            c.padding_ratio
+                .map_or(c.padding, |ratio| ratio * canvas.w.min(canvas.h))
+                .min((canvas.w.min(canvas.h) - 2.0).max(0.0) / 2.0)
+        };
         let area = Rect {
             x: pad,
             y: pad,
@@ -425,15 +484,33 @@ impl Project {
                 w: crop[2],
                 h: crop[3],
             },
-            screen_dest: fit(area, source_aspect),
-            screen_corner_radius: if capabilities.can_round_corners {
+            screen_dest: if c.keep_zoomed {
+                canvas
+            } else {
+                fit(area, source_aspect)
+            },
+            screen_corner_radius: if c.keep_zoomed {
+                0.0
+            } else if capabilities.can_round_corners {
                 c.radius as f32
             } else {
                 0.0
             },
-            shadow_radius: c.shadow.evaluated().2 as f32,
-            shadow_opacity: c.shadow.opacity as f32,
-            shadow_offset_y: c.shadow.evaluated().1 as f32,
+            shadow_radius: if c.keep_zoomed {
+                0.0
+            } else {
+                c.shadow.evaluated().2 as f32
+            },
+            shadow_opacity: if c.keep_zoomed {
+                0.0
+            } else {
+                c.shadow.opacity as f32
+            },
+            shadow_offset_y: if c.keep_zoomed {
+                0.0
+            } else {
+                c.shadow.evaluated().1 as f32
+            },
             inset_width: if capabilities.can_inset {
                 c.inset as f32
             } else {
@@ -660,7 +737,11 @@ impl Project {
             _ => {}
         }
         if frame.camera_dest.w == 0.0 {
-            let edge = layout_settings.edge_padding_ratio * pad;
+            let edge = layout_settings
+                .edge_distance_ratio
+                .map_or(layout_settings.edge_padding_ratio * pad, |ratio| {
+                    ratio * canvas.w.min(canvas.h)
+                });
             let w = (canvas.w * camera_size * zoom_camera_factor)
                 .min((canvas.w - 2.0 * edge).max(0.0))
                 .min((canvas.h - 2.0 * edge).max(0.0) * camera_aspect);
@@ -685,6 +766,9 @@ impl Project {
             || p.defaults_revision >= 4 && layout_mode == "camera"
         {
             frame.camera_corner_radius = 0.0;
+        } else if let Some(roundness) = p.camera.roundness {
+            frame.camera_corner_radius =
+                (frame.camera_dest.w.min(frame.camera_dest.h) * roundness / 2.0) as f32;
         } else if let Some(ratio) = layout_settings.corner_ratio {
             frame.camera_corner_radius =
                 (frame.camera_dest.w.min(frame.camera_dest.h) * ratio) as f32;
@@ -801,19 +885,20 @@ impl Project {
         });
         (10.0f64.powf((base + db) / 20.0) * gain) as f32
     }
-    fn cursor_at(&self, f: &mut Frame, src: i64, clip_i: usize) {
-        let seg = &self.session.segments[f.screen.segment as usize];
-        let input = &self.input[f.screen.segment as usize];
-        let local = src - seg.src_start_ns;
+    fn smoothed_cursor_source_position(
+        &self,
+        segment: usize,
+        local: i64,
+        clip_i: usize,
+    ) -> Option<(f64, f64, i64)> {
+        let input = &self.input[segment];
         let cursor = &self.data.cursor;
         let coordinate = |t| {
             input
                 .position_filtered(t, cursor.remove_shakes)
                 .map(|p| (p.x, p.y, p.t))
         };
-        let Some((actual_x, actual_y, last_move)) = coordinate(local) else {
-            return;
-        };
+        let (actual_x, actual_y, last_move) = coordinate(local)?;
         let physics = crate::spring::cursor_preset(
             &cursor.speed_preset,
             &cursor.spring,
@@ -844,6 +929,43 @@ impl Project {
                 }
                 x = x * (1.0 - cursor.smoothing) + sx * cursor.smoothing;
                 y = y * (1.0 - cursor.smoothing) + sy * cursor.smoothing;
+            }
+        }
+        Some((x, y, last_move))
+    }
+    fn cursor_at(&self, f: &mut Frame, src: i64, clip_i: usize) {
+        let segment = f.screen.segment as usize;
+        let seg = &self.session.segments[segment];
+        let input = &self.input[segment];
+        let local = src - seg.src_start_ns;
+        let cursor = &self.data.cursor;
+        let Some((mut x, mut y, last_move)) =
+            self.smoothed_cursor_source_position(segment, local, clip_i)
+        else {
+            return;
+        };
+        if cursor.blend_cuts && clip_i > 0 {
+            let (clip_start, _) = time::clip_bounds(&self.data.timeline.clips, clip_i).unwrap();
+            let elapsed = f.tl_ns.saturating_sub(clip_start);
+            if elapsed < 120_000_000 {
+                let previous_tl = clip_start.saturating_sub(1);
+                if let Some((previous_clip, previous_src)) =
+                    time::timeline_to_source(&self.data.timeline.clips, previous_tl)
+                {
+                    let previous_screen = time::sample(&self.session, "screen", previous_src);
+                    let previous_segment = previous_screen.segment as usize;
+                    let previous_local =
+                        previous_src - self.session.segments[previous_segment].src_start_ns;
+                    if let Some((previous_x, previous_y, _)) = self.smoothed_cursor_source_position(
+                        previous_segment,
+                        previous_local,
+                        previous_clip,
+                    ) {
+                        let amount = ease(elapsed as f64 / 120_000_000.0);
+                        x = previous_x + (x - previous_x) * amount;
+                        y = previous_y + (y - previous_y) * amount;
+                    }
+                }
             }
         }
         let points = self.session.source.content_rect_points;
@@ -880,13 +1002,40 @@ impl Project {
             .filter(|r| f.tl_ns >= r.tl_start_ns && f.tl_ns < r.tl_end_ns)
             .max_by_key(|r| r.tl_start_ns)
             .map_or(cursor.visible, |r| r.visible);
-        let visible = range_visible
+        let hard_visible = range_visible
             && !self.data.timeline.clips[clip_i].settings.hide_cursor
             && !self.session.tracks.screen.cursor_in_video
-            && inside
-            && (!cursor.hide_when_idle || local - last_move < cursor.idle_timeout_ns);
-        f.cursor_visible = visible as u8;
-        f.cursor_opacity = if visible { 1.0 } else { 0.0 };
+            && inside;
+        let idle_opacity = if cursor.hide_when_idle {
+            let idle_elapsed = local.saturating_sub(last_move);
+            if idle_elapsed > cursor.idle_timeout_ns {
+                1.0 - ease(
+                    idle_elapsed.saturating_sub(cursor.idle_timeout_ns) as f64 / 250_000_000.0,
+                )
+            } else {
+                let positions = input.positions_filtered(cursor.remove_shakes);
+                let current = positions.partition_point(|point| point.t < last_move);
+                let returns_from_idle = current
+                    .checked_sub(1)
+                    .and_then(|index| positions.get(index))
+                    .is_some_and(|previous| {
+                        last_move.saturating_sub(previous.t) > cursor.idle_timeout_ns
+                    });
+                if returns_from_idle {
+                    ease(idle_elapsed as f64 / 120_000_000.0)
+                } else {
+                    1.0
+                }
+            }
+        } else {
+            1.0
+        };
+        f.cursor_visible = (hard_visible && idle_opacity > 0.0) as u8;
+        f.cursor_opacity = if hard_visible {
+            idle_opacity as f32
+        } else {
+            0.0
+        };
         if cursor.click_effect != "none" {
             let effect_duration_ns = click_effect_duration_ns(self.data.defaults_revision, cursor);
             if let Some(e) = input.click(local) {
@@ -1060,7 +1209,7 @@ mod tests {
 #[cfg(test)]
 mod m2_tests {
     use super::*;
-    use crate::{model::*, project::tests::Fixture};
+    use crate::{input::InputCache, model::*, project::tests::Fixture};
     use serde_json::json;
     #[test]
     fn crop_cursor_ranges_idle_loop_and_audio_envelope() {
@@ -1086,6 +1235,144 @@ mod m2_tests {
         assert!((p.frame(1_000_000_000).unwrap().system_gain - 0.31622776).abs() < 1e-6);
         p.data.audio.system_muted = true;
         assert_eq!(p.frame(1_000_000_000).unwrap().system_gain, 0.0);
+    }
+    #[test]
+    fn keep_zoomed_covers_vertical_canvas_and_idle_cursor_fades_both_directions() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.data.autosave = false;
+        p.data.canvas.aspect = "9:16".into();
+        p.data.canvas.keep_zoomed = true;
+        p.data.cursor.smoothing = 0.0;
+        p.events[0] = [
+            json!({"t":0,"type":"move","x":64,"y":100}),
+            json!({"t":2_000_000_000_i64,"type":"move","x":256,"y":100}),
+        ]
+        .into_iter()
+        .map(|value| serde_json::from_value(value).unwrap())
+        .collect();
+        p.input[0] = InputCache::new(&p.events[0]);
+        let source_aspect = p.session.tracks.screen.pixel_size[0] as f64
+            / p.session.tracks.screen.pixel_size[1] as f64;
+
+        let covered = p.frame(1_000_000_000).unwrap();
+        assert_eq!(
+            covered.screen_dest,
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 608.0,
+                h: 1080.0
+            }
+        );
+        assert_eq!(covered.screen_corner_radius, 0.0);
+        assert_eq!(covered.shadow_opacity, 0.0);
+        assert!(
+            (covered.screen_crop.w / covered.screen_crop.h
+                - covered.canvas_w as f64 / covered.canvas_h as f64 / source_aspect)
+                .abs()
+                < 1e-9
+        );
+        assert!(covered.screen_crop.x > 0.0);
+
+        p.data.cursor.hide_when_idle = true;
+        p.data.cursor.idle_timeout_ns = 1_000_000_000;
+        let fading_out = p.frame(1_125_000_000).unwrap();
+        assert!((fading_out.cursor_opacity - 0.5).abs() < 0.1);
+        let returning = p.frame(2_060_000_000).unwrap();
+        assert!((returning.cursor_opacity - 0.5).abs() < 0.1);
+
+        p.data.zooms.push(Zoom {
+            id: "manual".into(),
+            style: "classic".into(),
+            lens: ZoomLens::default(),
+            tl_start_ns: 0,
+            tl_end_ns: 3_000_000_000,
+            mode: "manual".into(),
+            target: [0.5, 0.5],
+            scale: 2.0,
+            ease_in_ns: 0,
+            ease_out_ns: 0,
+            enabled: true,
+        });
+        assert!(
+            (p.frame(500_000_000).unwrap().screen_crop.w - covered.screen_crop.w / 2.0).abs()
+                < 1e-9
+        );
+    }
+    #[test]
+    fn fresh_projects_blend_cursor_position_for_120ms_across_a_cut() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.data.autosave = false;
+        p.data.cursor.smoothing = 0.0;
+        p.data.zoom_settings.smart_framing = false;
+        p.data.canvas.auto_layout = false;
+        p.events[0] = [
+            json!({"t":0,"type":"move","x":100,"y":100}),
+            json!({"t":999_999_999_i64,"type":"move","x":100,"y":100}),
+        ]
+        .into_iter()
+        .map(|value| serde_json::from_value(value).unwrap())
+        .collect();
+        p.input[0] = InputCache::new(&p.events[0]);
+        p.events[1] = [
+            json!({"t":0,"type":"move","x":300,"y":100}),
+            json!({"t":120_000_000_i64,"type":"move","x":360,"y":100}),
+        ]
+        .into_iter()
+        .map(|value| serde_json::from_value(value).unwrap())
+        .collect();
+        p.input[1] = InputCache::new(&p.events[1]);
+        p.apply(&json!({"op":"delete_range","tl_start_ns":1_000_000_000,
+            "tl_end_ns":3_000_000_000_i64}))
+            .unwrap();
+        assert_eq!(
+            time::timeline_to_source(&p.data.timeline.clips, 1_060_000_000),
+            Some((1, 3_060_000_000))
+        );
+        assert_eq!(p.input[1].position(60_000_000).unwrap().x, 330.0);
+        assert_eq!(
+            p.input[1].position_filtered(60_000_000, true).unwrap().x,
+            330.0
+        );
+        assert_eq!(
+            p.smoothed_cursor_source_position(1, 60_000_000, 1)
+                .unwrap()
+                .0,
+            330.0
+        );
+        assert_eq!(
+            p.frame_geometry(1_060_000_000).unwrap().screen.src_ns,
+            3_060_000_000
+        );
+        assert!(!p.data.cursor.loop_to_start);
+        assert_eq!(p.data.cursor.stop_before_end_ns, 0);
+        let before = p.frame(999_999_999).unwrap().cursor_x;
+        let at_cut = p.frame(1_000_000_000).unwrap().cursor_x;
+        assert!((at_cut - before).abs() < 1e-6);
+
+        p.data.cursor.blend_cuts = false;
+        let raw_frame = p.frame(1_060_000_000).unwrap();
+        let raw_middle = raw_frame.cursor_x;
+        assert!(
+            raw_middle > before,
+            "raw={raw_middle} before={before} crop={:?} dest={:?}",
+            raw_frame.screen_crop,
+            raw_frame.screen_dest
+        );
+        p.data.cursor.blend_cuts = true;
+        let blended_middle = p.frame(1_060_000_000).unwrap().cursor_x;
+        assert!(
+            blended_middle > before && blended_middle < raw_middle,
+            "before={before} blended={blended_middle} raw={raw_middle}"
+        );
+        assert!((blended_middle - (before + raw_middle) / 2.0).abs() < 1e-3);
+
+        let blended_end = p.frame(1_120_000_000).unwrap().cursor_x;
+        p.data.cursor.blend_cuts = false;
+        let raw_end = p.frame(1_120_000_000).unwrap().cursor_x;
+        assert!((blended_end - raw_end).abs() < 1e-6);
     }
     #[test]
     fn camera_geometry_and_dynamic_layout() {

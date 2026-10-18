@@ -1,5 +1,6 @@
 READY R7 (partial) | see list below; open: hide-captions needs core, preview right-click + ⌘/ wiring need editor/ui | swift build -j 4 ok; YapcamEditorTests 372 passed
 # inspector status
+R7b MKT-137/122/138 | crop sheet shows 25/50/75 % guides; starting an export pauses playback (ExportModel.onStart, wired in EditorModel.exportModel didSet — one-line edit outside my list); camera aspect gains "Custom…" with a width÷height field | startingAnExportPausesThePlayer; presetsAreRecognisedAndOtherRatiosAreCustom | live: not verified
 R7b S-11 / S-EDT-83/84 | Presets popover "Import preset…" (copies into the library under a unique name, applies it); ⌘K "Extract raw recording files…" / "Extract screen recording file…" (send the ui actions through the responder chain) | importingAPresetFileKeepsExistingPresets; FactoryDefaultsContractTests now accepts revision 4 (smoothing 1) | live: not verified
 
 R7 progress (Claude, team/inspector). Done items have tests in Tests/YapcamEditorTests/ReferenceAlignmentTests.swift.

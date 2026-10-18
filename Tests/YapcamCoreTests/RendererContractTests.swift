@@ -15,9 +15,44 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         let p = try Project.create(package: package)
         try p.apply(.set(path: "cursor.click_effect", value: .string("ring")))
         #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickEffect == .ring)
-        #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickDurationNs == 450_000_000)
+        #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickDurationNs == 400_000_000)
         try p.apply(.set(path: "cursor.click_effect", value: .string("highlight")))
         #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickEffect == .highlight)
+        #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickDurationNs == 450_000_000)
+    }
+}
+
+@Test func recordingMicrophoneChoicesReachTypedProjectDefaults() throws {
+    try rendererFixture { package in
+        let sessionURL = package.appendingPathComponent("recording/session.json")
+        var session = try JSONSerialization.jsonObject(with: Data(contentsOf: sessionURL)) as! [String: Any]
+        var tracks = session["tracks"] as! [String: Any]
+        tracks["mic"] = [
+            "device_name": "Stereo fixture",
+            "sample_rate": 48_000,
+            "channels": 2,
+            "speech_enhancement": true,
+            "stereo_mic": true
+        ]
+        session["tracks"] = tracks
+        try JSONSerialization.data(withJSONObject: session).write(to: sessionURL)
+
+        let project = try Project.create(package: package)
+        #expect(try project.recordingAudioDefaults() == RecordingAudioDefaults(
+            hasMicrophone: true,
+            speechEnhancement: true,
+            stereoMicrophone: true,
+            shouldMuteForNoSpeech: false
+        ))
+        #expect(try project.speechEnhancementPlan().enabled)
+        #expect(try project.speechEnhancementPlan().stereoMic == true)
+        try project.apply(.set(path: "camera.speech_activity", value: .object([
+            "source": .string("vad"),
+            "coverage_start_ns": .integer(0),
+            "coverage_end_ns": .integer(5_000_000_000),
+            "ranges": .array([])
+        ])))
+        #expect(try project.recordingAudioDefaults().shouldMuteForNoSpeech)
     }
 }
 
@@ -72,7 +107,7 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
                 .object(["id": .string("core:caption:fake:background"), "space": .string("source"), "kind": .string("blur"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000), "rect": .array([0.8,0.8,0.1,0.1].map(JSONValue.number))]),
                 .object(["id": .string("cover"), "space": .string("canvas"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000), "fill": .array([0,0,0,1].map(JSONValue.number))]),
                 .object(["id": .string("spotlight"), "space": .string("canvas"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000)]),
-                .object(["id": .string("outline"), "space": .string("canvas"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000), "dim_opacity": .number(0)])
+                .object(["id": .string("outline"), "space": .string("canvas"), "fill_policy": .string("auto_sampled"), "tl_start_ns": .integer(0), "tl_end_ns": .integer(3_000_000_000), "dim_opacity": .number(0)])
             ])),
             .addText(.caption, .init(id: "words", startNs: 0, endNs: 2_000_000_000, text: "Caption", style: try p.captionDefaults()))
         ]))
@@ -95,6 +130,7 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         #expect(layers.first(where: { $0.id == "cover" })?.purpose == .privacyMask)
         #expect(layers.first(where: { $0.id == "spotlight" })?.purpose == .spotlight)
         #expect(layers.first(where: { $0.id == "outline" })?.purpose == .highlight)
+        #expect(layers.first(where: { $0.id == "outline" })?.fillPolicy == .autoSampled)
         #expect(layers.first(where: { $0.id == "core:caption:words:background" })?.purpose == .textBackground)
         #expect(!layers.contains { $0.id == "core:caption:fake:background" }) // outside base crop, still in source packet
         let snapshot = try p.snapshot()

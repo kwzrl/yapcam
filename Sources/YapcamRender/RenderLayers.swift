@@ -17,6 +17,9 @@ public struct RenderLayer: Sendable, Equatable {
     }
     public enum Content: Sendable, Equatable {
         case text(String, fontSize: Double, color: SIMD4<Float>)
+        /// Semantic shortcut cap. Modifier names are drawn as a smaller second
+        /// line; nil names keep a single centered glyph.
+        case keycap(glyph: String,name: String?,fontSize: Double,color: SIMD4<Float>)
         case image(relativePath: String)
         case highlight(dimOpacity: Float, fill: SIMD4<Float>, stroke: SIMD4<Float>, strokeWidth: Float)
         /// Gaussian standard deviation in canonical canvas pixels (0...128).
@@ -70,6 +73,11 @@ public struct RenderConfiguration: Sendable, Equatable {
         case openHand, closedHand
         case crosshair, notAllowed
     }
+    public enum CursorClickEffect: String, Sendable, Codable {
+        case none
+        case circle = "ring"
+        case ripple = "highlight"
+    }
     public var cursorStyle: CursorStyle = .recorded
     /// Selecting an original set replaces recorded PNG artwork; nil keeps recorded/default behavior.
     public var cursorSetID: String? = nil
@@ -79,6 +87,10 @@ public struct RenderConfiguration: Sendable, Equatable {
     /// Evaluated button/pulse state independent of the optional click-ring effect.
     /// nil preserves older Core's click_progress feedback when available.
     public var cursorPressed: Bool? = nil
+    /// Core's persisted names are retained as raw values for project compatibility:
+    /// `ring` is Circle and `highlight` is the distinct three-ring Ripple effect.
+    public var cursorClickEffect: CursorClickEffect = .circle
+    public var cursorClickDurationNs: Int64 = 400_000_000
     /// Replace only positively identified, enlarged low-resolution standard art.
     /// Unknown/custom recorded cursors remain untouched.
     public var cursorUseDefaultIfAppHasLowResolution = true
@@ -106,6 +118,10 @@ public struct RenderConfiguration: Sendable, Equatable {
     public var cameraBackgroundRemoval = false
     public var cameraFaceFraming = false
     public var cameraShadowRadius: Float = 0
+    /// Core-evaluated camera-layout transition effects. These affect only the
+    /// screen/camera layers and never the background, cursor, or later overlays.
+    public var screenOpacity: Float = 1
+    public var cameraBlur: Float = 0
     public init() {}
 }
 
@@ -168,6 +184,44 @@ final class LayerRenderer {
         if texts.count >= 32 { texts.removeAll() }; texts[key] = texture
         return texture
     }
+    private func keycap(glyph: String,name: String?,fontSize: Double,family: RenderTextFontFamily,
+                        color: SIMD4<Float>,size: CGSize) throws -> MTLTexture {
+        guard !glyph.isEmpty,glyph.utf8.count<=64,name.map({ !$0.isEmpty && $0.utf8.count<=64 }) ?? true,
+              [color.x,color.y,color.z,color.w].allSatisfy({ $0.isFinite && (0...1).contains($0) }),
+              size.width.isFinite,size.height.isFinite,size.width>0,size.height>0,size.width<=8192,size.height<=8192,
+              fontSize.isFinite,fontSize>0 else { throw RenderError.invalidSettings("Invalid keycap overlay") }
+        let key="keycap|\(glyph)|\(name ?? "")|\(fontSize)|\(family.rawValue)|\(color)|\(size)"
+        if let texture=texts[key] { return texture }
+        let width=Int(ceil(size.width)),height=Int(ceil(size.height))
+        let space=CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let context=CGContext(data: nil,width: width,height: height,bitsPerComponent: 8,bytesPerRow: width*4,
+                                    space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue|CGBitmapInfo.byteOrder32Big.rawValue),
+              let cgColor=CGColor(colorSpace: space,components: [CGFloat(color.x),CGFloat(color.y),CGFloat(color.z),CGFloat(color.w)]) else {
+            throw RenderError.write("Cannot rasterize keycap overlay")
+        }
+        func draw(_ value: String,size: Double,centerY: CGFloat) {
+            let attributes: [NSAttributedString.Key: Any]=[
+                NSAttributedString.Key(kCTFontAttributeName as String): family.font(size: size),
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): cgColor
+            ]
+            let line=CTLineCreateWithAttributedString(NSAttributedString(string: value,attributes: attributes))
+            let bounds=CTLineGetBoundsWithOptions(line,[.useGlyphPathBounds])
+            context.textPosition=CGPoint(x: (CGFloat(width)-bounds.width)/2-bounds.minX,
+                                         y: centerY-bounds.midY)
+            CTLineDraw(line,context)
+        }
+        if let name {
+            let glyphSize=min(fontSize,Double(height)*0.45,Double(width)*0.68)
+            draw(glyph,size: glyphSize,centerY: CGFloat(height)*0.62)
+            draw(name,size: min(glyphSize*0.30,Double(height)*0.16),centerY: CGFloat(height)*0.20)
+        } else {
+            draw(glyph,size: min(fontSize,Double(height)*0.60,Double(width)*0.68),centerY: CGFloat(height)*0.50)
+        }
+        guard let image=context.makeImage() else { throw RenderError.write("Cannot create keycap image") }
+        let texture=try generatedSRGBTexture(image,device: device)
+        if texts.count>=32 { texts.removeAll() }; texts[key]=texture
+        return texture
+    }
     func encode(_ layers: [RenderLayer], canvas: SIMD2<Float>, project: any RenderProjectSource, target: MTLTexture, cb: MTLCommandBuffer) throws {
         guard !layers.isEmpty else { return }
         var activeEncoder: MTLRenderCommandEncoder?
@@ -213,6 +267,11 @@ final class LayerRenderer {
                     texture = try text(value,fontSize: size*scale,family: layer.textFontFamily,color: color,size: CGSize(width: r.width*scale,height: r.height*scale))
                 }
                 uniforms[2].z = 1
+            case .keycap(let glyph,let name,let size,let color):
+                let scale=max(1,max(Double(target.width)/Double(canvas.x),Double(target.height)/Double(canvas.y)))
+                texture=try keycap(glyph: glyph,name: name,fontSize: size*scale,family: layer.textFontFamily,
+                                   color: color,size: CGSize(width: r.width*scale,height: r.height*scale))
+                uniforms[2].z=1
             case .image(let path):
                 if images[path] == nil {
                     if images.count >= 8 { images.removeAll() }

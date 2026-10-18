@@ -28,7 +28,7 @@ relative to the top-left of the captured content (display, window or area), y do
   "tracks": {
     "screen": { "pixel_size": [1680, 1050], "max_fps": 60, "codec": "hevc", "cursor_in_video": false },
     "camera": null,                             // { "device_name", "pixel_size", "fps", "mirrored" }
-    "mic": null,                                // { "device_name", "sample_rate", "channels" }
+    "mic": null,                                // { "device_name", "sample_rate", "channels", optional "speech_enhancement", optional "stereo_mic" }
     "system_audio": { "sample_rate": 48000, "channels": 2 }
   },
   "segments": [
@@ -48,6 +48,14 @@ relative to the top-left of the captured content (display, window or area), y do
 
 A segment is one uninterrupted stretch between start/resume and pause/stop.
 `src_start_ns` of segment n+1 = `src_start_ns + duration_ns` of segment n (pauses removed).
+The optional microphone booleans record capture-time choices; absence means false.
+`Project.create` copies them to `audio.speech_enhancement` and
+`audio.stereo_mic`. The cold `recording_audio_defaults` query returns
+`{has_microphone,speech_enhancement,stereo_microphone,should_mute_for_no_speech}`
+so a creator can reapply the recorded choices after a preset/last-look pass. The
+last flag becomes true only when a microphone exists and completed source speech
+activity has no voiced range; the Editor owns the one-time mute and toast. Swift
+exposes the same data as `Project.recordingAudioDefaults()`.
 
 
 > F9 decision (2026-10-15): `source.display_name` is written by capture for every source kind, and readers treat it as optional (fallback: display id / window title). Descriptive fields never block opening a recording.
@@ -152,6 +160,7 @@ loading a version-0 spring preserves its legacy bounds and response.
 | `canvas.inset_color` | RGBA | [1,1,1,1] |
 | `canvas.motion_blur` | 0…1, zoom/pan movement strength | 0 |
 | `canvas.crop` | normalized source [x,y,w,h], positive size contained in [0,1]² | [0,0,1,1] |
+| `canvas.keep_zoomed` | boolean; aspect-cover the output, remove padding/background exposure and follow the smoothed cursor | false |
 | `canvas.background.kind` | solid / gradient / image / blurred_screen | solid |
 | `canvas.background.color` | RGBA | [0.12,0.14,0.18,1] |
 | `canvas.background.color2` | RGBA | [0.24,0.29,0.38,1] |
@@ -173,7 +182,7 @@ loading a version-0 spring preserves its legacy bounds and response.
 | `cursor.hide_when_idle` | boolean | false |
 | `cursor.idle_timeout_ns` | nonnegative Int64 ns | 2000000000 |
 | `cursor.click_effect` | none / ring / highlight | ring |
-| `cursor.click_duration_ns` | positive Int64 ns | 400000000 legacy missing-field value; revision-4 factory writes 450000000 |
+| `cursor.click_duration_ns` | positive Int64 ns | 400000000 (Circle and legacy stored lifetime; revision-4 Ripple evaluates to 450000000) |
 | `cursor.speed_preset` | custom / slow / mellow / quick / rapid / smooth / medium / none | custom |
 | `cursor.spring.tension` | 5…600 on edit; legacy version-0 decode 1…2000 | 250 |
 | `cursor.spring.friction` | 5…200 on edit; legacy version-0 decode 1…200 | 28 |
@@ -182,6 +191,7 @@ loading a version-0 spring preserves its legacy bounds and response.
 | `cursor.ranges` | cursor visibility records below | [] |
 | `cursor.loop_to_start` | boolean | false |
 | `cursor.loop_duration_ns` | positive Int64 ns | 400000000 |
+| `cursor.blend_cuts` | boolean; blend position from the preceding clip for 120 ms after a cut | false (fresh revision-4 projects write true) |
 | `cursor.style` | recorded / pointer / touch / arrow | recorded |
 | `cursor.motion_blur` | 0…1 | 0 |
 | `cursor.spotlight_radius` | 0…16384; zero disables | 0 |
@@ -190,6 +200,7 @@ loading a version-0 spring preserves its legacy bounds and response.
 | `camera.size` | 0.01…1, fraction of canvas width | 0.22 |
 | `camera.shape` | rounded_rect / circle / squircle | rounded_rect |
 | `camera.radius` | 0…16384 | 24 |
+| `camera.roundness` | null or 0…1; radius = value × evaluated shorter edge / 2; overrides radius/corner_ratio | null |
 | `camera.mirrored` | boolean | true |
 | `camera.opacity` | 0…1 | 1 |
 | `camera.layouts` | layout records below | [] |
@@ -233,7 +244,7 @@ layout/cursor visibility/gain range wins. Highlights draw in array order.
 - Audio range: `{id, track, tl_start_ns, tl_end_ns, start_gain_db, end_gain_db}`.
   IDs unique; track mic/system_audio; gains −96…24 dB. Linear dB interpolation adds
   to global track gain, with mute applied separately.
-- Highlight/mask: `{id, tl_start_ns, tl_end_ns, rect?, space?, kind?, blur_radius?, radius?, opacity?,
+- Highlight/mask: `{id, tl_start_ns, tl_end_ns, rect?, space?, kind?, fill_policy?, blur_radius?, radius?, opacity?,
   dim_opacity?, fill?, stroke?, stroke_width?}`. IDs nonempty and unique;
   `canvas-fade` is reserved. Rect defaults [0.25,0.25,0.5,0.5], normalized with
   positive size inside [0,1]². Space defaults source (follows zoom/crop), or canvas.
@@ -244,6 +255,10 @@ layout/cursor visibility/gain range wins. Highlights draw in array order.
   spotlight. At most 32 intervals may overlap; more fail before applying an edit,
   without truncation. Arbitrarily many non-overlapping intervals are supported.
   `kind` defaults `highlight` (unchanged spotlight/opaque-fill behavior), or `blur`.
+  `fill_policy` defaults `custom`; `auto_sampled` explicitly asks Render to derive
+  the fill from surrounding pixels. `layers_at` always publishes the evaluated
+  policy so Render never guesses it from the stored RGBA value. Older projects
+  missing the field retain `custom` semantics.
   `blur_radius` defaults32, finite0…128 canonical canvas pixels, including0
   (identity Gaussian). It is independent of the rounded-corner `radius` and source
   zoom. Render scales it by output/canvas scale for both preview and export.
@@ -400,6 +415,7 @@ Implementation/checkpoint progress is in docs/status/core.md.
 | `cursor.key_overlay.enabled` | bool, false |
 | `cursor.key_overlay.duration_ns` | positive Int64 ns, 1000000000 |
 | `cursor.key_overlay.shortcuts_only` | bool, true (cmd/ctrl/alt combinations) |
+| `cursor.key_overlay.disabled_events` | flattened captured `event_index` values, [], max 4096; suppress only the named occurrence |
 | `cursor.key_overlay.rect` | normalized canvas [x,y,w,h], [0.3,0.82,0.4,0.12] |
 | `cursor.key_overlay.style` | complete text style, defaults below |
 | `cursor.key_overlay.style.font_size` | 1…1024 canvas px, 36 |
@@ -477,8 +493,9 @@ clock duration as `cursor_click_duration_ns`. `ring` is the single-ring Circle
 treatment; `highlight` is the distinct three-ring Ripple treatment. Render uses
 `YcFrame.click_progress` as the normalized clock and must branch on this explicit
 cold field; it must not infer the treatment from progress or cursor artwork.
-For `ring`, progress spans `cursor_click_duration_ns`. For `highlight`, it spans
-`cursor_click_duration_ns + 140 ms`, covering three ring lifetimes whose starts
+For `ring`, progress spans the stored `cursor_click_duration_ns` (400 ms by
+default). For revision-4 `highlight`, the evaluated duration is fixed at 450 ms
+and progress spans 590 ms, covering three ring lifetimes whose starts
 are staggered by 70 ms; Render recovers elapsed time by multiplying progress by
 that total and computes each local ring phase from the configured ring lifetime.
 This distinct Ripple contract is revision-4-only. Earlier revisions retain their
@@ -550,8 +567,10 @@ Yapcam choices; implementation/checkpoint progress is in Core status.
 | `canvas.motion_blur_settings.pan` | null inherits canvas.motion_blur, or 0…1 |
 
 CUR-12 `always_default` wins over recorded/touch style and suppresses recorded
-cursor IDs. CUR-13 tilt uses evaluated horizontal canvas displacement over the
-previous 16,666,667 timeline ns, clamped at ±15° for ±600 canvas pixels/second.
+cursor IDs. CUR-13 tilt uses evaluated horizontal canvas displacement, clamped at
+±15° for ±600 canvas pixels/second. Revisions 0–3 retain the previous one-frame
+sample; revision 4 analytically averages the last six 16,666,667 ns samples so
+alternating pixel jitter cancels without frame state.
 Invisible or stopped cursors have zero tilt; backward seeks are stateless.
 `rotation_mode=static` uses rotation_degrees at every visible frame, including time0,
 cuts, idle and the stopped tail; tilt ignores that angle and scales the legacy
@@ -1118,6 +1137,7 @@ always the segment's mode when active. Missing fields retain legacy geometry.
 | camera.layout_settings.edge_softness | 0...1 / .2 |
 | camera.layout_settings.edge_inset | 0...8 output pixels / 0 |
 | camera.layout_settings.corner_ratio | null (legacy pixel radius) or0...0.5 times shorter camera edge; null |
+| camera.layout_settings.edge_distance_ratio | null (legacy padding-derived inset), or 0…0.5 of the shorter canvas edge; null; fresh revision-4 projects write .03 |
 | camera.hide_during_silence | bool / false |
 | camera.min_silence_ns | 2...15s / 5s |
 | camera.silence_ranges | sorted, nonoverlapping `{tl_start_ns,tl_end_ns}` array / [] |
@@ -1535,6 +1555,43 @@ The query includes single-key presses so Editor can edit their preference even
 when shortcuts_only currently filters them out. Swift keyOverlayShortcuts() and
 setHiddenShortcuts(_:) use these payloads. These are cold queries; filtering does
 not add event scans to frame_at or binary-search overlay lookup.
+
+
+### Round 7 cursor, key overlay and canvas evaluation
+
+When `shortcuts_only=false`, a run of at least three single-character key events
+whose adjacent gaps are under 500 ms is a typing burst and those single keys are
+not shown. Command/Control/Option chords remain eligible inside the run. A
+disabled latest event and a suppressed typing event are barriers: neither reveals
+an older overlay. `key_events` appends `event_index` (the stable flattened ordinal
+across source segments) and `disabled` for Editor lane consumers.
+
+Every emitted `core:key-overlay` text layer appends `keycaps`, ordered as the
+display chord. Each entry is `{glyph,name,rect}`; modifier/named-key glyphs carry
+their spoken lowercase name, ordinary keys use `name:null`, and the distinct
+equal-width canvas rects have a gap equal to 6% of cap width. Older Render
+decoders may continue using the compatible joined `text` and enclosing `rect`;
+typed Swift exposes `[CoreKeycap]?`.
+
+Idle hiding preserves the configured timeout, then eases opacity from 1 to 0 over
+250 ms. The first movement after an idle gap eases 0 to 1 over 120 ms. Hard
+visibility gates (project/range/clip/source bounds) remain immediate. Fresh
+revision-4 projects also set `cursor.blend_cuts=true`: during the first 120 ms of
+a following clip, the source cursor position eases from the prior clip's final
+position to the current position. Missing/false preserves old cut pixels.
+
+`canvas.keep_zoomed=true` evaluates the authored crop first, then aspect-covers
+the output with zero padding, screen corner radius and screen shadow. Its visible
+window follows the smoothed cursor inside the authored crop with a centred 0.5
+dead zone; absent mouse data stays centred. Manual and automatic zoom crops apply
+on top of that base cover crop. Turning it off exposes the stored padding/shadow
+unchanged.
+
+`insert_zoom` keeps an explicit `patch.target`. When target is omitted and mouse
+data exists, it stores the normalized cursor position at `tl_start_ns`; without
+mouse data it retains `[0.5,0.5]`. This is an edit-time decision, so it adds no
+frame state and does not rewrite existing zoom records. A zoom beginning within
+the first frame already evaluates at full scale under revision-4 physics.
 
 
 ### Round 5 camera split direction

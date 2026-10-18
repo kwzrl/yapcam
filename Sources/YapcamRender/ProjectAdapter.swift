@@ -41,6 +41,9 @@ extension Project: RenderProjectSource {
         configuration.cameraMatte=evaluated.cameraMatte
         configuration.glassLoupe=evaluated.glassLoupe
         if let style=options.cameraStyle { try configuration.applyCameraStyle(style,package: packageURL) }
+        if let crop=evaluated.cameraSourceCrop { configuration.cameraCrop=crop }
+        configuration.screenOpacity=evaluated.screenOpacity ?? 1
+        configuration.cameraBlur=evaluated.cameraBlur ?? 0
         if let layout=options.cameraLayout, layout.mode=="cutout" {
             configuration.cameraMatte=CameraMatteSettings(edgeSoftness: Float(layout.settings.edgeSoftness),edgeInsetPixels: Float(layout.settings.edgeInset))
         }
@@ -60,6 +63,8 @@ extension Project: RenderProjectSource {
         }
         configuration.cursorVariants=options.cursorVariants ?? [:]
         configuration.cursorPressed=options.cursorPressed
+        configuration.cursorClickEffect=evaluated.cursorClickEffect ?? .circle
+        configuration.cursorClickDurationNs=evaluated.cursorClickDurationNs ?? 400_000_000
         configuration.cursorUseDefaultIfAppHasLowResolution=options.cursorUseDefaultIfAppHasLowResolution ?? true
         configuration.cursorAlwaysUseDefault=options.cursorAlwaysUseDefault ?? false
         switch options.cursorLogicalSize ?? .regular {
@@ -93,8 +98,9 @@ public extension FrameCompositor {
 }
 
 @MainActor public extension PreviewPlayer {
-    convenience init(project: Project,speechEnhancement: SpeechEnhancementSettings? = nil) throws {
-        try self.init(project: project as any RenderProjectSource,speechEnhancement: speechEnhancement)
+    convenience init(project: Project,speechEnhancement: SpeechEnhancementSettings? = nil,hardwareDecodingEnabled: Bool = true) throws {
+        try self.init(project: project as any RenderProjectSource,speechEnhancement: speechEnhancement,
+                      hardwareDecodingEnabled: hardwareDecodingEnabled)
         observeChanges(name: Project.didChange,object: project)
     }
 }

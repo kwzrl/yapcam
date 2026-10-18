@@ -172,6 +172,8 @@ mod tests {
             device_name: None,
             sample_rate: 48000,
             channels: 1,
+            speech_enhancement: None,
+            stereo_mic: None,
         });
         session.segments[0]
             .files

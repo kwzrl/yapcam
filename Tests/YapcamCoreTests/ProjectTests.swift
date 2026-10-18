@@ -1143,7 +1143,15 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
             .set(path: "cursor.key_overlay.enabled", value: .bool(true)),
             .set(path: "cursor.key_overlay.duration_ns", value: .integer(500_000_000))
         ]))
-        #expect(try p.renderLayers(atNs: 1_300_000_000).last?.text == "⇧⌘k")
+        let chord = try #require(p.renderLayers(atNs: 1_300_000_000).last)
+        #expect(chord.text == "⇧⌘k")
+        #expect(chord.keycaps?.map(\.glyph) == ["⇧", "⌘", "k"])
+        #expect(chord.keycaps?.map(\.name) == ["shift", "command", nil])
+        #expect(chord.keycaps?.count == 3)
+        if let caps = chord.keycaps {
+            #expect(caps[0].rect[0] + caps[0].rect[2] < caps[1].rect[0])
+            #expect(caps[1].rect[0] + caps[1].rect[2] < caps[2].rect[0])
+        }
         #expect(try p.renderLayers(atNs: 1_700_000_000).isEmpty)
         let frozen = try p.snapshot()
         try p.apply(.set(path: "cursor.key_overlay.shortcuts_only", value: .bool(false)))
@@ -1460,7 +1468,7 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         try reopened.apply(.insertTimelineItem(.zoom, startNs: 1_000_000_000))
         let zooms = try reopened.query("{\"q\":\"zooms\"}", as: [[String: JSONValue]].self)
         #expect(zooms.last?["scale"]?.numberValue == 2.5)
-        #expect(zooms.last?["target"] == .array([.number(0.5), .number(0.5)]))
+        #expect(zooms.last?["target"] == .array([.number(0.515625), .number(0.5125)]))
         try p.undo(); #expect(try p.insertionStyles().zoom?.scale == 3)
     }
 }

@@ -144,8 +144,34 @@ impl Project {
                         ((heading + std::f64::consts::PI).rem_euclid(2.0 * std::f64::consts::PI)
                             - std::f64::consts::PI) as f32;
                 } else if tilting {
-                    let seconds = (tl_ns - prior_ns) as f64 / 1e9;
-                    motion.cursor_rotation_rad += ((dx / seconds / 600.0).clamp(-1.0, 1.0)
+                    let velocity_x = if self.data.defaults_revision >= 4 {
+                        // A six-frame box filter is analytic, allocation-free and
+                        // makes one-pixel direction jitter cancel instead of
+                        // snapping the pointer between the two tilt extremes.
+                        // Stop at clip/visibility boundaries so a cut never
+                        // manufactures cursor velocity.
+                        let mut oldest = current;
+                        let mut oldest_ns = tl_ns;
+                        for step in 1..=6_i64 {
+                            let sample_ns = tl_ns.saturating_sub(step * 16_666_667).max(0);
+                            if sample_ns == oldest_ns || !self.same_motion_clip(sample_ns) {
+                                break;
+                            }
+                            let sample = self.frame_geometry(sample_ns)?;
+                            if sample.cursor_visible == 0
+                                || sample.screen.segment != current.screen.segment
+                            {
+                                break;
+                            }
+                            oldest = sample;
+                            oldest_ns = sample_ns;
+                        }
+                        (current.cursor_x - oldest.cursor_x)
+                            / ((tl_ns - oldest_ns) as f64 / 1e9).max(f64::EPSILON)
+                    } else {
+                        dx / ((tl_ns - prior_ns) as f64 / 1e9)
+                    };
+                    motion.cursor_rotation_rad += ((velocity_x / 600.0).clamp(-1.0, 1.0)
                         * 15_f64.to_radians()
                         * cursor.tilt_amount)
                         as f32;
@@ -649,6 +675,44 @@ mod tests {
         assert_eq!(p.frame_motion(50_000_000).unwrap().cursor_rotation_rad, 0.0);
         p.data.cursor.visible = false;
         assert_eq!(p.frame_motion(60_000_000).unwrap().cursor_rotation_rad, 0.0);
+    }
+    #[test]
+    fn revision_four_tilt_filters_six_frame_jitter_and_tracks_constant_velocity() {
+        let (_fixture, mut jitter) = make();
+        jitter.data.defaults_revision = 4;
+        jitter.data.cursor.rotate_on_move = true;
+        jitter.events[0] = (0..=18)
+            .map(|frame| {
+                event(
+                    frame * 16_666_667,
+                    100.0 + if frame % 2 == 0 { 0.0 } else { 1.0 },
+                )
+            })
+            .collect();
+        jitter.input[0] = InputCache::new(&jitter.events[0]);
+        let jitter_angle = jitter
+            .frame_motion(12 * 16_666_667)
+            .unwrap()
+            .cursor_rotation_rad
+            .to_degrees();
+        assert!(jitter_angle.abs() < 0.5, "angle={jitter_angle}");
+
+        let (_fixture, mut steady) = make();
+        steady.data.defaults_revision = 4;
+        steady.data.cursor.rotate_on_move = true;
+        steady.events[0] = (0..=18)
+            .map(|frame| {
+                let t = frame * 16_666_667;
+                event(t, 100.0 + 600.0 * t as f64 / 1e9)
+            })
+            .collect();
+        steady.input[0] = InputCache::new(&steady.events[0]);
+        let steady_angle = steady
+            .frame_motion(250_000_000)
+            .unwrap()
+            .cursor_rotation_rad
+            .to_degrees();
+        assert!(steady_angle >= 13.5, "angle={steady_angle}");
     }
     #[test]
     fn stop_before_end_is_stateless_recomputes_after_cuts_and_can_hold_start() {

@@ -98,8 +98,12 @@ public final class ExportModel: ObservableObject {
     /// Target of the export that is running or finished last (what the progress and result screens describe).
     @Published public private(set) var runningTarget: ExportTarget = .file
 
+    /// Called when an export begins (the editor pauses playback: MKT-122).
+    public var onStart: (@MainActor () -> Void)?
+
     private func begin(to destination: URL, target: ExportTarget) {
         guard !isRunning else { return }
+        onStart?()
         runningTarget = target
         lastDestination = destination
         failedWithAudio = false

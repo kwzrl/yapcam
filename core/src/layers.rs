@@ -306,7 +306,7 @@ impl Project {
         for h in &self.data.canvas.highlights {
             if let Some(highlight) = highlight_at(h, &f) {
                 let r = highlight.rect;
-                let mut row = json!({"id":h.id,"purpose":highlight_purpose(h),"kind":h.kind,"rect":[r.x,r.y,r.w,r.h],
+                let mut row = json!({"id":h.id,"purpose":highlight_purpose(h),"kind":h.kind,"fill_policy":h.fill_policy,"rect":[r.x,r.y,r.w,r.h],
                     "corner_radius":h.radius,"opacity":h.opacity,"dim_opacity":h.dim_opacity,
                     "fill":h.fill,"stroke":h.stroke,"stroke_width":h.stroke_width});
                 if h.kind == "blur" {
@@ -365,10 +365,12 @@ impl Project {
         }
         let key = &self.data.cursor.key_overlay;
         if key.enabled {
-            if let Some(text) =
-                self.key_overlay_index
-                    .latest(tl_ns, key.duration_ns, key.shortcuts_only)
-            {
+            if let Some(text) = self.key_overlay_index.latest(
+                tl_ns,
+                key.duration_ns,
+                key.shortcuts_only,
+                &key.disabled_events,
+            ) {
                 if !text.trim().is_empty() && !key.hidden_shortcuts.iter().any(|s| s == text) {
                     let record = TextRecord {
                         text: text.to_owned(),
@@ -378,6 +380,7 @@ impl Project {
                         tl_end_ns: tl_ns.saturating_add(1),
                         ..TextRecord::default()
                     };
+                    let first = layers.len();
                     append_text(
                         &mut layers,
                         &record,
@@ -386,6 +389,17 @@ impl Project {
                         &self.data,
                         true,
                     );
+                    for layer in &mut layers[first..] {
+                        if layer["kind"] == "text" {
+                            let rect = [
+                                layer["rect"][0].as_f64().unwrap(),
+                                layer["rect"][1].as_f64().unwrap(),
+                                layer["rect"][2].as_f64().unwrap(),
+                                layer["rect"][3].as_f64().unwrap(),
+                            ];
+                            layer["keycaps"] = crate::key_overlay::keycaps(text, rect);
+                        }
+                    }
                 }
             }
         }
@@ -452,7 +466,7 @@ mod tests {
         let fixture = Fixture::new();
         let mut p = Project::create(&fixture.0).unwrap();
         p.apply(&json!({"op":"set","path":"canvas.highlights","value":[
-            {"id":"cover","tl_start_ns":1_000_000_000,"tl_end_ns":3_000_000_000_i64,"space":"canvas","fill":[0,0,0,1]},
+            {"id":"cover","tl_start_ns":1_000_000_000,"tl_end_ns":3_000_000_000_i64,"space":"canvas","fill_policy":"auto_sampled","fill":[0,0,0,1]},
             {"id":"hidden-blur","kind":"blur","tl_start_ns":1_000_000_000,"tl_end_ns":3_000_000_000_i64,"rect":[0,0,0.1,0.1]},
             {"id":"blur","kind":"blur","tl_start_ns":1_000_000_000,"tl_end_ns":3_000_000_000_i64,"rect":[0.25,0.25,0.5,0.5]}
         ]})).unwrap();
@@ -483,6 +497,7 @@ mod tests {
         assert_eq!(rows.as_array().unwrap().len(), 2);
         assert_eq!(rows[0]["id"], "cover");
         assert_eq!(rows[0]["kind"], "highlight");
+        assert_eq!(rows[0]["fill_policy"], "auto_sampled");
         assert!(rows[0].get("blur_radius").is_none());
         assert_eq!(rows[1]["id"], "blur");
         assert_eq!(rows[1]["kind"], "blur");
@@ -627,9 +642,10 @@ mod tests {
         let mut legacy = serde_json::to_value(&p.data).unwrap();
         for row in legacy["canvas"]["highlights"].as_array_mut().unwrap() {
             row.as_object_mut().unwrap().remove("kind");
+            row.as_object_mut().unwrap().remove("fill_policy");
             row.as_object_mut().unwrap().remove("blur_radius");
         }
-        for key in ["kind", "blur_radius"] {
+        for key in ["kind", "fill_policy", "blur_radius"] {
             legacy["insertion_styles"]["mask"]
                 .as_object_mut()
                 .unwrap()
@@ -640,7 +656,7 @@ mod tests {
             .canvas
             .highlights
             .iter()
-            .all(|h| h.kind == "highlight" && h.blur_radius == 32.0));
+            .all(|h| h.kind == "highlight" && h.fill_policy == "custom" && h.blur_radius == 32.0));
         assert_eq!(
             data.insertion_styles.mask.as_ref().unwrap().kind,
             "highlight"
