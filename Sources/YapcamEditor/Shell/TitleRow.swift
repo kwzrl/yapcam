@@ -42,6 +42,14 @@ struct EditorTitleRow: View {
             SlotButton(symbol: "arrow.uturn.backward", label: "Undo", help: model.canUndo ? "\(model.undoTitle) (⌘Z)" : "Nothing to undo", active: false, enabled: model.canUndo, compact: true) { model.undo() }
             SlotButton(symbol: "arrow.uturn.forward", label: "Redo", help: model.canRedo ? "\(model.redoTitle) (⇧⌘Z)" : "Nothing to redo", active: false, enabled: model.canRedo, compact: true) { model.redo() }
             moreMenu
+            if model.canRecordFromEditor {
+                Button { model.requestNewRecording() } label: {
+                    Circle().fill(Color.red).frame(width: 10, height: 10)
+                }
+                .buttonStyle(CapsuleButtonStyle(.secondary, height: 30)).padding(.leading, 10)
+                .help("New recording (⌘N): shows the recording toolbar")
+                .accessibilityLabel("New recording")
+            }
             Button("Export") { showExport = true }
                 .buttonStyle(CapsuleButtonStyle(.primary, height: 30)).padding(.leading, 10)
                 .disabled(exportRunning)
@@ -86,6 +94,7 @@ struct EditorTitleRow: View {
     private var moreMenu: some View {
         SlotMenu(symbol: "ellipsis", label: "More", help: "More: command palette, Finder, rename, trash") {
             Button("Command Palette…") { model.paletteVisible = true }
+            if model.canShowProjects { Button("Projects…") { model.showProjects() } }
             if let copy = model.copyFrameHandler { Button("Copy Frame") { copy() } }
             Divider()
             Button("Show in Finder") { if let packageURL { NSWorkspace.shared.activateFileViewerSelecting([packageURL]) } }

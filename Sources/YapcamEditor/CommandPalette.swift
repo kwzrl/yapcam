@@ -67,7 +67,7 @@ extension EditorModel {
             PaletteCommand(title: "Toggle snapping", shortcut: "", enabled: true) { [self] in snappingEnabled.toggle() },
         ]
         let musicCommands = project.musicLibrary.map { t in PaletteCommand(title: "Add background music: \(t.name) (\(t.categoryTitle))", shortcut: "", enabled: true) { [self] in addLibraryMusic(trackID: t.id) } }
-        return actions + exportCommands + musicCommands + settingCommands
+        return actions + exportCommands + musicCommands + settingCommands + placeCommands
     }
 
     public func filteredCommands(_ query: String) -> [PaletteCommand] {
