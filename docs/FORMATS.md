@@ -244,7 +244,7 @@ layout/cursor visibility/gain range wins. Highlights draw in array order.
 - Audio range: `{id, track, tl_start_ns, tl_end_ns, start_gain_db, end_gain_db}`.
   IDs unique; track mic/system_audio; gains −96…24 dB. Linear dB interpolation adds
   to global track gain, with mute applied separately.
-- Highlight/mask: `{id, tl_start_ns, tl_end_ns, rect?, space?, kind?, blur_radius?, radius?, opacity?,
+- Highlight/mask: `{id, tl_start_ns, tl_end_ns, rect?, space?, kind?, fill_policy?, blur_radius?, radius?, opacity?,
   dim_opacity?, fill?, stroke?, stroke_width?}`. IDs nonempty and unique;
   `canvas-fade` is reserved. Rect defaults [0.25,0.25,0.5,0.5], normalized with
   positive size inside [0,1]². Space defaults source (follows zoom/crop), or canvas.
@@ -255,6 +255,10 @@ layout/cursor visibility/gain range wins. Highlights draw in array order.
   spotlight. At most 32 intervals may overlap; more fail before applying an edit,
   without truncation. Arbitrarily many non-overlapping intervals are supported.
   `kind` defaults `highlight` (unchanged spotlight/opaque-fill behavior), or `blur`.
+  `fill_policy` defaults `custom`; `auto_sampled` explicitly asks Render to derive
+  the fill from surrounding pixels. `layers_at` always publishes the evaluated
+  policy so Render never guesses it from the stored RGBA value. Older projects
+  missing the field retain `custom` semantics.
   `blur_radius` defaults32, finite0…128 canonical canvas pixels, including0
   (identity Gaussian). It is independent of the rounded-corner `radius` and source
   zoom. Render scales it by output/canvas scale for both preview and export.

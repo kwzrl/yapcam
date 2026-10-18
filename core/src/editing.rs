@@ -91,6 +91,7 @@ pub(crate) fn zoom_style(z: &Zoom) -> ZoomInsertionStyle {
 pub(crate) fn mask_style(h: &Highlight) -> MaskInsertionStyle {
     MaskInsertionStyle {
         kind: h.kind.clone(),
+        fill_policy: h.fill_policy.clone(),
         blur_radius: h.blur_radius,
         radius: h.radius,
         opacity: h.opacity,

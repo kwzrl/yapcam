@@ -202,6 +202,7 @@ settings!(ZoomInsertionStyle {
 });
 settings!(MaskInsertionStyle {
     kind: String = "highlight".into(),
+    fill_policy: String = "custom".into(),
     blur_radius: f64 = 32.0,
     radius: f64 = 12.0,
     opacity: f64 = 1.0,
@@ -433,6 +434,7 @@ settings!(Highlight {
     rect: [f64; 4] = [0.25, 0.25, 0.5, 0.5],
     space: String = "source".into(),
     kind: String = "highlight".into(),
+    fill_policy: String = "custom".into(),
     blur_radius: f64 = 32.0,
     radius: f64 = 12.0,
     opacity: f64 = 1.0,

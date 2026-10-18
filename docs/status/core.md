@@ -1,12 +1,49 @@
-READY R7b 9281d80 + Lead checkpoint needed | R7 corrections + Core requests + remaining P1/small P2: record-time audio handoff, keep-zoomed, typing suppression/per-event disable, keycaps, cursor fades/tilt/cut blend, camera roundness/edge distance, frame-zero/insert-on-cursor zoom | Rust182 PASS/1 intentional ignore; Core Swift93 PASS; MCP12 PASS; fmt + strict Clippy + diff PASS; live/native pixels not verified
+READY R7b 0fcae99 + Lead checkpoint needed (8 paths); JOINT WITH RENDER | revision-4 camera table below is authoritative; MKT-062 explicit fill policy delivered; Render B-17/MKT-101 answered without fabricated bezel metrics | Rust182 PASS/1 intentional ignore; Core Swift93 PASS; release archive + strict Clippy + diff PASS; live/native pixels not verified
+
+## Round 7b — authoritative Core/Render revision-4 camera table (06:15 joint gate)
+
+Render must align to evaluated Core output, not reconstruct geometry. For the
+Render synthetic fixture's 1728×1080 canvas, revision-4 factory values are
+`camera.size=.5`, `camera.position=[1,1]`, square aspect, corner ratio `.15`,
+`edge_distance_ratio=.03`, and zoom camera factor `.6`.
+
+| Case | Authoritative revision-4 result |
+|---|---|
+| Factory overlay, no zoom | `camera_dest=[831.6,183.6,864,864]`; right/bottom are **1695.6×1047.6**, because the short-edge distance is `1080×.03=32.4` (not the stale 54 px / 5% result 1674×1026); corner radius `129.6`. |
+| Factory overlay, active ordinary zoom | `camera_dest=[1177.2,529.2,518.4,518.4]`; factory `.6` multiplies the evaluated camera size and the same 32.4 px edge clamp applies. |
+| CAM-06 isolated saved setting | With size `.22`, aspect `1.6`, position `[.82,.78]`, active zoom, and `camera.zoom_scale=1.5`, the frozen snapshot width is **570.24** (height `356.4`); resetting only the live project to scale `1` produces **380.16×237.6**, while the snapshot remains 570.24. |
+| Fullscreen camera layout | `camera_dest=[0,0,1728,1080]`, centred aspect-fill source crop, screen absent, corner radius `0`, shadow radius `0`. This applies only to revision 4. |
+| Cutout | Geometry corner/edge radius is **0.0**, never the stale `0.4`; factory matte values remain independently `edge_softness=.2`, `edge_inset=0`. Authored matte values pass through exactly. |
+| Layout boundary | Revision 4 interpolates destination/corner/opacity over the centred 350 ms transition. Revisions 0…3 hard-cut. |
+| Frozen revisions 0…3 | Overlay `[1363.2,710.4,422.4,264]`; padded fullscreen `[172.8,48,1574.4,984]`; these remain byte-identical through snapshot/save/reopen. |
+
+Render request answers:
+
+- **MKT-062 accepted and delivered:** persisted highlights now carry
+  `fill_policy:"custom"|"auto_sampled"`; missing legacy values decode as
+  `custom`. `layers_at` always emits `fill_policy`, and typed Swift exposes
+  optional `CoreRenderLayer.FillPolicy` for older-Core compatibility. Render may
+  sample its 4 px exterior ring only for `auto_sampled`; it must never infer the
+  policy from RGBA. Regression coverage is in
+  `blur_masks_share_geometry_order_and_zero_allocation_extras_without_abi_changes`.
+- **B-17/MKT-101 disposition:** existing `canvas.device_frame` is a stable
+  descriptive registry ID, while `capabilities` already reports
+  `device_frame_active`/`external_recording` and the session source kind records
+  external classification. No authoritative bezel-family registry, safe insets,
+  orientation-specific artwork metrics, or corner-radius table was supplied in
+  Round 7. Core will not invent those values from pixel dimensions. Render must
+  keep the device frame absent for an unresolved ID; a typed metrics packet waits
+  for the shared asset registry and is not a blocker for the revision-4 camera
+  geometry above.
 
 
 ## Round 7b — requests, remaining research and polish (2026-10-18)
 
-Completed on Lead checkpoint `9281d80`; Lead must checkpoint the twenty owned
-paths. The earlier CAM-14/CAM-21 legacy gate and 450 ms Ripple correction remain
-in this same working tree. No Editor/Inspector/Render/UI-owned source was edited.
-The user's app was not launched.
+The earlier Round 7b twenty-path package, including the CAM-14/CAM-21 legacy gate
+and 450 ms Ripple correction, is checkpointed in Lead commit `0fcae99`. Lead must
+checkpoint the eight current MKT-062/contract/status paths jointly with Render.
+No Editor/Inspector/Render/UI-owned source was edited. The user's app was not
+launched.
 
 R7 REC-B-06 / MKT-107 | 9281d80 + Lead checkpoint needed | `model::tests::synthetic_session_and_project_roundtrip` + Swift `recordingMicrophoneChoicesReachTypedProjectDefaults` | live: not verified; optional capture `tracks.mic.speech_enhancement`/`stereo_mic` initialize project audio, survive absent legacy fields, and are exposed through typed `recordingAudioDefaults()` for post-preset precedence
 
