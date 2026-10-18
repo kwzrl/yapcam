@@ -100,6 +100,9 @@ import AppKit
         main.items.last?.submenu?.items.dropFirst().prefix(3).forEach { $0.toolTip = "Editor shortcut ⌥⌘S / ⌥⌘C" }
         add("Recording", [
             item("Start Recording", #selector(AppDelegate.toggleRecording)),
+            item("Record Display…", #selector(AppDelegate.pickDisplay)),
+            item("Record Window…", #selector(AppDelegate.pickWindow)),
+            item("Record Area…", #selector(AppDelegate.pickArea)),
             item("Pause Recording", #selector(AppDelegate.togglePause)),
             .separator(),
             item("Add Marker", #selector(AppDelegate.addMarker)),
@@ -130,6 +133,12 @@ import AppKit
         for (title, sel) in [("Start Recording", #selector(AppDelegate.toggleRecording)),
                              ("Pause Recording", #selector(AppDelegate.togglePause)),
                              ("Show Toolbar", #selector(AppDelegate.toggleToolbar))] {
+            let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = target; m.addItem(i)
+        }
+        m.addItem(.separator())
+        for (title, sel) in [("Record Display…", #selector(AppDelegate.pickDisplay)),
+                             ("Record Window…", #selector(AppDelegate.pickWindow)),
+                             ("Record Area…", #selector(AppDelegate.pickArea))] {
             let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = target; m.addItem(i)
         }
         m.addItem(.separator())

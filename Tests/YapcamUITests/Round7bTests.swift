@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import YapcamCapture
@@ -90,5 +91,14 @@ import YapcamCore
         #expect(s.dimAreaOutside)
         s.dimAreaOutside = false; s.resetToDefaults()
         #expect(s.dimAreaOutside)
+    }
+
+    @Test func menuBarMenuStartsADisplayWindowOrAreaRecording() {
+        _ = NSApplication.shared
+        let d = AppDelegate()
+        let titles = MainMenu.statusMenu(target: d).items.map(\.title)
+        #expect(["Record Display…", "Record Window…", "Record Area…"].allSatisfy(titles.contains))
+        let item = NSMenuItem(title: "x", action: #selector(AppDelegate.pickArea), keyEquivalent: "")
+        #expect(d.validateMenuItem(item) == (RecordingController.shared.phase == .idle))
     }
 }
