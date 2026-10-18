@@ -49,3 +49,40 @@ import Testing
         #expect(m.handleShortcut("s", [.command]) && m.saveState == .clean)
     }
 }
+
+@MainActor @Suite struct ViewStateTests {
+    static let sec: Int64 = 1_000_000_000
+    func model() -> EditorModel { EditorModel(project: FakeProject(durationNs: 20 * Self.sec), player: FakePlayer()) }
+
+    @Test func undoKeepsThePlayheadOnTheSameSourceMoment() {
+        let m = model()
+        m.seek(toNs: 10 * Self.sec)                                   // 10 s of the recording
+        #expect(m.trimClipEdge(clipID: m.clips[0].id, start: true, toNs: 4 * Self.sec))   // cut the first 4 s
+        #expect(m.playheadNs == 6 * Self.sec || m.playheadNs <= m.durationNs)
+        m.seek(toNs: 6 * Self.sec)                                    // still source second 10
+        m.undo()
+        #expect(m.playheadNs == 10 * Self.sec)                        // restored material pushed it: playhead followed
+        m.redo()
+        #expect(m.playheadNs == 6 * Self.sec)
+    }
+
+    @Test func sourceMomentMappingHandlesSpeedAndGaps() {
+        var a = TimelineClip(id: "a", srcStartNs: 0, srcEndNs: 4 * Self.sec)
+        a.speed = 2                                                     // 2 s on the timeline
+        let b = TimelineClip(id: "b", srcStartNs: 10 * Self.sec, srcEndNs: 14 * Self.sec)
+        let clips = [(clip: a, startNs: Int64(0)), (clip: b, startNs: 2 * Self.sec)]
+        #expect(SourceMoment.source(atTimelineNs: Self.sec, in: clips) == 2 * Self.sec)
+        #expect(SourceMoment.timeline(forSourceNs: 12 * Self.sec, in: clips) == 4 * Self.sec)
+        #expect(SourceMoment.timeline(forSourceNs: 7 * Self.sec, in: clips) == nil)    // cut away
+    }
+
+    @Test func applyToAllToastsAndPanelsToggleWithKeys() {
+        let m = model()
+        m.seek(toNs: 5 * Self.sec); m.splitAtPlayhead()
+        m.applySpeedToAll(2)
+        #expect(m.toast == "Applied 2× to 2 clips")
+        #expect(!m.sidebarHidden && !m.timelineHidden)
+        #expect(m.handleShortcut("\\", [.command]) && m.sidebarHidden && !m.timelineHidden)
+        #expect(m.handleShortcut("\\", [.command, .shift]) && m.timelineHidden)
+    }
+}

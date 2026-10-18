@@ -173,6 +173,19 @@ public final class EditorModel: ObservableObject {
     public var zooms: [TimelineZoom] { project.zooms }
     public var durationNs: Int64 { project.durationNs }
     var undoNames = UndoNames()
+    /// Short confirmation under the preview ("Applied 2× to 4 clips"); clears itself after `Toast.duration`.
+    @Published public internal(set) var toast: String?
+    private var toastTask: Task<Void, Never>?
+    /// MKT-182: hide the inspector or the timeline panel (⌘\ / ⇧⌘\) to give the preview the room.
+    @Published public var sidebarHidden = false
+    @Published public var timelineHidden = false
+    func showToast(_ text: String) {
+        toast = text; toastTask?.cancel()
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Toast.duration))
+            if !Task.isCancelled { self?.toast = nil }
+        }
+    }
     /// "Undo Trim Clip" / "Undo" — for the toolbar tooltip and accessibility label.
     public var undoTitle: String { undoNames.undoTitle }
     public var redoTitle: String { undoNames.redoTitle }
@@ -544,11 +557,13 @@ public final class EditorModel: ObservableObject {
 
     public func undo() {
         guard !isClosed, canUndo else { return }
-        do { try project.undo(); didEdit(history: true); undoNames.undone(); selection = .none } catch { lastError = error.localizedDescription }
+        let moment = SourceMoment.source(atTimelineNs: playheadNs, in: clipStarts())
+        do { try project.undo(); didEdit(history: true); followSourceMoment(moment); undoNames.undone(); selection = .none } catch { lastError = error.localizedDescription }
     }
     public func redo() {
         guard !isClosed, canRedo else { return }
-        do { try project.redo(); didEdit(history: true); undoNames.redone() } catch { lastError = error.localizedDescription }
+        let moment = SourceMoment.source(atTimelineNs: playheadNs, in: clipStarts())
+        do { try project.redo(); didEdit(history: true); followSourceMoment(moment); undoNames.redone() } catch { lastError = error.localizedDescription }
     }
 
     public func setSpeed(clipID: String, _ speed: Double) {

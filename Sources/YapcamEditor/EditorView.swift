@@ -49,14 +49,18 @@ public struct EditorContent<Preview: View>: View {
                                 .overlay(alignment: .topLeading) { floatingChat(narrow: narrow) }
                         }
                         DockSeparator(axis: .horizontal)
-                        BottomPanelView(model: model, topHairline: false)
-                            .frame(height: BottomPanelView.preferredHeight(model: model, windowHeight: geo.size.height))
+                        if !model.timelineHidden {
+                            BottomPanelView(model: model, topHairline: false)
+                                .frame(height: BottomPanelView.preferredHeight(model: model, windowHeight: geo.size.height))
+                        }
                     }
-                    DockSeparator()
-                    InspectorView(model: model, initialSection: initialSection)
-                        .frame(width: Self.inspectorWidth)
-                        .frame(maxHeight: .infinity)
-                        .background(Yap.dock)
+                    if !model.sidebarHidden {
+                        DockSeparator()
+                        InspectorView(model: model, initialSection: initialSection)
+                            .frame(width: Self.inspectorWidth)
+                            .frame(maxHeight: .infinity)
+                            .background(Yap.dock)
+                    }
                 }
             }
         }
@@ -69,6 +73,16 @@ public struct EditorContent<Preview: View>: View {
         .focusable()
         .focusEffectDisabled()
         .onKeyPress(phases: .down) { press in handleKey(press) }
+        .overlay(alignment: .bottom) {
+            if let t = model.toast {
+                Text(t).font(Yap.Font.body).foregroundStyle(Yap.title)
+                    .padding(.horizontal, 14).padding(.vertical, 7)
+                    .background(Capsule().fill(Yap.dock)).overlay(Capsule().strokeBorder(Yap.hairline, lineWidth: 1))
+                    .padding(.bottom, 24).transition(.opacity).allowsHitTesting(false)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: model.toast)
         .sheet(isPresented: $model.paletteVisible) { CommandPaletteView(model: model) }
         .sheet(isPresented: $showExport) { ExportSheet(export: export, suggestedName: title) }
         .alert("Something went wrong", isPresented: Binding(get: { model.lastError != nil }, set: { if !$0 { model.lastError = nil } })) {

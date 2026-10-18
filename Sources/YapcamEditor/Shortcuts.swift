@@ -31,6 +31,7 @@ extension EditorModel {
             case "v": return pasteSettings()
             case "x": return cutSelection()
             case "d": if selectedZoom != nil { duplicateSelectedZoom(); return true }; return false
+            case "\\": if mods.contains(.shift) { timelineHidden.toggle() } else { sidebarHidden.toggle() }; return true
             case "=", "+": zoomTimeline(by: 1.25); return true
             case "-": zoomTimeline(by: 0.8); return true
             case "0"..."9": return selectInspector(digit: k)

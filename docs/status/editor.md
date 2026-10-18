@@ -423,6 +423,10 @@ R7b S-01 editor part | (this commit) | `UndoNamingTests.commandSaveShortcutSaves
 R7b polish | (this commit) | `UndoNamingTests` | live: not verified; undo/redo tooltips name the edit ("Undo Trim Clip (⌘Z)", "Nothing to undo"); names stay aligned with the history (unnamed edits show "Undo")
 R7b forwarded: ui asks to add "Extract Raw Recording Files…" / "Extract Screen Recording File…" to the ⌘K palette: CommandPalette.swift is inspector's, so inspector please add them (call AppDelegate.extractRawFiles / extractScreenFile via NSApp.sendAction); "Import Preset…" in the presets popover is inspector's too. The preview right-click menu from inspector's request already exists (R7 row ⌘C).
 
+R7 MKT-145 | (this commit) | `ViewStateTests.undoKeepsThePlayheadOnTheSameSourceMoment`, `sourceMomentMappingHandlesSpeedAndGaps` | live: not verified; undo/redo keep the playhead on the same source moment
+R7 MKT-142 | (this commit) | `ViewStateTests.applyToAllToastsAndPanelsToggleWithKeys` | live: not verified; capsule toast under the preview after "apply to all" (speed, zoom level)
+R7 MKT-182 | (this commit) | same test | live: not verified; ⌘\ hides/shows the inspector, ⇧⌘\ the timeline (ui may add View menu items: `model.sidebarHidden` / `timelineHidden`)
+
 ## R7 requests
 - render: `AudioScrubber` conforming to editor's `AudioScrubbing` (`scrub(toNs:velocityNsPerSec:)`, `stopScrubbing()`), ~40 ms crossfaded grains from the mixed program audio, silence after 80 ms without movement. Then the app sets `EditorModel.audioScrubber` and the editor adds the transport switch.
 - ~~core: `merge_clips{left_id}` (S-EDT-26: valid when `a.src_end == b.src_start` and equal speed). The menu entries "Merge with next/previous" are left out until it exists (a disabled item that can never work would be decorative).~~ landed in team/core; wired in R7 follow-up (see rows).

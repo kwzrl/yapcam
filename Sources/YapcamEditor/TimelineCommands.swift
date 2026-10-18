@@ -29,6 +29,7 @@ extension EditorModel {
     public func applySpeedToAll(_ speed: Double) {
         let s = min(max(speed, 0.05), 32)
         perform(.batch(clips.map { .setSpeed(clipID: $0.id, speed: s) }))
+        showToast(Toast.appliedToAll(speed: s, count: clips.count))
     }
 
     /// Volume of the target clip's microphone or system audio in 0…100 % (0 mutes), stored as a linear amplitude on the clip.
@@ -122,6 +123,7 @@ extension EditorModel {
     public func applyZoomLevelToAll() {
         guard let z = selectedZoom else { return }
         perform(.batch(zooms.filter { $0.id != z.id }.map { .updateZoom(id: $0.id, startNs: nil, endNs: nil, scale: z.scale, focusX: nil, focusY: nil) }))
+        showToast(Toast.appliedToAll(zoomLevel: z.scale, count: zooms.count - 1))
     }
 
     // MARK: copy / paste settings (⌘C, ⌘V)
