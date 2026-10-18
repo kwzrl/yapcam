@@ -92,6 +92,7 @@ struct RecordingSettings: View {
                 }
             }
             if let free = freeSpace { LabeledContent("Free space", value: ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) }
+            Toggle("Dim the screen outside the area while choosing it", isOn: $s.dimAreaOutside)
             Toggle("Highlight recorded area during recording", isOn: $s.highlightRecordedArea)
             Toggle("Create zooms automatically", isOn: $s.createAutoZooms)
             Toggle("Show recording widget", isOn: $s.showRecordingWidget)

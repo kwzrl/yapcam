@@ -79,4 +79,16 @@ import YapcamCore
         #expect(store.object(forKey: "cameraPreviewOrigin") == nil)
         #expect(store.object(forKey: "playSounds") != nil)         // other settings stay
     }
+
+    @Test func areaGuidesReadoutAndDimming() {
+        let g = AreaGeometry.guides(in: CGRect(x: 100, y: 50, width: 400, height: 200))
+        #expect(g.xs == [200, 300, 400] && g.ys == [100, 150, 200])
+        #expect(AreaGeometry.readout(CGRect(x: 0, y: 0, width: 640, height: 360), max: CGSize(width: 1512, height: 982)) == "640 × 360 · max 1512 × 982")
+        #expect(AreaGeometry.dimAlpha(dimOutside: true) == 0.45)
+        #expect(AreaGeometry.dimAlpha(dimOutside: false) < 0.05)      // still catches the mouse
+        let s = AppSettings(store: UserDefaults(suiteName: "r7b-dim-\(UUID())")!)
+        #expect(s.dimAreaOutside)
+        s.dimAreaOutside = false; s.resetToDefaults()
+        #expect(s.dimAreaOutside)
+    }
 }
