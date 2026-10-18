@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 public struct PaletteCommand: Identifiable {
@@ -50,6 +51,8 @@ extension EditorModel {
             PaletteCommand(title: "Keyboard shortcuts", shortcut: "⌘/", enabled: true) { ShortcutsGuide.show() },
             PaletteCommand(title: "Crop recording…", shortcut: "", enabled: true) { [self] in cropRequested = true },
             PaletteCommand(title: "Export current frame as image…", shortcut: "", enabled: canExportFrame) { [self] in exportCurrentFrame() },
+            PaletteCommand(title: "Extract raw recording files…", shortcut: "", enabled: true) { NSApp.sendAction(Selector(("extractRawFiles")), to: nil, from: nil) },
+            PaletteCommand(title: "Extract screen recording file…", shortcut: "", enabled: true) { NSApp.sendAction(Selector(("extractScreenFile")), to: nil, from: nil) },
             PaletteCommand(title: "Undo", shortcut: "⌘Z", enabled: canUndo) { [self] in undo() },
             PaletteCommand(title: "Redo", shortcut: "⇧⌘Z", enabled: canRedo) { [self] in redo() },
             PaletteCommand(title: "Zoom timeline in", shortcut: "⌘=", enabled: true) { [self] in zoomTimeline(by: 1.25) },

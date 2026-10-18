@@ -859,4 +859,18 @@ import YapcamCore
         #expect(result == .needsReplace && after == Data("old".utf8))
         #expect(m.createPreset(named: "Demo", replace: true) == .created)
     }
+
+    /// Import Preset… (S-11) adds the file to the library without replacing an existing preset of the same name.
+    @Test func importingAPresetFileKeepsExistingPresets() throws {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = EditorModel(project: FakeProject(), player: FakePlayer()); m.presetStore = iso.store; m.defaults = iso.defaults
+        #expect(m.createPreset(named: "Look") == .created)
+        let original = try Data(contentsOf: iso.store.url("Look"))
+        let outside = FileManager.default.temporaryDirectory.appendingPathComponent("imp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: outside) }
+        let file = outside.appendingPathComponent("Look.yapcampreset"); try Data("{}".utf8).write(to: file)
+        let name = m.importPresetFile(file)
+        #expect(name == "Look 2" && iso.store.names().contains("Look 2"))
+        #expect(try Data(contentsOf: iso.store.url("Look")) == original)
+    }
 }
