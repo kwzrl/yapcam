@@ -71,6 +71,30 @@ public struct TimeSpan: Equatable, Sendable { public var startNs: Int64; public 
 }
 
 /// Edit commands; the encoding follows docs/FORMATS.md.
+extension EditorCommand {
+    /// The menu/tooltip name of the edit ("Undo Trim Clip"). nil = generic.
+    var undoName: String? {
+        switch self {
+        case .split: "Split Clip"
+        case .deleteRange: "Delete Range"
+        case .setSpeed: "Change Speed"
+        case .setClipSettings: "Change Clip Settings"
+        case .addZoom, .insertZoom, .insertZoomWith: "Add Zoom"
+        case .updateZoom, .setZoomLens: "Edit Zoom"
+        case .removeZoom: "Remove Zoom"
+        case .insertSource: "Restore Cut"
+        case .restoreClipEdge: "Trim Clip"
+        case .mergeClips: "Merge Clips"
+        case .autoZooms: "Auto Zooms"
+        case .autoSpeedTyping, .applyTypingSuggestion, .dismissTypingSuggestion, .restoreTypingSuggestions: "Typing Speed"
+        case .processSilence: "Silence"
+        case .coalesced(_, let inner): inner.undoName
+        case .batch(let cs): Set(cs.compactMap(\.undoName)).count == 1 ? cs.compactMap(\.undoName).first : nil
+        case .set: nil
+        }
+    }
+}
+
 public enum EditorCommand: Equatable, Sendable {
     case split(atNs: Int64)
     case deleteRange(startNs: Int64, endNs: Int64)

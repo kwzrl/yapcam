@@ -19,7 +19,11 @@ extension EditorModel {
             switch k {
             case "k": paletteVisible = true; return true
             case "e": if mods.contains(.shift) { performExport(.picker); return true }; return false
-            case "s": if mods.contains(.option) { performExport(.saveToFile); return true }; return false
+            case "s":
+                if mods.contains(.option) { performExport(.saveToFile); return true }
+                if mods.contains(.shift) { return false }
+                saveNow(); return true                  // ⌘S: save now (S-01); autosave still runs
+
             case "c":
                 if mods.contains(.option) { performExport(.copyToClipboard); return true }
                 copyFrameHandler?()                  // ⌘C always copies the frame; item settings are copied from the context menus (S-EDT-60)

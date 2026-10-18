@@ -172,6 +172,10 @@ public final class EditorModel: ObservableObject {
     public var clips: [TimelineClip] { project.clips }
     public var zooms: [TimelineZoom] { project.zooms }
     public var durationNs: Int64 { project.durationNs }
+    var undoNames = UndoNames()
+    /// "Undo Trim Clip" / "Undo" — for the toolbar tooltip and accessibility label.
+    public var undoTitle: String { undoNames.undoTitle }
+    public var redoTitle: String { undoNames.redoTitle }
     public var canUndo: Bool { project.canUndo }
     public var canRedo: Bool { project.canRedo }
     public var settings: JSONValue { project.settings }
@@ -399,12 +403,14 @@ public final class EditorModel: ObservableObject {
         do {
             try project.apply(command)
             didEdit(visualOnly: command.isVisualOnly)
+            undoNames.name(command.undoName, coalesceKey: { if case .coalesced(let k, _) = command { k } else { nil } }(), now: Date())
         } catch {
             lastError = error.localizedDescription
         }
     }
 
-    private func didEdit(visualOnly: Bool = false) {
+    private func didEdit(visualOnly: Bool = false, history: Bool = false) {
+        if !history { undoNames.pushUnnamed() }              // `perform` names it right after; other edits stay unnamed
         revision += 1
         applySpeechToPlayer()
         if case .found = silenceState { silenceState = .idle }   // stale after any edit
@@ -538,11 +544,11 @@ public final class EditorModel: ObservableObject {
 
     public func undo() {
         guard !isClosed, canUndo else { return }
-        do { try project.undo(); didEdit(); selection = .none } catch { lastError = error.localizedDescription }
+        do { try project.undo(); didEdit(history: true); undoNames.undone(); selection = .none } catch { lastError = error.localizedDescription }
     }
     public func redo() {
         guard !isClosed, canRedo else { return }
-        do { try project.redo(); didEdit() } catch { lastError = error.localizedDescription }
+        do { try project.redo(); didEdit(history: true); undoNames.redone() } catch { lastError = error.localizedDescription }
     }
 
     public func setSpeed(clipID: String, _ speed: Double) {

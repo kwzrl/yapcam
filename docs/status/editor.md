@@ -418,6 +418,11 @@ R7 S-EDT-31 audio scrubbing | AudioScrubWiringTests (velocity, switch, stop) | B
 R7 S-EDT-26 | (this commit) | `ClipTrimTests.mergeMenuEntriesNeedAContiguousNeighbourAndMergeOneUndoStep` | live: not verified; Merge with Next/Previous Clip in the clip menu (disabled unless contiguous), previous keeps the right clip's settings, one undo step
 R7 S-EDT-23 core part | (this commit) | `ClipTrimTests.growingRestoresOnlyWhatWasCutAwayNextToTheEdge` | live: not verified; edge-drag growth now commits core `restore_clip_edge` (same clip, settings kept) instead of a new adjacent clip
 
+R7b inspector request | (this commit) | `TranscriptKeyTests` | live: not verified; transcript word chips: double-click / Return on one selected word / context menu "Correct Word…" edits inline (Return applies via `applyWordEdits`, Esc cancels), ⌘⌫ hides the selected words from captions only (`hideWords`), ⌫ still cuts
+R7b S-01 editor part | (this commit) | `UndoNamingTests.commandSaveShortcutSavesNow` | live: not verified; ⌘S in the editor saves now
+R7b polish | (this commit) | `UndoNamingTests` | live: not verified; undo/redo tooltips name the edit ("Undo Trim Clip (⌘Z)", "Nothing to undo"); names stay aligned with the history (unnamed edits show "Undo")
+R7b forwarded: ui asks to add "Extract Raw Recording Files…" / "Extract Screen Recording File…" to the ⌘K palette: CommandPalette.swift is inspector's, so inspector please add them (call AppDelegate.extractRawFiles / extractScreenFile via NSApp.sendAction); "Import Preset…" in the presets popover is inspector's too. The preview right-click menu from inspector's request already exists (R7 row ⌘C).
+
 ## R7 requests
 - render: `AudioScrubber` conforming to editor's `AudioScrubbing` (`scrub(toNs:velocityNsPerSec:)`, `stopScrubbing()`), ~40 ms crossfaded grains from the mixed program audio, silence after 80 ms without movement. Then the app sets `EditorModel.audioScrubber` and the editor adds the transport switch.
 - ~~core: `merge_clips{left_id}` (S-EDT-26: valid when `a.src_end == b.src_start` and equal speed). The menu entries "Merge with next/previous" are left out until it exists (a disabled item that can never work would be decorative).~~ landed in team/core; wired in R7 follow-up (see rows).

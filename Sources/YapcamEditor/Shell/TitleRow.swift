@@ -39,8 +39,8 @@ struct EditorTitleRow: View {
             }
             Spacer(minLength: 12)
             PresetsMenu(model: model)
-            SlotButton(symbol: "arrow.uturn.backward", label: "Undo", help: "Undo (⌘Z)", active: false, enabled: model.canUndo, compact: true) { model.undo() }
-            SlotButton(symbol: "arrow.uturn.forward", label: "Redo", help: "Redo (⇧⌘Z)", active: false, enabled: model.canRedo, compact: true) { model.redo() }
+            SlotButton(symbol: "arrow.uturn.backward", label: "Undo", help: model.canUndo ? "\(model.undoTitle) (⌘Z)" : "Nothing to undo", active: false, enabled: model.canUndo, compact: true) { model.undo() }
+            SlotButton(symbol: "arrow.uturn.forward", label: "Redo", help: model.canRedo ? "\(model.redoTitle) (⇧⌘Z)" : "Nothing to redo", active: false, enabled: model.canRedo, compact: true) { model.redo() }
             moreMenu
             Button("Export") { showExport = true }
                 .buttonStyle(CapsuleButtonStyle(.primary, height: 30)).padding(.leading, 10)

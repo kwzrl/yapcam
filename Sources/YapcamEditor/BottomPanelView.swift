@@ -84,6 +84,7 @@ struct TranscriptBottomView: View {
     @ObservedObject var model: EditorModel
     @Binding var selection: Set<String>
     @State private var anchor: String?
+    @State private var editing: String?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -103,7 +104,7 @@ struct TranscriptBottomView: View {
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 10) {
                 ForEach(TranscriptParagraphs.group(words), id: \.first!.id) { p in
-                    TranscriptParagraphRow(model: model, words: p, filler: filler, selection: selection) { id, extend, toggle in
+                    TranscriptParagraphRow(model: model, words: p, filler: filler, selection: selection, editing: $editing) { id, extend, toggle in
                         var s = TranscriptSelection(ids: selection, anchor: anchor)
                         s.click(id, in: order, extend: extend, toggle: toggle)
                         selection = s.ids; anchor = s.anchor; focused = true
@@ -115,10 +116,17 @@ struct TranscriptBottomView: View {
         }
         .scrollIndicators(.automatic)
         .focusable().focusEffectDisabled().focused($focused)
-        .onKeyPress(keys: [.delete, .deleteForward]) { _ in
-            guard !selection.isEmpty else { return .ignored }
-            model.deleteWords(ids: selection); selection = []
+        .onKeyPress(keys: [.delete, .deleteForward]) { press in
+            switch TranscriptKey.deleteAction(command: press.modifiers.contains(.command), selection: selection) {
+            case .none: return .ignored
+            case .cut: model.deleteWords(ids: selection); selection = []
+            case .hide: model.hideWords(ids: selection)     // captions only; the video keeps the words
+            }
             return .handled
+        }
+        .onKeyPress(.return) {
+            guard let id = TranscriptKey.editTarget(selection: selection) else { return .ignored }
+            editing = id; return .handled
         }
         .onKeyPress(.escape) {
             guard !selection.isEmpty else { return .ignored }
@@ -153,6 +161,7 @@ private struct TranscriptParagraphRow: View {
     let words: [TextItem]
     let filler: Set<String>
     let selection: Set<String>
+    @Binding var editing: String?
     let click: (String, _ extend: Bool, _ toggle: Bool) -> Void
 
     var body: some View {
@@ -164,7 +173,7 @@ private struct TranscriptParagraphRow: View {
             .help("Jump to \(formatTimecode(words[0].startNs))")
             WordFlow {
                 ForEach(words) { w in
-                    WordChip(model: model, word: w, filler: isFiller(w), selected: selection.contains(w.id), click: click)
+                    WordChip(model: model, word: w, filler: isFiller(w), selected: selection.contains(w.id), editing: $editing, click: click)
                 }
             }
         }
@@ -180,12 +189,33 @@ private struct WordChip: View {
     let word: TextItem
     let filler: Bool
     let selected: Bool
+    @Binding var editing: String?
     let click: (String, _ extend: Bool, _ toggle: Bool) -> Void
     @State private var hover = false
+    @State private var draft = ""
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
+        if editing == word.id { editor } else { chip }
+    }
+
+    /// Inline correction (MKT-037): Return applies as one undo step (the video is not cut), Esc cancels.
+    private var editor: some View {
+        TextField("", text: $draft)
+            .textFieldStyle(.plain).font(.system(size: 14)).foregroundStyle(Yap.label)
+            .frame(width: max(24, CGFloat(draft.count) * 8 + 10))
+            .padding(.horizontal, 2).padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(Color.white.opacity(0.16)))
+            .focused($fieldFocused)
+            .onAppear { draft = word.text; fieldFocused = true }
+            .onSubmit { model.applyWordEdits(EditorModel.wordEdits(old: [word], newText: draft)); editing = nil }
+            .onExitCommand { editing = nil }
+            .accessibilityLabel("Correct word \(word.text)")
+    }
+
+    private var chip: some View {
         let hidden = word.opacity <= 0
-        Text(word.text)
+        return Text(word.text)
             .font(.system(size: 14))
             .foregroundStyle(hidden ? Yap.faint : (filler ? Yap.caption : Yap.label))
             .strikethrough(hidden, color: Yap.faint)
@@ -195,11 +225,13 @@ private struct WordChip: View {
                 .fill(Color.white.opacity(selected ? 0.24 : (hover ? 0.08 : 0))))
             .contentShape(Rectangle())
             .onHover { on in withAnimation(Yap.Motion.hover(on)) { hover = on } }
+            .onTapGesture(count: 2) { editing = word.id }
             .onTapGesture {
                 let f = NSEvent.modifierFlags
                 click(word.id, f.contains(.shift), f.contains(.command))
             }
             .contextMenu {
+                Button("Correct Word…") { editing = word.id }
                 Button("Cut from video") { model.deleteWords(ids: [word.id]) }
                 Button(hidden ? "Show in captions" : "Hide from captions") {
                     if hidden { model.unhideWord(id: word.id) } else { model.hideWord(id: word.id) }
@@ -211,6 +243,15 @@ private struct WordChip: View {
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction(named: "Cut from video") { model.deleteWords(ids: [word.id]) }
     }
+}
+
+/// Pure key decisions of the transcript list.
+enum TranscriptKey {
+    enum Delete: Equatable { case none, cut, hide }
+    /// ⌫ cuts the selected words from the video; ⌘⌫ only hides them from the captions.
+    static func deleteAction(command: Bool, selection: Set<String>) -> Delete { selection.isEmpty ? .none : (command ? .hide : .cut) }
+    /// Return starts correcting a word when exactly one is selected.
+    static func editTarget(selection: Set<String>) -> String? { selection.count == 1 ? selection.first : nil }
 }
 
 /// Lays words out in lines like text.
