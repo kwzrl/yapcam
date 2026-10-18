@@ -18,6 +18,12 @@ import AppKit
             i.target = target
             return i
         }
+        func openRecentItem() -> NSMenuItem {
+            let host = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+            let m = NSMenu(title: "Open Recent"); m.delegate = OpenRecentMenuDelegate.shared
+            host.submenu = m
+            return host
+        }
         func afterRecordingItem() -> NSMenuItem {
             let host = NSMenuItem(title: "After Recording", action: nil, keyEquivalent: "")
             let m = AfterRecordingMenu.populated(); m.delegate = AfterRecordingMenu.mainMenuDelegate
@@ -46,14 +52,19 @@ import AppKit
         ])
         add("File", [
             item("Open Recording…", #selector(AppDelegate.openProject), "o"),
+            openRecentItem(),
             item("Import Video…", #selector(AppDelegate.importVideo), "i"),
+            item("Import Preset…", #selector(AppDelegate.importPreset)),
             item("Recover Recording…", #selector(AppDelegate.recoverRecording)),
             item("Recordings…", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
             .separator(),
+            item("Save", #selector(AppDelegate.saveProject), "s"),
             item("Save As…", #selector(AppDelegate.saveProjectAs), "s", mods: [.command, .shift]),
             item("Rename Project…", #selector(AppDelegate.renameProject)),
             item("Show Project in Finder", #selector(AppDelegate.showProjectInFinder)),
+            item("Extract Raw Recording Files…", #selector(AppDelegate.extractRawFiles)),
+            item("Extract Screen Recording File…", #selector(AppDelegate.extractScreenFile)),
             item("Copy and Zip Project", #selector(AppDelegate.copyAndZipProject)),
             item("Move to Trash…", #selector(AppDelegate.moveProjectToTrash)),
             .separator(),
@@ -75,6 +86,18 @@ import AppKit
         let presets = NSMenuItem(title: "Presets", action: nil, keyEquivalent: "")
         presets.submenu = PresetsMenuController.shared.menu
         main.addItem(presets)
+        // ⌥⌘S / ⌥⌘C are also the Quick Export defaults: the editor answers them itself, so only ⇧⌘E carries a key here.
+        let exportEditor: (String, Selector, String) -> NSMenuItem = { t, s, k in item(t, s, k, mods: [.command, .shift]) }
+        add("Export", [
+            exportEditor("Export…", #selector(AppDelegate.exportPicker), "e"),
+            item("Export to File…", #selector(AppDelegate.exportToFile)),
+            item("Copy to Clipboard", #selector(AppDelegate.exportCopy)),
+            item("Recent Clipboard Copies", #selector(AppDelegate.exportHistory)),
+            .separator(),
+            shortcutItem("Quick Export: Copy to Clipboard", #selector(AppDelegate.quickExportCopy), .quickExportCopy),
+            shortcutItem("Quick Export: Save to File…", #selector(AppDelegate.quickExportSave), .quickExportSave),
+        ])
+        main.items.last?.submenu?.items.dropFirst().prefix(3).forEach { $0.toolTip = "Editor shortcut ⌥⌘S / ⌥⌘C" }
         add("Recording", [
             item("Start Recording", #selector(AppDelegate.toggleRecording)),
             item("Pause Recording", #selector(AppDelegate.togglePause)),
@@ -88,8 +111,6 @@ import AppKit
             item("Show Toolbar", #selector(AppDelegate.toggleToolbar)),
             .separator(),
             shortcutItem("Open Last Recording", #selector(AppDelegate.openLastRecording), .openLast),
-            shortcutItem("Quick Export: Copy to Clipboard", #selector(AppDelegate.quickExportCopy), .quickExportCopy),
-            shortcutItem("Quick Export: Save to File…", #selector(AppDelegate.quickExportSave), .quickExportSave),
         ])
         add("Help", [
             item("Third-Party Notices", #selector(AppDelegate.showThirdPartyNotices)),

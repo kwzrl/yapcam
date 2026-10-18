@@ -18,7 +18,7 @@ import Testing
         #expect(s.playSounds)                        // begin / end sound: on
         #expect(s.showQuickExportWidget)             // after recording: quick export widget on
         #expect(s.showRecordingWidget && s.createAutoZooms && s.highlightRecordedArea)
-        #expect(!s.hideDesktopIcons && s.countdown == 0 && s.autosaveEnabled && !s.reuseLastProjectSettings)
+        #expect(!s.hideDesktopIcons && s.countdown == 0 && s.autosaveEnabled && s.reuseLastProjectSettings)
     }
 
     @Test func savedChoicesSurviveTheNewDefaults() {
@@ -106,7 +106,7 @@ import Testing
 
 @Suite struct Round5PrompterTests {
     @Test func rangesMatchTheReference() {
-        #expect(PrompterRanges.speed == 0...25 && PrompterRanges.opacity == 0.4...1 && PrompterRanges.font == 12...32)
+        #expect(PrompterRanges.speed == 1...25 && PrompterRanges.opacity == 0.4...1 && PrompterRanges.font == 12...32)
         #expect(PrompterRanges.font.contains(PrompterRanges.fontDefault))
     }
     @Test func oldSavedFontSizesAreClamped() {
@@ -218,7 +218,7 @@ import Testing
     }
 
     @Test func cardsRender() {
-        renderView(ZStack { Color.gray; SourceCard(symbol: "display", title: "Built-in Retina Display", subtitle: "3024×1964 • 120 FPS", start: {}) }, name: "card-display", width: 420, height: 220)
+        renderView(ZStack { Color.gray; SourceCard(symbol: "display", title: "Built-in Retina Display", subtitle: "1512×982 • 120 FPS", start: {}) }, name: "card-display", width: 420, height: 220)
         renderView(ZStack { Color.gray; SourceCard(symbol: "macwindow", title: "Logic Pro", subtitle: "1277 × 861", start: {}, icon: NSImage(systemSymbolName: "music.note", accessibilityDescription: nil), sizeExtras: { AnyView(Button("Resize") {}.controlSize(.small)) }) }, name: "card-window", width: 420, height: 220)
     }
 
@@ -334,7 +334,7 @@ import Testing
     }
     @Test func cardDetailReadsLikeTheReference() {
         let d = DisplayInfo(id: 1, name: "Built-in", frame: CGRect(x: 0, y: 0, width: 1512, height: 982), scale: 2)
-        #expect(d.detail.hasPrefix("3024×1964 • ") && d.detail.hasSuffix(" FPS"))
+        #expect(d.detail.hasPrefix("1512×982 • ") && d.detail.hasSuffix(" FPS") && d.pixelDetail == "3024×1964 pixels")
     }
 }
 
@@ -383,12 +383,12 @@ import Testing
 }
 
 @MainActor @Suite struct Round5CameraPreviewTests {
-    @Test func previewShowsOnlyWhileTheIdleBarHasAUsableCamera() {
+    @Test func previewShowsWhileTheBarIsUpOrATakeRuns() {
         func show(bar: Bool = true, phase: RecordingPhase = .idle, id: String? = "cam", available: Bool = true, granted: Bool = true, hidden: Bool = false) -> Bool {
             CameraPreviewPanel.shouldShow(barVisible: bar, phase: phase, cameraID: id, cameraAvailable: available, permissionGranted: granted, hidden: hidden)
         }
         #expect(show())
-        #expect(!show(bar: false) && !show(phase: .recording) && !show(id: nil) && !show(available: false) && !show(granted: false) && !show(hidden: true))
+        #expect(!show(bar: false) && !show(phase: .finishing) && !show(id: nil) && !show(available: false) && !show(granted: false) && !show(hidden: true))
     }
 }
 

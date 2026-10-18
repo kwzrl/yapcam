@@ -7,7 +7,7 @@ import SwiftUI
 @MainActor enum UISnapshot {
     static let expectedNames: [String] = {
         var n = ["welcome-to-yapcam", "yapcam-settings", "popover-audio", "popover-mic", "popover-camera",
-                 "popover-notes", "teleprompter", "overlay-display", "overlay-window", "get-ready", "quick-export-widget", "popover-after-recording", "popover-recents",
+                 "popover-notes", "overlay-display", "overlay-window", "get-ready", "quick-export-widget", "popover-after-recording", "popover-recents",
                  "recordings", "area-overlay", "settings-general", "settings-recording", "settings-shortcuts",
                  "settings-editing", "settings-quick-export", "settings-advanced"]
         n += ["idle", "countdown", "recording", "paused"].map { "toolbar-\($0)" }
@@ -108,8 +108,7 @@ import SwiftUI
         out.append(("popover-audio", { host(SystemAudioPopover(), width: 260) }))
         out.append(("popover-mic", { host(MicrophonePopover(), width: 280) }))
         out.append(("popover-camera", { host(CameraPopover(), width: 280) }))
-        out.append(("teleprompter", { host(TeleprompterView(close: {}).environmentObject(RecordingController.shared).frame(height: 240), width: 520) }))
-        out.append(("popover-notes", { host(NotesPopover().environmentObject(RecordingController.shared), width: 300) }))
+        out.append(("popover-notes", { host(SpeakerNotesView().environmentObject(RecordingController.shared), width: 360) }))
         out.append(("recordings", { host(RecentProjectsView(model: RecentProjectsWindow.shared.model).frame(height: 300), width: 560) }))
         out.append(("settings-general", { host(GeneralSettings().frame(height: 380), width: 520) }))
         out.append(("settings-recording", { host(RecordingSettings().frame(height: 380), width: 520) }))

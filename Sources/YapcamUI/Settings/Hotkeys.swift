@@ -9,7 +9,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .startStop: "Start / finish recording"
+        case .startStop: "Open the picker, or finish recording"
         case .recordDisplay: "Record display"
         case .recordWindow: "Record window"
         case .recordArea: "Record area"
@@ -17,7 +17,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .restart: "Restart recording"
         case .marker: "Add marker"
         case .toggleWidget: "Show / hide toolbar"
-        case .prompterPlay: "Teleprompter play / pause"
+        case .prompterPlay: "Speaker notes: play / pause"
         case .toggleNotes: "Show / hide speaker notes"
         case .cancel: "Cancel recording"
         case .quickExportCopy: "Quick export: copy to clipboard"
@@ -29,7 +29,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     /// Registered system-wide (works while another app is in front). The others are menu shortcuts.
     var isGlobal: Bool {
         switch self {
-        case .toggleNotes, .quickExportCopy, .quickExportSave, .openLast: false
+        case .quickExportCopy, .quickExportSave, .openLast: false
         default: true
         }
     }
@@ -128,7 +128,7 @@ extension KeyCombo {
         case .restart: rec.confirmRestart()
         case .marker: rec.addMarker()
         case .toggleWidget: ToolbarPanelController.shared.toggle()
-        case .prompterPlay: rec.prompterPlaying.toggle()
+        case .prompterPlay: NotesWindow.shared.togglePlay()
         case .toggleNotes: NotesWindow.shared.toggle()
         case .cancel: rec.confirmCancel()
         case .quickExportCopy: QuickExport.shared.runOnLast(.copy)

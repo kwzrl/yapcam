@@ -9,8 +9,10 @@ struct DisplayInfo: Identifiable, Equatable {
     /// The display's refresh rate in Hz (recording follows it); 60 when macOS reports none.
     var refreshRate: Int { Self.rate(CGDisplayCopyDisplayMode(id)?.refreshRate) }
     static func rate(_ hz: Double?) -> Int { guard let hz, hz > 1 else { return 60 }; return Int(hz.rounded()) }
-    /// "3024×1964 • 120 FPS" on the display card.
-    var detail: String { "\(Int(pixelSize.width))×\(Int(pixelSize.height)) • \(refreshRate) FPS" }
+    /// "1512×982 • 120 FPS" on the display card: points, the size System Settings shows as "looks like".
+    var detail: String { "\(Int(frame.width))×\(Int(frame.height)) • \(refreshRate) FPS" }
+    /// The real pixel size, for the tooltip.
+    var pixelDetail: String { "\(Int(pixelSize.width))×\(Int(pixelSize.height)) pixels" }
     var isMain: Bool { CGDisplayIsMain(id) != 0 }
 }
 
