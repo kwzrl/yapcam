@@ -114,3 +114,18 @@ import Testing
         #expect(EditorModel.defaultTypingSpeed == 3)
     }
 }
+
+@MainActor @Suite struct LayoutPasteTests {
+    @Test func pastedLayoutKeepsItsCameraSettings() {
+        let m = EditorModel(project: FakeProject(durationNs: 20_000_000_000), player: FakePlayer())
+        m.addLayout(fromNs: 1_000_000_000, toNs: 4_000_000_000)
+        m.addLayout(fromNs: 10_000_000_000, toNs: 13_000_000_000)
+        guard m.layouts.count == 2 else { Issue.record("layouts not added"); return }
+        let (a, b) = (m.layouts[0].id, m.layouts[1].id)
+        m.setLayoutMode(id: a, "split")
+        m.selection = .layout(a); #expect(m.copySelectedSettings())
+        m.selection = .layout(b); #expect(m.pasteSettings())
+        let pasted = m.layouts.first { $0.id == b }
+        #expect(pasted?.mode == "split" && pasted?.settings == m.layouts.first { $0.id == a }?.settings)
+    }
+}
