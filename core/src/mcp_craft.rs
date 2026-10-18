@@ -304,8 +304,7 @@ impl Server<'_> {
             if printable(e).is_some() {
                 if run.last().is_some_and(|last| {
                     let gap = e["src_ns"].as_i64().unwrap() - last["src_ns"].as_i64().unwrap();
-                    gap < 0
-                        || gap >= 500_000_000
+                    !(0..500_000_000).contains(&gap)
                         || e["segment"] != last["segment"]
                         || clip_at(e["tl_ns"].as_i64().unwrap())
                             != clip_at(last["tl_ns"].as_i64().unwrap())
@@ -932,7 +931,12 @@ impl Server<'_> {
         } else {
             ""
         };
-        let change=self.project.apply(&json!({"op":"batch","commands":[{"op":"add_zoom","mode":"manual","target":target,"scale":scale,"tl_start_ns":start,"tl_end_ns":end,"ease_in_ns":300_000_000,"ease_out_ns":300_000_000}]}))?;
+        let ease = if self.project.data.zoom_settings.physics_version >= 2 {
+            SECOND
+        } else {
+            300_000_000
+        };
+        let change=self.project.apply(&json!({"op":"batch","commands":[{"op":"add_zoom","mode":"manual","target":target,"scale":scale,"tl_start_ns":start,"tl_end_ns":end,"ease_in_ns":ease,"ease_out_ns":ease}]}))?;
         Ok(
             json!({"hints_accepted":hints.supplied,"include_extended":include_extended,"requested_end_s":seconds(requested_end),"changed":true,"message":format!("Zoom {scale:.2}× on click {} ({}–{}){reason}{timing}",clock(t),clock(start),clock(end)),"click_index":index,"at_s":seconds(t),"from_s":seconds(start),"to_s":seconds(end),"scale":scale,"target":target,"clamped":clamped,"view_change_s":view_change.map(seconds),"change":change}),
         )
@@ -2003,7 +2007,7 @@ mod tests {
         let z = &p.data.zooms[0];
         assert!(z.tl_start_ns >= 0 && z.tl_end_ns <= 5 * SECOND);
         assert_eq!(z.scale, 1.8);
-        assert_eq!(z.ease_in_ns, 300_000_000);
+        assert_eq!(z.ease_in_ns, 1_000_000_000);
         assert_eq!(z.target, [238.0 / 320.0, 139.0 / 200.0]);
         assert!(Server {
             project: &mut p,

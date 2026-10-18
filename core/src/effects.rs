@@ -89,6 +89,9 @@ pub fn validate(p: &ProjectData) -> Result<()> {
             || m.file_start_ns >= music_duration(m)
             || m.fade_in_ns < 0
             || m.fade_out_ns < 0
+            || m.library_id
+                .as_deref()
+                .is_some_and(|id| id.trim().is_empty() || id.len() > 256)
             || !(-96.0..=0.0).contains(&m.ducking.gain_db)
             || m.ducking.attack_ns < 0
             || m.ducking.release_ns < 0
@@ -155,6 +158,24 @@ pub fn collection_command(p: &mut ProjectData, v: &Value, cs: &mut ChangeSet) ->
                     20.0 * p.audio.music_volume.log10()
                 })
                 .into();
+            }
+            if kind == "music" {
+                let replace_library = match v.get("replace_library") {
+                    Some(value) => value
+                        .as_bool()
+                        .ok_or_else(|| bad("replace_library must be boolean"))?,
+                    None => false,
+                };
+                if replace_library {
+                    if record
+                        .get("library_id")
+                        .and_then(Value::as_str)
+                        .is_none_or(|id| id.trim().is_empty())
+                    {
+                        return Err(bad("Replacing library music requires library_id"));
+                    }
+                    records.retain(|row| row["library_id"].is_null());
+                }
             }
             if record.get("id").is_none() || record["id"].as_str() == Some("") {
                 record["id"] = unique_id(kind).into();
@@ -322,17 +343,22 @@ pub fn camera_options(p: &ProjectData, tl: i64) -> (bool, bool, f64) {
         .iter()
         .filter(|l| l.enabled && tl >= l.tl_start_ns && tl < l.tl_end_ns)
         .max_by_key(|l| l.tl_start_ns);
+    let mode = crate::camera_layout::current(p, tl).0;
     (
-        crate::camera_layout::current(p, tl).0 == "cutout"
+        mode == "cutout"
             || layout
                 .and_then(|l| l.camera_background_removal)
                 .unwrap_or(p.camera.background_removal),
         layout
             .and_then(|l| l.camera_face_framing)
             .unwrap_or(p.camera.face_framing),
-        layout
-            .and_then(|l| l.camera_shadow_radius)
-            .unwrap_or(p.camera.shadow_radius),
+        if mode == "camera" {
+            0.0
+        } else {
+            layout
+                .and_then(|l| l.camera_shadow_radius)
+                .unwrap_or(p.camera.shadow_radius)
+        },
     )
 }
 pub fn music_duration(m: &MusicTrack) -> i64 {
@@ -572,7 +598,7 @@ impl Project {
             },
         };
         Ok(
-            json!({"inset_origin":p.canvas.inset_origin,"screen_quality":p.canvas.screen_quality,"global_motion_blur":p.canvas.global_motion_blur,"zoom_lens":match tl { Some(t)=>crate::zoom_lens::query(self,t)?,None=>Value::Null },"camera_layout":crate::camera_layout::query(self,tl)?,"camera_style":p.camera.style,"screen_shadow":{"style":p.canvas.shadow.style,"offset_x":p.canvas.shadow.evaluated().0,"offset_y":p.canvas.shadow.evaluated().1,"radius":p.canvas.shadow.evaluated().2,"opacity":p.canvas.shadow.opacity},"padding_ratio":p.canvas.padding_ratio,"cursor_size_points":p.cursor.size_points,"cursor_set_id":p.cursor.set_id,"cursor_variants":p.cursor.variants,"cursor_use_default_if_app_has_low_resolution":p.cursor.use_default_if_app_has_low_resolution,"cursor_always_use_default":p.cursor.always_default,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur*p.canvas.global_motion_blur.unwrap_or(1.0)} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"background_wallpaper_id":p.canvas.background.wallpaper_id,"background_wallpaper_index":p.canvas.background.wallpaper_index,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
+            json!({"inset_origin":p.canvas.inset_origin,"screen_quality":p.canvas.screen_quality,"global_motion_blur":p.canvas.global_motion_blur,"zoom_lens":match tl { Some(t)=>crate::zoom_lens::query(self,t)?,None=>Value::Null },"camera_layout":crate::camera_layout::query(self,tl)?,"camera_style":p.camera.style,"camera_source_crop":tl.map(|t| crate::camera_layout::source_crop(self,t)),"screen_opacity":tl.map(|t| crate::frame::camera_layout_transition_effects(self,t).0),"camera_blur":tl.map(|t| crate::frame::camera_layout_transition_effects(self,t).1),"screen_shadow":{"style":p.canvas.shadow.style,"offset_x":p.canvas.shadow.evaluated().0,"offset_y":p.canvas.shadow.evaluated().1,"radius":p.canvas.shadow.evaluated().2,"opacity":p.canvas.shadow.opacity},"padding_ratio":p.canvas.padding_ratio,"cursor_size_points":p.cursor.size_points,"cursor_set_id":p.cursor.set_id,"cursor_variants":p.cursor.variants,"cursor_use_default_if_app_has_low_resolution":p.cursor.use_default_if_app_has_low_resolution,"cursor_always_use_default":p.cursor.always_default,"cursor_shape":if p.cursor.always_default {Some("arrow")} else {p.cursor.shape.as_deref()},"cursor_logical_size":p.cursor.logical_size,"cursor_style":if p.cursor.always_default {"pointer"} else {p.cursor.style.as_str()},"cursor_click_effect":p.cursor.click_effect,"cursor_click_duration_ns":p.cursor.click_duration_ns,"cursor_motion_blur":if tl.is_none() {p.cursor.motion_blur*p.canvas.global_motion_blur.unwrap_or(1.0)} else {motion.cursor_motion_blur as f64},"cursor_rotation_rad":motion.cursor_rotation_rad,"zoom_motion_blur":motion.zoom_motion_blur,"pan_motion_blur":motion.pan_motion_blur,"cursor_spotlight_radius":p.cursor.spotlight_radius,"background_noise":p.canvas.background.noise,"background_wallpaper_id":p.canvas.background.wallpaper_id,"background_wallpaper_index":p.canvas.background.wallpaper_index,"window_chrome":p.canvas.window_chrome,"camera_background_removal":remove,"camera_face_framing":face,"camera_shadow_radius":shadow}),
         )
     }
 }
@@ -854,6 +880,36 @@ mod tests {
             p.audio_overlays().unwrap(),
             Project::open(&f.0).unwrap().audio_overlays().unwrap()
         );
+    }
+    #[test]
+    fn cam37_replacing_library_music_is_atomic_and_preserves_user_tracks() {
+        let (_f, mut p) = make();
+        p.apply(&json!({"op":"add_music","record":{"id":"user","source":"calm","tl_start_ns":1_000_000_000,"tl_end_ns":4_000_000_000_i64}})).unwrap();
+        p.apply(&json!({"op":"add_music","record":{"id":"old-library","source":"bright","library_id":"old","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"gain_db":-26.020599913279625,"loop":true}})).unwrap();
+        let before = p.data.clone();
+        let history = p.undo.len();
+        p.apply(&json!({"op":"add_music","replace_library":true,"record":{"id":"new-library","source":"bright","library_id":"new","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64,"gain_db":-26.020599913279625,"loop":true}})).unwrap();
+        assert_eq!(p.undo.len(), history + 1);
+        assert_eq!(p.data.audio.music.len(), 2);
+        assert!(p.data.audio.music.iter().any(|m| m.id == "user"));
+        let library: Vec<_> = p
+            .data
+            .audio
+            .music
+            .iter()
+            .filter(|m| m.library_id.is_some())
+            .collect();
+        assert_eq!(library.len(), 1);
+        assert_eq!(library[0].library_id.as_deref(), Some("new"));
+        assert_eq!(
+            (library[0].tl_start_ns, library[0].tl_end_ns),
+            (0, 5_000_000_000)
+        );
+        p.undo().unwrap();
+        assert_eq!(p.data, before);
+        let unchanged = p.data.clone();
+        assert!(p.apply(&json!({"op":"add_music","replace_library":true,"record":{"source":"bright","tl_start_ns":0,"tl_end_ns":5_000_000_000_i64}})).is_err());
+        assert_eq!(p.data, unchanged);
     }
     #[test]
     fn camera_layout_options_and_intro_outro_geometry_share_evaluation() {

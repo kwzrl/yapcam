@@ -1,3 +1,115 @@
+READY R7 b670fd4 + Lead checkpoint needed | BS-1/3/4, CAM-06/14/21/31/37, S-EDT-23/26, MKT-019 Core complete; BS-5 skipped per QA reference verdict | Rust172 PASS/1 intentional ignore; Core Swift92 PASS; MCP12 PASS; fmt + strict Clippy PASS; live not verified
+
+
+## Round 7 — motion, camera layouts, clip restoration/merge, captions and library music (2026-10-18)
+
+Completed all Core rows from `round7/tasks.md` in priority order on Lead base
+`b670fd4` (which contains the requested `4397417` checkpoint and the Inspector
+ownership split). The sandbox cannot write Git metadata, so Lead must checkpoint
+the owned working-tree changes. No Inspector/Editor/Render-owned file was edited,
+and the app was not launched while the user reviewed UI elsewhere.
+
+R7 BS-1 | b670fd4 + Lead checkpoint needed | `parity_tests::bs1_factory_cursor_glides_at_full_strength_and_slice_opt_out_stays_raw` | live: not verified; analytic Rust step response, per-clip raw opt-out and zero-allocation frame path verified
+
+R7 BS-3 | b670fd4 + Lead checkpoint needed | `motion::tests::bs3_new_zoom_spring_is_centered_monotonic_and_uncompressed` | live: not verified; Rust verifies one-second centred lead/trail, 0.15–0.30 s half response, monotonic clamp and revision-gated legacy physics
+
+R7 BS-4 | b670fd4 + Lead checkpoint needed | `motion::pan_and_camera_regressions::bs4_auto_follow_uses_screen_spring_and_none_is_raw` | live: not verified; Rust verifies <30% at 1.05 s, 70–95% at 1.5 s, settled at 2.1 s, Custom smoothing, None raw and zero allocations
+
+R7 CAM-06 | b670fd4 + Lead checkpoint needed | `parity_tests::revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projects` | live: not verified; fresh-project full zoom shrinks camera width to 0.6 while decoded legacy settings remain unchanged
+
+R7 CAM-14 | b670fd4 + Lead checkpoint needed | `camera_layout::tests::cam14_fullscreen_fills_canvas_and_reports_centered_aspect_fill_crop` | live: not verified; Rust verifies canvas-edge destination, zero corner/shadow and centred 4:3→16:9 source crop `[0,.125,1,.75]`
+
+R7 CAM-21 | b670fd4 + Lead checkpoint needed | `camera_layout::tests::cam21_layout_boundaries_animate_geometry_and_hidden_opacity` | live: not verified; deterministic centred 350 ms geometry/corner/opacity transition, close-boundary clamp, cut start rule, silence fade and zero-allocation frame path verified
+
+R7 S-EDT-23 | b670fd4 + Lead checkpoint needed | `source_insert::tests::edge_growth_restores_source_into_the_original_clip_and_is_one_undo_step` | live: not verified; restored source preserves the original clip id, ripple/effect clocks and one undo step
+
+R7 S-EDT-26 | b670fd4 + Lead checkpoint needed | `commands::tests::s_edt_26_merge_adjacent_clips_preserves_identity_settings_and_one_undo` | live: not verified; contiguous same-recording-segment clips merge under the left id, side-selected speed/volume retime atomically, gaps reject, undo/redo round-trip
+
+R7 CAM-37 | b670fd4 + Lead checkpoint needed | `effects::tests::cam37_replacing_library_music_is_atomic_and_preserves_user_tracks` | live: not verified; `library_id` plus `replace_library` replaces only prior library music in one undo step and preserves imported user files
+
+R7 CAM-31 | b670fd4 + Lead checkpoint needed | `layers::tests::cam31_hidden_captions_skip_layers_without_mutating_records` | live: not verified; persisted `captions.hidden=false` gates caption layers only and preserves authored/transcript records
+
+R7 MKT-019 | b670fd4 + Lead checkpoint needed | `renderer_contract_tests::mkt019_circle_and_ripple_have_distinct_render_contracts` | live: not verified; Rust proves Circle=`ring` and Ripple=`highlight` remain distinct in evaluated render options; Ripple's clock covers the configured per-ring lifetime plus two 70 ms staggers while Circle timing is unchanged; typed Swift decode and old-Core absence compatibility also pass
+
+BS-5 was intentionally not built. QA's Round 7 reference answer says connected
+manual zoom behaviour is unconfirmed and the task explicitly requires skipping
+it in that case. Auto ranges already merge at gaps ≤2.5 s.
+
+### Exact cross-team integration requests
+
+- **Render — MKT-019:** decode optional `cursor_click_effect` and
+  `cursor_click_duration_ns` from `render_options_at` (typed Core equivalents:
+  `CoreRenderOptions.cursorClickEffect` / `cursorClickDurationNs`). Preserve the
+  current single expanding ring for `ring`; for `highlight`, draw three
+  concentric multi-hue rings staggered 70 ms apart, expanding to about 2.2× the
+  cursor size and each fading over the configured duration. For `highlight`,
+  recover elapsed ns as `clickProgress * (cursorClickDurationNs + 140_000_000)`
+  and ring-local phase `i` as
+  `(elapsedNs - i * 70_000_000) / cursorClickDurationNs`. Treat absent effect as
+  the legacy single-ring path when `YcFrame.click_progress >= 0`. Add the spec's
+  pixel regression: identical click frames rendered as ring versus highlight
+  differ materially, and the highlight radial sample has three maxima. Core's C
+  frame ABI layout is unchanged; `click_progress` remains a normalized event
+  clock (Circle spans one ring lifetime, Ripple spans the total staggered effect).
+- **Render — CAM-14/CAM-21:** each `render_options_at` response now exposes typed
+  `CoreRenderOptions.cameraSourceCrop`, `screenOpacity`, and `cameraBlur`
+  (`camera_source_crop`, `screen_opacity`, `camera_blur` on JSON). Use
+  `cameraSourceCrop` as the effective camera source crop for that frame (it
+  already includes the authored crop); multiply the screen layer alpha by
+  `screenOpacity`; apply `cameraBlur` 0…1 to the camera layer. Geometry, camera
+  opacity/corner and fullscreen `cameraShadowRadius == 0` are already evaluated
+  by Core. This completes fullscreen aspect-fill and the fade/blur portions of
+  animated layout transitions without changing the frozen C ABI.
+- **Render + Inspector — CAM-37:** change `MusicLibrary.apply` for a library pick
+  to call
+  `project.importMusic(url, startNs: 0, endNs: project.durationNs, gainDb: -26.020599913279625, loop: true, libraryID: trackID, replaceLibrary: true)`.
+  Inspector's active-track click must be a no-op. User “Add file…” imports keep
+  their playhead semantics and omit `libraryID`/`replaceLibrary`.
+- **Editor — S-EDT-23/S-EDT-26:** edge growth commits
+  `.restoreClipEdge(clipID: id, edge: .start/.end, sourceNs: restoredSourceNs)`.
+  Merge-next commits `.mergeClips(leftID: selectedID, keepSettings: .left)`;
+  merge-previous passes the previous clip id and `.right`. Core rejects a source
+  gap, last clip, or recording-segment boundary and keeps this as one undo step.
+- **Inspector — BS-4/CAM-31:** named screen animation buttons set
+  `zoom_settings.animation_style` to `focused`/`smooth`/`none` (do not force
+  `custom`); the caption switch writes
+  `.set(path: "captions.hidden", value: .bool(value))`.
+
+Verification after rebuilding the release Rust archive: `cargo test` **172
+PASS / 1 intentional long benchmark ignored**; `cargo fmt --check` and
+`cargo clippy --all-targets -- -D warnings` PASS; YapcamCore Swift Testing **92
+PASS**; stdio MCP **12 PASS** plus strict Clippy. Focused tests cover every row
+above. No live pointer, playback, native pixels, audio audition, camera hardware
+or app launch is claimed.
+
+
+PREP R7 00b7e27 + Lead checkpoint needed | Agentic-editor Core/MCP handoff audited; fixed two strict-Clippy regressions in owned new code without behavior changes | Rust162 PASS/1 intentional ignore; stdio MCP12 PASS; fmt + strict Clippy PASS; Round 7 task sheet still empty
+
+
+## Round 7 preparation — agentic editor Core/MCP audit (2026-10-18)
+
+Read `round7/PREP.md`, the full agentic-editor handoff, and the newly owned
+Core surface: shared MCP dispatch/craft tools, compiled agent handbook,
+project/FFI integration, and the closed-package stdio wrapper and integration
+tests. The three flaky tests named by the handoff belong to UI/Editor, so Core
+has no flaky row to repair. `round7/tasks.md` is still empty; no Round 7 task
+row has been inferred or started.
+
+The audit found two warning-as-error lint regressions introduced with the new
+MCP surface. The typing-burst boundary predicate now uses the canonical Rust
+range check, preserving the exact half-open `0 <= gap < 500 ms` behavior. The
+four MCP/agent-doc C exports now appear before the FFI test module, preserving
+their bodies and ABI while satisfying the module item-order lint. No functional
+contract or public interface changed.
+
+Verification on base `00b7e27`: `cargo test --manifest-path core/Cargo.toml`
+**162 PASS / 1 intentional long benchmark ignored**; `cargo test
+--manifest-path tools/yapcam-mcp/Cargo.toml` **12 PASS**; formatting checks and
+`cargo clippy --all-targets -- -D warnings` PASS for both manifests. Lead must
+checkpoint the two owned source edits and this status update; this sandbox does
+not write Git metadata.
+
+
 READY R6 11ce970 + Lead checkpoint needed | Core load hardening rejects pre-validation timeline arithmetic, missing required screen media, and malformed/negative/huge project/session clocks without panic | Rust135 PASS/1 intentional ignore; adversarial load corpus PASS; fmt + strict Clippy PASS
 
 

@@ -1049,7 +1049,7 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
 @Test func screenMotionPresetsPerKindBlurAndOriginalMusicLibrary() throws {
     try withFixture { package in
         let p = try Project.create(package: package)
-        try p.apply(.addZoom(ZoomSpec(startNs: 0, endNs: 2_000_000_000, easeInNs: 500_000_000, easeOutNs: 500_000_000)))
+        try p.apply(.addZoom(ZoomSpec(startNs: 1_000_000_000, endNs: 3_000_000_000, easeInNs: 1_000_000_000, easeOutNs: 1_000_000_000)))
         try p.apply(.set(path: "zoom_settings.animation_style", value: .string("focused")))
         let focused = try p.frame(atNs: 200_000_000).screen_crop.w
         try p.apply(.set(path: "zoom_settings.animation_style", value: .string("smooth")))
@@ -1061,7 +1061,7 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
         ]))
         #expect(try p.frameMotion(atNs: 200_000_000).zoom_motion_blur == 0.6)
         #expect(try p.frame(atNs: 200_000_000).motion_blur == 0.6)
-        #expect(try p.frameMotion(atNs: 1_000_000_000).zoom_motion_blur == 0)
+        #expect(try p.frameMotion(atNs: 1_200_000_000).zoom_motion_blur == 0)
         #expect(throws: CoreError.self) { try p.apply(.set(path: "camera.zoom_scale", value: .number(5))) }
         #expect(throws: CoreError.self) { try p.apply(.set(path: "zoom_settings.animation_style", value: .string("missing"))) }
         let library = try p.musicLibrary()
@@ -1450,7 +1450,7 @@ private func withGuideCursorFixture<T>(_ body: (URL) throws -> T) throws -> T {
 @Test func lastEditedInsertionStylesPersistWithoutCopyingGeometry() throws {
     try withFixture { package in
         let p = try Project.create(package: package)
-        #expect(try p.insertionStyles().zoom == nil)
+        #expect(try p.insertionStyles().zoom?.easeInNs == 1_000_000_000)
         let changes = try p.apply(.insertTimelineItem(.zoom, patch: ["scale": .number(3), "target": .array([.number(0.1), .number(0.2)])]))
         let id = try #require(changes.createdIDs.first)
         try p.apply(.updateZoom(id: id, patch: ["scale": .number(2.5)]))
@@ -1667,13 +1667,13 @@ private func identityCubeData() -> Data {
         try p.apply(.batch([.set(path: "camera.hide_during_silence", value: .bool(true)),
                            .set(path: "camera.min_silence_ns", value: .integer(2_000_000_000)),
                            .set(path: "camera.silence_ranges", value: .array([.object(["tl_start_ns": .integer(1_000_000_000), "tl_end_ns": .integer(3_000_000_000)])]))]))
-        #expect(try !p.cameraLayout(atNs: 1_000_000_000).visible)
-        #expect(try p.frame(atNs: 1_000_000_000).camera.present == 0)
+        #expect(try !p.cameraLayout(atNs: 1_175_000_000).visible)
+        #expect(try p.frame(atNs: 1_175_000_000).camera.present == 0)
         #expect(try p.frame(atNs: 3_000_000_000).camera.present == 1)
         let hidden = try p.snapshot()
         try p.undo()
         #expect(try p.frame(atNs: 1_000_000_000).camera.present == 1)
-        #expect(try hidden.frame(atNs: 1_000_000_000).camera.present == 0)
+        #expect(try hidden.frame(atNs: 1_175_000_000).camera.present == 0)
         try p.redo(); try p.save()
         #expect(try Project.open(package: package).cameraLayout(atNs: 1_000_000_000) == hidden.cameraLayout(atNs: 1_000_000_000))
     }

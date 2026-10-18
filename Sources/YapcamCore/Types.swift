@@ -88,11 +88,14 @@ public struct ZoomSpec: Codable, Sendable, Equatable {
     }
 }
 public enum TimelineItemKind: String, Sendable { case zoom, layout, mask }
+public enum ClipEdge: String, Codable, Sendable { case start, end }
+public enum ClipMergeSettings: String, Codable, Sendable { case left, right }
 public enum EditCommand: Encodable, Sendable {
     case addText(TextEffectKind, TextEffectRecord)
     case updateText(TextEffectKind, id: String, patch: [String: JSONValue])
     case removeText(TextEffectKind, id: String)
     case addMusic(MusicTrack)
+    case addLibraryMusic(MusicTrack, replace: Bool)
     case updateMusic(id: String, patch: [String: JSONValue])
     case removeMusic(id: String)
     case importTranscript(JSONValue, style: TextStyle, replace: Bool)
@@ -118,13 +121,17 @@ public enum EditCommand: Encodable, Sendable {
     case relinkProject(project: JSONValue, paths: [String])
     case addMedia(path: String, asBackground: Bool)
     case insertSource(startNs: Int64, endNs: Int64, atNs: Int64, speed: Double = 1, settings: ClipSettings = ClipSettings())
+    case restoreClipEdge(clipID: String, edge: ClipEdge, sourceNs: Int64)
+    case mergeClips(leftID: String, keepSettings: ClipMergeSettings = .left)
     case selectMicrophone(original: MicrophoneMediaIdentity, enhancedPath: String?)
     // Encode integer times as Int64, never via JSONValue.Double.
     enum Key: String, CodingKey {
         case op, at = "at_tl_ns", start = "tl_start_ns", end = "tl_end_ns", clipID = "clip_id"
-        case key, srcStart = "src_start_ns", srcEnd = "src_end_ns", settings
+        case key, srcStart = "src_start_ns", srcEnd = "src_end_ns", sourceNs = "source_ns", settings, edge
+        case leftID = "left_id", keepSettings = "keep_settings"
         case command, original, duration = "duration_ns"
         case speed, zoom, id, patch, path, value, commands, preset, ranges, mode, project, paths, role, record, transcript, style, replace
+        case replaceLibrary = "replace_library"
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: Key.self)
@@ -135,6 +142,12 @@ public enum EditCommand: Encodable, Sendable {
         case .insertSource(let start, let end, let at, let speed, let settings):
             try c.encode("insert_source", forKey: .op); try c.encode(start, forKey: .srcStart); try c.encode(end, forKey: .srcEnd)
             try c.encode(at, forKey: .at); try c.encode(speed, forKey: .speed); try c.encode(EffectCommandValue(value: settings), forKey: .settings)
+        case .restoreClipEdge(let id, let edge, let sourceNs):
+            try c.encode("restore_clip_edge", forKey: .op); try c.encode(id, forKey: .clipID)
+            try c.encode(edge, forKey: .edge); try c.encode(sourceNs, forKey: .sourceNs)
+        case .mergeClips(let leftID, let keep):
+            try c.encode("merge_clips", forKey: .op); try c.encode(leftID, forKey: .leftID)
+            try c.encode(keep, forKey: .keepSettings)
         case .addText(let kind, let record):
             try c.encode("add_" + kind.rawValue, forKey: .op); try c.encode(EffectCommandValue(value: record), forKey: .record)
         case .updateText(let kind, let id, let patch):
@@ -143,6 +156,9 @@ public enum EditCommand: Encodable, Sendable {
             try c.encode("remove_" + kind.rawValue, forKey: .op); try c.encode(id, forKey: .id)
         case .addMusic(let record):
             try c.encode("add_music", forKey: .op); try c.encode(EffectCommandValue(value: record), forKey: .record)
+        case .addLibraryMusic(let record, let replace):
+            try c.encode("add_music", forKey: .op); try c.encode(EffectCommandValue(value: record), forKey: .record)
+            try c.encode(replace, forKey: .replaceLibrary)
         case .updateMusic(let id, let patch):
             try c.encode("update_music", forKey: .op); try c.encode(id, forKey: .id); try c.encode(patch, forKey: .patch)
         case .removeMusic(let id):

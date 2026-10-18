@@ -83,6 +83,11 @@ pub fn generate_zooms(
         }
         clusters.push((start, end, target));
     }
+    let ease = if p.zoom_settings.physics_version >= 2 {
+        1_000_000_000
+    } else {
+        300_000_000
+    };
     for (i, (start, end, target)) in clusters.into_iter().enumerate() {
         if p.zooms
             .iter()
@@ -106,8 +111,8 @@ pub fn generate_zooms(
             mode: "auto".into(),
             target,
             scale,
-            ease_in_ns: 300_000_000,
-            ease_out_ns: 300_000_000,
+            ease_in_ns: ease,
+            ease_out_ns: ease,
             enabled: true,
         });
         cs.created_ids.push(id);

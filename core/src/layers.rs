@@ -320,6 +320,9 @@ impl Project {
             ("reaction", &self.data.canvas.reactions),
             ("caption", &self.data.canvas.captions),
         ] {
+            if kind == "caption" && self.data.captions.hidden {
+                continue;
+            }
             for r in records {
                 if kind == "caption" {
                     let Some(evaluation) = crate::captions::evaluate(r, tl_ns) else {
@@ -407,6 +410,37 @@ impl Project {
 mod tests {
     use super::*;
     use crate::project::tests::Fixture;
+    #[test]
+    fn cam31_hidden_captions_skip_layers_without_mutating_records() {
+        let fixture = Fixture::new();
+        let mut p = Project::create(&fixture.0).unwrap();
+        p.data.canvas.captions = vec![TextRecord {
+            id: "caption".into(),
+            text: "Still editable".into(),
+            tl_end_ns: 1_000_000_000,
+            ..TextRecord::default()
+        }];
+        let authored = p.data.canvas.captions.clone();
+        assert!(p
+            .layers_at(500_000_000)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "core:caption:caption"));
+        p.apply(&json!({"op":"set","path":"captions.hidden","value":true}))
+            .unwrap();
+        assert!(p
+            .layers_at(500_000_000)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["id"] != "core:caption:caption"));
+        assert_eq!(p.data.canvas.captions, authored);
+        p.undo().unwrap();
+        assert!(!p.data.captions.hidden);
+    }
     #[test]
     fn blur_masks_share_geometry_order_and_zero_allocation_extras_without_abi_changes() {
         use std::mem::{offset_of, size_of};

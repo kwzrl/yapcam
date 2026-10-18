@@ -471,6 +471,17 @@ New queries:
 | effects_at, integer tl_ns | `{layers,render_options,audio}` from one immutable state; validates time as frame_at |
 | render_options_at, integer tl_ns | render_options with active camera layout overrides |
 
+`render_options` and `render_options_at` expose the persisted click treatment as
+`cursor_click_effect` (`none`, `ring`, or `highlight`) and its normalized event
+clock duration as `cursor_click_duration_ns`. `ring` is the single-ring Circle
+treatment; `highlight` is the distinct three-ring Ripple treatment. Render uses
+`YcFrame.click_progress` as the normalized clock and must branch on this explicit
+cold field; it must not infer the treatment from progress or cursor artwork.
+For `ring`, progress spans `cursor_click_duration_ns`. For `highlight`, it spans
+`cursor_click_duration_ns + 140 ms`, covering three ring lifetimes whose starts
+are staggered by 70 ms; Render recovers elapsed time by multiplying progress by
+that total and computes each local ring phase from the configured ring lifetime.
+
 `audio_overlays` rows: `{id,source,path,tl_start_ns,tl_end_ns,file_start_ns,
 file_duration_ns,loop,gain,gain_start,gain_end,fade_in_ns,fade_out_ns}`. Music splits
 at duck envelope boundaries; start/end gains are amplitudes for a linear-dB ramp,
