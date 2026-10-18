@@ -874,3 +874,22 @@ import YapcamCore
         #expect(try Data(contentsOf: iso.store.url("Look")) == original)
     }
 }
+
+
+@MainActor @Suite struct ExportPausesPlaybackTests {      // MKT-122
+    @Test func startingAnExportPausesThePlayer() async throws {
+        let pl = FakePlayer(), m = EditorModel(project: FakeProject(), player: pl)
+        let e = ExportModel(engine: RecordingEngine()); m.exportModel = e
+        m.togglePlay(); #expect(m.isPlaying)
+        e.start(to: URL(fileURLWithPath: "/tmp/p.mp4")); await e.waitUntilFinished()
+        #expect(!m.isPlaying)
+    }
+}
+
+
+@Suite struct CameraAspectKeyTests {      // MKT-138
+    @Test func presetsAreRecognisedAndOtherRatiosAreCustom() {
+        #expect(CameraAspect.key(for: 16.0 / 9) == "16:9" && CameraAspect.key(for: 1) == "1:1")
+        #expect(CameraAspect.key(for: 1.5) == "custom" && CameraAspect.key(for: 16.0 / 9 + 0.01) == "custom")
+    }
+}

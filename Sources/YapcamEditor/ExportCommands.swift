@@ -10,6 +10,7 @@ extension EditorModel {
     /// Runs one export action with the current export settings. The picker/history actions open the export sheet.
     public func performExport(_ action: ExportAction) {
         guard let export = exportModel else { lastError = "Export isn't available in this window."; return }
+        export.onStart = { [weak self] in self?.pause() }
         if export.isRunning { return }                                        // one export at a time per document
         switch action {
         case .picker: showExportPickerHandler?()
