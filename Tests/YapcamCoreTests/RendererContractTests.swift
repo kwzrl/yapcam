@@ -15,7 +15,7 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         let p = try Project.create(package: package)
         try p.apply(.set(path: "cursor.click_effect", value: .string("ring")))
         #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickEffect == .ring)
-        #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickDurationNs == 400_000_000)
+        #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickDurationNs == 450_000_000)
         try p.apply(.set(path: "cursor.click_effect", value: .string("highlight")))
         #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickEffect == .highlight)
     }

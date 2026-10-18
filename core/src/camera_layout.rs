@@ -72,7 +72,7 @@ pub(crate) fn split_regions(area: Rect, ratio: f64, horizontal: bool, flip: bool
 }
 pub(crate) fn source_crop(p: &Project, tl: i64) -> [f64; 4] {
     let authored = p.data.camera.style.crop;
-    if current(&p.data, tl).0 != "camera" {
+    if p.data.defaults_revision < 4 || current(&p.data, tl).0 != "camera" {
         return authored;
     }
     let Some(track) = &p.session.tracks.camera else {
@@ -256,6 +256,40 @@ mod tests {
             }),
             0
         );
+    }
+    #[test]
+    fn legacy_revisions_keep_padded_camera_geometry_and_hard_layout_cuts() {
+        let (_f, mut p) = make();
+        p.data.defaults_revision = 3;
+        p.session.tracks.camera.as_mut().unwrap().pixel_size = [640, 480];
+        p.apply(&json!({"op":"batch","commands":[
+            {"op":"set","path":"canvas.aspect","value":"custom"},
+            {"op":"set","path":"canvas.output_size","value":[1920,1080]},
+            {"op":"set","path":"camera.layouts","value":[{"id":"full","tl_start_ns":2_000_000_000_i64,"tl_end_ns":4_000_000_000_i64,"mode":"camera"}]}
+        ]}))
+        .unwrap();
+
+        let before = p.frame(1_999_999_999).unwrap();
+        let at_cut = p.frame(2_000_000_000).unwrap();
+        assert_eq!(before.screen.present, 1);
+        assert_eq!(at_cut.screen.present, 0);
+        assert_eq!(
+            at_cut.camera_dest,
+            Rect {
+                x: 528.0,
+                y: 108.0,
+                w: 864.0,
+                h: 864.0
+            }
+        );
+        assert!((at_cut.camera_corner_radius as f64 - 129.6).abs() < 1e-4);
+        assert_eq!(source_crop(&p, 2_000_000_000), [0.0, 0.0, 1.0, 1.0]);
+        let options = p
+            .query(&json!({"q":"render_options_at","tl_ns":2_000_000_000_i64}))
+            .unwrap();
+        assert_eq!(options["camera_source_crop"], json!([0.0, 0.0, 1.0, 1.0]));
+        assert_eq!(options["camera_shadow_radius"], p.data.camera.shadow_radius);
+        assert_eq!(options["screen_opacity"], 0.0);
     }
     #[test]
     fn cutout_split_orientation_overrides_and_legacy_geometry_are_allocation_free() {

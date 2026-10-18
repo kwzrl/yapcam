@@ -15,8 +15,8 @@ fn mkt019_circle_and_ripple_have_distinct_render_contracts() {
     let circle_frame = p.frame(1_800_000_000).unwrap();
     let circle_after_lifetime = p.frame(2_150_000_000).unwrap();
     assert_eq!(circle["cursor_click_effect"], "ring");
-    assert_eq!(circle["cursor_click_duration_ns"], 400_000_000_i64);
-    assert!((circle_frame.click_progress - 0.25).abs() < 1e-6);
+    assert_eq!(circle["cursor_click_duration_ns"], 450_000_000_i64);
+    assert!((circle_frame.click_progress - (100.0 / 450.0)).abs() < 1e-6);
     assert_eq!(circle_after_lifetime.click_progress, -1.0);
 
     p.apply(&json!({"op":"set","path":"cursor.click_effect","value":"highlight"}))
@@ -25,10 +25,35 @@ fn mkt019_circle_and_ripple_have_distinct_render_contracts() {
     let ripple_frame = p.frame(1_800_000_000).unwrap();
     let ripple_last_ring = p.frame(2_150_000_000).unwrap();
     assert_eq!(ripple["cursor_click_effect"], "highlight");
-    assert_eq!(ripple["cursor_click_duration_ns"], 400_000_000_i64);
+    assert_eq!(ripple["cursor_click_duration_ns"], 450_000_000_i64);
     assert_ne!(circle["cursor_click_effect"], ripple["cursor_click_effect"]);
-    assert!((ripple_frame.click_progress - (100.0 / 540.0)).abs() < 1e-6);
-    assert!((ripple_last_ring.click_progress - (450.0 / 540.0)).abs() < 1e-6);
+    assert!((ripple_frame.click_progress - (100.0 / 590.0)).abs() < 1e-6);
+    assert!((ripple_last_ring.click_progress - (450.0 / 590.0)).abs() < 1e-6);
+}
+
+#[test]
+fn mkt019_revision_four_uses_450ms_rings_while_legacy_keeps_400ms_circle() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.autosave = false;
+    p.data.cursor.click_effect = "highlight".into();
+    assert_eq!(p.data.defaults_revision, 4);
+    assert_eq!(p.data.cursor.click_duration_ns, 450_000_000);
+    assert_eq!(
+        p.query(&json!({"q":"render_options_at","tl_ns":1_800_000_000_i64}))
+            .unwrap()["cursor_click_effect"],
+        "highlight"
+    );
+    assert!(p.frame(2_250_000_000).unwrap().click_progress >= 0.0);
+
+    p.data.defaults_revision = 3;
+    p.data.cursor.click_duration_ns = 400_000_000;
+    let legacy = p
+        .query(&json!({"q":"render_options_at","tl_ns":1_800_000_000_i64}))
+        .unwrap();
+    assert_eq!(legacy["cursor_click_effect"], "ring");
+    assert_eq!(legacy["cursor_click_duration_ns"], 400_000_000_i64);
+    assert_eq!(p.frame(2_150_000_000).unwrap().click_progress, -1.0);
 }
 #[test]
 fn explicit_cursor_replacement_flags_follow_edits_presets_and_old_documents() {

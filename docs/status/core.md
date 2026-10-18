@@ -1,4 +1,4 @@
-READY R7 b670fd4 + Lead checkpoint needed | BS-1/3/4, CAM-06/14/21/31/37, S-EDT-23/26, MKT-019 Core complete; BS-5 skipped per QA reference verdict | Rust172 PASS/1 intentional ignore; Core Swift92 PASS; MCP12 PASS; fmt + strict Clippy PASS; live not verified
+READY R7 30a5d5d + Lead checkpoint needed | BS-1/3/4, CAM-06/14/21/31/37, S-EDT-23/26, MKT-019 Core complete; CAM-14/21 + Ripple legacy gates fixed after Render review; BS-5 skipped per QA verdict | Rust174 PASS/1 intentional ignore; Core Swift92 PASS; MCP12 PASS; fmt + strict Clippy PASS; live not verified
 
 
 ## Round 7 — motion, camera layouts, clip restoration/merge, captions and library music (2026-10-18)
@@ -17,9 +17,9 @@ R7 BS-4 | b670fd4 + Lead checkpoint needed | `motion::pan_and_camera_regressions
 
 R7 CAM-06 | b670fd4 + Lead checkpoint needed | `parity_tests::revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projects` | live: not verified; fresh-project full zoom shrinks camera width to 0.6 while decoded legacy settings remain unchanged
 
-R7 CAM-14 | b670fd4 + Lead checkpoint needed | `camera_layout::tests::cam14_fullscreen_fills_canvas_and_reports_centered_aspect_fill_crop` | live: not verified; Rust verifies canvas-edge destination, zero corner/shadow and centred 4:3→16:9 source crop `[0,.125,1,.75]`
+R7 CAM-14 | 30a5d5d + Lead checkpoint needed | `camera_layout::tests::cam14_fullscreen_fills_canvas_and_reports_centered_aspect_fill_crop` + `legacy_revisions_keep_padded_camera_geometry_and_hard_layout_cuts` | live: not verified; revision 4 gets canvas-edge destination, zero corner/shadow and centred aspect-fill crop; revisions 0–3 retain byte-stable padded aspect-fit geometry, authored crop and saved corner/shadow
 
-R7 CAM-21 | b670fd4 + Lead checkpoint needed | `camera_layout::tests::cam21_layout_boundaries_animate_geometry_and_hidden_opacity` | live: not verified; deterministic centred 350 ms geometry/corner/opacity transition, close-boundary clamp, cut start rule, silence fade and zero-allocation frame path verified
+R7 CAM-21 | 30a5d5d + Lead checkpoint needed | `camera_layout::tests::cam21_layout_boundaries_animate_geometry_and_hidden_opacity` + `legacy_revisions_keep_padded_camera_geometry_and_hard_layout_cuts` | live: not verified; revision 4 gets deterministic centred 350 ms geometry/corner/opacity transitions; revisions 0–3 retain an exact hard cut; close-boundary clamp, silence fade and zero-allocation new path verified
 
 R7 S-EDT-23 | b670fd4 + Lead checkpoint needed | `source_insert::tests::edge_growth_restores_source_into_the_original_clip_and_is_one_undo_step` | live: not verified; restored source preserves the original clip id, ripple/effect clocks and one undo step
 
@@ -29,7 +29,7 @@ R7 CAM-37 | b670fd4 + Lead checkpoint needed | `effects::tests::cam37_replacing_
 
 R7 CAM-31 | b670fd4 + Lead checkpoint needed | `layers::tests::cam31_hidden_captions_skip_layers_without_mutating_records` | live: not verified; persisted `captions.hidden=false` gates caption layers only and preserves authored/transcript records
 
-R7 MKT-019 | b670fd4 + Lead checkpoint needed | `renderer_contract_tests::mkt019_circle_and_ripple_have_distinct_render_contracts` | live: not verified; Rust proves Circle=`ring` and Ripple=`highlight` remain distinct in evaluated render options; Ripple's clock covers the configured per-ring lifetime plus two 70 ms staggers while Circle timing is unchanged; typed Swift decode and old-Core absence compatibility also pass
+R7 MKT-019 | 30a5d5d + Lead checkpoint needed | `renderer_contract_tests::mkt019_circle_and_ripple_have_distinct_render_contracts` + `mkt019_revision_four_uses_450ms_rings_while_legacy_keeps_400ms_circle` | live: not verified; revision 4 Ripple exposes three 450 ms rings with two 70 ms staggers; revisions 0–3 preserve the former 400 ms single-ring `highlight` pixels; typed Swift decode and old-Core absence compatibility pass
 
 BS-5 was intentionally not built. QA's Round 7 reference answer says connected
 manual zoom behaviour is unconfirmed and the task explicitly requires skipping
@@ -51,6 +51,8 @@ it in that case. Auto ranges already merge at gaps ≤2.5 s.
   differ materially, and the highlight radial sample has three maxima. Core's C
   frame ABI layout is unchanged; `click_progress` remains a normalized event
   clock (Circle spans one ring lifetime, Ripple spans the total staggered effect).
+  Core emits `highlight` and 450 ms for revision 4; earlier revisions evaluate
+  their stored `highlight` as `ring` with the legacy 400 ms clock.
 - **Render — CAM-14/CAM-21:** each `render_options_at` response now exposes typed
   `CoreRenderOptions.cameraSourceCrop`, `screenOpacity`, and `cameraBlur`
   (`camera_source_crop`, `screen_opacity`, `camera_blur` on JSON). Use
@@ -58,8 +60,9 @@ it in that case. Auto ranges already merge at gaps ≤2.5 s.
   already includes the authored crop); multiply the screen layer alpha by
   `screenOpacity`; apply `cameraBlur` 0…1 to the camera layer. Geometry, camera
   opacity/corner and fullscreen `cameraShadowRadius == 0` are already evaluated
-  by Core. This completes fullscreen aspect-fill and the fade/blur portions of
-  animated layout transitions without changing the frozen C ABI.
+  by Core for revision 4. Revisions 0–3 deliberately return their old padded
+  aspect-fit geometry/authored crop/saved shadow and hard-cut opacity. This
+  completes the new behavior without changing legacy frames or the frozen C ABI.
 - **Render + Inspector — CAM-37:** change `MusicLibrary.apply` for a library pick
   to call
   `project.importMusic(url, startNs: 0, endNs: project.durationNs, gainDb: -26.020599913279625, loop: true, libraryID: trackID, replaceLibrary: true)`.
@@ -75,7 +78,7 @@ it in that case. Auto ranges already merge at gaps ≤2.5 s.
   `custom`); the caption switch writes
   `.set(path: "captions.hidden", value: .bool(value))`.
 
-Verification after rebuilding the release Rust archive: `cargo test` **172
+Verification after rebuilding the release Rust archive: `cargo test` **174
 PASS / 1 intentional long benchmark ignored**; `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` PASS; YapcamCore Swift Testing **92
 PASS**; stdio MCP **12 PASS** plus strict Clippy. Focused tests cover every row

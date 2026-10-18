@@ -700,6 +700,7 @@ impl ProjectData {
         data.cursor.size_points = Some(48.0);
         data.cursor.set_id = Some("original".into());
         data.cursor.click_effect = "none".into();
+        data.cursor.click_duration_ns = 450_000_000;
         data.cursor.smoothing = 1.0;
         data.cursor.speed_preset = "smooth".into();
         data.cursor.physics_version = 1;

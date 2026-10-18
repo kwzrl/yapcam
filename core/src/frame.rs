@@ -57,8 +57,8 @@ pub struct Frame {
 /// Ripple renders three rings whose starts are separated by 70 ms. The stored
 /// click duration remains the lifetime of each ring; the evaluated frame clock
 /// spans the two additional delays so the last ring can finish.
-pub(crate) fn click_effect_duration_ns(cursor: &Cursor) -> i64 {
-    if cursor.click_effect == "highlight" {
+pub(crate) fn click_effect_duration_ns(defaults_revision: u32, cursor: &Cursor) -> i64 {
+    if defaults_revision >= 4 && cursor.click_effect == "highlight" {
         cursor.click_duration_ns.saturating_add(140_000_000)
     } else {
         cursor.click_duration_ns
@@ -164,7 +164,13 @@ fn camera_layout_geometry(
     let mut screen_dest = fit(area, source_aspect);
     let mut camera_dest = Rect::default();
     match mode {
-        "camera" if camera_visible => camera_dest = canvas,
+        "camera" if camera_visible => {
+            camera_dest = if p.defaults_revision >= 4 {
+                canvas
+            } else {
+                fit(area, camera_aspect)
+            }
+        }
         "side_by_side" if camera_visible => {
             screen_dest = fit(
                 Rect {
@@ -223,14 +229,16 @@ fn camera_layout_geometry(
             h: height,
         };
     }
-    let camera_corner_radius =
-        if matches!(mode, "camera" | "cutout") || mode == "split" && !settings.split_padded {
-            0.0
-        } else if let Some(ratio) = settings.corner_ratio {
-            (camera_dest.w.min(camera_dest.h) * ratio) as f32
-        } else {
-            p.camera.radius as f32
-        };
+    let camera_corner_radius = if mode == "cutout"
+        || mode == "split" && !settings.split_padded
+        || p.defaults_revision >= 4 && mode == "camera"
+    {
+        0.0
+    } else if let Some(ratio) = settings.corner_ratio {
+        (camera_dest.w.min(camera_dest.h) * ratio) as f32
+    } else {
+        p.camera.radius as f32
+    };
     CameraLayoutGeometry {
         screen_dest,
         camera_dest,
@@ -259,6 +267,9 @@ fn layout_boundaries(p: &crate::model::ProjectData) -> impl Iterator<Item = i64>
         )
 }
 fn layout_transition(p: &crate::model::ProjectData, tl: i64, duration: i64) -> Option<(i64, f64)> {
+    if p.defaults_revision < 4 {
+        return None;
+    }
     let mut selected = None;
     for boundary in layout_boundaries(p).filter(|t| *t > 0 && *t < duration) {
         let previous = layout_boundaries(p)
@@ -587,8 +598,14 @@ impl Project {
                 if frame.camera.present != 0 && camera_visible {
                     frame.screen.present = 0;
                 }
-                frame.camera_dest = canvas;
-                frame.camera_corner_radius = 0.0;
+                frame.camera_dest = if p.defaults_revision >= 4 {
+                    canvas
+                } else {
+                    fit(area, camera_aspect)
+                };
+                if p.defaults_revision >= 4 {
+                    frame.camera_corner_radius = 0.0;
+                }
             }
             "side_by_side" if frame.camera.present != 0 && camera_visible => {
                 frame.screen_dest = fit(
@@ -663,9 +680,9 @@ impl Project {
                 h,
             };
         }
-        if layout_mode == "camera"
-            || layout_mode == "cutout"
+        if layout_mode == "cutout"
             || layout_mode == "split" && !layout_settings.split_padded
+            || p.defaults_revision >= 4 && layout_mode == "camera"
         {
             frame.camera_corner_radius = 0.0;
         } else if let Some(ratio) = layout_settings.corner_ratio {
@@ -871,7 +888,7 @@ impl Project {
         f.cursor_visible = visible as u8;
         f.cursor_opacity = if visible { 1.0 } else { 0.0 };
         if cursor.click_effect != "none" {
-            let effect_duration_ns = click_effect_duration_ns(cursor);
+            let effect_duration_ns = click_effect_duration_ns(self.data.defaults_revision, cursor);
             if let Some(e) = input.click(local) {
                 let click_src = seg.src_start_ns + e.t;
                 if let Some(t) =
