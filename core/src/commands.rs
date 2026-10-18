@@ -221,6 +221,72 @@ pub(crate) fn apply_inner(
             }
         }
         "insert_source" => crate::source_insert::apply(p, v, cs)?,
+        "restore_clip_edge" => crate::source_insert::restore_clip_edge(p, v, cs)?,
+        "merge_clips" => {
+            let left_id = string(v, "left_id")?;
+            let keep = v
+                .get("keep_settings")
+                .and_then(Value::as_str)
+                .unwrap_or("left");
+            if !matches!(keep, "left" | "right") {
+                return Err(Error::new(1, "Merge must keep left or right settings"));
+            }
+            let left = p
+                .timeline
+                .clips
+                .iter()
+                .position(|clip| clip.id == left_id)
+                .ok_or_else(|| Error::new(1, "Unknown left clip id"))?;
+            let right = left + 1;
+            let Some(right_clip) = p.timeline.clips.get(right) else {
+                return Err(Error::new(1, "Clip has no next neighbour"));
+            };
+            if p.timeline.clips[left].src_end_ns != right_clip.src_start_ns
+                || context
+                    .session
+                    .segments
+                    .iter()
+                    .skip(1)
+                    .any(|segment| segment.src_start_ns == right_clip.src_start_ns)
+            {
+                return Err(Error::new(1, "Adjacent clips are not mergeable"));
+            }
+            let chosen = if keep == "right" {
+                right_clip.clone()
+            } else {
+                p.timeline.clips[left].clone()
+            };
+            for id in [
+                p.timeline.clips[left].id.clone(),
+                p.timeline.clips[right].id.clone(),
+            ] {
+                if p.timeline
+                    .clips
+                    .iter()
+                    .find(|clip| clip.id == id)
+                    .unwrap()
+                    .speed
+                    != chosen.speed
+                {
+                    apply_inner(
+                        p,
+                        &serde_json::json!({"op":"set_speed","clip_id":id,"speed":chosen.speed}),
+                        cs,
+                        depth + 1,
+                        context,
+                    )?;
+                }
+            }
+            let end = p.timeline.clips[right].src_end_ns;
+            let mut settings = p.timeline.clips[left].settings.clone();
+            settings.mic_gain = chosen.settings.mic_gain;
+            settings.system_gain = chosen.settings.system_gain;
+            settings.external_gain = chosen.settings.external_gain;
+            p.timeline.clips[left].src_end_ns = end;
+            p.timeline.clips[left].settings = settings;
+            p.timeline.clips.remove(right);
+            cs.changed.push("timeline".into());
+        }
         "split" => {
             let at = int(v, "at_tl_ns")?;
             if at <= 0 || at >= time::duration(&p.timeline.clips) {
@@ -588,6 +654,7 @@ pub(crate) fn apply_inner(
                         | "typing"
                         | "cursor"
                         | "camera"
+                        | "captions"
                         | "audio"
                         | "zoom_settings"
                         | "export"
@@ -721,7 +788,9 @@ pub(crate) fn apply_inner(
                     p.cursor.speed_preset = "custom".into();
                 }
                 "zoom_settings.speed_preset" | "zoom_settings.animation_style" => {
-                    p.zoom_settings.physics_version = 1;
+                    if p.zoom_settings.physics_version < 2 {
+                        p.zoom_settings.physics_version = 1;
+                    }
                     cs.changed.push("zoom_settings.physics_version".into());
                 }
                 _ if path.starts_with("cursor.spring") => {
@@ -849,6 +918,50 @@ mod tests {
     use super::*;
     use crate::project::tests::Fixture;
     use serde_json::json;
+    #[test]
+    fn s_edt_26_merge_adjacent_clips_preserves_identity_settings_and_one_undo() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        let original = p.data.timeline.clips[0].clone();
+        p.apply(&json!({"op":"split","at_tl_ns":1_000_000_000}))
+            .unwrap();
+        let split = p.data.clone();
+        p.apply(&json!({"op":"merge_clips","left_id":original.id}))
+            .unwrap();
+        assert_eq!(p.data.timeline.clips, std::slice::from_ref(&original));
+        p.undo().unwrap();
+        assert_eq!(p.data, split);
+        p.redo().unwrap();
+        assert_eq!(p.data.timeline.clips, std::slice::from_ref(&original));
+
+        p.undo().unwrap();
+        let right_id = p.data.timeline.clips[1].id.clone();
+        p.apply(&json!({"op":"set_speed","clip_id":right_id,"speed":2}))
+            .unwrap();
+        p.apply(&json!({"op":"set_clip_settings","clip_id":right_id,"patch":{"mic_gain":0.5,"system_gain":0.5}}))
+            .unwrap();
+        let before_merge = p.data.clone();
+        p.apply(&json!({"op":"merge_clips","left_id":original.id,"keep_settings":"right"}))
+            .unwrap();
+        assert_eq!(p.data.timeline.clips.len(), 1);
+        assert_eq!(p.data.timeline.clips[0].id, original.id);
+        assert_eq!(p.data.timeline.clips[0].speed, 2.0);
+        assert_eq!(p.data.timeline.clips[0].settings.mic_gain, 0.5);
+        p.undo().unwrap();
+        assert_eq!(p.data, before_merge);
+
+        let mut gap = Project::create(&f.0).unwrap();
+        gap.apply(
+            &json!({"op":"delete_range","tl_start_ns":1_000_000_000,"tl_end_ns":2_000_000_000_i64}),
+        )
+        .unwrap();
+        let before = gap.data.clone();
+        let left_id = gap.data.timeline.clips[0].id.clone();
+        assert!(gap
+            .apply(&json!({"op":"merge_clips","left_id":left_id}))
+            .is_err());
+        assert_eq!(gap.data, before);
+    }
     #[test]
     fn speaker_notes_unicode_persistence_history_and_validation() {
         let f = Fixture::new();

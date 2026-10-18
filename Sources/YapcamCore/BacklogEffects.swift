@@ -95,9 +95,10 @@ public struct MusicTrack: Codable, Sendable, Equatable, Identifiable {
     public var loop: Bool
     public var fadeInNs: Int64
     public var fadeOutNs: Int64
+    public var libraryId: String?
     public var ducking: MusicDucking
-    public init(id: String = "", startNs: Int64, endNs: Int64, source: String = "file", path: String = "", fileStartNs: Int64 = 0, fileDurationNs: Int64 = 0, gainDb: Double = -26.020599913279625, loop: Bool = true, fadeInNs: Int64 = 500_000_000, fadeOutNs: Int64 = 500_000_000, ducking: MusicDucking = MusicDucking()) {
-        self.id = id; tlStartNs = startNs; tlEndNs = endNs; self.source = source; self.path = path; self.fileStartNs = fileStartNs; self.fileDurationNs = fileDurationNs; self.gainDb = gainDb; self.loop = loop; self.fadeInNs = fadeInNs; self.fadeOutNs = fadeOutNs; self.ducking = ducking
+    public init(id: String = "", startNs: Int64, endNs: Int64, source: String = "file", path: String = "", fileStartNs: Int64 = 0, fileDurationNs: Int64 = 0, gainDb: Double = -26.020599913279625, loop: Bool = true, fadeInNs: Int64 = 500_000_000, fadeOutNs: Int64 = 500_000_000, libraryId: String? = nil, ducking: MusicDucking = MusicDucking()) {
+        self.id = id; tlStartNs = startNs; tlEndNs = endNs; self.source = source; self.path = path; self.fileStartNs = fileStartNs; self.fileDurationNs = fileDurationNs; self.gainDb = gainDb; self.loop = loop; self.fadeInNs = fadeInNs; self.fadeOutNs = fadeOutNs; self.libraryId = libraryId; self.ducking = ducking
     }
 }
 public struct CoreAudioOverlay: Decodable, Sendable, Equatable {

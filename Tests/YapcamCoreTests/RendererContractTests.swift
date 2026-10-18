@@ -10,6 +10,17 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
     return try body(package)
 }
 
+@Test func circleAndRippleDecodeAsDistinctRenderContracts() throws {
+    try rendererFixture { package in
+        let p = try Project.create(package: package)
+        try p.apply(.set(path: "cursor.click_effect", value: .string("ring")))
+        #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickEffect == .ring)
+        #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickDurationNs == 400_000_000)
+        try p.apply(.set(path: "cursor.click_effect", value: .string("highlight")))
+        #expect(try p.renderOptions(atNs: 1_800_000_000).cursorClickEffect == .highlight)
+    }
+}
+
 @Test func explicitCursorReplacementBooleansCrossFFIAndPersistWithoutReinterpretingOldQueries() throws {
     try rendererFixture { package in
         let p = try Project.create(package: package)
@@ -42,10 +53,12 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         let encoded = try JSONEncoder().encode(data)
         var old = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         old.removeValue(forKey: "cursor_use_default_if_app_has_low_resolution"); old.removeValue(forKey: "cursor_always_use_default")
+        old.removeValue(forKey: "cursor_click_effect"); old.removeValue(forKey: "cursor_click_duration_ns")
         old.removeValue(forKey: "background_wallpaper_id"); old.removeValue(forKey: "background_wallpaper_index")
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         let decoded = try decoder.decode(CoreRenderOptions.self, from: JSONSerialization.data(withJSONObject: old))
         #expect(decoded.cursorUseDefaultIfAppHasLowResolution == nil && decoded.cursorAlwaysUseDefault == nil)
+        #expect(decoded.cursorClickEffect == nil && decoded.cursorClickDurationNs == nil)
         #expect(decoded.backgroundWallpaperId == nil && decoded.backgroundWallpaperIndex == nil)
     }
 }
@@ -108,7 +121,7 @@ private func rendererFixture<T>(_ body: (URL) throws -> T) throws -> T {
         try p.save()
         #expect(try Project.open(package: package).frame(atNs: 0).camera_mirror == 1)
         var raw = try JSONSerialization.jsonObject(with: p.toJSON()) as! [String: Any]
-        #expect(raw["defaults_revision"] as? Int == 3)
+        #expect(raw["defaults_revision"] as? Int == 4)
         var camera = raw["camera"] as! [String: Any]; camera.removeValue(forKey: "mirrored"); raw["camera"] = camera
         try JSONSerialization.data(withJSONObject: raw).write(to: package.appendingPathComponent("project.json"))
         #expect(try Project.open(package: package).frame(atNs: 0).camera_mirror == 1)

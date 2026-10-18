@@ -1,6 +1,7 @@
 //! Stateless evaluation: preview, seek, and offline export produce identical frames.
 //! The successful evaluation path performs no heap allocation or file access.
 use crate::{
+    model::Cursor,
     project::{Error, Project, Result},
     time::{self, Sample},
 };
@@ -52,6 +53,17 @@ pub struct Frame {
     pub mic_gain: f32,
     pub system_gain: f32,
 }
+
+/// Ripple renders three rings whose starts are separated by 70 ms. The stored
+/// click duration remains the lifetime of each ring; the evaluated frame clock
+/// spans the two additional delays so the last ring can finish.
+pub(crate) fn click_effect_duration_ns(cursor: &Cursor) -> i64 {
+    if cursor.click_effect == "highlight" {
+        cursor.click_duration_ns.saturating_add(140_000_000)
+    } else {
+        cursor.click_duration_ns
+    }
+}
 fn fit(area: Rect, aspect: f64) -> Rect {
     let w = area.w.min(area.h * aspect).max(0.0);
     let h = (w / aspect).min(area.h);
@@ -91,6 +103,236 @@ fn follow_pan(mut rect: Rect, point: [f64; 2], d: f64, bounds: Rect) -> Rect {
     rect.x = coordinate(rect.x, bounds.x, bounds.x + (bounds.w - rect.w).max(0.0));
     rect.y = coordinate(rect.y, bounds.y, bounds.y + (bounds.h - rect.h).max(0.0));
     rect
+}
+#[derive(Clone, Copy)]
+struct CameraLayoutGeometry {
+    screen_dest: Rect,
+    camera_dest: Rect,
+    camera_corner_radius: f32,
+    screen_visible: bool,
+    camera_visible: bool,
+    camera_opacity: f32,
+}
+#[derive(Clone, Copy)]
+struct CameraLayoutContext {
+    canvas: Rect,
+    area: Rect,
+    pad: f64,
+    source_aspect: f64,
+    camera_aspect: f64,
+    zoom_camera_factor: f64,
+    can_camera: bool,
+    has_camera: bool,
+}
+fn camera_layout_geometry(
+    p: &crate::model::ProjectData,
+    tl: i64,
+    context: &CameraLayoutContext,
+) -> CameraLayoutGeometry {
+    let CameraLayoutContext {
+        canvas,
+        area,
+        pad,
+        source_aspect,
+        camera_aspect,
+        zoom_camera_factor,
+        can_camera,
+        has_camera,
+    } = *context;
+    let (mode, settings) = crate::camera_layout::current(p, tl);
+    let mut position = p.camera.position;
+    let mut size = p.camera.size;
+    if let Some(layout) = p
+        .camera
+        .layouts
+        .iter()
+        .filter(|layout| layout.enabled && tl >= layout.tl_start_ns && tl < layout.tl_end_ns)
+        .max_by_key(|layout| layout.tl_start_ns)
+    {
+        position = layout.camera_position.unwrap_or(position);
+        size = layout.camera_size.unwrap_or(size);
+    }
+    if mode == "cutout" {
+        position = settings.cutout_position;
+        size = settings.cutout_size;
+    }
+    let camera_visible = can_camera
+        && has_camera
+        && p.camera.visible
+        && !crate::camera_layout::hidden_by_silence(p, tl)
+        && mode != "screen";
+    let mut screen_dest = fit(area, source_aspect);
+    let mut camera_dest = Rect::default();
+    match mode {
+        "camera" if camera_visible => camera_dest = canvas,
+        "side_by_side" if camera_visible => {
+            screen_dest = fit(
+                Rect {
+                    w: area.w * 0.65,
+                    ..area
+                },
+                source_aspect,
+            );
+            camera_dest = fit(
+                Rect {
+                    x: area.x + area.w * 0.68,
+                    w: area.w * 0.32,
+                    ..area
+                },
+                camera_aspect,
+            );
+        }
+        "split" if camera_visible => {
+            let region = if settings.split_padded { area } else { canvas };
+            let horizontal = match settings.split_direction.as_str() {
+                "horizontal" => true,
+                "vertical" => false,
+                _ => canvas.w >= canvas.h,
+            };
+            let automatic = if horizontal {
+                source_aspect / (source_aspect + camera_aspect)
+            } else {
+                camera_aspect / (source_aspect + camera_aspect)
+            };
+            let ratio = settings.split_ratio.unwrap_or(automatic.clamp(0.25, 0.75));
+            let (screen_region, camera_region) =
+                crate::camera_layout::split_regions(region, ratio, horizontal, settings.split_flip);
+            screen_dest = fit(screen_region, source_aspect);
+            camera_dest = fit(camera_region, camera_aspect);
+        }
+        _ => {}
+    }
+    if camera_dest.w == 0.0 {
+        let edge = settings.edge_padding_ratio * pad;
+        let width = (canvas.w * size * zoom_camera_factor)
+            .min((canvas.w - 2.0 * edge).max(0.0))
+            .min((canvas.h - 2.0 * edge).max(0.0) * camera_aspect);
+        let height = (width / camera_aspect).min(canvas.h);
+        camera_dest = Rect {
+            x: coordinate(
+                canvas.w * position[0] - width / 2.0,
+                edge,
+                canvas.w - edge - width,
+            ),
+            y: coordinate(
+                canvas.h * position[1] - height / 2.0,
+                edge,
+                canvas.h - edge - height,
+            ),
+            w: width,
+            h: height,
+        };
+    }
+    let camera_corner_radius =
+        if matches!(mode, "camera" | "cutout") || mode == "split" && !settings.split_padded {
+            0.0
+        } else if let Some(ratio) = settings.corner_ratio {
+            (camera_dest.w.min(camera_dest.h) * ratio) as f32
+        } else {
+            p.camera.radius as f32
+        };
+    CameraLayoutGeometry {
+        screen_dest,
+        camera_dest,
+        camera_corner_radius,
+        screen_visible: !(mode == "camera" && camera_visible),
+        camera_visible,
+        camera_opacity: if camera_visible {
+            p.camera.opacity as f32
+        } else {
+            0.0
+        },
+    }
+}
+fn layout_boundaries(p: &crate::model::ProjectData) -> impl Iterator<Item = i64> + '_ {
+    p.camera
+        .layouts
+        .iter()
+        .filter(|layout| layout.enabled)
+        .flat_map(|layout| [layout.tl_start_ns, layout.tl_end_ns])
+        .chain(
+            p.camera
+                .silence_ranges
+                .iter()
+                .filter(|_| p.camera.hide_during_silence)
+                .flat_map(|range| [range.tl_start_ns, range.tl_end_ns]),
+        )
+}
+fn layout_transition(p: &crate::model::ProjectData, tl: i64, duration: i64) -> Option<(i64, f64)> {
+    let mut selected = None;
+    for boundary in layout_boundaries(p).filter(|t| *t > 0 && *t < duration) {
+        let previous = layout_boundaries(p)
+            .filter(|other| *other < boundary)
+            .max()
+            .unwrap_or(0);
+        let next = layout_boundaries(p)
+            .filter(|other| *other > boundary)
+            .min()
+            .unwrap_or(duration);
+        let cut = p.timeline.clips.iter().enumerate().skip(1).any(|(i, _)| {
+            crate::time::clip_bounds(&p.timeline.clips, i)
+                .is_some_and(|bounds| bounds.0 == boundary)
+        });
+        let left = if cut {
+            0
+        } else {
+            175_000_000_i64.min((boundary - previous) / 2)
+        };
+        let right = if cut {
+            350_000_000_i64.min((next - boundary) / 2)
+        } else {
+            175_000_000_i64.min((next - boundary) / 2)
+        };
+        if (!cut && tl <= boundary - left) || tl >= boundary + right || left + right == 0 {
+            continue;
+        }
+        let progress = ease((tl - (boundary - left)) as f64 / (left + right) as f64);
+        if selected.is_none_or(|(old, _)| tl.abs_diff(boundary) < tl.abs_diff(old)) {
+            selected = Some((boundary, progress));
+        }
+    }
+    selected
+}
+fn blend_rect(a: Rect, b: Rect, amount: f64) -> Rect {
+    Rect {
+        x: a.x + (b.x - a.x) * amount,
+        y: a.y + (b.y - a.y) * amount,
+        w: a.w + (b.w - a.w) * amount,
+        h: a.h + (b.h - a.h) * amount,
+    }
+}
+fn scaled_rect(rect: Rect, scale: f64) -> Rect {
+    Rect {
+        x: rect.x + rect.w * (1.0 - scale) / 2.0,
+        y: rect.y + rect.h * (1.0 - scale) / 2.0,
+        w: rect.w * scale,
+        h: rect.h * scale,
+    }
+}
+pub(crate) fn camera_layout_transition_effects(project: &Project, tl: i64) -> (f64, f64) {
+    let p = &project.data;
+    let visibility = |t| {
+        let mode = crate::camera_layout::current(p, t).0;
+        let camera = project.capabilities().can_camera
+            && project.session.tracks.camera.is_some()
+            && p.camera.visible
+            && !crate::camera_layout::hidden_by_silence(p, t)
+            && mode != "screen";
+        let screen = !(mode == "camera" && camera);
+        (screen, camera)
+    };
+    let duration = crate::time::duration(&p.timeline.clips);
+    if let Some((boundary, amount)) = layout_transition(p, tl, duration) {
+        let before = visibility(boundary - 1);
+        let after = visibility(boundary);
+        let screen =
+            before.0 as u8 as f64 + (after.0 as u8 as f64 - before.0 as u8 as f64) * amount;
+        let blur_before = (!before.1) as u8 as f64;
+        let blur_after = (!after.1) as u8 as f64;
+        return (screen, blur_before + (blur_after - blur_before) * amount);
+    }
+    let current = visibility(tl);
+    (current.0 as u8 as f64, (!current.1) as u8 as f64)
 }
 impl Project {
     pub fn frame(&self, tl_ns: i64) -> Result<Frame> {
@@ -250,9 +492,12 @@ impl Project {
                     if let Some(point) = input.position_filtered(local, p.cursor.remove_shakes) {
                         let mut next =
                             follow_pan(base, normalized(point), settings.dead_zone, bounds);
-                        if settings.animation_style != "custom" {
-                            let window =
-                                (100_000_000.0 * p.timeline.clips[clip_i].speed).round() as i64;
+                        if settings.animation_style != "none" {
+                            let settle_seconds = (20.0 * physics.mass / physics.friction)
+                                .max(20.0 * physics.friction / physics.tension)
+                                .max(2.0);
+                            let window = (settle_seconds * 1e9 * p.timeline.clips[clip_i].speed)
+                                .round() as i64;
                             let cutoff = local.saturating_sub(window).max(0);
                             if let Some(initial) =
                                 input.position_filtered(cutoff, p.cursor.remove_shakes)
@@ -342,7 +587,8 @@ impl Project {
                 if frame.camera.present != 0 && camera_visible {
                     frame.screen.present = 0;
                 }
-                frame.camera_dest = fit(area, camera_aspect);
+                frame.camera_dest = canvas;
+                frame.camera_corner_radius = 0.0;
             }
             "side_by_side" if frame.camera.present != 0 && camera_visible => {
                 frame.screen_dest = fit(
@@ -417,7 +663,10 @@ impl Project {
                 h,
             };
         }
-        if layout_mode == "cutout" || layout_mode == "split" && !layout_settings.split_padded {
+        if layout_mode == "camera"
+            || layout_mode == "cutout"
+            || layout_mode == "split" && !layout_settings.split_padded
+        {
             frame.camera_corner_radius = 0.0;
         } else if let Some(ratio) = layout_settings.corner_ratio {
             frame.camera_corner_radius =
@@ -426,6 +675,40 @@ impl Project {
         if !camera_visible {
             frame.camera.present = 0;
             frame.camera_opacity = 0.0;
+        }
+        let duration = time::duration(&p.timeline.clips);
+        if let Some((boundary, amount)) = layout_transition(p, tl_ns, duration) {
+            let context = CameraLayoutContext {
+                canvas,
+                area,
+                pad,
+                source_aspect,
+                camera_aspect,
+                zoom_camera_factor,
+                can_camera: capabilities.can_camera,
+                has_camera: self.session.tracks.camera.is_some(),
+            };
+            let mut before = camera_layout_geometry(p, boundary - 1, &context);
+            let mut after = camera_layout_geometry(p, boundary, &context);
+            if before.camera_visible && !after.camera_visible {
+                after.camera_dest = scaled_rect(before.camera_dest, 0.85);
+            } else if !before.camera_visible && after.camera_visible {
+                before.camera_dest = scaled_rect(after.camera_dest, 0.85);
+            }
+            frame.screen_dest = blend_rect(before.screen_dest, after.screen_dest, amount);
+            frame.camera_dest = blend_rect(before.camera_dest, after.camera_dest, amount);
+            frame.camera_corner_radius = (before.camera_corner_radius as f64
+                + (after.camera_corner_radius - before.camera_corner_radius) as f64 * amount)
+                as f32;
+            frame.camera_opacity = (before.camera_opacity as f64
+                + (after.camera_opacity - before.camera_opacity) as f64 * amount)
+                as f32;
+            if before.screen_visible || after.screen_visible {
+                frame.screen.present = 1;
+            }
+            if before.camera_visible || after.camera_visible {
+                frame.camera.present = 1;
+            }
         }
         frame.mic_gain = self.audio_gain_for_clip("mic", tl_ns, Some(clip_i));
         frame.system_gain = self.audio_gain_for_clip("system_audio", tl_ns, Some(clip_i));
@@ -588,14 +871,15 @@ impl Project {
         f.cursor_visible = visible as u8;
         f.cursor_opacity = if visible { 1.0 } else { 0.0 };
         if cursor.click_effect != "none" {
+            let effect_duration_ns = click_effect_duration_ns(cursor);
             if let Some(e) = input.click(local) {
                 let click_src = seg.src_start_ns + e.t;
                 if let Some(t) =
                     time::source_to_timeline(&self.data.timeline.clips, clip_i, click_src)
                 {
                     let elapsed = f.tl_ns - t;
-                    if elapsed >= 0 && elapsed < cursor.click_duration_ns {
-                        f.click_progress = elapsed as f32 / cursor.click_duration_ns as f32;
+                    if elapsed >= 0 && elapsed < effect_duration_ns {
+                        f.click_progress = elapsed as f32 / effect_duration_ns as f32;
                         let (x, y) = transform(e.x, e.y);
                         f.click_x = x;
                         f.click_y = y;

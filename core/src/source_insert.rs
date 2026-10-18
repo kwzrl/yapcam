@@ -77,6 +77,95 @@ pub(crate) fn apply(p: &mut ProjectData, v: &Value, cs: &mut ChangeSet) -> Resul
     Ok(())
 }
 
+/// Grow one trimmed clip edge back into adjacent immutable source while keeping
+/// the clip identity. Effects are shifted exactly as for source insertion.
+pub(crate) fn restore_clip_edge(p: &mut ProjectData, v: &Value, cs: &mut ChangeSet) -> Result<()> {
+    let id = v["clip_id"]
+        .as_str()
+        .ok_or_else(|| Error::new(1, "Missing clip_id"))?;
+    let edge = v["edge"]
+        .as_str()
+        .ok_or_else(|| Error::new(1, "Missing clip edge"))?;
+    let source_ns = v["source_ns"]
+        .as_i64()
+        .ok_or_else(|| Error::new(1, "Missing source_ns"))?;
+    let index = p
+        .timeline
+        .clips
+        .iter()
+        .position(|clip| clip.id == id)
+        .ok_or_else(|| Error::new(1, "Unknown clip id"))?;
+    let clip = p.timeline.clips[index].clone();
+    let (start, end, at) = match edge {
+        "start" => {
+            let lower = index
+                .checked_sub(1)
+                .map_or(0, |i| p.timeline.clips[i].src_end_ns);
+            if source_ns < lower || source_ns >= clip.src_start_ns {
+                return Err(Error::new(1, "Source start is not restorable at this edge"));
+            }
+            (
+                source_ns,
+                clip.src_start_ns,
+                time::clip_bounds(&p.timeline.clips, index).unwrap().0,
+            )
+        }
+        "end" => {
+            let upper = p
+                .timeline
+                .clips
+                .get(index + 1)
+                .map_or(i64::MAX, |next| next.src_start_ns);
+            if source_ns <= clip.src_end_ns || source_ns > upper {
+                return Err(Error::new(1, "Source end is not restorable at this edge"));
+            }
+            (
+                clip.src_end_ns,
+                source_ns,
+                time::clip_bounds(&p.timeline.clips, index).unwrap().1,
+            )
+        }
+        _ => return Err(Error::new(1, "Clip edge must be start or end")),
+    };
+    let created_before = cs.created_ids.len();
+    apply(
+        p,
+        &serde_json::json!({
+            "src_start_ns": start,
+            "src_end_ns": end,
+            "at_tl_ns": at,
+            "speed": clip.speed,
+            "settings": clip.settings,
+        }),
+        cs,
+    )?;
+    let inserted_id = cs.created_ids[created_before].clone();
+    let inserted = p
+        .timeline
+        .clips
+        .iter()
+        .position(|candidate| candidate.id == inserted_id)
+        .unwrap();
+    let original = p
+        .timeline
+        .clips
+        .iter()
+        .position(|candidate| candidate.id == id)
+        .unwrap();
+    if edge == "start" {
+        let original_end = p.timeline.clips[original].src_end_ns;
+        p.timeline.clips[inserted].id = id.into();
+        p.timeline.clips[inserted].src_end_ns = original_end;
+        p.timeline.clips.remove(original);
+    } else {
+        let inserted_end = p.timeline.clips[inserted].src_end_ns;
+        p.timeline.clips[original].src_end_ns = inserted_end;
+        p.timeline.clips.remove(inserted);
+    }
+    cs.created_ids.truncate(created_before);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +261,47 @@ mod tests {
         assert_eq!(map.start(at), time::clip_bounds(&new, 2).unwrap().0);
         assert_eq!(map.end(at), at);
         assert_eq!(map.end(time::duration(&old)), time::duration(&new));
+    }
+
+    #[test]
+    fn edge_growth_restores_source_into_the_original_clip_and_is_one_undo_step() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.data.autosave = false;
+        let id = p.data.timeline.clips[0].id.clone();
+        p.apply(&json!({"op":"delete_range","tl_start_ns":0,"tl_end_ns":1_000_000_000}))
+            .unwrap();
+        let trimmed = p.data.clone();
+        let history = p.undo.len();
+        let change = p
+            .apply(&json!({"op":"restore_clip_edge","clip_id":id,"edge":"start","source_ns":0}))
+            .unwrap();
+        assert!(change.created_ids.is_empty());
+        assert_eq!(p.undo.len(), history + 1);
+        assert_eq!(p.data.timeline.clips.len(), 1);
+        assert_eq!(p.data.timeline.clips[0].id, id);
+        assert_eq!(
+            (
+                p.data.timeline.clips[0].src_start_ns,
+                p.data.timeline.clips[0].src_end_ns
+            ),
+            (0, 5_000_000_000)
+        );
+        p.undo().unwrap();
+        assert_eq!(p.data, trimmed);
+        p.redo().unwrap();
+        p.apply(
+            &json!({"op":"delete_range","tl_start_ns":4_000_000_000_i64,"tl_end_ns":5_000_000_000_i64}),
+        )
+        .unwrap();
+        p.apply(&json!({"op":"restore_clip_edge","clip_id":id,"edge":"end","source_ns":5_000_000_000_i64})).unwrap();
+        assert_eq!(p.data.timeline.clips.len(), 1);
+        assert_eq!(p.data.timeline.clips[0].id, id);
+        assert_eq!(p.data.timeline.clips[0].src_end_ns, 5_000_000_000);
+        let before = p.data.clone();
+        assert!(p
+            .apply(&json!({"op":"restore_clip_edge","clip_id":id,"edge":"start","source_ns":0}))
+            .is_err());
+        assert_eq!(p.data, before);
     }
 }

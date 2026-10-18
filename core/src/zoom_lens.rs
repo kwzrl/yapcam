@@ -5,24 +5,56 @@ use crate::{
 };
 use serde_json::{json, Value};
 pub(crate) fn active(p: &Project, tl: i64, can_auto: bool) -> Option<&Zoom> {
+    let duration = crate::time::duration(&p.data.timeline.clips);
     p.data
         .zooms
         .iter()
         .filter(|z| {
             z.enabled
                 && (z.mode != "auto" || p.data.zoom_settings.automatic && can_auto)
-                && tl
-                    >= if p.data.zoom_settings.start_early {
+                && if p.data.zoom_settings.physics_version >= 2 {
+                    let span = z.tl_end_ns - z.tl_start_ns;
+                    let lead = if p.data.zoom_settings.start_early {
+                        z.ease_in_ns.max(350_000_000)
+                    } else {
+                        z.ease_in_ns
+                    }
+                    .min(span / 2);
+                    let trail = z.ease_out_ns.min(span / 2);
+                    tl >= z.tl_start_ns.saturating_sub(lead).max(0)
+                        && tl < z.tl_end_ns.saturating_add(trail).min(duration)
+                } else {
+                    tl >= if p.data.zoom_settings.start_early {
                         z.tl_start_ns.saturating_sub(350_000_000).max(0)
                     } else {
                         z.tl_start_ns
-                    }
-                && tl < z.tl_end_ns
+                    } && tl < z.tl_end_ns
+                }
         })
         .max_by_key(|z| z.tl_start_ns)
 }
 pub(crate) fn weight(p: &Project, z: &Zoom, tl: i64) -> f64 {
     let settings = &p.data.zoom_settings;
+    if settings.physics_version >= 2 {
+        let span = z.tl_end_ns - z.tl_start_ns;
+        let incoming = if settings.start_early {
+            z.ease_in_ns.max(350_000_000)
+        } else {
+            z.ease_in_ns
+        }
+        .min(span / 2);
+        let physics = crate::motion::zoom_spring(settings);
+        if tl < z.tl_start_ns {
+            return crate::spring::response(
+                (tl - z.tl_start_ns.saturating_sub(incoming).max(0)) as f64 / 1e9,
+                &physics,
+            );
+        }
+        if tl >= z.tl_end_ns {
+            return 1.0 - crate::spring::response((tl - z.tl_end_ns) as f64 / 1e9, &physics);
+        }
+        return 1.0;
+    }
     let start = if settings.start_early {
         z.tl_start_ns.saturating_sub(350_000_000).max(0)
     } else {

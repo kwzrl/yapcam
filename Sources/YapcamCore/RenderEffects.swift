@@ -4,6 +4,9 @@ import Foundation
 /// change YcFrame or introduce a dependency from Core to Render.
 public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public enum CursorStyle: String, Decodable, Sendable { case recorded, pointer, touch, arrow }
+    /// Persisted effect names: `ring` is the single Circle treatment and
+    /// `highlight` is the staggered multi-ring Ripple treatment.
+    public enum CursorClickEffect: String, Decodable, Sendable { case none, ring, highlight }
     public enum CursorShape: String, Codable, Sendable, CaseIterable, Hashable {
         case arrow, pointingHand = "pointing_hand", touch, text
         case resizeHorizontal = "resize_horizontal", resizeVertical = "resize_vertical"
@@ -31,6 +34,10 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public var cursorVariants: [String: CursorVariant]?
     public var cursorLogicalSize: CursorLogicalSize
     public var cursorStyle: CursorStyle
+    /// Optional so clients can still decode render-options payloads from an
+    /// older Core. Current Core always supplies both click-effect fields.
+    public var cursorClickEffect: CursorClickEffect?
+    public var cursorClickDurationNs: Int64?
     public var cursorRotationRad: Double
     public var zoomMotionBlur: Double
     public var panMotionBlur: Double
@@ -46,6 +53,9 @@ public struct CoreRenderOptions: Decodable, Sendable, Equatable {
     public var cameraFaceFraming: Bool
     public var cameraShadowRadius: Double
     public var cameraStyle: CameraStyle?
+    public var cameraSourceCrop: [Double]?
+    public var screenOpacity: Double?
+    public var cameraBlur: Double?
     public var cameraLayout: CoreCameraLayout?
     public var zoomLens: CoreZoomLens?
     public var globalMotionBlur: Double?

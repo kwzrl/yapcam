@@ -16,7 +16,7 @@ pub struct FrameMotion {
     pub pan_motion_blur: f32,
 }
 pub(crate) fn zoom_spring(settings: &ZoomSettings) -> Spring {
-    if settings.physics_version == 1 {
+    if settings.physics_version >= 1 {
         let (tension, friction, mass) = match settings.animation_style.as_str() {
             "focused" => (250.0, 40.0, 2.25),
             "smooth" => (170.0, 50.0, 3.0),
@@ -461,6 +461,7 @@ mod tests {
     #[test]
     fn aligned_screen_physics_early_lead_short_ramps_and_legacy_migration() {
         let (f, mut p) = make();
+        p.data.zoom_settings.physics_version = 1;
         let mut legacy = ZoomSettings {
             animation_style: "focused".into(),
             ..ZoomSettings::default()
@@ -537,6 +538,55 @@ mod tests {
             crate::allocation_test::count(|| {
                 p.frame(800_000_000).unwrap();
                 p.frame_motion(800_000_000).unwrap();
+            }),
+            0
+        );
+    }
+    #[test]
+    fn bs3_new_zoom_spring_is_centered_monotonic_and_uncompressed() {
+        let (_f, mut p) = make();
+        assert_eq!(p.data.zoom_settings.physics_version, 2);
+        assert_eq!(p.data.zoom_settings.animation_style, "smooth");
+        let id = p
+            .apply(&json!({"op":"insert_zoom","tl_start_ns":1_000_000_000_i64,"duration_ns":2_500_000_000_i64,"patch":{"mode":"manual","target":[0.5,0.5],"scale":2}}))
+            .unwrap()
+            .created_ids[0]
+            .clone();
+        let z = p.data.zooms.iter().find(|z| z.id == id).unwrap();
+        assert_eq!(
+            (z.ease_in_ns, z.ease_out_ns),
+            (1_000_000_000, 1_000_000_000)
+        );
+
+        let progress = |t| {
+            let width = p.frame(t).unwrap().screen_crop.w;
+            1.0 / width - 1.0
+        };
+        let mut last = 0.0;
+        let mut halfway = None;
+        for step in 0..=100 {
+            let t = step * 10_000_000;
+            let value = progress(t);
+            assert!(value >= last - 1e-12 && value <= 1.0 + 1e-12);
+            if halfway.is_none() && value >= 0.5 {
+                halfway = Some(t);
+            }
+            last = value;
+        }
+        assert!((150_000_000..=300_000_000).contains(&halfway.unwrap()));
+        assert_eq!(progress(1_000_000_000), 1.0);
+        assert_eq!(progress(3_500_000_000), 1.0);
+        let mut last = 1.0;
+        for step in 1..=100 {
+            let value = progress(3_500_000_000 + step * 10_000_000);
+            assert!(value <= last + 1e-12 && value >= -1e-12);
+            last = value;
+        }
+        assert_eq!(p.frame(4_500_000_000).unwrap().screen_crop.w, 1.0);
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                std::hint::black_box(p.frame(250_000_000).unwrap());
+                std::hint::black_box(p.frame(3_750_000_000).unwrap());
             }),
             0
         );
@@ -645,6 +695,7 @@ mod tests {
     #[test]
     fn screen_presets_per_kind_blur_and_camera_zoom_scale() {
         let (_f, mut p) = make();
+        p.data.zoom_settings.physics_version = 1;
         p.session.tracks.camera = Some(CameraTrack {
             device_name: "procedural".into(),
             pixel_size: [320, 200],
@@ -734,6 +785,7 @@ mod tests {
     #[test]
     fn master_blur_scales_all_kinds_without_changing_legacy_choices() {
         let (_f, mut p) = make();
+        p.data.zoom_settings.physics_version = 1;
         p.apply(&json!({"op":"batch","commands":[
             {"op":"set","path":"cursor.motion_blur","value":0.8},
             {"op":"set","path":"canvas.motion_blur","value":0.6},
@@ -786,6 +838,51 @@ mod pan_and_camera_regressions {
     };
     use serde_json::json;
     #[test]
+    fn bs4_auto_follow_uses_screen_spring_and_none_is_raw() {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        let event = |t, x| Event {
+            t,
+            kind: "move".into(),
+            x: Some(x),
+            y: Some(100.0),
+            id: None,
+            details: Default::default(),
+        };
+        p.data.cursor.remove_shakes = false;
+        p.events[0] = vec![
+            event(0, 160.0),
+            event(999_999_999, 160.0),
+            event(1_000_000_000, 320.0),
+            event(4_000_000_000, 320.0),
+        ];
+        p.input[0] = InputCache::new(&p.events[0]);
+        p.apply(&json!({"op":"add_zoom","zoom":{"tl_start_ns":0,"tl_end_ns":4_500_000_000_i64,"mode":"auto","scale":2,"target":[0.5,0.5],"ease_in_ns":0,"ease_out_ns":0}})).unwrap();
+
+        p.data.zoom_settings.animation_style = "none".into();
+        let start = p.frame(900_000_000).unwrap().screen_crop.x;
+        let raw = p.frame(1_016_666_667).unwrap().screen_crop.x;
+        assert!(raw > start);
+        p.data.zoom_settings.animation_style = "smooth".into();
+        let fraction = |t| (p.frame(t).unwrap().screen_crop.x - start) / (raw - start);
+        assert!(fraction(1_050_000_000) < 0.30);
+        assert!((0.70..=0.95).contains(&fraction(1_500_000_000)));
+        assert!(fraction(2_100_000_000) >= 0.99);
+        p.data.zoom_settings.animation_style = "custom".into();
+        assert!((p.frame(1_050_000_000).unwrap().screen_crop.x - start) / (raw - start) < 1.0);
+        p.data.zoom_settings.animation_style = "none".into();
+        assert!(
+            ((p.frame(1_016_666_667).unwrap().screen_crop.x - start) / (raw - start) - 1.0).abs()
+                < 1e-12
+        );
+        assert_eq!(
+            crate::allocation_test::count(|| {
+                std::hint::black_box(p.frame(1_500_000_000).unwrap());
+            }),
+            0
+        );
+    }
+    #[test]
     fn focused_and_smooth_pan_settle_differently_with_crop_and_clamp_bounds() {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();
@@ -816,7 +913,8 @@ mod pan_and_camera_regressions {
         assert_eq!(motion.pan_motion_blur, 0.8);
         assert_eq!(motion.zoom_motion_blur, 0.0);
         assert_eq!(smooth.motion_blur, motion.pan_motion_blur);
-        assert_eq!(p.frame_motion(1_200_000_000).unwrap().pan_motion_blur, 0.0);
+        assert_eq!(p.frame_motion(1_200_000_000).unwrap().pan_motion_blur, 0.8);
+        assert_eq!(p.frame_motion(2_200_000_000).unwrap().pan_motion_blur, 0.0);
         for style in ["custom", "focused", "smooth"] {
             p.apply(&json!({"op":"set","path":"zoom_settings.animation_style","value":style}))
                 .unwrap();

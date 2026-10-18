@@ -4,7 +4,7 @@ import Foundation
 extension Project {
     /// Copy a local audio asset into the package and add its model in one undo
     /// step. Decoding, copying and validation occur outside the core state lock.
-    @discardableResult public func importMusic(_ file: URL, startNs: Int64 = 0, endNs: Int64? = nil, gainDb: Double = -26.020599913279625, loop: Bool = true) async throws -> ChangeSet {
+    @discardableResult public func importMusic(_ file: URL, startNs: Int64 = 0, endNs: Int64? = nil, gainDb: Double = -26.020599913279625, loop: Bool = true, libraryID: String? = nil, replaceLibrary: Bool = false) async throws -> ChangeSet {
         guard file.isFileURL else { throw CoreError.status(1, "Music import requires a local file") }
         let asset = AVURLAsset(url: file)
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else { throw CoreError.status(1, "Music file has no audio track") }
@@ -21,8 +21,9 @@ extension Project {
         let staged = packageURL.appendingPathComponent(relative)
         try FileManager.default.copyItem(at: file, to: staged)
         do {
-            let music = MusicTrack(startNs: startNs, endNs: endNs ?? durationNs, path: relative, fileStartNs: fileStart.value, fileDurationNs: fileStart.value + ns.value, gainDb: gainDb, loop: loop)
-            return try apply(.batch([.addMedia(path: relative, asBackground: false), .addMusic(music)]))
+            let music = MusicTrack(startNs: startNs, endNs: endNs ?? durationNs, path: relative, fileStartNs: fileStart.value, fileDurationNs: fileStart.value + ns.value, gainDb: gainDb, loop: loop, libraryId: libraryID)
+            let add: EditCommand = if libraryID != nil { .addLibraryMusic(music, replace: replaceLibrary) } else { .addMusic(music) }
+            return try apply(.batch([.addMedia(path: relative, asBackground: false), add]))
         } catch {
             try? FileManager.default.removeItem(at: staged)
             throw error

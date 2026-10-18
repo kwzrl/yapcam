@@ -6,14 +6,14 @@ use crate::{
 use serde_json::json;
 
 #[test]
-fn revision_three_factory_defaults_and_camera_geometry_preserve_existing_projects() {
+fn revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projects() {
     let fixture = Fixture::new();
     let mut p = Project::create(&fixture.0).unwrap();
-    assert_eq!(p.data.defaults_revision, 3);
+    assert_eq!(p.data.defaults_revision, 4);
     assert!(!p.data.camera.mirrored);
     assert_eq!(p.data.camera.position, [1.0, 1.0]);
     assert_eq!(p.data.camera.size, 0.5);
-    assert_eq!(p.data.camera.zoom_scale, 0.8);
+    assert_eq!(p.data.camera.zoom_scale, 0.6);
     assert_eq!(p.data.camera.layout_settings.aspect, Some(1.0));
     assert_eq!(p.data.camera.layout_settings.corner_ratio, Some(0.15));
     assert_eq!(p.data.camera.layout_settings.edge_padding_ratio, 0.5);
@@ -21,6 +21,21 @@ fn revision_three_factory_defaults_and_camera_geometry_preserve_existing_project
     assert!(p.data.cursor.remove_shakes && p.data.cursor.optimize_types);
     assert_eq!(p.data.cursor.rotation_mode, "tilt");
     assert_eq!(p.data.cursor.tilt_amount, 0.5);
+    assert_eq!(p.data.cursor.speed_preset, "smooth");
+    assert_eq!(p.data.cursor.smoothing, 1.0);
+    let cursor_spring = crate::spring::cursor_preset(
+        &p.data.cursor.speed_preset,
+        &p.data.cursor.spring,
+        p.data.cursor.physics_version,
+    );
+    assert_eq!(
+        (
+            cursor_spring.tension,
+            cursor_spring.friction,
+            cursor_spring.mass
+        ),
+        (470.0, 70.0, 3.0)
+    );
     assert_eq!(p.data.canvas.inset_color, [0.0, 0.0, 0.0, 0.5]);
     assert_eq!(p.data.canvas.screen_quality, Some(ScreenQuality::default()));
     p.session.tracks.camera = Some(CameraTrack {
@@ -45,6 +60,21 @@ fn revision_three_factory_defaults_and_camera_geometry_preserve_existing_project
         (frame.camera_dest.y + frame.camera_dest.h - frame.canvas_h as f64 + 54.0).abs() < 1e-9
     );
     assert!((frame.camera_corner_radius as f64 - frame.camera_dest.w * 0.15).abs() < 1e-4);
+    p.data.zooms.push(Zoom {
+        id: "camera-shrink".into(),
+        style: "classic".into(),
+        lens: ZoomLens::default(),
+        tl_start_ns: 500_000_000,
+        tl_end_ns: 1_500_000_000,
+        mode: "manual".into(),
+        target: [0.5, 0.5],
+        scale: 2.0,
+        ease_in_ns: 0,
+        ease_out_ns: 0,
+        enabled: true,
+    });
+    let zoomed = p.frame(1_000_000_000).unwrap();
+    assert!((zoomed.camera_dest.w - frame.camera_dest.w * 0.6).abs() < 1e-9);
     p.apply(&json!({"op":"insert_mask"})).unwrap();
     assert_eq!(p.data.canvas.highlights[0].dim_opacity, 0.5);
     let mut legacy = p.data.clone();
@@ -63,6 +93,56 @@ fn revision_three_factory_defaults_and_camera_geometry_preserve_existing_project
     assert_eq!(decoded.camera.layout_settings.edge_padding_ratio, 0.0);
     assert_eq!(decoded.camera.size, 0.22);
     assert!(decoded.camera.mirrored);
+}
+
+#[test]
+fn bs1_factory_cursor_glides_at_full_strength_and_slice_opt_out_stays_raw() {
+    let fixture = Fixture::new();
+    let mut p = Project::create(&fixture.0).unwrap();
+    p.data.cursor.remove_shakes = false;
+    p.events[0] = vec![
+        Event {
+            t: 0,
+            kind: "move".into(),
+            x: Some(0.0),
+            y: Some(100.0),
+            id: None,
+            details: Default::default(),
+        },
+        Event {
+            t: 1_000_000_000,
+            kind: "move".into(),
+            x: Some(100.0),
+            y: Some(100.0),
+            id: None,
+            details: Default::default(),
+        },
+    ];
+    p.input[0] = crate::input::InputCache::new(&p.events[0]);
+
+    let initial = p.frame(0).unwrap().cursor_x;
+    p.data.timeline.clips[0].settings.disable_smoothing = true;
+    let raw = p.frame(1_100_000_000).unwrap().cursor_x;
+    p.data.timeline.clips[0].settings.disable_smoothing = false;
+    let progress = |x: f64| (x - initial) / (raw - initial);
+    let early = progress(p.frame(1_100_000_000).unwrap().cursor_x);
+    let settled = progress(p.frame(1_600_000_000).unwrap().cursor_x);
+    assert!(early > 0.05 && early < 0.95, "early progress {early}");
+    assert!((0.99..=1.0).contains(&settled), "settled {settled}");
+    for n in 0..=60 {
+        assert!(
+            progress(p.frame(1_000_000_000 + n * 10_000_000).unwrap().cursor_x) <= 1.0,
+            "cursor overshot at sample {n}"
+        );
+    }
+    p.data.timeline.clips[0].settings.disable_smoothing = true;
+    assert_eq!(p.frame(1_100_000_000).unwrap().cursor_x, raw);
+    assert_eq!(
+        crate::allocation_test::count(|| {
+            p.frame(1_100_000_000).unwrap();
+        }),
+        0
+    );
 }
 
 #[test]
@@ -610,7 +690,7 @@ fn wave_three_defaults_presets_masks_and_layout_modes_match_the_reference_contra
     // E4.1/E4.3: Wave 3 chose Render's own dark Deep Slate wallpaper. Its
     // analytic gradient remains renderable by old frame consumers, while the
     // stable identity and catalog index restore the Wallpaper selection.
-    assert_eq!(p.data.defaults_revision, 3);
+    assert_eq!(p.data.defaults_revision, 4);
     assert_eq!(p.data.canvas.background.kind, "gradient");
     assert_eq!(
         p.data.canvas.background.wallpaper_id.as_deref(),

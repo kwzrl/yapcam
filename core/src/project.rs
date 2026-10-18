@@ -288,7 +288,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
             .size_points
             .is_some_and(|v| !(16.0..=128.0).contains(&v))
         || p.cursor.physics_version > 1
-        || p.zoom_settings.physics_version > 1
+        || p.zoom_settings.physics_version > 2
         || !(1.0..=4.0).contains(&p.zoom_settings.default_scale)
         || !(0.0..=1.0).contains(&p.audio.music_volume)
         || !matches!(
@@ -427,7 +427,7 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     }
     if !matches!(
         p.zoom_settings.animation_style.as_str(),
-        "custom" | "focused" | "smooth"
+        "custom" | "focused" | "smooth" | "none"
     ) || c
         .motion_blur_settings
         .zoom
@@ -901,7 +901,7 @@ pub(crate) mod tests {
     fn aligned_new_defaults_and_legacy_decode_preserve_distinct_appearance() {
         let f = Fixture::new();
         let mut p = Project::create(&f.0).unwrap();
-        assert_eq!(p.data.defaults_revision, 3);
+        assert_eq!(p.data.defaults_revision, 4);
         assert_eq!(p.data.canvas.padding_ratio, Some(0.1));
         let frame = p.frame(0).unwrap();
         assert_eq!((frame.canvas_w, frame.canvas_h), (1728, 1080));

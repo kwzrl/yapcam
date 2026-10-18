@@ -126,6 +126,8 @@ pub struct ProjectData {
     #[serde(default)]
     pub canvas: Canvas,
     #[serde(default)]
+    pub captions: CaptionSettings,
+    #[serde(default)]
     pub audio: Audio,
     #[serde(default, rename = "export")]
     pub export_settings: Export,
@@ -415,6 +417,9 @@ settings!(Canvas {
     annotations: Vec<TextRecord> = vec![], reactions: Vec<TextRecord> = vec![],
     captions: Vec<TextRecord> = vec![],
 });
+settings!(CaptionSettings {
+    hidden: bool = false
+});
 settings!(Highlight {
     enabled: bool = true, keyframes: Vec<MaskKeyframe> = vec![],
     id: String = String::new(),
@@ -619,6 +624,7 @@ settings!(MusicTrack {
     r#loop: bool = true,
     fade_in_ns: i64 = 500_000_000,
     fade_out_ns: i64 = 500_000_000,
+    library_id: Option<String> = None,
     ducking: Ducking = Ducking::default(),
 });
 settings!(Export {
@@ -632,7 +638,7 @@ impl ProjectData {
             .last()
             .map_or(0, |s| s.src_start_ns + s.duration_ns);
         let mut data = Self {
-            defaults_revision: 3,
+            defaults_revision: 4,
             schema_version: SCHEMA_VERSION,
             id,
             created_at: session.created_at.clone(),
@@ -656,6 +662,7 @@ impl ProjectData {
             cursor: Cursor::default(),
             camera: Camera::default(),
             canvas: Canvas::default(),
+            captions: CaptionSettings::default(),
             audio: Audio::default(),
             export_settings: Export::default(),
             zoom_settings: ZoomSettings::default(),
@@ -693,21 +700,27 @@ impl ProjectData {
         data.cursor.size_points = Some(48.0);
         data.cursor.set_id = Some("original".into());
         data.cursor.click_effect = "none".into();
-        data.cursor.smoothing = 0.0;
-        data.cursor.speed_preset = "none".into();
+        data.cursor.smoothing = 1.0;
+        data.cursor.speed_preset = "smooth".into();
         data.cursor.physics_version = 1;
         data.cursor.motion_blur = 1.0;
-        data.zoom_settings.physics_version = 1;
+        data.zoom_settings.physics_version = 2;
+        data.zoom_settings.animation_style = "smooth".into();
         data.zoom_settings.spring = Spring {
             tension: 125.0,
             friction: 12.0,
             mass: 1.5,
             allow_overshoot: false,
         };
+        data.insertion_styles.zoom = Some(ZoomInsertionStyle {
+            ease_in_ns: 1_000_000_000,
+            ease_out_ns: 1_000_000_000,
+            ..ZoomInsertionStyle::default()
+        });
         data.camera.mirrored = false;
         data.camera.position = [1.0, 1.0];
         data.camera.size = 0.5;
-        data.camera.zoom_scale = 0.8;
+        data.camera.zoom_scale = 0.6;
         data.camera.layout_settings.aspect = Some(1.0);
         data.camera.layout_settings.corner_ratio = Some(0.15);
         data.camera.layout_settings.edge_padding_ratio = 0.5;

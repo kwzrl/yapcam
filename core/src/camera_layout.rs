@@ -70,6 +70,38 @@ pub(crate) fn split_regions(area: Rect, ratio: f64, horizontal: bool, flip: bool
         (first, second)
     }
 }
+pub(crate) fn source_crop(p: &Project, tl: i64) -> [f64; 4] {
+    let authored = p.data.camera.style.crop;
+    if current(&p.data, tl).0 != "camera" {
+        return authored;
+    }
+    let Some(track) = &p.session.tracks.camera else {
+        return authored;
+    };
+    let source_aspect =
+        track.pixel_size[0] as f64 / track.pixel_size[1].max(1) as f64 * authored[2] / authored[3];
+    let frame = p.frame(tl).ok();
+    let destination_aspect = frame.as_ref().map_or(source_aspect, |f| {
+        f.canvas_w as f64 / f.canvas_h.max(1) as f64
+    });
+    if source_aspect > destination_aspect {
+        let width = destination_aspect / source_aspect;
+        [
+            authored[0] + authored[2] * (1.0 - width) / 2.0,
+            authored[1],
+            authored[2] * width,
+            authored[3],
+        ]
+    } else {
+        let height = source_aspect / destination_aspect;
+        [
+            authored[0],
+            authored[1] + authored[3] * (1.0 - height) / 2.0,
+            authored[2],
+            authored[3] * height,
+        ]
+    }
+}
 pub(crate) fn query(p: &Project, tl: Option<i64>) -> Result<Value> {
     let (mode, settings) = tl.map_or(
         (
@@ -149,6 +181,83 @@ mod tests {
         (f, p)
     }
     #[test]
+    fn cam14_fullscreen_fills_canvas_and_reports_centered_aspect_fill_crop() {
+        let (_f, mut p) = make();
+        p.session.tracks.camera.as_mut().unwrap().pixel_size = [640, 480];
+        p.apply(&json!({"op":"batch","commands":[
+            {"op":"set","path":"canvas.aspect","value":"custom"},
+            {"op":"set","path":"canvas.output_size","value":[1920,1080]},
+            {"op":"set","path":"camera.layouts","value":[{"id":"full","tl_start_ns":0,"tl_end_ns":2_000_000_000_i64,"mode":"camera"}]}
+        ]}))
+        .unwrap();
+        let frame = p.frame(1_000_000_000).unwrap();
+        assert_eq!(
+            frame.camera_dest,
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 1920.0,
+                h: 1080.0
+            }
+        );
+        assert_eq!(frame.camera_corner_radius, 0.0);
+        assert_eq!(source_crop(&p, 1_000_000_000), [0.0, 0.125, 1.0, 0.75]);
+        assert_eq!(
+            p.query(&json!({"q":"render_options_at","tl_ns":1_000_000_000_i64}))
+                .unwrap()["camera_source_crop"],
+            json!([0.0, 0.125, 1.0, 0.75])
+        );
+        assert_eq!(
+            p.query(&json!({"q":"render_options_at","tl_ns":1_000_000_000_i64}))
+                .unwrap()["camera_shadow_radius"],
+            0.0
+        );
+    }
+    #[test]
+    fn cam21_layout_boundaries_animate_geometry_and_hidden_opacity() {
+        let (_f, mut p) = make();
+        p.apply(&json!({"op":"set","path":"camera.layouts","value":[{"id":"full","tl_start_ns":2_000_000_000_i64,"tl_end_ns":4_000_000_000_i64,"mode":"camera"}]}))
+            .unwrap();
+        let before = p.frame(1_825_000_000).unwrap();
+        let entering = p.frame(1_900_000_000).unwrap();
+        let leaving = p.frame(2_100_000_000).unwrap();
+        let after = p.frame(2_175_000_000).unwrap();
+        assert!(
+            before.camera_dest.w < entering.camera_dest.w
+                && entering.camera_dest.w < leaving.camera_dest.w
+                && leaving.camera_dest.w < after.camera_dest.w
+        );
+        assert_eq!(after.camera_dest.w, after.canvas_w as f64);
+        assert_eq!(after.camera_corner_radius, 0.0);
+        let screen_opacity = p
+            .query(&json!({"q":"render_options_at","tl_ns":1_900_000_000_i64}))
+            .unwrap()["screen_opacity"]
+            .as_f64()
+            .unwrap();
+        assert!((0.0..1.0).contains(&screen_opacity));
+
+        p.apply(&json!({"op":"set","path":"camera.layouts","value":[{"id":"hidden","tl_start_ns":2_000_000_000_i64,"tl_end_ns":4_000_000_000_i64,"mode":"screen"}]}))
+            .unwrap();
+        let opacities: Vec<_> = [1_825_000_000, 1_900_000_000, 2_100_000_000, 2_175_000_000]
+            .map(|t| p.frame(t).unwrap().camera_opacity)
+            .into();
+        assert_eq!(opacities[0], 1.0);
+        assert!(opacities[0] > opacities[1] && opacities[1] > opacities[2]);
+        assert_eq!(opacities[3], 0.0);
+        let camera_blur = p
+            .query(&json!({"q":"render_options_at","tl_ns":1_900_000_000_i64}))
+            .unwrap()["camera_blur"]
+            .as_f64()
+            .unwrap();
+        assert!((0.0..1.0).contains(&camera_blur));
+        assert_eq!(
+            allocation_test::count(|| {
+                std::hint::black_box(p.frame(1_900_000_000).unwrap());
+            }),
+            0
+        );
+    }
+    #[test]
     fn cutout_split_orientation_overrides_and_legacy_geometry_are_allocation_free() {
         let (_f, mut p) = make();
         let legacy = p.frame(0).unwrap();
@@ -226,8 +335,11 @@ mod tests {
             {"op":"set","path":"camera.layouts","value":[{"id":"full","tl_start_ns":0,"tl_end_ns":4_000_000_000_i64,"mode":"camera"}]}
         ]})).unwrap();
         assert_eq!(p.frame(0).unwrap().screen.present, 0);
-        assert_eq!(p.frame(1_000_000_000).unwrap().camera.present, 0);
+        let hiding = p.frame(1_000_000_000).unwrap();
+        assert_eq!(hiding.camera.present, 1);
+        assert!((0.0..1.0).contains(&hiding.camera_opacity));
         assert_eq!(p.frame(1_000_000_000).unwrap().screen.present, 1);
+        assert_eq!(p.frame(1_175_000_000).unwrap().camera.present, 0);
         assert_eq!(p.frame(3_000_000_000).unwrap().camera.present, 1);
         let preset = p.query(&json!({"q":"preset"})).unwrap();
         assert!(preset["camera"].get("silence_ranges").is_none());
@@ -236,7 +348,7 @@ mod tests {
         assert_eq!(p.data.camera.silence_ranges[0].tl_start_ns, 500_000_000);
         assert_eq!(p.frame(500_000_000).unwrap().camera.present, 1); // now shorter than minimum
         p.undo().unwrap();
-        assert_eq!(p.frame(1_000_000_000).unwrap().camera.present, 0);
+        assert_eq!(p.frame(1_175_000_000).unwrap().camera.present, 0);
         let before = p.data.clone();
         for (path, value) in [
             ("min_silence_ns", json!(1)),
