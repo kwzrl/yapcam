@@ -3,7 +3,10 @@ import Foundation
 @testable import YapcamEditor
 
 @MainActor @Suite struct EditorLayoutTests {
-    private func model(_ dur: Int64 = 20_000_000_000) -> EditorModel { EditorModel(project: FakeProject(durationNs: dur), player: FakePlayer()) }
+    private func model(_ dur: Int64 = 20_000_000_000) -> EditorModel {
+        let p = FakeProject(durationNs: dur); p.hasCamera = false          // no camera track: the Layouts lane (always shown with one) is out
+        return EditorModel(project: p, player: FakePlayer())
+    }
 
     @Test func emptyProjectShowsOnlyClipAndZoomTracks() {
         let m = model()
@@ -26,10 +29,10 @@ import Foundation
         #expect(m.visibleLanes == [.caption, .music])              // an emptied lane disappears again
     }
 
-    @Test func cameraLaneFollowsLayoutsNotTheCameraTrack() {
+    @Test func cameraLaneIsShownWithACameraTrackSoLayoutsCanBeAddedByClicking() {
         let p = FakeProject(durationNs: 20_000_000_000); p.hasCamera = true
         let m = EditorModel(project: p, player: FakePlayer())
-        #expect(!m.visibleLanes.contains(.camera))                 // a camera track alone does not add an empty row
+        #expect(m.visibleLanes == [.camera])                       // CAM-11: empty Layouts lane with its hint
         m.addLayoutAtPlayhead()
         #expect(m.visibleLanes == [.camera])
     }

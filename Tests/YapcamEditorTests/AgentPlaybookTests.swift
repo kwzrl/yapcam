@@ -60,12 +60,23 @@ import YapcamCore
         defer { doc.model.close() }
         let runner = doc.agentRunner
         runner.locate = { script }
-        func send(_ text: String) async throws {
-            runner.send(text)
-            for _ in 0..<200 where doc.model.agentHooks.promptRunning { try await Task.sleep(for: .milliseconds(25)) }
-            #expect(!doc.model.agentHooks.promptRunning)
+        func runs() throws -> [String] {
+            guard let text = try? String(contentsOf: argsLog, encoding: .utf8) else { return [] }
+            return text.split(separator: "\n").map(String.init)
         }
-        func runs() throws -> [String] { try String(contentsOf: argsLog, encoding: .utf8).split(separator: "\n").map(String.init) }
+        // Flaky under load for two reasons: the wait gave up after 5 s (a loaded machine needs longer to fork the fake shell
+        // script), and `promptRunning` may still be false right after `send`, so the loop could return before the run began.
+        // Now: wait (up to 60 s) until the expected number of fake-claude runs happened AND the prompt finished.
+        func send(_ text: String, runs expected: Int = 1) async throws {
+            let before = try runs().count
+            runner.send(text)
+            let deadline = ContinuousClock.now + .seconds(60)
+            while ContinuousClock.now < deadline {
+                if try runs().count >= before + expected, !doc.model.agentHooks.promptRunning { break }
+                try await Task.sleep(for: .milliseconds(25))
+            }
+            #expect(try runs().count >= before + expected && !doc.model.agentHooks.promptRunning)
+        }
 
         try await send("add a zoom on the deploy click")
         #expect(runner.sessionID == "s1")
@@ -84,7 +95,7 @@ import YapcamCore
         #expect(!argv[2].contains("--resume"))
 
         runner.setSessionForTesting("stale")
-        try await send("again")
+        try await send("again", runs: 2)
         argv = try runs()
         #expect(argv[3].contains("--resume stale") && !argv[4].contains("--resume"))
         #expect(runner.sessionID == "s5")

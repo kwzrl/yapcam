@@ -143,6 +143,8 @@ import YapcamCore
         return dest
     }
 
+    static func uniqueFolderForExtract(in dir: URL, name: String) -> URL { uniqueFolder(in: dir, name: name) }
+
     private static func uniqueFolder(in dir: URL, name: String) -> URL {
         var url = dir.appending(path: name, directoryHint: .isDirectory)
         var i = 2
@@ -157,15 +159,22 @@ import YapcamCore
         if FileManager.default.fileExists(atPath: package.appending(path: "project.json").path) { return try Project.open(package: package) }
         let project = try Project.create(package: package)
         applyInitialLook(to: project, package: package)
+        applyRecordTimeAudio(to: project, cleanVoice: AppSettings.shared.cleanVoiceOnRecord && AppSettings.shared.microphoneID != nil)
         return project
     }
 
-    /// A new project's starting look: the last project's when the user asked for that and there is one,
-    /// otherwise the default preset.
+    /// The microphone menu's "Clean up voice" choice becomes the new project's voice clean-up (after the look, so presets don't override it).
+    static func applyRecordTimeAudio(to project: Project, cleanVoice: Bool) {
+        guard cleanVoice else { return }
+        try? project.apply(.set(path: "audio.speech_enhancement", value: .bool(true)))
+    }
+
+    /// A new project's starting look, in this order: a preset marked as default; else the last project's look when the
+    /// user asked for that and there is one; else the standard look.
     static func applyInitialLook(to project: Project, package: URL, reuseLast: Bool = AppSettings.shared.reuseLastProjectSettings,
-                                 in directory: URL = AppSettings.shared.storageDirectory) {
-        if reuseLast, let last = lastProject(excluding: package, in: directory), copyLook(from: last, to: project) { return }
-        EditorPresets.applyDefaultPreset(to: project)
+                                 in directory: URL = AppSettings.shared.storageDirectory, presets: YapcamEditor.PresetStore? = nil) {
+        if EditorPresets.applyDefaultPreset(to: project, from: presets) { return }
+        if reuseLast, let last = lastProject(excluding: package, in: directory) { _ = copyLook(from: last, to: project) }
     }
 
     /// The most recently saved project in `directory` other than `package`.
@@ -266,8 +275,13 @@ import YapcamCore
     }
 
     /// The diagnostics report: version, permissions, displays and the log tail.
-    static func diagnosticsText() -> String {
+    static func diagnosticsText(system: SystemInfo = .current()) -> String {
         var out = "Yapcam diagnostics \(Date().ISO8601Format())\n"
+        out += "This report lists device names and the app log. It contains no recordings.\n"
+        out += "Model: \(system.model)\nChip: \(system.chip)\nMemory: \(system.memoryGB) GB\nArchitecture: \(system.architecture)\n"
+        out += "Cameras: \(system.cameras.isEmpty ? "none" : system.cameras.joined(separator: ", "))\n"
+        out += "Microphones: \(system.microphones.isEmpty ? "none" : system.microphones.joined(separator: ", "))"
+        out += system.defaultMicrophone.map { " (default: \($0))\n" } ?? "\n"
         let info = Bundle.main.infoDictionary
         out += "Version \(info?["CFBundleShortVersionString"] ?? "?") (\(info?["CFBundleVersion"] ?? "?"))\n"
         out += "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)\n\nPermissions\n"

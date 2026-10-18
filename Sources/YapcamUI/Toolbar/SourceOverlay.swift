@@ -85,6 +85,18 @@ enum WindowAX {
     }
 }
 
+/// The recordable windows grouped by app: the Window button's right-click menu and the overlay's "Select window" submenu.
+enum WindowMenu {
+    static func groups(rows: [WindowRow], allowed: Set<UInt32>?, excludingPID: Int32, ignoring: Set<UInt32> = []) -> [SourceOverlayModel.AppWindows] {
+        let ok = rows.filter { $0.layer == 0 && $0.pid != excludingPID && !ignoring.contains($0.id) && (allowed?.contains($0.id) ?? true)
+            && $0.bounds.width >= 80 && $0.bounds.height >= 60 }
+        return Dictionary(grouping: ok, by: \.app).map { SourceOverlayModel.AppWindows(app: $0.key, rows: $0.value) }
+            .sorted { $0.app.localizedCaseInsensitiveCompare($1.app) == .orderedAscending }
+    }
+    /// A window's menu title: its title, or the app name when it has none.
+    static func title(_ row: WindowRow) -> String { row.title.isEmpty ? row.app : row.title }
+}
+
 // MARK: - The card: what will be recorded + Start recording
 
 struct SourceCard: View {
@@ -225,9 +237,7 @@ private struct CancelHint: View {
     struct AppWindows: Identifiable { let app: String; let rows: [WindowRow]; var id: String { app } }
     /// Recordable windows grouped by app (own windows, system layers and ignored windows left out).
     func windowsByApp() -> [AppWindows] {
-        let own = ProcessInfo.processInfo.processIdentifier
-        let rows = WindowHit.onScreenRows().filter { $0.layer == 0 && $0.pid != own && !ignored.contains($0.id) && (allowedWindows?.contains($0.id) ?? true) && $0.bounds.width >= 80 && $0.bounds.height >= 60 }
-        return Dictionary(grouping: rows, by: \.app).map { AppWindows(app: $0.key, rows: $0.value) }.sorted { $0.app.localizedCaseInsensitiveCompare($1.app) == .orderedAscending }
+        WindowMenu.groups(rows: WindowHit.onScreenRows(), allowed: allowedWindows, excludingPID: ProcessInfo.processInfo.processIdentifier, ignoring: ignored)
     }
 
     /// Chooses a window from the menu: it stays highlighted until the pointer moves.
@@ -444,6 +454,9 @@ private final class OverlayWindow: NSWindow {
         track()
         timer = Timer.scheduledTimer(withTimeInterval: 0.06, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.track() } }
     }
+
+    /// Chooses a window in the open window overlay, so Start recording is one click away.
+    func pinWindow(_ row: WindowRow) { model?.select(row) }
 
     func hide(restoreFocus: Bool = true) {
         OverlayKeys.remove(keyMonitor); keyMonitor = nil

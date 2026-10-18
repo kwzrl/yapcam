@@ -14,6 +14,15 @@ public enum CompressionPreset: String, CaseIterable, Identifiable, Sendable {
     public var hint: String {
         switch self { case .studio: "Highest quality, large file"; case .social: "Good quality for sharing"; case .web: "Small file"; case .webLow: "Smallest file" }
     }
+    /// Two-line description shown under the compression segments.
+    public var longHint: String {
+        switch self {
+        case .studio: "Near-lossless. Best for editing further in another app."
+        case .social: "Good for posting. Slight artifacts up close; platforms recompress anyway."
+        case .web: "Small file for embedding in a page."
+        case .webLow: "Smallest file. Visible artifacts."
+        }
+    }
     /// Legacy quality value; exports send the preset itself (render maps it to quantiser 14/24/30/42).
     public var quality: Double { switch self { case .studio: 0.95; case .social: 0.8; case .web: 0.55; case .webLow: 0.3 } }
     public func isAvailable(atHeight h: Int) -> Bool { !((self == .web || self == .webLow) && h >= 2160) }

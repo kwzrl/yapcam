@@ -123,7 +123,7 @@ import YapcamEditor
 
     @objc private func exportFile() {
         guard let doc = EditorBridge.keyDocument() else { return }
-        let p = NSSavePanel(); p.nameFieldStringValue = "Preset.yapcampreset"; p.allowedContentTypes = [.json]
+        let p = NSSavePanel(); p.nameFieldStringValue = "Preset.yapcampreset"; p.allowedContentTypes = [PresetFileType.type]
         p.allowsOtherFileTypes = true
         guard p.runModal() == .OK, let url = p.url else { return }
         do { try doc.project.exportPreset(to: url) } catch { fail("Could not export preset", error) }
@@ -141,8 +141,31 @@ import YapcamEditor
     }
 
     private func pickPreset() -> URL? {
-        let p = NSOpenPanel(); p.allowedContentTypes = [.json]; p.allowsOtherFileTypes = true
+        let p = NSOpenPanel(); p.allowedContentTypes = PresetFileType.openTypes; p.allowsOtherFileTypes = true
         p.message = "Choose a Yapcam preset file"
         return p.runModal() == .OK ? p.url : nil
+    }
+}
+
+/// The `.yapcampreset` file type (declared in Info.plist as mov.yapcam.preset, conforming to public.json).
+enum PresetFileType {
+    static let type: UTType = UTType("mov.yapcam.preset") ?? UTType(filenameExtension: "yapcampreset") ?? .json
+    /// What the open panels accept: our type, plain JSON presets from older versions.
+    static var openTypes: [UTType] { [type, .json] }
+    static func isPreset(_ url: URL) -> Bool { url.pathExtension.lowercased() == "yapcampreset" }
+
+    /// Opening a preset file (Finder, File ▸ Import Preset…): added to the library, and applied when an editor is in front.
+    @MainActor @discardableResult
+    static func importPreset(_ url: URL) -> String? {
+        do {
+            let dest = try PresetStore.addToLibrary(url)
+            let name = dest.deletingPathExtension().lastPathComponent
+            if let doc = EditorBridge.keyDocument() { try PresetStore.apply(dest, to: doc) }
+            else { RecordingController.shared.alert = AppAlert(title: "Preset added", message: "“\(name)” is now in the Presets menu.") }
+            return name
+        } catch {
+            RecordingController.shared.alert = AppAlert(title: "Could not add preset", error: error)
+            return nil
+        }
     }
 }

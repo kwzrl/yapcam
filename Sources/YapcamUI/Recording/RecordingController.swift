@@ -19,7 +19,9 @@ enum RecordingPhase: Equatable {
         didSet {
             phaseChanged(from: oldValue)
             switch (oldValue, phase) {
-            case (_, .recording) where oldValue != .paused: Announcer.say("Recording started")
+            case (_, .recording) where oldValue != .paused:
+                Announcer.say("Recording started")
+                if NotesWindow.shared.isVisible, !notes.isEmpty { PrompterModel.shared.playing = true }   // auto-start with the take
             case (_, .paused): Announcer.say("Recording paused")
             case (.paused, .recording): Announcer.say("Recording resumed")
             case (_, .idle) where oldValue == .finishing: Announcer.say("Recording stopped")
@@ -37,7 +39,6 @@ enum RecordingPhase: Equatable {
     @Published private(set) var workingLong = false
     /// Markers added with the flag button or shortcut, in recording time (pauses excluded).
     @Published private(set) var markers: [Int64] = []
-    @Published var prompterPlaying = true
     /// The package of the last finished recording (quick export and "open last").
     private(set) var lastPackage: URL?
     private var skipRequested = false
@@ -89,7 +90,16 @@ enum RecordingPhase: Equatable {
         if phase == .recording, old != .paused, !settings.showRecordingWidget, ToolbarPanelController.shared.isVisible {
             ToolbarPanelController.shared.hide(); hidToolbarForRecording = true
         }
+        if phase == .idle { widgetHiddenForTake = false }
         if phase == .idle, hidToolbarForRecording { hidToolbarForRecording = false; ToolbarPanelController.shared.show() }
+    }
+
+    /// The widget's context menu: hide the controls for this take only (the setting stays); ⌘⌥', the menu-bar icon or the next take bring them back.
+    private(set) var widgetHiddenForTake = false
+    func hideControlsForTake() {
+        guard isRecording else { return }
+        widgetHiddenForTake = true
+        if ToolbarPanelController.shared.isVisible { ToolbarPanelController.shared.hide(); hidToolbarForRecording = true }
     }
 
     /// UI snapshot tooling only: forces a phase without a session.
@@ -99,11 +109,13 @@ enum RecordingPhase: Equatable {
     // MARK: Entry points (toolbar button, menu, global shortcut)
 
     func toggleStartStop() {
-        switch phase {
-        case .idle: begin()
-        case .countdown: cancelCountdown()
-        case .recording, .paused: stop()
-        case .starting, .finishing: break
+        switch StartStopRule.action(phase: phase, pickerVisible: ToolbarPanelController.shared.isVisible,
+                                    overlayActive: SourceOverlay.shared.isActive || AreaSelector.shared.isActive) {
+        case .showPicker: ToolbarPanelController.shared.show()
+        case .begin: begin()
+        case .cancelCountdown: cancelCountdown()
+        case .stop: stop()
+        case .none: break
         }
     }
 
@@ -440,7 +452,7 @@ enum RecordingPhase: Equatable {
 
     private func finish() {
         markers = []
-        TeleprompterController.shared.hide()
+        PrompterModel.shared.playing = false
         if settings.playSounds, session != nil {
             let player = cuePlayer
             Task.detached { try? await player.play(.stop, gain: StartSoundGate.gain) }

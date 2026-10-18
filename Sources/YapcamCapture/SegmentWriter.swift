@@ -43,6 +43,8 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     var onTrackStarted: (@Sendable (String, Int64) -> Void)?
     var onMicLevel: (@Sendable (Float) -> Void)?
     var onAudioFormat: (@Sendable (String, AudioMetadata) -> Void)?
+    var onCameraPreviewFrame: (@Sendable (CameraPreviewFrame) -> Void)?
+    var onCameraPreviewUnavailable: (@Sendable (String) -> Void)?
 
     init(directory: URL, hostStartNs: Int64, maxFPS: Int,
          keepsStaticScreenAlive: Bool = false,
@@ -120,6 +122,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         guard accepting, unavailableTracks.insert(track.rawValue).inserted else { return }
         onWarning?(reason)
         if track == .microphone { onMicLevel?(0) }
+        if track == .camera { onCameraPreviewUnavailable?(reason) }
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -232,6 +235,7 @@ final class SegmentWriter: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
                 onTrackStarted?(key, track.firstNs - origin)
             }
             if key == "mic" { onMicLevel?(Self.level(sample)) }
+            if key == "camera" { onCameraPreviewFrame?(CameraPreviewFrame(sampleBuffer: writtenSample)) }
         } catch {
             let error = CaptureError.writerFailed(error.localizedDescription)
             if let auxiliary = AuxiliaryTrack(rawValue: key) {

@@ -30,7 +30,8 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
 
     struct Metadata: Sendable { var mic: AudioMetadata?; var camera: CameraMetadata? }
 
-    func start(microphoneID: String?, cameraID: String?, cameraMaxResolution: CameraMaxResolution = .hd1080) async -> Metadata {
+    func start(microphoneID: String?, cameraID: String?, recordStereoMicrophone: Bool = false,
+               cameraMaxResolution: CameraMaxResolution = .hd1080) async -> Metadata {
         await withCheckedContinuation { continuation in
             control.async {
                 var result = Metadata()
@@ -62,14 +63,18 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
                             result.camera = CameraMetadata(deviceName: device.localizedName,
                                 pixelSize: [choice.width, choice.height], fps: choice.fps)
                         } else {
+                            let channels = MicrophoneChannelPolicy.outputChannels(
+                                availableChannels: MicrophoneChannelPolicy.availableChannels(device),
+                                recordStereoMicrophone: recordStereoMicrophone)
                             let output = AVCaptureAudioDataOutput()
                             output.audioSettings = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 48_000,
-                                AVNumberOfChannelsKey: 1, AVLinearPCMIsFloatKey: true, AVLinearPCMBitDepthKey: 32]
+                                AVNumberOfChannelsKey: channels, AVLinearPCMIsFloatKey: true, AVLinearPCMBitDepthKey: 32]
                             output.setSampleBufferDelegate(self, queue: self.writer.queue)
                             guard session.canAddOutput(output) else { throw CaptureError.deviceLost(device.localizedName) }
                             session.addOutput(output)
                             sampleOutput = output
-                            result.mic = AudioMetadata(deviceName: device.localizedName, sampleRate: 48_000, channels: 1)
+                            result.mic = AudioMetadata(deviceName: device.localizedName, sampleRate: 48_000,
+                                channels: channels, stereoMicrophone: recordStereoMicrophone)
                         }
                         session.commitConfiguration()
                         committed = true
@@ -119,6 +124,19 @@ final class AuxiliaryCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         let expected = sessionLock.withLock { cameraSizes[ObjectIdentifier(output)] }
         AuxiliarySamples.append(sampleBuffer, track: track, clock: session?.synchronizationClock,
                                 cameraPixels: expected, writer: writer)
+    }
+}
+
+enum MicrophoneChannelPolicy {
+    static func outputChannels(availableChannels: UInt32, recordStereoMicrophone: Bool) -> Int {
+        recordStereoMicrophone && availableChannels >= 2 ? 2 : 1
+    }
+
+    static func availableChannels(_ device: AVCaptureDevice) -> UInt32 {
+        let description = device.activeFormat.formatDescription
+        guard CMFormatDescriptionGetMediaType(description) == kCMMediaType_Audio,
+              let format = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else { return 1 }
+        return max(1, format.mChannelsPerFrame)
     }
 }
 

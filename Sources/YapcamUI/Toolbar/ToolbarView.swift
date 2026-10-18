@@ -138,7 +138,7 @@ struct ToolbarView: View {
             if picker.openMode == mode { SourcePicker.escape(); return }
             SourcePicker.open(mode)
         }
-        .contextMenu { if mode == .display { displayMenu } }
+        .contextMenu { if mode == .display { displayMenu } else if mode == .window { windowListMenu } }
         .accessibilityHint(mode == .display ? "Right-click lists the displays" : "")
     }
 
@@ -146,6 +146,22 @@ struct ToolbarView: View {
     @ViewBuilder private var displayMenu: some View {
         ForEach(NSScreen.screens.compactMap { s in s.displayID.flatMap { id in Displays.info(for: id) } }, id: \.id) { d in
             Button("\(d.name) – \(d.detail)") { SourcePicker.open(.display, display: d.id) }
+        }
+    }
+
+    /// Right-click on Window: the recordable windows by app; choosing one opens the overlay on it.
+    @ViewBuilder private var windowListMenu: some View {
+        if perms.state(.screen) != .granted {
+            Button("Allow screen recording to list windows") {}.disabled(true)
+        } else {
+            let groups = WindowMenu.groups(rows: WindowHit.onScreenRows(), allowed: nil, excludingPID: ProcessInfo.processInfo.processIdentifier)
+            ForEach(groups) { g in
+                Menu(g.app) {
+                    ForEach(g.rows, id: \.id) { r in
+                        Button(WindowMenu.title(r)) { SourcePicker.open(.window); SourceOverlay.shared.pinWindow(r) }
+                    }
+                }
+            }
         }
     }
 
@@ -205,7 +221,13 @@ struct ToolbarView: View {
 
     private var recordingControls: some View {
         let paused = rec.phase == .paused
-        return line(6) {
+        return recordingBody(paused: paused).contextMenu {
+            Button("Hide controls for this recording (\(settings.combo(for: .toggleWidget)?.display ?? "⌘⌥'"))") { rec.hideControlsForTake() }
+        }
+    }
+
+    private func recordingBody(paused: Bool) -> some View {
+        line(6) {
             Button(action: rec.toggleStartStop) {
                 line(7) {
                     Image(systemName: "stop.circle.fill").font(.system(size: 22)).foregroundStyle(Yap.record)

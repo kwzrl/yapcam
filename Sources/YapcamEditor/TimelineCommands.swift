@@ -172,7 +172,7 @@ extension EditorModel {
             return (g.0, g.1, before.map { $0.startNs + $0.clip.timelineDurationNs } ?? 0)
         }
     }
-    private func restoreCommands(_ gaps: [(startNs: Int64, endNs: Int64, atNs: Int64)], like template: TimelineClip?) -> [EditorCommand] {
+    func restoreCommands(_ gaps: [(startNs: Int64, endNs: Int64, atNs: Int64)], like template: TimelineClip?) -> [EditorCommand] {
         // Last boundary first, so earlier boundaries keep their timeline positions while clips are inserted.
         gaps.sorted { $0.atNs > $1.atNs || ($0.atNs == $1.atNs && $0.startNs > $1.startNs) }.map {
             .insertSource(startNs: $0.startNs, endNs: $0.endNs, atNs: $0.atNs, speed: template?.speed ?? 1,

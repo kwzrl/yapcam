@@ -18,6 +18,7 @@ enum TimelineClick {
         var rangePreview: [String: (start: Int64, end: Int64)]
         var typing: [(startNs: Int64, endNs: Int64)]
         var clips: [(id: String, startNs: Int64, endNs: Int64)]
+        var cutMarkers: [(atNs: Int64, label: String)] = []
     }
 
     enum Action: Equatable {
@@ -31,6 +32,9 @@ enum TimelineClick {
         case zoomToggleSelect(id: String)
         case zoomDrag(id: String, part: ZoomPart)
         case clipCut(atNs: Int64)
+        case laneCreate(lane: TimelineLane, atNs: Int64)        // empty Layouts / Masks lane: click or drag adds an item
+        case restoreCut(atNs: Int64)                           // S-EDT-24: click on a scissors bubble
+        case clipEdge(id: String, edge: ClipTrim.Edge)         // S-EDT-23: drag the end of a clip
         case nothing
     }
 
@@ -41,7 +45,10 @@ enum TimelineClick {
     static func decide(_ i: Input) -> Action {
         let p = i.point, g = i.geometry, l = i.layout
         guard p.x.isFinite, p.y.isFinite else { return .nothing }
-        if p.y < l.clipTop { return .scrub(selectClip: nil) }
+        if p.y < l.clipTop {
+            if let m = i.cutMarkers.first(where: { CutMarker.hits(p, bubbleCenterX: g.x(forNs: $0.atNs), label: $0.label) }) { return .restoreCut(atNs: m.atNs) }
+            return .scrub(selectClip: nil)
+        }
         let ns = g.ns(forX: p.x)
         if l.lanes.contains(.typing), p.y >= l.typingTop, p.y < l.typingTop + TimelineLayout.laneHeight,
            let sp = i.typing.first(where: { p.x >= g.x(forNs: $0.startNs) - 2 && p.x <= g.x(forNs: $0.endNs) + 2 }) {
@@ -54,7 +61,12 @@ enum TimelineClick {
                 }
                 return .rangeDrag(key: hit.key, part: hit.part, select: hit.tag)
             }
-            return i.cutTool ? .nothing : .scrub(selectClip: nil)
+            if i.cutTool { return .nothing }
+            if let lane = l.lanes.first(where: { (l.top(of: $0) ?? -1) <= p.y && p.y < (l.top(of: $0) ?? -1) + TimelineLayout.laneHeight }),
+               lane == .camera || lane == .highlight, p.x >= 0, ns >= 0, ns < i.durationNs {
+                return .laneCreate(lane: lane, atNs: ns)
+            }
+            return .scrub(selectClip: nil)
         }
         if p.y >= l.zoomTop {
             if let z = i.zooms.last(where: { p.x >= g.x(forNs: $0.startNs) - 2 && p.x <= g.x(forNs: $0.endNs) + 2 }) {
@@ -71,7 +83,11 @@ enum TimelineClick {
         }
         let clip = i.clips.first(where: { p.x >= g.x(forNs: $0.startNs) && p.x < g.x(forNs: $0.endNs) })
         if p.y < l.zoomTop - TimelineLayout.gap, let clip {
-            return i.cutTool ? .clipCut(atNs: ns) : .scrub(selectClip: clip.id)
+            if i.cutTool { return .clipCut(atNs: ns) }
+            let w = g.x(forNs: clip.endNs) - g.x(forNs: clip.startNs), h = min(TimelineLayout.edgeHandle, w / 3)
+            if p.x <= g.x(forNs: clip.startNs) + h { return .clipEdge(id: clip.id, edge: .start) }
+            if p.x >= g.x(forNs: clip.endNs) - h { return .clipEdge(id: clip.id, edge: .end) }
+            return .scrub(selectClip: clip.id)
         }
         return .scrub(selectClip: nil)
     }

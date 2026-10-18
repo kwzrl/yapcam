@@ -125,40 +125,13 @@ private struct AgentToggle: View {
     }
 }
 
-/// Apply, save and manage looks (presets); everything the old top bar's Presets menu offered.
+/// Apply, save and manage looks (presets): the popover lives in PresetsPopover.swift.
 private struct PresetsMenu: View {
     @ObservedObject var model: EditorModel
-    @State private var names: [String] = []
+    @State private var shown = false
 
     var body: some View {
-        SlotMenu(symbol: "wand.and.rays", label: "Presets", help: "Apply or save a look") {
-            Button("Create preset from this look…") { if let n = EditorPresets.promptName() { model.savePreset(named: n); refresh() } }
-            Divider()
-            let recent = model.recentPresets().filter { names.contains($0) }
-            if !recent.isEmpty {
-                Section("Recently used") { ForEach(recent, id: \.self) { n in Button(n) { model.applyPreset(at: model.presetStore.url(n)) } } }
-                Divider()
-            }
-            if names.isEmpty { Text("No presets yet") }
-            ForEach(names, id: \.self) { n in preset(n) }
-        }
-        .onAppear(perform: refresh)
-        .onHover { if $0 { refresh() } }
+        SlotButton(symbol: "wand.and.rays", label: "Presets", help: "Apply or save a look", active: shown, compact: true) { shown.toggle() }
+            .popover(isPresented: $shown, arrowEdge: .bottom) { PresetsPopover(model: model, shown: $shown) }
     }
-
-    private func preset(_ n: String) -> some View {
-        let badges = [model.presetMatchesProject(named: n) ? "Matches project" : nil, model.presetStore.defaultName == n ? "Default" : nil].compactMap { $0 }
-        return Menu(badges.isEmpty ? n : "\(n)  ·  \(badges.joined(separator: ", "))") {
-            Button("Apply") { model.applyPreset(at: model.presetStore.url(n)) }
-            Button("Rename…") { if let new = EditorPresets.promptName(title: "Rename preset", initial: n, confirm: "Rename") { model.renamePreset(from: n, to: new); refresh() } }
-            Button("Update to match current project") { model.updatePreset(named: n) }
-            Button(model.presetStore.defaultName == n ? "Don't use as default" : "Use as default for new projects") {
-                model.presetStore.defaultName = model.presetStore.defaultName == n ? nil : n
-            }
-            Divider()
-            Button("Remove", role: .destructive) { model.removePreset(named: n); refresh() }
-        }
-    }
-
-    private func refresh() { let n = model.presetStore.names(); if n != names { names = n } }
 }

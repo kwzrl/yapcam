@@ -21,6 +21,18 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
+			<string>Yapcam Preset</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>mov.yapcam.preset</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
 			<string>Video</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
@@ -64,6 +76,23 @@
 	<string>Yapcam turns your recorded speech into captions using on-device speech recognition. Audio never leaves your Mac.</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Yapcam Preset</string>
+			<key>UTTypeIdentifier</key>
+			<string>mov.yapcam.preset</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>yapcampreset</string>
+				</array>
+			</dict>
+		</dict>
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>

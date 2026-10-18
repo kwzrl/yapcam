@@ -97,6 +97,7 @@ import YapcamEditor
         EditorHooks.install(AppSettings.shared)
         EditorWindows.appearance = AppSettings.shared.editorAppearance
         EditorWindows.hardwareEncodingEnabled = { AppSettings.hardwareEncodingEnabledInStore() }   // Settings → Advanced reaches editor exports
+        FirstCloseGuard.shared.start()
         AreaOutline.shared.start()
         offerRecovery()
         if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {
@@ -106,13 +107,16 @@ import YapcamEditor
         // Re-apply settings that need side effects.
         // A sink, not `objectWillChange.values`: AsyncPublisher traps when two settings change back to back
         // (e.g. Start on the display overlay sets displayID and sourceMode) while the loop is still sleeping.
+        NotificationCenter.default.addObserver(forName: EditorWindows.openCountDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyLiveSettings() }     // Hide Dock Icon follows editor windows opening and closing
+        }
         settingsObserver = settings.objectWillChange
             .debounce(for: .milliseconds(50), scheduler: RunLoop.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.applyLiveSettings() } }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for u in urls { ProjectActions.open(u) }
+        for u in urls { if PresetFileType.isPreset(u) { PresetFileType.importPreset(u) } else { ProjectActions.open(u) } }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -129,6 +133,7 @@ import YapcamEditor
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if QuitGuard.shouldBlockQuit() { return .terminateCancel }
         if RecordingController.shared.isRecording {
             let a = NSAlert()
             a.messageText = "A recording is in progress"
@@ -201,7 +206,8 @@ import YapcamEditor
             if statusItem == nil {
                 let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
                 item.button?.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Yapcam")
-                item.menu = MainMenu.statusMenu(target: self)
+                item.button?.target = self; item.button?.action = #selector(AppDelegate.statusItemClicked)
+                item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
                 statusItem = item
                 observeRecordingForTray()
             }
@@ -226,14 +232,28 @@ import YapcamEditor
             } else {
                 button.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Yapcam")
                 button.contentTintColor = nil
-                button.action = nil
-                item.menu = MainMenu.statusMenu(target: self!)
+                // Idle: a click opens the picker; right-click or ⌥-click opens the menu.
+                item.menu = nil
+                button.target = self; button.action = #selector(AppDelegate.statusItemClicked)
+                button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             }
         }
     }
 
     // MARK: Actions
 
+    @objc func statusItemClicked() {
+        let e = NSApp.currentEvent
+        switch MenuBarClick.action(phase: RecordingController.shared.phase, rightClick: e?.type == .rightMouseUp, optionHeld: e?.modifierFlags.contains(.option) == true) {
+        case .showPicker: ToolbarPanelController.shared.show()
+        case .toggleRecording: RecordingController.shared.toggleStartStop()
+        case .showMenu:
+            guard let item = statusItem else { return }
+            item.menu = MainMenu.statusMenu(target: self)
+            item.button?.performClick(nil)
+            DispatchQueue.main.async { item.menu = nil }
+        }
+    }
     @objc func toggleRecording() { RecordingController.shared.toggleStartStop() }
     @objc func togglePause() { RecordingController.shared.togglePause() }
     @objc func toggleToolbar() { ToolbarEditorCoordinator.shared.userToggled(); ToolbarPanelController.shared.toggle() }
@@ -245,6 +265,38 @@ import YapcamEditor
     @objc func quickExportSave() { QuickExport.shared.runOnLast(.save) }
     @objc func showNotes() { NotesWindow.shared.show() }
     @objc func showSettings() { SettingsWindow.shared.show() }
+
+    // MARK: Dock menu (right-click on the Dock icon)
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        for it in DockMenu.items(phase: RecordingController.shared.phase, showInDock: AppSettings.shared.showInDock) {
+            if it.kind == .separator { menu.addItem(.separator()); continue }
+            let sel: Selector
+            switch it.kind {
+            case .finish: sel = #selector(dockFinish)
+            case .pauseResume: sel = #selector(dockPauseResume)
+            case .restart: sel = #selector(dockRestart)
+            case .cancel: sel = #selector(dockCancel)
+            case .cancelCountdown: sel = #selector(dockCancelCountdown)
+            case .settings: sel = #selector(showSettings)
+            case .newRecording: sel = #selector(dockNewRecording)
+            case .openLast: sel = #selector(openLastRecording)
+            case .keepInDock: sel = #selector(dockToggleKeep)
+            case .separator: continue
+            }
+            let mi = NSMenuItem(title: it.title, action: sel, keyEquivalent: "")
+            mi.target = self; mi.isEnabled = it.enabled; mi.state = it.checked ? .on : .off
+            menu.addItem(mi)
+        }
+        return menu
+    }
+    @objc func dockFinish() { RecordingController.shared.stop() }          // an explicit menu click: no confirmation
+    @objc func dockPauseResume() { RecordingController.shared.togglePause() }
+    @objc func dockRestart() { RecordingController.shared.confirmRestart() }
+    @objc func dockCancel() { RecordingController.shared.confirmCancel() }
+    @objc func dockCancelCountdown() { RecordingController.shared.cancelCountdown() }
+    @objc func dockNewRecording() { ToolbarPanelController.shared.show() }
+    @objc func dockToggleKeep() { AppSettings.shared.showInDock.toggle() }
     @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil, all: true) }
     @objc func openProject() {
         let p = NSOpenPanel()
@@ -256,6 +308,13 @@ import YapcamEditor
         for url in p.urls { ProjectActions.open(url) }       // each one reports on its own when it can't be opened
     }
     @objc func recoverRecording() { RecoveryFlow.run(silentWhenNone: false) }
+    @objc func exportPicker() { EditorBridge.keyEditor()?.performExport(.picker) }
+    @objc func exportToFile() { EditorBridge.keyEditor()?.performExport(.saveToFile) }
+    @objc func exportCopy() { EditorBridge.keyEditor()?.performExport(.copyToClipboard) }
+    @objc func exportHistory() { EditorBridge.keyEditor()?.performExport(.history) }
+    @objc func extractRawFiles() { if let u = EditorBridge.keyDocument()?.project.packageURL { RawExtractRunner.shared.start(package: u, screenOnly: false) } }
+    @objc func extractScreenFile() { if let u = EditorBridge.keyDocument()?.project.packageURL { RawExtractRunner.shared.start(package: u, screenOnly: true) } }
+    @objc func saveProject() { EditorBridge.keyEditor()?.saveNow() }
     @objc func saveProjectAs() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.saveAs(u) } }
     @objc func copyAndZipProject() { if let u = EditorBridge.keyDocument()?.project.packageURL { ProjectActions.copyAndZip(u) } }
     @objc func moveProjectToTrash() { _ = EditorWindows.requestTrashOfKeyEditor() }
@@ -270,6 +329,12 @@ import YapcamEditor
     }
     @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { FinderReveal.show(u) } }
     @objc func showRecordings() { RecentProjectsWindow.shared.show() }
+    @objc func importPreset() {
+        let p = NSOpenPanel(); p.allowedContentTypes = PresetFileType.openTypes; p.allowsOtherFileTypes = true
+        p.message = "Choose a Yapcam preset file"
+        guard p.runModal() == .OK, let url = p.url else { return }
+        PresetFileType.importPreset(url)
+    }
     @objc func importVideo() { ProjectActions.importVideo() }
     @objc func exportDiagnostics() { ProjectActions.exportDiagnostics() }
     @objc func editUndo() {
@@ -280,7 +345,9 @@ import YapcamEditor
     }
     @objc func editSplit() { EditorBridge.keyEditor()?.splitAtPlayhead() }
     @objc func editAddZoom() { EditorBridge.keyEditor()?.addZoomAtPlayhead() }
-    @objc func editPalette() { EditorBridge.keyEditor()?.paletteVisible = true }
+    @objc func editPalette() {
+        if let m = EditorBridge.keyEditor() { m.paletteVisible = true } else { RecordingPaletteWindow.shared.show() }   // while recording: the HUD palette
+    }
     @objc func showAbout() { AboutWindow.show() }
     @objc func showThirdPartyNotices() { ThirdPartyNotices.open() }
     @objc func showStorageFolder() { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) }
@@ -294,7 +361,9 @@ extension AppDelegate: NSMenuItemValidation {
             item.title = r.isRecording || r.phase == .countdown(0) ? "Stop Recording" : "Start Recording"
             if case .countdown = r.phase { item.title = "Cancel Countdown" }
             return r.phase != .starting && r.phase != .finishing
-        case #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
+        case #selector(saveProject), #selector(extractRawFiles), #selector(extractScreenFile), #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
+        case #selector(exportPicker), #selector(exportToFile), #selector(exportCopy), #selector(exportHistory):
+            return ExportMenuState.enabled(hasEditor: EditorBridge.keyEditor() != nil, exportRunning: EditorBridge.keyDocument()?.export.isRunning ?? false)
         case #selector(addMarker): return r.phase == .recording
         case #selector(restartRecording), #selector(cancelRecording): return r.isRecording
         case #selector(togglePause):
@@ -302,7 +371,8 @@ extension AppDelegate: NSMenuItemValidation {
             return r.isRecording
         case #selector(editUndo): return EditorBridge.isEditingText || (EditorBridge.keyEditor()?.canUndo ?? false)
         case #selector(editRedo): return EditorBridge.isEditingText || (EditorBridge.keyEditor()?.canRedo ?? false)
-        case #selector(editSplit), #selector(editAddZoom), #selector(editPalette): return EditorBridge.keyEditor() != nil
+        case #selector(editPalette): return EditorBridge.keyEditor() != nil || !RecordingPalette.commands(phase: r.phase).isEmpty
+        case #selector(editSplit), #selector(editAddZoom): return EditorBridge.keyEditor() != nil
         case #selector(toggleToolbar):
             item.title = ToolbarPanelController.shared.isVisible ? "Hide Toolbar" : "Show Toolbar"
             return true

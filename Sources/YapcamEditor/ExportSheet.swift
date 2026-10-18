@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import YapcamRender
+import YapcamDesign
 
 struct ExportSheet: View {
     @ObservedObject var export: ExportModel
@@ -62,36 +63,44 @@ struct ExportSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             if case .cancelled = export.state { Text("Export cancelled.").foregroundStyle(.secondary) }
             PillPicker(selection: $export.target, options: ExportTarget.allCases.map { ($0.label, $0) }, accessibilityTitle: "Export to")
-            HStack(alignment: .top, spacing: EditorMetrics.m) {
-                labeled("Format") {
-                    Picker("Format", selection: $export.format) {
-                        ForEach(ExportFormat.primary.filter { export.availableFormats.contains($0) }) { Text($0.label).tag($0) }
-                        Divider()
-                        ForEach(ExportFormat.advanced.filter { export.availableFormats.contains($0) }) { Text($0.label).tag($0) }
-                    }.pickerStyle(.menu).labelsHidden()
-                }
-                labeled("Frame rate") {
-                    Picker("Frame rate", selection: $export.fps) { ForEach(export.options.fps, id: \.self) { Text("\($0) fps").tag($0) } }.pickerStyle(.menu).labelsHidden()
-                }
-            }
-            HStack(alignment: .top, spacing: EditorMetrics.m) {
-                labeled("Size") {
-                    Picker("Size", selection: $export.height) { ForEach(export.options.heights, id: \.self) { Text(ExportSettings.heightTitle($0)).tag($0) } }.pickerStyle(.menu).labelsHidden()
-                }
-                if !export.availablePresets.isEmpty {
-                    labeled("Compression") {
-                        Picker("Compression", selection: $export.preset) { ForEach(export.availablePresets) { Text($0.label).tag($0) } }.pickerStyle(.menu).labelsHidden()
-                    }
-                } else {
-                    labeled("GIF") {
-                        VStack(alignment: .leading, spacing: EditorMetrics.xs) {
-                            Toggle("High quality", isOn: $export.gifHighQuality)
-                            Toggle("Play once", isOn: $export.gifDisableLoop)
-                        }
+            segmentRow("Format") {
+                HStack(spacing: 8) {
+                    SegmentSwitch([(id: ExportFormat.mp4h264, title: "MP4"), (id: ExportFormat.gif, title: "GIF")],
+                                  selection: Binding(get: { export.format == .gif ? .gif : .mp4h264 },
+                                                     set: { f in if f == .gif || export.format == .gif { export.format = f } }), height: 26)
+                    if export.availableFormats.contains(where: { !$0.isPrimary }) {
+                        Menu(export.format.isPrimary ? "More formats" : export.format.label) {
+                            ForEach(ExportFormat.advanced.filter { export.availableFormats.contains($0) }) { f in Button(f.label) { export.format = f } }
+                        }.menuStyle(.borderlessButton).fixedSize()
                     }
                 }
             }
-            if !export.availablePresets.isEmpty { Text(export.preset.hint).font(.caption).foregroundStyle(.secondary) }
+            segmentRow("Frame rate") {
+                Picker("Frame rate", selection: $export.fps) { ForEach(export.options.fps, id: \.self) { Text("\($0) fps").tag($0) } }
+                    .pickerStyle(.menu).labelsHidden().fixedSize()
+            }
+            segmentRow("Resolution") {
+                VStack(alignment: .leading, spacing: 4) {
+                    SegmentSwitch(export.options.heights.map { (id: $0, title: ExportSettings.heightTitle($0)) }, selection: $export.height, height: 26)
+                    if let e = export.estimate { Text("\(e.width) × \(e.height) px").font(Yap.Font.caption).foregroundStyle(Yap.caption).monospacedDigit() }
+                }
+            }
+            if !export.availablePresets.isEmpty {
+                segmentRow("Compression") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SegmentSwitch(export.availablePresets.map { (id: $0, title: $0.label) }, selection: $export.preset, height: 26)
+                        Text(export.preset.longHint).font(Yap.Font.caption).foregroundStyle(Yap.caption).fixedSize(horizontal: false, vertical: true)
+                        Text("Compression doesn't change how long the export takes.").font(Yap.Font.caption).foregroundStyle(Yap.caption)
+                    }
+                }
+            } else {
+                segmentRow("GIF") {
+                    VStack(alignment: .leading, spacing: EditorMetrics.xs) {
+                        Toggle("High quality", isOn: $export.gifHighQuality)
+                        Toggle("Play once", isOn: $export.gifDisableLoop)
+                    }
+                }
+            }
             if export.format.supportsAudio { Toggle("Include audio", isOn: $export.includeAudio) }
             if export.showsLargeGIFWarning {
                 Label("A 1080p GIF can become very large. 480p or 720p is usually plenty.", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
@@ -124,12 +133,23 @@ struct ExportSheet: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                if export.target != .clipboard && !export.format.fileTargetOnly {
+                    Button("Copy ⌘↩") { export.copyToClipboard() }.keyboardShortcut(.return, modifiers: .command)
+                        .help("Copy the export to the clipboard instead")
+                }
                 if export.target == .clipboard {
-                    Button("Copy to Clipboard") { export.copyToClipboard() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+                    Button("Copy to Clipboard ↩") { export.copyToClipboard() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
                 } else {
-                    Button("Export…") { choose() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+                    Button("Export… ↩") { choose() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
                 }
             }
+        }
+    }
+
+    private func segmentRow<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        HStack(alignment: .top, spacing: EditorMetrics.s) {
+            Text(title).font(Yap.Font.body).foregroundStyle(Yap.label).frame(width: 90, alignment: .leading).padding(.top, 4)
+            content().frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

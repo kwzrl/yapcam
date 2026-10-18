@@ -42,6 +42,10 @@ private final class LifecycleSink: CaptureTrackSink, @unchecked Sendable {
     var isWaiting: Bool { waiter != nil }
 }
 
+@MainActor private final class CameraPreviewUpdates {
+    var values: [CameraPreviewUpdate] = []
+}
+
 @MainActor private final class LifecycleStream: CaptureSessionStream {
     let writer: SegmentWriter
     let pixels: [Int]
@@ -49,10 +53,13 @@ private final class LifecycleSink: CaptureTrackSink, @unchecked Sendable {
     let barrier: StartupBarrier?
     let delayFirstFrame: Bool
     let includeAuxiliary: Bool
+    let auxiliaryAudioChannels: UInt32
     private(set) var firstFrameNs: Int64?
-    init(writer: SegmentWriter, pixels: [Int], barrier: StartupBarrier?, delayFirstFrame: Bool, includeAuxiliary: Bool) {
+    init(writer: SegmentWriter, pixels: [Int], barrier: StartupBarrier?, delayFirstFrame: Bool,
+         includeAuxiliary: Bool, auxiliaryAudioChannels: UInt32) {
         self.writer = writer; self.pixels = pixels; self.barrier = barrier; self.delayFirstFrame = delayFirstFrame
         self.includeAuxiliary = includeAuxiliary
+        self.auxiliaryAudioChannels = auxiliaryAudioChannels
     }
     func startCapture() async throws {
         if let barrier { await barrier.wait() }
@@ -64,12 +71,14 @@ private final class LifecycleSink: CaptureTrackSink, @unchecked Sendable {
     func emitSamples(at time: Int64, includeAuxiliary: Bool) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let writer = writer
+            let includeAuxiliary = includeAuxiliary
+            let auxiliaryAudioChannels = auxiliaryAudioChannels
             writer.queue.async {
                 do {
                     let sample = try lifecycleSample(at: time)
                     writer.append(sample, track: "screen")
                     if includeAuxiliary {
-                        writer.append(sample, track: "mic")
+                        writer.append(try lifecycleSample(at: time, channels: auxiliaryAudioChannels), track: "mic")
                         writer.append(sample, track: "camera")
                     }
                     continuation.resume()
@@ -84,10 +93,12 @@ private final class LifecycleSink: CaptureTrackSink, @unchecked Sendable {
     func disappear() { writer.onFailure?(.sourceUnavailable) }
 }
 
-private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
+private func lifecycleSample(at ns: Int64, channels: UInt32 = 1) throws -> CMSampleBuffer {
+    let bytesPerFrame = 4 * channels
     var description = AudioStreamBasicDescription(mSampleRate: 48_000, mFormatID: kAudioFormatLinearPCM,
-        mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: 4,
-        mFramesPerPacket: 1, mBytesPerFrame: 4, mChannelsPerFrame: 1, mBitsPerChannel: 32, mReserved: 0)
+        mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: bytesPerFrame,
+        mFramesPerPacket: 1, mBytesPerFrame: bytesPerFrame, mChannelsPerFrame: channels,
+        mBitsPerChannel: 32, mReserved: 0)
     var format: CMAudioFormatDescription?
     guard CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &description, layoutSize: 0,
         layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &format) == noErr else {
@@ -118,6 +129,7 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
     var barrier: StartupBarrier?
     var delayFirstFrame = false
     var includeAuxiliary = false
+    var auxiliaryAudioChannels: UInt32 = 1
     var eventHook: ((InputEventRecorder) throws -> Void)?
     var streams: [LifecycleStream] = []
     let finishes = FinishCounter()
@@ -130,7 +142,8 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
     var displayRefreshRate: Double = 60
     var preparedFrameRates: [Int] = []
     func cleanup() { try? FileManager.default.removeItem(at: directory) }
-    func session(target: CaptureTarget = .display(2), systemAudio: Bool = false) -> RecordingSession {
+    func session(target: CaptureTarget = .display(2), systemAudio: Bool = false,
+                 cleanVoiceOnRecord: Bool = false, recordStereoMicrophone: Bool = false) -> RecordingSession {
         let finishes = finishes
         let samples = samples
         let services = CaptureSessionServices(permissionState: { [unowned self] kind in self.permissionByKind[kind] ?? self.permission },
@@ -148,7 +161,8 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
                 }
                 return CaptureSessionPlan(source: source, geometry: geometry, maxFPS: fps) { [unowned self] writer, pixels in
                     let stream = LifecycleStream(writer: writer, pixels: pixels, barrier: self.barrier,
-                        delayFirstFrame: self.delayFirstFrame, includeAuxiliary: self.includeAuxiliary)
+                        delayFirstFrame: self.delayFirstFrame, includeAuxiliary: self.includeAuxiliary,
+                        auxiliaryAudioChannels: self.auxiliaryAudioChannels)
                     self.streams.append(stream)
                     return stream
                 }
@@ -164,7 +178,9 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
             }, validateSource: { [unowned self] _ in
                 if let error = self.sourceHealthError { throw error }
             }, automaticHealthChecks: false)
-        return RecordingSession(options: RecordingOptions(target: target, systemAudio: systemAudio, outputDirectory: directory), services: services)
+        return RecordingSession(options: RecordingOptions(target: target, systemAudio: systemAudio,
+            cleanVoiceOnRecord: cleanVoiceOnRecord, recordStereoMicrophone: recordStereoMicrophone,
+            outputDirectory: directory), services: services)
     }
 }
 
@@ -262,6 +278,50 @@ private func lifecycleSample(at ns: Int64) throws -> CMSampleBuffer {
     #expect(manifest.status == "complete")
     #expect(manifest.tracks.systemAudio?.sampleRate == 48_000 && manifest.tracks.systemAudio?.channels == 1)
     #expect(manifest.segments[0].files["system_audio"] == "seg-000/system.m4a")
+}
+
+@Test(arguments: [false, true]) @MainActor
+func recordTimeCleanVoiceFlagIsAppliedOnlyToMicrophoneMetadata(enabled: Bool) async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.includeAuxiliary = true
+    let session = harness.session(systemAudio: true, cleanVoiceOnRecord: enabled)
+    try await session.start()
+    let package = try await session.stop()
+    let manifest = try readSession(package)
+
+    #expect(manifest.tracks.mic?.speechEnhancement == enabled)
+    #expect(manifest.tracks.systemAudio?.speechEnhancement == false)
+    let data = try Data(contentsOf: package.appendingPathComponent("recording/session.json"))
+    let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let tracks = try #require(json["tracks"] as? [String: Any])
+    let mic = try #require(tracks["mic"] as? [String: Any])
+    #expect((mic["speech_enhancement"] as? Bool) == (enabled ? true : nil))
+}
+
+@Test func microphoneChannelPolicyPreservesStereoOnlyWhenRequestedAndAvailable() {
+    #expect(MicrophoneChannelPolicy.outputChannels(availableChannels: 2, recordStereoMicrophone: true) == 2)
+    #expect(MicrophoneChannelPolicy.outputChannels(availableChannels: 8, recordStereoMicrophone: true) == 2)
+    #expect(MicrophoneChannelPolicy.outputChannels(availableChannels: 1, recordStereoMicrophone: true) == 1)
+    #expect(MicrophoneChannelPolicy.outputChannels(availableChannels: 2, recordStereoMicrophone: false) == 1)
+}
+
+@Test @MainActor func requestedStereoMicrophonePublishesTwoChannelMicTrack() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    harness.includeAuxiliary = true
+    harness.auxiliaryAudioChannels = 2
+    let session = harness.session(recordStereoMicrophone: true)
+    try await session.start()
+    let package = try await session.stop()
+    let manifest = try readSession(package)
+
+    #expect(manifest.tracks.mic?.channels == 2)
+    #expect(manifest.tracks.mic?.stereoMicrophone == true)
+    let data = try Data(contentsOf: package.appendingPathComponent("recording/session.json"))
+    let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let tracks = try #require(json["tracks"] as? [String: Any])
+    let mic = try #require(tracks["mic"] as? [String: Any])
+    #expect(mic["channels"] as? Int == 2)
+    #expect(mic["stereo_mic"] as? Bool == true)
 }
 
 @MainActor private func eventually(_ condition: () -> Bool) async throws {
@@ -563,6 +623,48 @@ private func readSession(_ package: URL) throws -> SessionManifest {
     #expect(harness.finishes.count == 3)
     #expect(stream.stopCount == 1)
     #expect(RecordingPackageLease.isAvailable(package))
+}
+
+@Test @MainActor func lifecycleFakeCameraFramesReachPreviewAndDisconnectStopsDelivery() async throws {
+    let harness = try LifecycleHarness(); defer { harness.cleanup() }
+    let updates = CameraPreviewUpdates()
+    let session = harness.session()
+    session.cameraPreviewHandler = { updates.values.append($0) }
+    try await session.start()
+    let stream = harness.streams[0]
+    let samples = try InjectedCaptureSamples()
+    let origin = try #require(stream.firstFrameNs)
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        stream.writer.queue.async {
+            do {
+                stream.writer.append(try samples.video(at: origin + 1_000_000), track: "camera")
+                continuation.resume()
+            } catch { continuation.resume(throwing: error) }
+        }
+    }
+    try await eventually { updates.values.count == 1 }
+    if case .frame(let frame) = updates.values[0] {
+        #expect(frame.sampleBuffer.imageBuffer != nil)
+        #expect(CaptureClock.nanoseconds(frame.sampleBuffer.presentationTimeStamp) == origin + 1_000_000)
+    } else { Issue.record("Expected a forwarded camera frame") }
+
+    stream.writer.deviceUnavailable(.camera, reason: "Camera disconnected")
+    try await eventually { updates.values.count == 2 }
+    if case .unavailable(let reason) = updates.values[1] {
+        #expect(reason == "Camera disconnected")
+    } else { Issue.record("Expected a camera-unavailable update") }
+
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        stream.writer.queue.async {
+            do {
+                stream.writer.append(try samples.video(at: origin + 2_000_000), track: "camera")
+                continuation.resume()
+            } catch { continuation.resume(throwing: error) }
+        }
+    }
+    for _ in 0..<10 { await Task.yield() }
+    #expect(updates.values.count == 2)
+    _ = try await session.stop()
 }
 
 @Test @MainActor func lifecycleLowDiskBeforeStartDoesNotCreatePackageOrStream() async throws {

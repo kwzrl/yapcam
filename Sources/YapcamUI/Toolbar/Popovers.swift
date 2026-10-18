@@ -90,6 +90,12 @@ struct MicrophonePopover: View {
                     }
                 }
                 Divider()
+                if settings.microphoneID != nil {
+                    SelectableRow(selected: settings.cleanVoiceOnRecord) { settings.cleanVoiceOnRecord.toggle() } content: {
+                        Text("Clean up voice (noise + level)")
+                    }
+                    .help("New recordings start with the editor's Clean up voice turned on")
+                }
                 SelectableRow(selected: settings.microphoneID == nil) { settings.microphoneID = nil } content: {
                     Text("Don't record microphone")
                 }
@@ -164,36 +170,6 @@ private struct PermissionPrompt: View {
                 perms.act(permission)
             }
         }
-    }
-}
-
-// MARK: - Notes
-
-struct NotesPopover: View {
-    @EnvironmentObject var rec: RecordingController
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            PopoverHeader(title: "Speaker notes")
-            TextEditor(text: $rec.notes)
-                .font(.system(size: 13))
-                .frame(height: 160)
-                .overlay(alignment: .topLeading) {
-                    if rec.notes.isEmpty {
-                        Text("Type what you want to say. It stays visible while you record.")
-                            .font(.system(size: 13)).foregroundStyle(.tertiary)
-                            .padding(.horizontal, 6).padding(.top, 8).allowsHitTesting(false)
-                    }
-                }
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.15)))
-            HStack {
-                Button { TeleprompterController.shared.toggle() } label: { Label("Teleprompter", systemImage: "text.alignleft") }
-                Spacer()
-                Text("\(rec.notes.count) characters").font(.caption).foregroundStyle(.secondary)
-            }
-            Text("The teleprompter floats above your screen, scrolls while you record and never appears in the recording. Notes are saved with the recording.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14).frame(width: 300)
     }
 }
 

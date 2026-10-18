@@ -124,6 +124,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var maxFPS: Int { didSet { d.set(maxFPS, forKey: "maxFPS") } }
     @Published var openEditorAfterRecording: Bool { didSet { d.set(openEditorAfterRecording, forKey: "openEditor") } }
     @Published var playSounds: Bool { didSet { d.set(playSounds, forKey: "playSounds") } }
+    /// Microphone menu: new projects start with "Clean up voice" on (noise + level), see ProjectActions.applyRecordTimeAudio.
+    @Published var cleanVoiceOnRecord: Bool { didSet { d.set(cleanVoiceOnRecord, forKey: "cleanVoiceOnRecord") } }
     /// Settings → Advanced: export with the VideoToolbox software encoder (decoding stays system-managed).
     @Published var disableHardwareEncoding: Bool { didSet { d.set(disableHardwareEncoding, forKey: "disableHardwareEncoding") } }
     /// What the editor's export reads (EditorWindows.hardwareEncodingEnabled): the stored switch, off the main actor.
@@ -155,6 +157,10 @@ struct KeyCombo: Codable, Equatable, Hashable {
     @Published var quickExport: ExportSettings { didSet { d.set(try? JSONEncoder().encode(quickExport), forKey: "quickExport.v1") } }
     /// Editor window appearance (Settings → Editing): dark by default, like the reference.
     @Published var editorAppearance: EditorAppearance { didSet { d.set(editorAppearance.rawValue, forKey: "editorAppearance"); EditorWindows.appearance = editorAppearance } }
+    /// Quick export widget: keep the project after Copy / Save without asking (off: closing the widget asks Keep or Trash).
+    @Published var alwaysKeepProjectAfterQuickExport: Bool { didSet { d.set(alwaysKeepProjectAfterQuickExport, forKey: "alwaysKeepProjectAfterQuickExport") } }
+    /// Editing: ask "Keep recording?" when a fresh recording's editor closes within seconds (off: always keep, like before).
+    @Published var askKeepOnFirstClose: Bool { didSet { d.set(askKeepOnFirstClose, forKey: "askKeepOnFirstClose") } }
     @Published var actionAfterQuickExport: ActionAfterQuickExport { didSet { d.set(actionAfterQuickExport.rawValue, forKey: "actionAfterQuickExport") } }
     @Published var showRecordingWidget: Bool { didSet { d.set(showRecordingWidget, forKey: "showRecordingWidget") } }
     @Published var createAutoZooms: Bool { didSet { d.set(createAutoZooms, forKey: "createAutoZooms") } }
@@ -199,7 +205,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         systemAudioApps = d.stringArray(forKey: "systemAudioApps") ?? []
         areaCustomRatioW = CGFloat(d.object(forKey: "areaCustomRatioW") as? Double ?? 16)
         areaCustomRatioH = CGFloat(d.object(forKey: "areaCustomRatioH") as? Double ?? 10)
-        reuseLastProjectSettings = d.object(forKey: "reuseLastProjectSettings") as? Bool ?? false
+        reuseLastProjectSettings = d.object(forKey: "reuseLastProjectSettings") as? Bool ?? true
         presetsDirectory = d.string(forKey: "presetsDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) }
         experimentalVariableFrameRate = d.object(forKey: "experimentalVariableFrameRate") as? Bool ?? false
         autosaveEnabled = d.object(forKey: "autosaveEnabled") as? Bool ?? true
@@ -212,6 +218,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         maxFPS = AppSettings.cap(d.object(forKey: "maxFPS") as? Int)
         openEditorAfterRecording = d.object(forKey: "openEditor") as? Bool ?? true
         playSounds = d.object(forKey: "playSounds") as? Bool ?? true
+        cleanVoiceOnRecord = d.object(forKey: "cleanVoiceOnRecord") as? Bool ?? false
         disableHardwareEncoding = d.object(forKey: "disableHardwareEncoding") as? Bool ?? false
         hideDesktopIcons = d.object(forKey: "hideDesktopIcons") as? Bool ?? false
         hideDockWhileRecording = d.object(forKey: "hideDockWhileRecording") as? Bool ?? true
@@ -228,6 +235,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         quickExport = (d.data(forKey: "quickExport.v1").flatMap { try? JSONDecoder().decode(ExportSettings.self, from: $0) })
             .map { $0.closestValidPreset(for: .file) } ?? AppSettings.defaultQuickExport
         editorAppearance = EditorAppearance(rawValue: d.string(forKey: "editorAppearance") ?? "") ?? .dark
+        alwaysKeepProjectAfterQuickExport = d.object(forKey: "alwaysKeepProjectAfterQuickExport") as? Bool ?? false
+        askKeepOnFirstClose = d.object(forKey: "askKeepOnFirstClose") as? Bool ?? false
         actionAfterQuickExport = ActionAfterQuickExport(rawValue: d.string(forKey: "actionAfterQuickExport") ?? "") ?? .nothing
         showRecordingWidget = store.object(forKey: "showRecordingWidget") as? Bool ?? true
         createAutoZooms = store.object(forKey: "createAutoZooms") as? Bool ?? true
@@ -253,13 +262,14 @@ struct KeyCombo: Codable, Equatable, Hashable {
 extension AppSettings {
     /// The activation policy the app should have: a hidden Dock icon stays hidden; with the Dock icon shown it
     /// goes away while a recording runs when `hideDockWhileRecording` is on.
-    static func activationPolicy(showInDock: Bool, hideWhileRecording: Bool, recording: Bool) -> NSApplication.ActivationPolicy {
+    static func activationPolicy(showInDock: Bool, hideWhileRecording: Bool, recording: Bool, editorOpen: Bool = false) -> NSApplication.ActivationPolicy {
+        if editorOpen { return .regular }                     // an open project always has a Dock icon (Hide Dock Icon applies when nothing is open)
         guard showInDock else { return .accessory }
         return recording && hideWhileRecording ? .accessory : .regular
     }
     var activationPolicy: NSApplication.ActivationPolicy {
         let phase = RecordingController.shared.phase
-        return Self.activationPolicy(showInDock: showInDock, hideWhileRecording: hideDockWhileRecording, recording: phase == .recording || phase == .paused)
+        return Self.activationPolicy(showInDock: showInDock, hideWhileRecording: hideDockWhileRecording, recording: phase == .recording || phase == .paused, editorOpen: EditorWindows.openCount > 0)
     }
 }
 
@@ -279,11 +289,11 @@ extension AppSettings {
         experimentalVariableFrameRate = f.experimentalVariableFrameRate; autosaveEnabled = f.autosaveEnabled
         microphoneID = f.microphoneID; cameraID = f.cameraID; cameraMaxResolution = f.cameraMaxResolution
         countdown = f.countdown; recordKeystrokes = f.recordKeystrokes; maxFPS = f.maxFPS
-        openEditorAfterRecording = f.openEditorAfterRecording; playSounds = f.playSounds; hideDesktopIcons = f.hideDesktopIcons; disableHardwareEncoding = f.disableHardwareEncoding
+        openEditorAfterRecording = f.openEditorAfterRecording; playSounds = f.playSounds; hideDesktopIcons = f.hideDesktopIcons; disableHardwareEncoding = f.disableHardwareEncoding; cleanVoiceOnRecord = f.cleanVoiceOnRecord
         hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview
         showInDock = f.showInDock; showMenuBarItem = f.showMenuBarItem
         shortcuts = f.shortcuts; highlightRecordedArea = f.highlightRecordedArea; savedWindowSizes = f.savedWindowSizes; savedAreaSizes = f.savedAreaSizes
-        editorAppearance = f.editorAppearance; actionAfterQuickExport = f.actionAfterQuickExport; quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms
+        editorAppearance = f.editorAppearance; actionAfterQuickExport = f.actionAfterQuickExport; alwaysKeepProjectAfterQuickExport = f.alwaysKeepProjectAfterQuickExport; askKeepOnFirstClose = f.askKeepOnFirstClose; quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms
         afterRecording = f.afterRecording; showQuickExportWidget = f.showQuickExportWidget
     }
 }

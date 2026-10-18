@@ -42,6 +42,9 @@ import UniformTypeIdentifiers
         export.remember(in: .dialog, defaults: presets.defaults)
         model.presetStore = presets; model.defaults = presets.defaults
         model.loadStoredPreviewOptions()
+        model.loadLaneVisibility()
+        model.playheadMemoryPath = package.standardizedFileURL.path
+        model.restorePlayhead()
         model.favoriteWallpapers = Set(presets.defaults.stringArray(forKey: "editor.favoriteWallpapers") ?? [])
         model.smoothWaveform = presets.defaults.bool(forKey: "editor.smoothWaveform")
         model.showWaveform = presets.defaults.object(forKey: "editor.showWaveform") as? Bool ?? true
@@ -52,6 +55,7 @@ import UniformTypeIdentifiers
         model.agentHooks.undoDepth = { [weak project] in (try? project?.historyState().undoSteps) ?? 0 }
         model.agentPromptHandler = { [weak self] prompt in self?.agentRunner.send(prompt) }
         model.copyFrameHandler = { [weak self] in self?.copyCurrentFrame() }
+        model.exportFrameHandler = { [weak self] in self?.exportCurrentFrame() }
         let transcriptURL = package.appendingPathComponent("recording/transcript.json")
         model.captionSourceWithOptions = { options, force in
             // An existing transcript is reused unless the user asked to regenerate it.
@@ -93,6 +97,21 @@ import UniformTypeIdentifiers
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setData(png, forType: .png)
         } catch { model.lastError = "Couldn't copy the frame: \(error.localizedDescription)" }
+    }
+
+    /// Save panel for the current timeline frame as a PNG, named "<project> <timecode>.png" (S-EDT-47).
+    public func exportCurrentFrame() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = Self.frameFileName(title: title, atNs: model.playheadNs)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try FrameSnapshot.png(source: ProjectRenderSource(project), atNs: model.playheadNs).write(to: url, options: .atomic)
+        } catch { model.lastError = "Couldn't save the frame: \(error.localizedDescription)" }
+    }
+    static func frameFileName(title: String, atNs ns: Int64) -> String {
+        let code = formatTimecode(ns, showFraction: false).replacingOccurrences(of: ":", with: "-")
+        return "\(title) \(code).png"
     }
 
     /// True when an autosave journal exists that is newer than the saved project.

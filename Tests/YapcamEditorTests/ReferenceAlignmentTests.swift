@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AppKit
 import YapcamCore
 @testable import YapcamEditor
 
@@ -129,7 +130,7 @@ import YapcamCore
 
     @Test func zoomKeysOnlyActOnASelectedZoom() {
         let (m, _) = make()
-        #expect(!m.handleShortcut("a") && !m.handleShortcut("5") && !m.handleShortcut("="))
+        #expect(!m.handleShortcut("a") && !m.handleShortcut("9") && !m.handleShortcut("="))      // 2…8 toggle timelines
         m.addZoomAtPlayhead(); let id = m.zooms[0].id
         #expect(m.handleShortcut("a") && m.zooms[0].mode == .auto); #expect(m.handleShortcut("m") && m.zooms[0].mode == .manual)
         #expect(m.handleShortcut("d") && !m.zooms[0].enabled); m.handleShortcut("d"); #expect(m.zooms[0].enabled)
@@ -146,13 +147,15 @@ import YapcamCore
         m.seek(toNs: 1_000_000_000); m.addZoomAtPlayhead(); m.seek(toNs: 10_000_000_000); m.addZoomAtPlayhead()
         let a = m.zooms[0], b = m.zooms[1]
         m.selection = .zoom(a.id); m.setZoomScale(id: a.id, 3.2); m.setZoomEase(id: a.id, inNs: 0, outNs: 0)
-        #expect(m.handleShortcut("c", .command))                                      // copies the zoom's settings, not the frame
+        var framesCopied = 0; m.copyFrameHandler = { framesCopied += 1 }
+        #expect(m.handleShortcut("c", .command) && framesCopied == 1)                 // S-EDT-60: ⌘C copies the frame even with a zoom selected
+        m.apply(.copySettings(.zoom(a.id)))                                           // settings are copied from the context menu
         m.selection = .zoom(b.id); #expect(m.handleShortcut("v", .command))
         #expect(m.zooms[1].scale == 3.2 && m.zooms[1].easeInNs == 0)
         m.selection = .none; var copied = 0
         m.copyFrameHandler = { copied += 1 }
         m.handleShortcut("c", .command); #expect(copied == 1)                         // nothing selected: copies the frame
-        m.selection = .clip(m.clips[0].id); m.setSpeed(clipID: m.clips[0].id, 4); m.handleShortcut("c", .command)
+        m.selection = .clip(m.clips[0].id); m.setSpeed(clipID: m.clips[0].id, 4); m.handleShortcut("c", .command); #expect(copied == 2); m.apply(.copySettings(.clip(m.clips[0].id)))
         m.selection = .zoom(a.id); #expect(!m.handleShortcut("v", .command))         // kinds must match
     }
 
@@ -181,11 +184,20 @@ import YapcamCore
         #expect(SpringPreset.screen.map { [$0.stiffness, $0.damping, $0.mass] } == [[250, 40, 2.25], [170, 50, 3]])
         #expect(SpringPreset.cursor.map { [$0.stiffness, $0.damping, $0.mass] } == [[470, 70, 3], [340, 60, 3], [530, 40, 1]])
     }
+    @Test func cursorSectionAndAnimationsShareOnePreset() {      // BS-2
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.chooseCursorAnimation("rapid"); #expect(m.activePreset(screen: false) == "rapid")
+        m.chooseCursorAnimation("none"); #expect(m.activePreset(screen: false) == "none")
+        m.chooseCursorAnimation("bogus"); #expect(m.activePreset(screen: false) == "none")
+    }
     @Test func choosingAPresetWritesTheSpringAndMarksItActive() {
         let m = EditorModel(project: FakeProject(), player: FakePlayer())
         let smooth = SpringPreset.screen[1]
-        m.setSpring(screen: true, stiffness: smooth.stiffness, damping: smooth.damping, mass: smooth.mass)
-        #expect(m.activePreset(screen: true) == "smooth" && m.string("zoom_settings.animation_style") == "custom")
+        m.setSpring(screen: true, stiffness: smooth.stiffness, damping: smooth.damping, mass: smooth.mass, preset: smooth.id)
+        #expect(m.activePreset(screen: true) == "smooth" && m.string("zoom_settings.animation_style") == "smooth")   // BS-4: not forced to custom
+        m.setSpring(screen: true, stiffness: 200, damping: 50, mass: 3)
+        #expect(m.string("zoom_settings.animation_style") == "custom")                                              // hand-tuned values
+        m.undo()
         m.setSpring(screen: false, stiffness: 340, damping: 60, mass: 3)
         #expect(m.activePreset(screen: false) == "medium" && m.number("cursor.smoothing") == 0.15)       // smoothing switched on
         m.setCursorAnimationNone(); #expect(m.activePreset(screen: false) == "none")
@@ -598,5 +610,252 @@ import YapcamCore
         let m = EditorModel(project: p, player: FakePlayer())
         m.refreshCameraSilence(); m.close(); await m.waitForCameraSilence()
         #expect(m.cameraSilenceCount == 0)
+    }
+}
+
+@MainActor @Suite struct ClickSoundTests {      // BS-10
+    @Test func percentMapsToDecibelsAndBack() {
+        #expect(abs(ClickSoundSettings.gainDb(percent: 100)) < 1e-9)
+        #expect(abs(ClickSoundSettings.gainDb(percent: 50) + 6.0206) < 1e-3)
+        #expect(ClickSoundSettings.gainDb(percent: 0) == -48)
+        #expect(abs(ClickSoundSettings.percent(gainDb: ClickSoundSettings.gainDb(percent: 25)) - 25) < 1e-6)
+        #expect(ClickSoundSettings.percent(gainDb: -48) == 0)
+    }
+    @Test func previewHasSoundForBothVariantsAndPeakScalesWithVolume() {
+        for v in ["soft", "crisp"] {
+            let loud = ClickSoundSettings.previewSamples(variant: v, percent: 100).map { abs(Int($0)) }.max() ?? 0
+            let quiet = ClickSoundSettings.previewSamples(variant: v, percent: 25).map { abs(Int($0)) }.max() ?? 0
+            #expect(loud > 1000 && quiet > 0 && abs(Double(quiet) / Double(loud) - 0.25) < 0.02)
+        }
+        #expect(ClickSoundSettings.previewSamples(variant: "soft", percent: 0).allSatisfy { $0 == 0 })
+    }
+    @Test func choosingVariantTurnsSoundOnAndNoneOff() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.setClickSound("crisp"); #expect(m.clickSoundChoice == "crisp")
+        m.setClickSoundPercent(50); #expect(abs(m.clickSoundPercent - 50) < 1e-6)
+        m.setClickSound("none"); #expect(m.clickSoundChoice == "none")
+        m.undo(); #expect(m.clickSoundChoice == "crisp")
+    }
+}
+
+@MainActor @Suite struct CameraPlacementTests {      // CAM-15/16, CAM-04
+    @Test func gridCellsIncludeTheCentre() {
+        #expect(CameraPlacement.cell(of: [0.5, 0.5]) != nil && CameraPlacement.cell(of: [0.5, 0.5])! == (1, 1))
+        #expect(CameraPlacement.cell(of: [0.82, 0.78])! == (2, 2))
+        #expect(CameraPlacement.cell(of: nil) == nil && CameraPlacement.cell(of: [0.3, 0.3]) == nil)
+    }
+    @Test func layoutPositionAndSizeAreStoredPerSection() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.set("camera.layouts", .array([.object(["id": .string("a"), "tl_start_ns": .number(0), "tl_end_ns": .number(2e9), "mode": .string("overlay")])]))
+        m.setLayoutCameraPosition(id: "a", [0.5, 0.5]); #expect(m.layoutCameraPosition(id: "a") == [0.5, 0.5])
+        m.setLayoutCameraSize(id: "a", 0.5); #expect(m.layoutCameraSize(id: "a") == 0.5)
+        m.setLayoutCameraSize(id: "a", 9); #expect(m.layoutCameraSize(id: "a") == 0.75)
+        m.setLayoutCameraPosition(id: "a", nil); #expect(m.layoutCameraPosition(id: "a") == nil)
+        m.setLayoutCameraSize(id: "a", nil); #expect(m.layoutCameraSize(id: "a") == nil)
+    }
+    @Test func roundnessReachesACircleAndComesBack() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.setCameraRoundness(0.5); #expect(m.number("camera.radius") == 32 && abs(m.cameraRoundness - 0.5) < 1e-9)
+        m.setCameraRoundness(1); #expect(m.string("camera.shape") == "circle" && m.cameraRoundness == 1)
+        m.setCameraRoundness(0.25); #expect(m.string("camera.shape") == "rounded_rect" && m.number("camera.radius") == 16)
+    }
+}
+
+@MainActor @Suite struct FrameExportTests {      // editing.md P1 #5
+    @Test func destinationExtensionPicksTheFormat() {
+        #expect(FrameImageFormat.type(for: URL(fileURLWithPath: "/tmp/a.JPG")) == .jpeg)
+        #expect(FrameImageFormat.type(for: URL(fileURLWithPath: "/tmp/a.png")) == .png)
+        #expect(FrameImageFormat.type(for: URL(fileURLWithPath: "/tmp/a")) == .png)
+    }
+    @Test func jpegIsRealJPEGAndPNGPassesThrough() throws {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                   isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        let png = rep.representation(using: .png, properties: [:])!
+        #expect(try FrameImageFormat.encode(png: png, for: URL(fileURLWithPath: "/x.png")) == png)
+        let jpg = try FrameImageFormat.encode(png: png, for: URL(fileURLWithPath: "/x.jpeg"))
+        #expect(Array(jpg.prefix(2)) == [0xFF, 0xD8])
+    }
+    @Test func defaultNameUsesTitleAndPlayheadTime() {
+        #expect(FrameImageFormat.defaultName(title: "Demo", ns: 72_400_000_000) == "Demo – 1.12.png")
+        #expect(FrameImageFormat.defaultName(title: " ", ns: 0) == "Frame – 0.00.png")
+    }
+    @Test func fakeProjectsCannotExportFrames() {
+        #expect(!EditorModel(project: FakeProject(), player: FakePlayer()).canExportFrame)
+    }
+}
+
+@MainActor @Suite struct ZoomPanelTests {      // BS-11, BS-12
+    @Test func thumbnailTargetIsClampedLikeEveryFocusEdit() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.addZoom(fromNs: 0, toNs: 1_000_000_000)
+        guard let z = m.zooms.first else { Issue.record("no zoom"); return }
+        m.setZoomScale(id: z.id, 2)
+        m.setZoomTarget(id: z.id, unit: CGPoint(x: 0.1, y: 0.25))
+        let f = m.zooms.first { $0.id == z.id }!
+        #expect(abs(f.focusX - 0.25) < 1e-9 && abs(f.focusY - 0.25) < 1e-9)      // 2× → half-window 0.25
+        #expect(ZoomTargetThumbnail.unit(CGPoint(x: 300, y: -5), in: CGSize(width: 200, height: 100)) == CGPoint(x: 1, y: 0))
+    }
+    @Test func useForNewZoomsSetsTheDefaultLevel() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.addZoom(fromNs: 0, toNs: 1_000_000_000)
+        let id = m.zooms[0].id
+        m.setZoomScale(id: id, 3)
+        m.useZoomForNewZooms(id: id)
+        #expect(m.defaultZoomScale == 3)
+        m.undo(); #expect(m.defaultZoomScale == 2)
+    }
+}
+
+@Suite struct CropDraftTests {      // editing.md P1 #3 (EDT-09…13)
+    let frame = CGSize(width: 1920, height: 1080)
+
+    @Test func pixelsRoundTripThroughTheStoredFraction() {
+        let d = CropDraft(frame: frame, rect: CGRect(x: 100, y: 50, width: 960, height: 540))
+        let back = CropDraft(frame: frame, stored: d.stored)
+        #expect(back.rect == d.rect)
+        #expect(abs(d.insets.left - 100.0 / 1920) < 1e-12 && abs(d.insets.right - (1920 - 1060) / 1920.0) < 1e-12)
+        #expect(CropDraft(frame: frame, stored: []).isFullFrame && CropDraft(frame: frame, stored: [0, 0, 0, 0]).isFullFrame)
+    }
+    @Test func noLockDragMovesOnlyThatEdgeAndKeepsMinimumSize() {
+        let d = CropDraft(frame: frame)
+        let r = d.dragged(.top, from: d.rect, dx: 500, dy: 80)
+        #expect(r == CGRect(x: 0, y: 80, width: 1920, height: 1000))
+        let tiny = d.dragged(.bottom, from: d.rect, dx: 0, dy: -5000)
+        #expect(tiny.height == 32 && tiny.minY == 0)
+        let out = d.dragged(.left, from: d.rect, dx: -300, dy: 0)
+        #expect(out.minX == 0)
+    }
+    @Test func bodyDragStaysInsideTheFrame() {
+        let d = CropDraft(frame: frame, rect: CGRect(x: 100, y: 100, width: 400, height: 300))
+        #expect(d.dragged(.body, from: d.rect, dx: 5000, dy: -5000) == CGRect(x: 1520, y: 0, width: 400, height: 300))
+    }
+    @Test func lockedCornerDragKeepsTheRatioAndAnchorsTheOppositeCorner() {
+        var d = CropDraft(frame: frame, rect: CGRect(x: 100, y: 100, width: 800, height: 450))
+        d.setLock(.r16x9)
+        let r = d.dragged(.bottomRight, from: d.rect, dx: 160, dy: 0)
+        #expect(r.minX == 100 && r.minY == 100 && abs(r.width / r.height - 16.0 / 9) < 1e-9 && r.width > 800)
+        let big = d.dragged(.bottomRight, from: d.rect, dx: 9000, dy: 9000)
+        #expect(big.maxX <= 1920 + 1e-9 && big.maxY <= 1080 + 1e-9 && abs(big.width / big.height - 16.0 / 9) < 1e-9)
+    }
+    @Test func lockedEdgeDragGrowsTheOtherAxisAroundTheCentre() {
+        var d = CropDraft(frame: frame, rect: CGRect(x: 400, y: 300, width: 400, height: 400))
+        d.setLock(.r1x1)
+        let r = d.dragged(.right, from: d.rect, dx: 100, dy: 0)
+        #expect(r.width == 500 && r.height == 500 && r.midY == 500 && r.minX == 400)
+    }
+    @Test func numericFieldsClampAndFollowTheLock() {
+        var d = CropDraft(frame: frame, rect: CGRect(x: 0, y: 0, width: 800, height: 600))
+        d.setWidth(5000); #expect(d.rect.width == 1920)
+        d.setHeight(1); #expect(d.rect.height == 32)
+        d.setX(5000); #expect(d.rect.maxX == 1920)
+        d.reset(); d.setLock(.r9x16)
+        #expect(abs(d.rect.width / d.rect.height - 9.0 / 16) < 1e-9 && d.rect.height == 1080)
+        d.setHeight(540); #expect(abs(d.rect.width - 303.75) < 1e-9)
+        #expect(d.rounded().rect.width == 304)
+    }
+    @Test func resetReturnsTheWholeFrame() {
+        var d = CropDraft(frame: frame, rect: CGRect(x: 10, y: 10, width: 100, height: 100)); d.reset(); #expect(d.isFullFrame)
+    }
+}
+
+@MainActor @Suite struct CropToolModelTests {
+    @Test func confirmWritesOneUndoStepAndFullFrameClears() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        var d = m.cropDraft(); #expect(d.isFullFrame)
+        d.rect = CGRect(x: 192, y: 108, width: 1536, height: 864)
+        m.applyCrop(d)
+        let c = m.cropInsets(); #expect(abs(c.left - 0.1) < 1e-9 && abs(c.top - 0.1) < 1e-9 && abs(c.right - 0.1) < 1e-9)
+        #expect(!m.cropDraft().isFullFrame)
+        m.undo(); #expect(m.cropDraft().isFullFrame)                      // one step
+        m.applyCrop(d); d.reset(); m.applyCrop(d); #expect(m.cropDraft().isFullFrame)
+    }
+    @Test func paletteOffersCropAndDiscardLeavesTheProjectAlone() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        let cmd = m.paletteCommands.first { $0.title == "Crop recording…" }
+        #expect(cmd != nil); cmd?.run(); #expect(m.cropRequested)
+        _ = m.cropDraft()                                                  // staging never writes
+        #expect(m.numbers("canvas.crop").isEmpty || CropDraft(frame: CGSize(width: 10, height: 10), stored: m.numbers("canvas.crop")).isFullFrame)
+    }
+}
+
+@MainActor @Suite struct TranscriptEditTests {      // CAM-33, MKT-037/038
+    func words(_ t: [String]) -> [TextItem] {
+        t.enumerated().map { i, s in TextItem.make(.caption, id: "w\(i)", start: Int64(i) * 1_000_000_000, end: Int64(i) * 1_000_000_000 + 500_000_000, text: s) }
+    }
+    @Test func typoFixTouchesOnlyThatWord() {
+        let e = EditorModel.wordEdits(old: words(["hello", "yapcom", "world"]), newText: "hello Yapcam world")
+        #expect(e == [WordEdit(id: "w1", text: "Yapcam", hide: false)])
+    }
+    @Test func replacingTwoWordsWithOneHidesTheSurplusInsteadOfCutting() {
+        let e = EditorModel.wordEdits(old: words(["a", "b", "c", "d"]), newText: "a X d")
+        #expect(e == [WordEdit(id: "w1", text: "X", hide: false), WordEdit(id: "w2", text: "c", hide: true)])
+    }
+    @Test func insertionJoinsTheNeighbourAndNoChangeIsEmpty() {
+        #expect(EditorModel.wordEdits(old: words(["a", "b"]), newText: "a new b") == [WordEdit(id: "w0", text: "a new", hide: false)])
+        #expect(EditorModel.wordEdits(old: words(["a", "b"]), newText: "a   b").isEmpty)
+    }
+    @Test func appliedEditsAreOneUndoStepAndNeverCut() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.writeTextList(.caption, words(["one", "two", "three"]))
+        let dur = m.durationNs
+        m.applyWordEdits(EditorModel.wordEdits(old: m.transcriptWords, newText: "one 2 three"))
+        #expect(m.transcriptWords.map(\.text) == ["one", "2", "three"] && m.durationNs == dur)
+        m.hideWords(ids: ["w0"]); #expect(m.isHidden(m.transcriptWords[0]) && m.durationNs == dur)
+        m.undo(); #expect(!m.isHidden(m.transcriptWords[0]))
+        m.undo(); #expect(m.transcriptWords.map(\.text) == ["one", "two", "three"])
+        #expect(m.pause(before: 1) == 500_000_000 && EditorModel.pauseLabel(1_500_000_000) == "1.5 s")
+    }
+}
+
+@MainActor @Suite struct BackgroundAudioTests {      // CAM-37, CAM-42
+    @Test func videoFilesCanBeDroppedAsAudioSource() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        #expect(m.dropMusic(urls: [URL(fileURLWithPath: "/tmp/talk.mp4")]))
+        #expect(!m.dropMusic(urls: [URL(fileURLWithPath: "/tmp/notes.txt")]))
+    }
+}
+
+@MainActor @Suite struct ShortcutsGuideTests {      // REC B-09
+    @Test func everyRebindableActionIsListedWithItsCurrentKey() {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let b = EditorKeyBindings(defaults: iso.defaults)
+        #expect(b.setKey("q", for: "split"))
+        let entries = ShortcutsGuide.categories(bindings: b).flatMap(\.entries)
+        for a in EditorKeyBindings.actions { #expect(entries.contains { $0.title == a.title && $0.keys == String(b.key(for: a.id)).uppercased() }, "\(a.title)") }
+        #expect(entries.contains { $0.keys == "Q" })
+    }
+    @Test func paletteShortcutsAppearInTheGuide() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        let keys = Set(ShortcutsGuide.categories().flatMap(\.entries).flatMap { $0.keys.components(separatedBy: " / ") })
+        for c in m.paletteCommands where ["⌘D", "⌘K", "⌘Z", "⇧⌘Z", "⌘/", "⌘=", "⌘-"].contains(c.shortcut) {
+            let k = c.shortcut == "⌘-" ? "⌘−" : c.shortcut
+            #expect(keys.contains(k) || keys.contains { $0.contains(k) }, "\(c.title) \(c.shortcut)")
+        }
+    }
+}
+
+@MainActor @Suite struct ExportDialogParityTests {      // S-03
+    @Test func commandReturnCopiesWhateverTheTarget() async {
+        let e = ExportModel(engine: FakeExporter()); e.target = .file
+        e.copyToClipboard(); #expect(e.runningTarget == .clipboard)
+        await e.waitUntilFinished()
+    }
+    @Test func everyCompressionHasADescription() {
+        for p in CompressionPreset.allCases { #expect(p.longHint.count > 10) }
+        #expect(Set(CompressionPreset.allCases.map(\.longHint)).count == 4)
+    }
+}
+
+@MainActor @Suite struct PresetCreateTests {      // S-10
+    @Test func existingNameIsNotOverwrittenWithoutConfirmation() throws {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = EditorModel(project: FakeProject(), player: FakePlayer()); m.presetStore = iso.store; m.defaults = iso.defaults
+        #expect(m.createPreset(named: "  ") == .invalid)
+        #expect(m.createPreset(named: "Demo") == .created)
+        let url = iso.store.url("Demo")
+        try Data("old".utf8).write(to: url)
+        let result = m.createPreset(named: "Demo"), after = try Data(contentsOf: url)
+        #expect(result == .needsReplace && after == Data("old".utf8))
+        #expect(m.createPreset(named: "Demo", replace: true) == .created)
     }
 }

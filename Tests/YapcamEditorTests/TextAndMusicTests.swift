@@ -91,7 +91,7 @@ private func copyPkg() throws -> URL {
         let (m, p) = make(); m.seek(toNs: 3_000_000_000)
         m.importMusicFile(URL(fileURLWithPath: "/tmp/song.m4a"))
         for _ in 0..<500 where p.importedMusic.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(p.importedMusic.first?.1 == 3_000_000_000)
+        #expect(p.importedMusic.first?.1 == 0)      // first background audio covers the whole video (CAM-37)
         #expect(m.music.count == 1 && m.music[0].title == "song.m4a")
     }
 }

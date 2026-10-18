@@ -124,7 +124,37 @@ struct AudioMetadata: Codable, Sendable {
     var deviceName: String?
     var sampleRate: Int
     var channels: Int
-    enum CodingKeys: String, CodingKey { case deviceName = "device_name", sampleRate = "sample_rate", channels }
+    /// Requests non-destructive speech enhancement for this microphone track.
+    /// The original recording is retained; project preview/export applies it.
+    var speechEnhancement: Bool = false
+    /// The recording-time choice to retain both microphone channels in the project.
+    var stereoMicrophone: Bool = false
+    enum CodingKeys: String, CodingKey {
+        case deviceName = "device_name", sampleRate = "sample_rate", channels
+        case speechEnhancement = "speech_enhancement", stereoMicrophone = "stereo_mic"
+    }
+    init(deviceName: String? = nil, sampleRate: Int, channels: Int, speechEnhancement: Bool = false,
+         stereoMicrophone: Bool = false) {
+        self.deviceName = deviceName; self.sampleRate = sampleRate; self.channels = channels
+        self.speechEnhancement = speechEnhancement
+        self.stereoMicrophone = stereoMicrophone
+    }
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        deviceName = try values.decodeIfPresent(String.self, forKey: .deviceName)
+        sampleRate = try values.decode(Int.self, forKey: .sampleRate)
+        channels = try values.decode(Int.self, forKey: .channels)
+        speechEnhancement = try values.decodeIfPresent(Bool.self, forKey: .speechEnhancement) ?? false
+        stereoMicrophone = try values.decodeIfPresent(Bool.self, forKey: .stereoMicrophone) ?? false
+    }
+    func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encodeIfPresent(deviceName, forKey: .deviceName)
+        try values.encode(sampleRate, forKey: .sampleRate)
+        try values.encode(channels, forKey: .channels)
+        if speechEnhancement { try values.encode(true, forKey: .speechEnhancement) }
+        if stereoMicrophone { try values.encode(true, forKey: .stereoMicrophone) }
+    }
 }
 struct SegmentMetadata: Codable, Sendable {
     var index: Int

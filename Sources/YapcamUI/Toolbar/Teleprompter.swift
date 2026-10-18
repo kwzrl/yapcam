@@ -1,45 +1,63 @@
 import AppKit
 import SwiftUI
+import YapcamDesign
 
-/// Floating, capture-excluded panel that shows the speaker notes large while recording,
-/// optionally auto-scrolling at a chosen speed.
-@MainActor final class TeleprompterController {
-    static let shared = TeleprompterController()
-    private var panel: NSPanel?
-    var isVisible: Bool { panel?.isVisible ?? false }
-
-    func toggle() { isVisible ? hide() : show() }
-
-    func show() {
-        if panel == nil {
-            let p = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 520, height: 240),
-                            styleMask: [.borderless, .nonactivatingPanel, .resizable], backing: .buffered, defer: false)
-            p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true
-            p.level = .floating; p.isMovableByWindowBackground = true; p.isReleasedWhenClosed = false
-            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            p.title = "Yapcam Teleprompter"
-            p.contentView = NSHostingView(rootView: TeleprompterView(close: { [weak self] in self?.hide() })
-                .environmentObject(RecordingController.shared))
-            RecordingController.shared.engine.registerExcluded(p)
-            if let s = NSScreen.main {
-                p.setFrameOrigin(CGPoint(x: s.visibleFrame.midX - 260, y: s.visibleFrame.maxY - 260))
-            }
-            panel = p
-        }
-        panel?.orderFrontRegardless()
-    }
-
-    func hide() { panel?.orderOut(nil) }
+/// Value ranges of the speaker-notes prompter (reference: speed 1–25 default 8, notepad opacity 0.4–1, font size 12–32 default 20).
+enum PrompterRanges {
+    static let speed: ClosedRange<Double> = 1...25
+    static let speedDefault = 8.0
+    static let opacity: ClosedRange<Double> = 0.4...1
+    static let font: ClosedRange<Double> = 12...32
+    static let fontDefault = 20.0
+    static func clampedFont(_ v: Double) -> Double { min(max(v, font.lowerBound), font.upperBound) }
+    static func clampedSpeed(_ v: Double) -> Double { min(max(v, speed.lowerBound), speed.upperBound) }
+    /// Points per second for a speed setting.
+    static func pointsPerSecond(_ speed: Double) -> Double { clampedSpeed(speed) * 4 }
 }
 
-struct TeleprompterView: View {
-    let close: () -> Void
+/// The prompter's state: independent of the recording phase (play scrolls whether or not a take is running).
+@MainActor final class PrompterModel: ObservableObject {
+    static let shared = PrompterModel()
+    private let d = AppDefaults.store
+
+    @Published var playing = false
+    @Published var offset = 0.0
+    @Published var speed: Double { didSet { d.set(speed, forKey: "teleprompterSpeed.v2") } }
+    @Published var opacity: Double { didSet { d.set(opacity, forKey: "teleprompterOpacity") } }
+    @Published var fontSize: Double { didSet { d.set(fontSize, forKey: "teleprompterSize") } }
+
+    init() {
+        let s = d.object(forKey: "teleprompterSpeed.v2") as? Double
+        speed = s.map(PrompterRanges.clampedSpeed) ?? PrompterRanges.speedDefault
+        opacity = min(max(d.object(forKey: "teleprompterOpacity") as? Double ?? 1, PrompterRanges.opacity.lowerBound), 1)
+        fontSize = PrompterRanges.clampedFont(d.object(forKey: "teleprompterSize") as? Double ?? PrompterRanges.fontDefault)
+    }
+
+    var sizeIsDefault: Bool { fontSize == PrompterRanges.fontDefault }
+    func resetSize() { fontSize = PrompterRanges.fontDefault }
+
+    /// Advances the scroll while playing; stops at the end of the text so the button returns to "play".
+    func tick(dt: Double, maxOffset: Double) {
+        guard playing else { return }
+        guard maxOffset > 0, offset < maxOffset else { playing = false; return }
+        offset = min(offset + PrompterRanges.pointsPerSecond(speed) * dt, maxOffset)
+        if offset >= maxOffset { playing = false }
+    }
+
+    func togglePlay(maxOffset: Double = .infinity) {
+        if playing { playing = false; return }
+        if offset >= maxOffset { offset = 0 }       // at the end: play starts again from the top
+        playing = true
+    }
+}
+
+/// Speaker notes and the prompter in one panel: editable when stopped, scrolling and read-only while playing.
+struct SpeakerNotesView: View {
     @EnvironmentObject var rec: RecordingController
-    @AppStorage("teleprompterSize", store: AppDefaults.store) private var size = PrompterRanges.fontDefault
-    @AppStorage("teleprompterSpeed", store: AppDefaults.store) private var speed = 0.0     // 0…25, 0 = manual (×4 = points per second)
-    @AppStorage("teleprompterOpacity", store: AppDefaults.store) private var notepadOpacity = 1.0
+    @ObservedObject var prompter = PrompterModel.shared
     @State private var position = ScrollPosition()
-    @State private var offset = 0.0
+    @State private var maxOffset = 0.0
+    @State private var showSettings = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tickCount = 0
     private let tick = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -47,50 +65,65 @@ struct TeleprompterView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "text.alignleft").foregroundStyle(.secondary)
-                Text("Teleprompter").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
+                Button { prompter.togglePlay(maxOffset: maxOffset) } label: { Image(systemName: prompter.playing ? "pause.fill" : "play.fill") }
+                    .buttonStyle(CircleButtonStyle(active: prompter.playing, size: 28))
+                    .help(prompter.playing ? "Pause the prompter" : "Scroll the notes").accessibilityLabel(prompter.playing ? "Pause prompter" : "Play prompter")
+                Text("Speaker notes").font(Yap.Font.body).foregroundStyle(Yap.label)
                 Spacer()
-                Image(systemName: "textformat.size.smaller").foregroundStyle(.secondary)
-                Slider(value: $size, in: PrompterRanges.font).frame(width: 90).accessibilityLabel("Text size")
-                Image(systemName: "textformat.size.larger").foregroundStyle(.secondary)
-                Image(systemName: "tortoise").foregroundStyle(.secondary)
-                Slider(value: $speed, in: PrompterRanges.speed).frame(width: 80).help(speed == 0 ? "Auto-scroll off" : "Auto-scroll speed")
-                    .accessibilityLabel("Auto-scroll speed").accessibilityValue(speed == 0 ? "Off" : "speed \(Int(speed)) of 25")
-                Image(systemName: "hare").foregroundStyle(.secondary)
-                Image(systemName: "circle.lefthalf.filled").foregroundStyle(.secondary).accessibilityHidden(true)
-                Slider(value: $notepadOpacity, in: PrompterRanges.opacity).frame(width: 60).help("Notepad opacity").accessibilityLabel("Notepad opacity")
-                Button { offset = 0; position.scrollTo(y: 0) } label: { Image(systemName: "arrow.up.to.line") }.help("Back to top").accessibilityLabel("Back to top")
-                Button(action: close) { Image(systemName: "xmark") }.help("Close")
+                Button { showSettings.toggle() } label: { Image(systemName: "gearshape") }
+                    .buttonStyle(CircleButtonStyle(size: 28)).help("Prompter settings").accessibilityLabel("Prompter settings")
+                    .popover(isPresented: $showSettings, arrowEdge: .bottom) { PrompterSettings(prompter: prompter) }
             }
-            .buttonStyle(.borderless).padding(.horizontal, 12).padding(.vertical, 8)
-            Divider()
-            ScrollView {
-                Text(rec.notes.isEmpty ? "No notes yet. Type them in the Notes popover on the toolbar." : rec.notes)
-                    .font(.system(size: PrompterRanges.clampedFont(size)))
-                    .foregroundStyle(rec.notes.isEmpty ? .secondary : .primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            Hairline()
+            if prompter.playing {
+                ScrollView {
+                    Text(rec.notes.isEmpty ? "No notes yet." : rec.notes)
+                        .font(.system(size: prompter.fontSize)).foregroundStyle(Yap.title)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                }
+                .scrollPosition($position)
+                .onScrollGeometryChange(for: Double.self, of: { max(0, $0.contentSize.height - $0.containerSize.height) }) { _, new in maxOffset = new }
+                .onScrollGeometryChange(for: Double.self, of: { $0.contentOffset.y }) { _, new in prompter.offset = new }
+            } else {
+                TextEditor(text: $rec.notes)
+                    .font(.system(size: prompter.fontSize)).scrollContentBackground(.hidden)
+                    .padding(10)
+                    .overlay(alignment: .topLeading) {
+                        if rec.notes.isEmpty {
+                            Text("Type what you want to say. Press play to scroll it.")
+                                .font(.system(size: prompter.fontSize)).foregroundStyle(Yap.faint)
+                                .padding(.horizontal, 15).padding(.top, 10).allowsHitTesting(false)
+                        }
+                    }
             }
-            .scrollPosition($position)
-            .onScrollGeometryChange(for: Double.self, of: { $0.contentOffset.y }) { _, new in offset = new }
         }
-        .panelSurface(cornerRadius: 14)
-        .opacity(notepadOpacity)
+        .background(Yap.ground)
+        .opacity(prompter.opacity)
+        .onChange(of: prompter.playing) { _, playing in if playing { position.scrollTo(y: prompter.offset) } }
         .onReceive(tick) { _ in
-            guard speed > 0, rec.prompterPlaying, rec.phase == .recording else { return }
-            offset += speed * 4 * 0.05
+            guard prompter.playing else { return }
+            prompter.tick(dt: 0.05, maxOffset: maxOffset)
             // Reduce Motion: move in one step per second instead of continuously.
             tickCount += 1
-            if !reduceMotion || tickCount % 20 == 0 { position.scrollTo(y: offset) }
+            if !reduceMotion || tickCount % 20 == 0 { position.scrollTo(y: prompter.offset) }
         }
     }
 }
 
-/// Value ranges of the speaker-notes prompter (reference: speed 0–25, notepad opacity 0.4–1, font size 12–32).
-enum PrompterRanges {
-    static let speed: ClosedRange<Double> = 0...25
-    static let opacity: ClosedRange<Double> = 0.4...1
-    static let font: ClosedRange<Double> = 12...32
-    static let fontDefault = 20.0
-    static func clampedFont(_ v: Double) -> Double { min(max(v, font.lowerBound), font.upperBound) }
+private struct PrompterSettings: View {
+    @ObservedObject var prompter: PrompterModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ValueSlider("Scroll speed", value: "\(Int(prompter.speed))", amount: norm($prompter.speed, PrompterRanges.speed))
+            ValueSlider("Notepad opacity", value: String(format: "%.1f", prompter.opacity), amount: norm($prompter.opacity, PrompterRanges.opacity))
+            ValueSlider("Text size", value: "\(Int(prompter.fontSize))", amount: norm($prompter.fontSize, PrompterRanges.font))
+            Button("Reset text size") { prompter.resetSize() }.disabled(prompter.sizeIsDefault)
+        }
+        .padding(16).frame(width: 260)
+    }
+    private func norm(_ b: Binding<Double>, _ r: ClosedRange<Double>) -> Binding<Double> {
+        Binding(get: { (b.wrappedValue - r.lowerBound) / (r.upperBound - r.lowerBound) },
+                set: { b.wrappedValue = r.lowerBound + min(max($0, 0), 1) * (r.upperBound - r.lowerBound) })
+    }
 }

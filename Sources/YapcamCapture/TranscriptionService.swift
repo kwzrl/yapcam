@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 import OSLog
 import Speech
 
@@ -112,17 +113,54 @@ public actor TranscriptionService {
     typealias Recognize = @Sendable (URL, String) async throws -> [RecognizedSpeechWord]
     typealias RecognizeWithWarnings = @Sendable (URL, String) async throws -> RecognizedSpeech
     typealias RecognizeRequest = @Sendable (URL, String, [String]) async throws -> RecognizedSpeech
+    typealias DetectLanguage = @Sendable (String) -> String?
     private let recognize: RecognizeRequest
+    private let recognizePreview: RecognizeRequest
+    private let detectLanguage: DetectLanguage
+    private let systemLocaleIdentifier: String
     private static let logger = Logger(subsystem: "mov.yapcam.Yapcam", category: "Transcription")
 
-    public init() { recognize = { try await AppleOnDeviceSpeech.recognize($0, locale: $1, keyterms: $2) } }
+    private static func productionDetector(system: String) -> DetectLanguage {
+        // Keep native Speech locale discovery off manual/injected paths. It is
+        // needed only after an Auto preview actually produced usable text.
+        { SpeechLanguageDetection.localeIdentifier(in: $0, supported: Self.supportedLocales(), systemLocaleIdentifier: system) }
+    }
+
+    public init() {
+        recognize = { try await AppleOnDeviceSpeech.recognize($0, locale: $1, keyterms: $2) }
+        recognizePreview = { try await AppleOnDeviceSpeech.recognizePreview($0, locale: $1, keyterms: $2) }
+        let system = Locale.current.identifier
+        detectLanguage = Self.productionDetector(system: system)
+        systemLocaleIdentifier = system
+    }
     init(recognize: @escaping Recognize) {
         self.recognize = { url, locale, _ in RecognizedSpeech(words: try await recognize(url, locale)) }
+        recognizePreview = self.recognize
+        let system = Locale.current.identifier
+        detectLanguage = Self.productionDetector(system: system)
+        systemLocaleIdentifier = system
     }
     init(recognizeWithWarnings: @escaping RecognizeWithWarnings) {
         recognize = { url, locale, _ in try await recognizeWithWarnings(url, locale) }
+        recognizePreview = self.recognize
+        let system = Locale.current.identifier
+        detectLanguage = Self.productionDetector(system: system)
+        systemLocaleIdentifier = system
     }
-    init(recognizeRequest: @escaping RecognizeRequest) { recognize = recognizeRequest }
+    init(recognizeRequest: @escaping RecognizeRequest) {
+        recognize = recognizeRequest
+        recognizePreview = recognizeRequest
+        let system = Locale.current.identifier
+        detectLanguage = Self.productionDetector(system: system)
+        systemLocaleIdentifier = system
+    }
+    init(recognizeRequest: @escaping RecognizeRequest, recognizePreview: @escaping RecognizeRequest,
+         detectLanguage: @escaping DetectLanguage, systemLocaleIdentifier: String) {
+        recognize = recognizeRequest
+        self.recognizePreview = recognizePreview
+        self.detectLanguage = detectLanguage
+        self.systemLocaleIdentifier = systemLocaleIdentifier
+    }
 
     /// nil selects mic when present in each segment, otherwise system audio.
     /// Explicit selection skips segments without that track; it never switches it.
@@ -148,6 +186,9 @@ public actor TranscriptionService {
         var words: [TranscriptWord] = []
         var warnings: [TranscriptionWarning] = []
         var audioFound = false
+        let automaticallyDetectsLanguage = localeIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "auto"
+        var resolvedLocaleIdentifier = automaticallyDetectsLanguage ? systemLocaleIdentifier : localeIdentifier
+        var attemptedLanguageDetection = false
         for (position, segment) in manifest.segments.enumerated() {
             try Task.checkCancellation()
             guard segment.index == position, segment.srcStartNs == expectedStart, segment.durationNs > 0,
@@ -167,7 +208,13 @@ public actor TranscriptionService {
             }
             audioFound = true
             let base = segment.srcStartNs + offset
-            let recognition = try await recognize(audio, localeIdentifier, keyterms)
+            if automaticallyDetectsLanguage && !attemptedLanguageDetection {
+                attemptedLanguageDetection = true
+                let preview = try await recognizePreview(audio, resolvedLocaleIdentifier, keyterms)
+                let text = preview.words.map(\.text).joined(separator: " ")
+                if let detected = detectLanguage(text) { resolvedLocaleIdentifier = detected }
+            }
+            let recognition = try await recognize(audio, resolvedLocaleIdentifier, keyterms)
             for window in recognition.noSpeechWindows {
                 guard window.lowerBound >= 0, window.upperBound > window.lowerBound,
                       window.lowerBound < sourceEnd - base else { continue }
@@ -193,7 +240,7 @@ public actor TranscriptionService {
         try Task.checkCancellation()
         words.sort { $0.srcStartNs < $1.srcStartNs }
         let transcript = RecordingTranscript(schemaVersion: 1, engine: "apple_speech_on_device",
-                                            locale: localeIdentifier, words: words, warnings: warnings)
+                                            locale: resolvedLocaleIdentifier, words: words, warnings: warnings)
         try PackageIO.write(transcript, to: output)
         if transcript.isPartial {
             Self.logger.warning("Partial transcript: \(warnings.count) audio windows reported no speech; other recognized words were retained.")
@@ -210,5 +257,38 @@ public actor TranscriptionService {
         let prefix = package.path + "/recording/"
         guard resolved.hasPrefix(prefix) else { throw TranscriptionError.invalidPackage("Recording path leaves the package") }
         return url
+    }
+}
+
+enum SpeechLanguageDetection {
+    static let minimumConfidence = 0.6
+
+    static func localeIdentifier(in text: String, supported: [Locale], systemLocaleIdentifier: String) -> String? {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let language = recognizer.dominantLanguage,
+              let confidence = recognizer.languageHypotheses(withMaximum: 5)[language],
+              confidence >= minimumConfidence else { return nil }
+
+        let languageCode = language.rawValue.lowercased()
+        let candidates = supported.filter {
+            Locale(identifier: $0.identifier).language.languageCode?.identifier.lowercased() == languageCode
+        }
+        guard !candidates.isEmpty else { return nil }
+
+        func normalized(_ identifier: String) -> String {
+            identifier.replacingOccurrences(of: "_", with: "-").lowercased()
+        }
+        if let system = candidates.first(where: { normalized($0.identifier) == normalized(systemLocaleIdentifier) }) {
+            return system.identifier.replacingOccurrences(of: "_", with: "-")
+        }
+        let likelyRegion = Locale(identifier: languageCode).region?.identifier.lowercased()
+        if let likelyRegion, let likely = candidates.first(where: {
+            Locale(identifier: $0.identifier).region?.identifier.lowercased() == likelyRegion
+        }) {
+            return likely.identifier.replacingOccurrences(of: "_", with: "-")
+        }
+        return candidates.sorted { $0.identifier < $1.identifier }.first?.identifier.replacingOccurrences(of: "_", with: "-")
     }
 }

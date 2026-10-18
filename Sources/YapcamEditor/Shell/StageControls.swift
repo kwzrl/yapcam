@@ -12,6 +12,7 @@ struct StageControls: View {
         HStack(spacing: 4) {
             formatMenu
             cropButton
+            maskButton
             if model.reelPreviewAvailable { reelMenu }
             Spacer(minLength: 8)
             qualityMenu
@@ -40,7 +41,11 @@ struct StageControls: View {
 
     private var cropButton: some View {
         QuietButton(symbol: "crop", title: "Crop", help: "Crop the recording") { showCrop = true }
-            .popover(isPresented: $showCrop) { Form { CropSection(model: model) }.formStyle(.grouped).frame(width: 300, height: 300) }
+            .sheet(isPresented: $showCrop) { CropToolView(model: model) }
+    }
+
+    private var maskButton: some View {
+        QuietButton(symbol: "square.dashed", title: "Mask", help: "Show the masks timeline and add a mask at the playhead (4)") { model.showMasksAndAddAtPlayhead() }
     }
 
     private var reelMenu: some View {

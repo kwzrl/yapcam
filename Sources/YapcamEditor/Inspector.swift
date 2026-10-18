@@ -271,22 +271,26 @@ struct ZoomInspector: View {
     }
 
     @ViewBuilder private func basics(_ z: TimelineZoom) -> some View {
+        SwitchRow("Disable zoom", isOn: Binding(get: { !z.enabled }, set: { model.setZoomEnabled(id: z.id, !$0) }))
         if model.hasMouseData || z.mode == .auto {
             ChoiceRow("Type", selection: Binding(get: { z.mode }, set: { model.setZoomMode(id: z.id, $0) }),
                       options: [("Auto", TimelineZoom.Mode.auto), ("Manual", TimelineZoom.Mode.manual)])
+            InspectorNote(z.mode == .auto ? "Follows your clicks and keeps the cursor in view." : "Pick the spot to zoom into.")
         }
         ChoiceRow("Style", selection: Binding(get: { z.lens != nil }, set: { model.setZoomLens(id: z.id, $0 ? ZoomLensParams() : nil) }),
                   options: [("Classic", false), ("Glass loupe", true)])
         if let l = z.lens { ZoomLensRows(model: model, zoomID: z.id, lens: l) }
         ZoomScaleRow(model: model, zoom: z)
+        if z.mode == .manual && model.project is CoreEditingProject { ZoomTargetThumbnail(model: model, zoom: z) }
         InspectorInfo("Focus", String(format: "%.0f %%, %.0f %%", z.focusX * 100, z.focusY * 100))
-        InspectorNote("Click in the preview to set the focus point.")
+        InspectorNote("Click in the preview or drag the dot above to set the focus point.")
         SwitchRow("Instant animation", isOn: Binding(get: { z.easeInNs == 0 && z.easeOutNs == 0 },
                                                       set: { model.setZoomEase(id: z.id, inNs: $0 ? 0 : 300_000_000, outNs: $0 ? 0 : 300_000_000) }))
-        SwitchRow("Enabled", isOn: Binding(get: { z.enabled }, set: { model.setZoomEnabled(id: z.id, $0) }))
     }
 
     @ViewBuilder private func actions(_ z: TimelineZoom) -> some View {
+        InspectorAction("Use for new zooms") { model.useZoomForNewZooms(id: z.id) }
+            .help("New zooms start with this level")
         InspectorAction("Apply this level to all other zooms") { model.applyZoomLevelToAll() }.disabled(model.zooms.count < 2)
         HStack(spacing: 6) {
             InspectorAction("Duplicate") { model.duplicateSelectedZoom() }
@@ -342,8 +346,9 @@ struct ZoomScaleRow: View {
     let zoom: TimelineZoom
     var body: some View {
         CommitSlider(title: "Level", range: zoomLevelRange, get: { zoom.scale }, commit: { model.setZoomScale(id: zoom.id, $0) },
-                     text: { "\(Int(($0 * 100).rounded())) %" })
+                     text: { String(format: "%.1f×", $0) }, defaultValue: model.defaultZoomScale)
             .id(zoom.id)
+        InspectorNote("How close the zoom gets.")
     }
 }
 

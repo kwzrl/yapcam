@@ -147,6 +147,15 @@ enum OnDeviceSpeechPolicy {
 /// bounded in memory/time, sequential, and always refuse a network recognizer.
 enum AppleOnDeviceSpeech {
     static func recognize(_ url: URL, locale identifier: String, keyterms: [String] = []) async throws -> RecognizedSpeech {
+        try await recognize(url, locale: identifier, keyterms: keyterms, maximumDurationSeconds: nil)
+    }
+
+    static func recognizePreview(_ url: URL, locale identifier: String, keyterms: [String] = []) async throws -> RecognizedSpeech {
+        try await recognize(url, locale: identifier, keyterms: keyterms, maximumDurationSeconds: 20)
+    }
+
+    private static func recognize(_ url: URL, locale identifier: String, keyterms: [String],
+                                  maximumDurationSeconds: Double?) async throws -> RecognizedSpeech {
         try Task.checkCancellation()
         try OnDeviceSpeechPolicy.authorize(TranscriptionService.authorizationState)
         let locale = try OnDeviceSpeechPolicy.locale(identifier, supported: SFSpeechRecognizer.supportedLocales())
@@ -156,7 +165,7 @@ enum AppleOnDeviceSpeech {
         // Admit before decoding, and construct every window with the same policy.
         _ = try OnDeviceSpeechPolicy.request(locale: identifier,
             supportsOnDevice: recognizer.supportsOnDeviceRecognition, available: recognizer.isAvailable, keyterms: keyterms)
-        return try await recognizeFile(url) { buffer in
+        return try await recognizeFile(url, maximumDurationSeconds: maximumDurationSeconds) { buffer in
             // A window owns its recognizer as well as its callback history. Late
             // cancellation from the previous task must not affect a reused instance.
             guard let windowRecognizer = SFSpeechRecognizer(locale: locale) else {
@@ -171,12 +180,20 @@ enum AppleOnDeviceSpeech {
 
     /// Shared decode/window path; tests can inject native callback outcomes without
     /// requiring Speech permission. Production always installs the on-device request.
-    static func recognizeFile(_ url: URL,
+    static func recognizeFile(_ url: URL, maximumDurationSeconds: Double? = nil,
                               recognizeWindow: (AVAudioPCMBuffer) async throws -> [RecognizedSpeechWord]) async throws -> RecognizedSpeech {
         let file = try AVAudioFile(forReading: url)
         guard file.length > 0 else { throw TranscriptionError.recognitionFailed("Audio file is empty") }
         let rate = file.processingFormat.sampleRate
-        let windows = try SpeechChunking.windows(frameCount: file.length, sampleRate: rate)
+        let frameCount: Int64
+        if let maximumDurationSeconds {
+            let maximumFrames = (maximumDurationSeconds * rate).rounded(.down)
+            guard maximumDurationSeconds > 0, maximumFrames.isFinite, maximumFrames <= Double(Int64.max) else {
+                throw TranscriptionError.recognitionFailed("Invalid speech preview duration")
+            }
+            frameCount = min(file.length, Int64(maximumFrames))
+        } else { frameCount = file.length }
+        let windows = try SpeechChunking.windows(frameCount: frameCount, sampleRate: rate)
         return try await SpeechChunking.collect(windows: windows, sampleRate: rate) { window in
             try Task.checkCancellation()
             file.framePosition = window.startFrame

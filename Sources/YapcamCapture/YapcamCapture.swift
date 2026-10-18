@@ -37,6 +37,20 @@ public struct CaptureDevice: Identifiable, Sendable {
     }
 }
 
+/// A retained camera sample from the recording's existing AVCaptureSession.
+/// Consumers can enqueue it on an AVSampleBufferDisplayLayer without opening
+/// the camera a second time. Delivery is coalesced and never blocks recording.
+public struct CameraPreviewFrame: @unchecked Sendable {
+    public let sampleBuffer: CMSampleBuffer
+
+    init(sampleBuffer: CMSampleBuffer) { self.sampleBuffer = sampleBuffer }
+}
+
+public enum CameraPreviewUpdate: Sendable {
+    case frame(CameraPreviewFrame)
+    case unavailable(String)
+}
+
 public struct CaptureSources: Sendable {
     public var displays: [DisplaySource]
     public var windows: [WindowSource]
@@ -123,6 +137,11 @@ public struct RecordingOptions: Sendable, Codable {
               else if systemAudioSelection == .off { systemAudioSelection = .allApplications } }
     }
     public var microphoneID: String?
+    /// Snapshot of the record-time clean-voice choice. The raw microphone stays
+    /// untouched; the finished mic track carries this into project processing.
+    public var cleanVoiceOnRecord: Bool
+    /// Requests two-channel microphone capture when the selected device exposes it.
+    public var recordStereoMicrophone: Bool
     public var cameraID: String?
     public var cameraMaxResolution: CameraMaxResolution
     public var recordKeystrokes: Bool
@@ -134,18 +153,22 @@ public struct RecordingOptions: Sendable, Codable {
     public var outputDirectory: URL
 
     public init(target: CaptureTarget, systemAudio: Bool = false, microphoneID: String? = nil,
+                cleanVoiceOnRecord: Bool = false, recordStereoMicrophone: Bool = false,
                 cameraID: String? = nil, recordKeystrokes: Bool = true, maxFPS: Int = 0,
                 excludeYapcamWindows: Bool = true, hideDesktopIcons: Bool = false,
                 captureNotifications: Bool = true, systemAudioSelection: SystemAudioSelection? = nil,
                 cameraMaxResolution: CameraMaxResolution = .hd1080, outputDirectory: URL) {
         self.target = target; self.systemAudioSelection = systemAudioSelection ?? (systemAudio ? .allApplications : .off); self.microphoneID = microphoneID
+        self.cleanVoiceOnRecord = cleanVoiceOnRecord
+        self.recordStereoMicrophone = recordStereoMicrophone
         self.cameraID = cameraID; self.cameraMaxResolution = cameraMaxResolution; self.recordKeystrokes = recordKeystrokes; self.maxFPS = maxFPS
         self.excludeYapcamWindows = excludeYapcamWindows; self.outputDirectory = outputDirectory
         self.hideDesktopIcons = hideDesktopIcons; self.captureNotifications = captureNotifications
     }
 
     enum CodingKeys: String, CodingKey {
-        case target, systemAudio, systemAudioSelection, microphoneID, cameraID, cameraMaxResolution, recordKeystrokes, maxFPS
+        case target, systemAudio, systemAudioSelection, microphoneID, cleanVoiceOnRecord, recordStereoMicrophone
+        case cameraID, cameraMaxResolution, recordKeystrokes, maxFPS
         case excludeYapcamWindows, hideDesktopIcons, captureNotifications, outputDirectory
     }
 
@@ -154,6 +177,8 @@ public struct RecordingOptions: Sendable, Codable {
         self.init(target: try values.decode(CaptureTarget.self, forKey: .target),
             systemAudio: try values.decodeIfPresent(Bool.self, forKey: .systemAudio) ?? false,
             microphoneID: try values.decodeIfPresent(String.self, forKey: .microphoneID),
+            cleanVoiceOnRecord: try values.decodeIfPresent(Bool.self, forKey: .cleanVoiceOnRecord) ?? false,
+            recordStereoMicrophone: try values.decodeIfPresent(Bool.self, forKey: .recordStereoMicrophone) ?? false,
             cameraID: try values.decodeIfPresent(String.self, forKey: .cameraID),
             recordKeystrokes: try values.decodeIfPresent(Bool.self, forKey: .recordKeystrokes) ?? true,
             maxFPS: try values.decodeIfPresent(Int.self, forKey: .maxFPS) ?? 0,
@@ -170,6 +195,8 @@ public struct RecordingOptions: Sendable, Codable {
         try values.encode(systemAudio, forKey: .systemAudio)
         try values.encode(systemAudioSelection, forKey: .systemAudioSelection)
         try values.encodeIfPresent(microphoneID, forKey: .microphoneID)
+        try values.encode(cleanVoiceOnRecord, forKey: .cleanVoiceOnRecord)
+        try values.encode(recordStereoMicrophone, forKey: .recordStereoMicrophone)
         try values.encodeIfPresent(cameraID, forKey: .cameraID)
         try values.encode(cameraMaxResolution, forKey: .cameraMaxResolution)
         try values.encode(recordKeystrokes, forKey: .recordKeystrokes)

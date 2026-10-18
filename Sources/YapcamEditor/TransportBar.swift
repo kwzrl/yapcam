@@ -37,6 +37,7 @@ struct TransportBar: View {
             Spacer(minLength: 8)
             if showsTimelineTools {
                 MediaSlots(model: model)
+                LaneMenu(model: model)
                 TimelineZoomControl(model: model, wide: wideZoom)
             }
             if let sel = transcriptSelection {
@@ -86,9 +87,9 @@ private struct TimelineTools: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            IconSlot("scissors", label: "Cut tool", help: "Cut tool: click a clip to split it there (S splits at the playhead)",
+            IconSlot("scissors", label: "Cut tool", help: "Cut tool (hold ⌥): click a clip, zoom, layout or mask to split it there. C splits at the playhead",
                      active: model.cutToolActive) { model.cutToolActive.toggle() }
-            IconSlot("rectangle.split.2x1", label: "Split at playhead", help: "Split at playhead (S, ⌘B)") { model.splitAtPlayhead() }
+            IconSlot("rectangle.split.2x1", label: "Split at playhead", help: "Split at playhead (C)") { model.splitAtPlayhead() }
             IconSlot("plus.magnifyingglass", label: "Add zoom", help: "Add zoom at playhead (Z)") { model.addZoomAtPlayhead() }
             IconSlot("trash", label: "Delete selection", help: "Delete selection (⌫)") { model.deleteSelection() }
                 .disabled(model.selection == .none)
