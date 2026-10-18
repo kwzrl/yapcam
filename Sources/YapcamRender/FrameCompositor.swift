@@ -23,6 +23,8 @@ public final class FrameCompositor: @unchecked Sendable {
     private var screenQualityOverride: ScreenQualitySettings?
     private let framesPerSecond: Int
     private let reuseVideoSeekReader: Bool
+    private let hardwareDecodingEnabled: Bool
+    private let lowMemory: Bool
     private var sources: [String: FrameSource] = [:]
     private var images: [String: MTLTexture] = [:]
     private var cursorMetadata: [UInt32: [String: Cursor]] = [:]
@@ -33,8 +35,11 @@ public final class FrameCompositor: @unchecked Sendable {
     private let empty: MTLTexture
 
     public init(device: MTLDevice, project: any RenderProjectSource, framesPerSecond: Int = 60,
-                screenQuality: ScreenQualitySettings? = nil,reuseVideoSeekReader: Bool = true) throws {
+                screenQuality: ScreenQualitySettings? = nil,reuseVideoSeekReader: Bool = true,
+                hardwareDecodingEnabled: Bool = true,lowMemory: Bool = false) throws {
         self.reuseVideoSeekReader=reuseVideoSeekReader
+        self.hardwareDecodingEnabled=hardwareDecodingEnabled
+        self.lowMemory=lowMemory
         guard (1...60).contains(framesPerSecond) else { throw RenderError.invalidSettings("Compositor frame rate must be 1...60") }
         try screenQuality?.validate()
         screenQualityOverride=screenQuality
@@ -63,6 +68,15 @@ public final class FrameCompositor: @unchecked Sendable {
     }
     /// Mark media caches stale without waiting for an in-flight decode on the UI thread.
     public func invalidateSources() { invalidationLock.withLock { needsInvalidation = true } }
+    /// Drop retained preview decoders and authored textures after an idle period.
+    /// The next frame reopens them; project state and rendered output are unchanged.
+    public func releaseIdleResources() {
+        lock.withLock {
+            sources.removeAll(); images.removeAll(); cameraLUTs.removeAll(); cursorMetadata.removeAll()
+            vectorCursors.removeAll(); cameraEffects.invalidate(); layerRenderer.invalidate()
+            CVMetalTextureCacheFlush(cache,0)
+        }
+    }
     /// Refresh authored assets while retaining the unchanged recording's decoders.
     func invalidateVisualAssets() { invalidationLock.withLock { needsVisualInvalidation = true } }
     var sourceOpenCount: Int { lock.withLock { totalSourceOpens } }
@@ -78,8 +92,10 @@ public final class FrameCompositor: @unchecked Sendable {
         guard sample.present != 0 else { return nil }
         guard let segment = manifest.segment(at: sample.segment), let path = segment.files[track] else { throw RenderError.missingMedia("Missing \(track) in segment \(sample.segment)") }
         if sources[path] == nil {
-            if sources.count >= 3 { sources.removeAll() }
-            sources[path] = try FrameSource(url: packageMediaURL(path, root: project.packageURL.appendingPathComponent("recording")), cache: cache,reuseSeekReader: reuseVideoSeekReader)
+            if sources.count >= (lowMemory ? 1 : 3) { sources.removeAll() }
+            sources[path] = try FrameSource(url: packageMediaURL(path, root: project.packageURL.appendingPathComponent("recording")),cache: cache,
+                                            reuseSeekReader: reuseVideoSeekReader,hardwareDecodingEnabled: hardwareDecodingEnabled,
+                                            frameCacheCapacity: lowMemory ? 2 : 4)
             totalSourceOpens += 1 }
         if track=="camera", sources[path]!.hasEnded(atNs: sample.file_ns) { return nil }
         return try sources[path]!.frame(atNs: sample.file_ns)
@@ -87,7 +103,7 @@ public final class FrameCompositor: @unchecked Sendable {
     private func image(_ url: URL) throws -> MTLTexture {
         if let cached = images[url.path] { return cached }
         let texture = try loader.newTexture(URL: url, options: [.SRGB: true, .textureUsage: MTLTextureUsage.shaderRead.rawValue])
-        if images.count >= 8 { images.removeAll() }
+        if images.count >= (lowMemory ? 2 : 8) { images.removeAll() }
         images[url.path] = texture; return texture
     }
     struct Cursor: Decodable { var file: String; var hotspot: [Double]; var sizePoints: [Double]; var shape: String?; enum CodingKeys: String, CodingKey { case file, hotspot, sizePoints = "size_points", shape } }
@@ -125,9 +141,10 @@ public final class FrameCompositor: @unchecked Sendable {
             matteTexture=try cameraMatteProcessor!.encode(matte.texture,settings: settings,steps: steps,in: cb)
         }
         var blurredCamera: MTLTexture?
-        if options.cameraBackgroundBlur>0, let camera, frame.camera_dest.w>0, frame.camera_dest.h>0 {
+        let cameraBlurAmount=max(options.cameraBackgroundBlur,options.cameraBlur)
+        if cameraBlurAmount>0, let camera, frame.camera_dest.w>0, frame.camera_dest.h>0 {
             let size=SIMD2(Float(frame.camera_dest.w),Float(frame.camera_dest.h))
-            blurredCamera=try backgroundBlur.encode(source: camera,canvas: size,radius: min(size.x,size.y)*0.04*options.cameraBackgroundBlur,crop: cameraCrop,in: cb)
+            blurredCamera=try backgroundBlur.encode(source: camera,canvas: size,radius: min(size.x,size.y)*0.04*cameraBlurAmount,crop: cameraCrop,in: cb)
         }
         let colorSettings = options.cameraColor
         var colorLUT = identityLUT
@@ -185,9 +202,24 @@ public final class FrameCompositor: @unchecked Sendable {
             cursorRect=placedCursor(size: geometry.size,hotspot: geometry.hotspot)
         }
         var background = empty
+        var backgroundKind = frame.background_kind
+        var backgroundColor = frame.background_color
+        var backgroundColor2 = frame.background_color2
+        var backgroundAngleDegrees = frame.background_angle_deg
         if frame.background_kind == 2 {
-            background = try image(project.renderBackgroundAsset(index: frame.background_asset))
-            if frame.background_blur>0 {
+            do {
+                background = try image(project.renderBackgroundAsset(index: frame.background_asset))
+            } catch {
+                // A project must remain exportable when a linked image disappears.
+                // Fall back to Yapcam's stable authored default instead of letting
+                // asset resolution or texture decoding abort the whole frame.
+                let preset=BackgroundLibrary.defaultPreset
+                backgroundKind=1
+                backgroundColor=(preset.colors[0].x,preset.colors[0].y,preset.colors[0].z,1)
+                backgroundColor2=(preset.colors[1].x,preset.colors[1].y,preset.colors[1].z,1)
+                backgroundAngleDegrees=preset.angleDegrees
+            }
+            if backgroundKind == 2, frame.background_blur>0 {
                 background = try backgroundBlur.encode(texture: background,
                     geometry: SourceGeometry(size: CGSize(width: background.width,height: background.height)),
                     canvas: SIMD2(Float(frame.canvas_w),Float(frame.canvas_h)),radius: frame.background_blur,in: cb)
@@ -204,14 +236,14 @@ public final class FrameCompositor: @unchecked Sendable {
             ? try project.frame(atNs: max(0,frame.tl_ns-16_666_667)) : frame
         let previous=rect(prior.screen_crop)
         var uniforms: [SIMD4<Float>] = [
-            SIMD4(Float(frame.canvas_w), Float(frame.canvas_h), Float(frame.background_kind), frame.motion_blur),
-            color(frame.background_color), color(frame.background_color2),
-            SIMD4(frame.background_angle_deg * .pi / 180, frame.background_blur, screen == nil ? 0 : 1, 0),
+            SIMD4(Float(frame.canvas_w), Float(frame.canvas_h), Float(backgroundKind), frame.motion_blur),
+            color(backgroundColor), color(backgroundColor2),
+            SIMD4(backgroundAngleDegrees * .pi / 180, frame.background_blur, screen == nil ? 0 : 1, 0),
             rect(frame.screen_dest), crop,
             SIMD4(frame.screen_corner_radius, frame.shadow_radius, frame.shadow_opacity, frame.shadow_offset_y),
             color(frame.inset_color), cursorRect,
-            SIMD4(frame.cursor_visible != 0 ? frame.cursor_opacity : 0, frame.click_progress,options.cursorRotationRadians,0),
-            SIMD4(Float(frame.click_x), Float(frame.click_y), 0, 0), rect(frame.camera_dest),
+            SIMD4(frame.cursor_visible != 0 ? frame.cursor_opacity : 0, frame.click_progress,options.cursorRotationRadians,options.cursorClickEffect == .ripple ? 1 : options.cursorClickEffect == .none ? -1 : 0),
+            SIMD4(Float(frame.click_x), Float(frame.click_y),Float(options.cursorClickDurationNs)/1e9,Float(options.cursorClickDurationNs+140_000_000)/1e9), rect(frame.camera_dest),
             SIMD4(frame.camera_corner_radius, Float(frame.camera_shape), camera == nil ? 0 : frame.camera_opacity, Float(frame.camera_mirror)),
             previous, SIMD4(frame.inset_width, options.screenShadowOffsetX, options.screenInsetOrigin.x, options.screenInsetOrigin.y),
             SIMD4(options.backgroundNoise,options.windowChrome ? 1 : 0, options.cameraShadowRadius, options.cameraBackgroundRemoval && matte != nil ? 1 : 0),
@@ -243,9 +275,9 @@ public final class FrameCompositor: @unchecked Sendable {
         uniforms.append(SIMD4(Float(frame.tl_ns % 1_000_000_000)/1e9,0,0,0))
         uniforms.append(options.screenQuality?.uniforms ?? .zero) // 34: improve, upscale, enabled
         uniforms.append(SIMD4(Float(target.width)/Float(frame.canvas_w),Float(target.height)/Float(frame.canvas_h),0,0))
-        uniforms.append(SIMD4(options.cameraBackgroundPop,matte == nil ? 0 : 1,blurredCamera == nil ? 0 : 1,0)) // 36
+        uniforms.append(SIMD4(options.cameraBackgroundPop,matte == nil ? 0 : 1,blurredCamera == nil ? 0 : 1,options.screenOpacity)) // 36
         let center=options.glassLoupe?.instruction?.center ?? .zero
-        uniforms.append(SIMD4(center.x,center.y,0,0)) // 37: evaluated local-lens center
+        uniforms.append(SIMD4(center.x,center.y,options.cameraBlur,0)) // 37: local-lens center, camera transition blur
         if cursorBlur > 0 && frame.tl_ns > 0 {
             uniforms[17].z = Float(prior.cursor_x); uniforms[17].w = Float(prior.cursor_y)
         }
@@ -364,7 +396,7 @@ public final class FrameCompositor: @unchecked Sendable {
                 float radius=clamp(u[6].x,0.0,min(dest.z,dest.w)*.5);
                 float4 shadowRect=dest; shadowRect.xy+=float2(u[14].y,u[6].w);
                 float sd=rounded(p,shadowRect,radius);
-                float shadow=exp(-max(sd,0.0)*max(sd,0.0)/(2*max(u[6].y*u[6].y,1.0)))*u[6].z;
+                float shadow=exp(-max(sd,0.0)*max(sd,0.0)/(2*max(u[6].y*u[6].y,1.0)))*u[6].z*u[36].w;
                 sampleResult=over(sampleResult,float4(0,0,0,shadow));
                 float mask=1-smoothstep(-.5,.5,rounded(p,dest,radius));
                 float2 uv=(p-dest.xy)/max(dest.zw,float2(.000001));
@@ -374,13 +406,13 @@ public final class FrameCompositor: @unchecked Sendable {
                 float4 inner=float4(dest.xy+inset*(1-u[14].zw),dest.zw-2*inset);
                 float border=inset>0 ? smoothstep(-.5,.5,rounded(p,inner,max(0.0,radius-inset))) : 0;
                 tex=over(tex,float4(linearRGB(u[7].rgb),u[7].a*border));
-                tex.a*=mask; sampleResult=over(sampleResult,tex);
+                tex.a*=mask*u[36].w; sampleResult=over(sampleResult,tex);
                 if(u[15].y>0) {
                     float4 titleRect=float4(dest.x,dest.y-26,dest.z,26);
-                    float titleMask=1-smoothstep(-.5,.5,rounded(p,titleRect,min(radius,13.0)));
+                    float titleMask=(1-smoothstep(-.5,.5,rounded(p,titleRect,min(radius,13.0))))*u[36].w;
                     float4 title=float4(.08,.08,.09,titleMask);
                     for(int i=0;i<3;i++) {
-                        float dotMask=1-smoothstep(4,5,length(p-float2(dest.x+14+18*i,dest.y-13)));
+                        float dotMask=(1-smoothstep(4,5,length(p-float2(dest.x+14+18*i,dest.y-13))))*u[36].w;
                         float3 dotColor=i==0 ? float3(.95,.2,.2) : i==1 ? float3(.95,.65,.1) : float3(.2,.75,.3);
                         title=over(title,float4(dotColor,dotMask));
                     }
@@ -407,8 +439,8 @@ public final class FrameCompositor: @unchecked Sendable {
             lens.b=screenSample(screen,s,clamp(uv-fringe,cropMin,cropMax),u[28],u[23].xy,u[19],u[20],u[34],scale).b;
             float rim=u[25].z*.25*pow(radial,12.0);
             lens.rgb=mix(lens.rgb,float3(1),rim);
-            float mask=(1-smoothstep(-.5,.5,distance-radius))*u[26].w;
-            float shadow=exp(-pow(max(distance-radius,0.0),2.0)/max(1.0,radius*.2))*.22*u[26].w;
+            float mask=(1-smoothstep(-.5,.5,distance-radius))*u[26].w*u[36].w;
+            float shadow=exp(-pow(max(distance-radius,0.0),2.0)/max(1.0,radius*.2))*.22*u[26].w*u[36].w;
             result=over(result,float4(0,0,0,shadow));
             lens.a*=mask; result=over(result,lens);
             // Reproject the evaluated classic cursor into the unzoomed base or
@@ -422,9 +454,24 @@ public final class FrameCompositor: @unchecked Sendable {
                 if(distance<radius) cursorPoint=u[4].xy+u[4].zw*.5+delta*refraction;
             }
         }
-        if (u[9].y >= 0 && u[9].y <= 1) {
-            float radius=8+32*u[9].y; float ring=1-smoothstep(1,3,abs(length(cursorPoint-u[10].xy)-radius));
-            result=over(result,float4(.25,.55,1,ring*(1-u[9].y)*.65));
+        if (u[9].y >= 0 && u[9].y <= 1 && u[9].w >= 0) {
+            if (u[9].w < .5) {
+                float radius=8+32*u[9].y; float ring=1-smoothstep(1,3,abs(length(cursorPoint-u[10].xy)-radius));
+                result=over(result,float4(.25,.55,1,ring*(1-u[9].y)*.65));
+            } else {
+                float elapsed=u[9].y*u[10].w;
+                float cursorDiameter=max(max(u[8].z,u[8].w),32.0);
+                float angle=atan2(cursorPoint.y-u[10].y,cursorPoint.x-u[10].x);
+                float3 accent=.55+.45*cos(angle+float3(0,2.094395,4.18879));
+                for(int i=0;i<3;i++) {
+                    float phase=(elapsed-float(i)*.07)/u[10].z;
+                    if(phase>=0 && phase<=1) {
+                        float radius=mix(cursorDiameter*.35,cursorDiameter*1.1,phase);
+                        float ring=1-smoothstep(1.25,3.25,abs(length(cursorPoint-u[10].xy)-radius));
+                        result=over(result,float4(accent,ring*(1-phase)*.72));
+                    }
+                }
+            }
         }
         if (u[16].z>0 && u[9].x>0) {
             float glow=1-smoothstep(0,u[16].z,length(cursorPoint-u[17].xy)); result=over(result,float4(1,1,1,glow*.3));
@@ -457,6 +504,7 @@ public final class FrameCompositor: @unchecked Sendable {
             float foreground=u[36].y>0 ? matte.sample(s,nativeUV).r : 1;
             float4 tex=cameraSample(cam,s,selectedUV,u[18],u[23].zw,u[21],u[22]);
             if(u[36].z>0) tex.rgb=mix(cameraBlur.sample(s,uv).rgb,tex.rgb,foreground);
+            if(u[37].z>0) tex.rgb=mix(tex.rgb,cameraBlur.sample(s,uv).rgb,u[37].z);
             if(u[32].w>0) {
                 if(u[30].z>0) {
                     float2 pixel=1/u[23].zw;

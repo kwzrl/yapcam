@@ -1,4 +1,222 @@
-READY R6 2dc6514+worktree | Render crash audit fixed preview-clock integer traps and zero-span/out-of-range audio clock mapping; F17/F18 and strict native GPU acceptance are BLOCKED by unverifiable app ownership plus unavailable Metal/media services | release Render 172 PASS / 82 explicit skips / 0 failures; strict 172 PASS / 10 skips / 72 explicit unavailable failures; harness self-tests PASS.
+READY R7 integration2 410eec9+worktree | corrected Render's stale revision-4 camera inset golden and the export test's AVAssetReader marker-buffer miscount; refreshed/relinked Core; 2 focused portable Swift PASS + Core revision-4 Rust PASS; native Metal export rerun remains Lead-owned.
+
+## Round 7 integration 2 corrections
+
+- CameraProjectTests was wrong; no Core request is needed. Core's revision-4
+  table and implementation both specify `edge_distance_ratio = 0.03`, and its
+  parity regression requires a 32.4 px short-edge inset at 1728×1080. Render's
+  54 px / 5% golden was stale. The assertion now derives 3% from the evaluated
+  canvas while the same test continues to protect saved legacy geometry.
+- The low-memory path did not render extra frames. Serial, low-memory, and
+  parallel exports all returned 16 because the test counted every compressed
+  `AVAssetReaderTrackOutput` buffer. With nil output settings, AVFoundation may
+  return zero-sample marker buffers; they are not video frames. The native gate
+  now counts `CMSampleBufferGetNumSamples`, separately asserts each exporter's
+  submitted-frame diagnostic is 12, compares media samples to submitted frames,
+  and prints media/marker counts for the host rerun.
+- Added a portable 200 ms × 60 fps regression proving both the serial grid and
+  the parallel partition total exactly 12 frames.
+- Verification without Metal: clean Core archive rebuild; Core
+  `revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projects`
+  1 PASS; clean Swift relink then camera factory regression 1 PASS; portable
+  export-grid regression 1 PASS. The real-file native export gate was not run.
+
+## Round 7b — requests, remaining research, and handoffs
+
+R7 REC B-14 | worktree on be4dabb (Lead checkpoint needed) | `ReferenceExportTests.testSoftwareDecoderAndLowMemoryPoliciesReachReaderAndExporter` | live: not verified; `ExportSettings.hardwareDecodingEnabled` reaches AVAssetReader's public VideoToolbox decoder specification and defaults true.
+R7 REC B-15 / MKT-134 | worktree on be4dabb (Lead checkpoint needed) | `ReferenceExportTests.testSoftwareDecoderAndLowMemoryPoliciesReachReaderAndExporter` | live: not verified; low-memory mode retains at most two in-flight export frames, two decoded frames per source, and smaller compositor image/source caches.
+R7 MKT-060 | worktree on be4dabb (Lead checkpoint needed) | `ReferenceExportTests.testFiniteGIFLoopCountPolicyAndValidation` | live: not verified; GIFs retain Forever/Once and now accept validated finite loop counts 2...10.
+R7 MKT-076 | worktree on be4dabb + Core 9281d80 sync needed | `CoreDrawingLayerTests.testSemanticKeycapsExpandPlateGlyphAndModifierNameWithLegacyFallback` PASS | live: not verified; typed caps expand into separate styled plates and glyphs with small modifier names, while absent `keycaps` retains the old joined-text raster path.
+R7 MKT-098 / S-EDT-31 | worktree on be4dabb (Lead checkpoint needed) | `AudioScrubberTests` 2 PASS | live: not verified; public `AudioScrubber` produces 40 ms grains at 0.5...2x, reverses negative-velocity PCM, applies 5 ms edge fades, and is silent at zero velocity.
+R7 MKT-157 | worktree on be4dabb (Lead checkpoint needed) | `ReferenceExportTests.testParallelExportPlanPreservesContiguousFrameGrid` PASS + real-file parity gate explicit host skip | live: not verified; opt-in `parallelSegments` renders two frame-aligned ranges concurrently, passthrough-joins them without another compression generation, and publishes atomically.
+R7 MKT-208 | worktree on be4dabb (Lead checkpoint needed) | `PreviewSettingsTests.testThirtySecondIdlePolicyReleasesOnlyPausedPreview` | live: not verified; paused preview releases decoder/compositor caches after 30 s and play/seek cancels the idle release.
+R7 MKT-210 | worktree on be4dabb (Lead checkpoint needed) | `SpeechEnhancementTests.testVoiceIsolationBridgeIsOptionalAndSettingsRoundTrip` | live: not verified; optional voice isolation stages a package-safe file through an installable Capture bridge and falls back to existing deterministic DSP when unavailable or failing.
+R7 Inspector click preview request | worktree on be4dabb (Lead checkpoint needed) | `AudioOverlayTests.testPublicClickPreviewUsesExactExportSynthesis` | live: not verified; Inspector can call public `ProceduralAudio.clickSampleWAV(variant:)`, which uses the same synthesis as export.
+
+Focused release verification for these additions is **9 portable PASS / 1
+explicit Metal-media skip / 0 failures**. The
+voice-isolation test rebuilt all products successfully; warnings are pre-existing
+deprecation/isolation warnings outside this change. Render did not rerun the two
+legacy CAM-14/CAM-21 gates against stale Core. Core reports `READY R7b 9281d80`
+with revisions 0...3 byte-identical, Circle 400 ms, and rev4 Ripple 450 ms / 590
+ms total; Lead must sync that checkpoint before Render's final gate rerun.
+The full current-archive Render run executed **282 tests: 181 PASS / 90 explicit
+hardware-or-opt-in skips / 11 failures**. All 11 failures are the expected stale
+Core producer boundary: new-project camera/zoom defaults (5 assertions), Ripple
+kind/timing (5), and frame-zero lens lead-in (1). The stricter revisions 0...3
+legacy geometry gate already passes. No Render-owned regression failed.
+
+F17/F18 were not launched. At exactly **2026-10-18 03:44:23 CEST** the required
+`pgrep -fl 'round6-soak|Yapcam.app/Contents/MacOS'` guard returned `sysmond service
+not found` / `Cannot get process list`. Render therefore cannot establish that no
+Yapcam process is running or that the machine is otherwise idle, and remains
+fail-closed without launching, signalling, or stopping an app.
+
+### Round 7b requests
+
+- UI/Editor B-14/B-15/MKT-157: expose the existing Settings choices by carrying
+  `hardwareDecodingEnabled`, `lowMemory`, and `parallelSegments` into
+  `ExportSettings`. Pass the same
+  hardware-decoding value into `PreviewPlayer(...hardwareDecodingEnabled:)` so
+  the Advanced disable-hardware switch governs encoding and decoding. Low-memory
+  mode is export-only; the validated policy is available as
+  `Exporter.maxInFlightFrames` plus reduced compositor/decoder retention.
+  “Faster export (experimental, parallel segments)” maps to `parallelSegments`;
+  leave it off by default and show that it uses more CPU and memory.
+- Inspector click preview: call
+  `ProceduralAudio.clickSampleWAV(variant: AudioOverlay.Click)`; do not maintain a
+  second synthesizer. The returned WAV is 48 kHz mono and sample-identical to the
+  export overlay.
+- Editor MKT-098: retain one `AudioScrubber`, call async `prepare(project:)` when
+  the document changes, `scrub(toNs:velocity:)` while dragging the timeline, and
+  `silence()` on drag end/cancel (or after an 80 ms UI inactivity debounce).
+- Capture/UI MKT-210: install the system service once with
+  `VoiceIsolationBridge.install { source, destination in ... }`; set
+  `SpeechEnhancementSettings.voiceIsolation = true` only when the user selects
+  voice isolation. Render deliberately has no Capture dependency; failure falls
+  back to the existing speech DSP and never strands the staged file.
+- Core MKT-062: add an explicit drawing fill policy (`custom` / `autoSampled`)
+  to the typed layer query. Auto requires the renderer to distinguish the mode
+  before it can sample a 4 px exterior ring per frame and smooth six samples;
+  guessing from the fill color would change saved-project semantics.
+- Core/Editor B-17 + MKT-101: provide a typed device-frame choice and screen
+  classification in render options. The renderer needs exact bezel family,
+  orientation, safe inset and corner-radius values; no device is inferred from
+  arbitrary pixel dimensions.
+- Lead MKT-002: supply a redistributable super-resolution model, its license,
+  fixture inputs and expected quality/performance gates. Render will not ship a
+  fake “AI” scaler or silently download a model.
+
+Research dispositions already satisfied by the shared renderer: MKT-047 renders
+downloaded backgrounds through the existing imported-image path; MKT-073 uses
+the existing arbitrary audio overlay/mix path; MKT-082 uses the bounded FIFO
+`ExportScheduler`; and MKT-051/MKT-155 use the existing blur and stereo capture
+contracts. MKT-062, B-17/MKT-101 and MKT-002 remain explicit producer
+contract/model blockers above rather than inert Render switches.
+
+Lead can checkpoint the Render-owned work as four reviewable packages:
+
+1. Export/GIF/performance: `ExportSettings.swift`, `Exporter.swift`,
+   `FrameSource.swift`, `FrameCompositor.swift`, `GIFPalette.swift`,
+   `ProjectAdapter.swift`, `ReferenceExportTests.swift`.
+2. Preview/audio scrub: `PreviewPlayer.swift`, NEW `AudioScrubber.swift`,
+   `PreviewSettingsTests.swift`, NEW `AudioScrubberTests.swift`.
+3. Click/voice processing: `AudioOverlays.swift`, `SpeechDSP.swift`,
+   `SpeechAudioPreparation.swift`, `AudioOverlayTests.swift`,
+   `SpeechEnhancementTests.swift`.
+4. Semantic keycaps (integrate with Core 9281d80): `CoreDrawingLayers.swift`,
+   `RenderLayers.swift`, `CoreDrawingLayerTests.swift`; plus this status file.
+
+Lead-owned `docs/SWIFT_API.md` should mirror the additive public APIs:
+`ExportSettings.hardwareDecodingEnabled`, `.lowMemory`, `.parallelSegments`,
+`.gifLoopCount`; `PreviewPlayer(...hardwareDecodingEnabled:)`; `AudioScrubber`;
+`SpeechEnhancementSettings.voiceIsolation`; `VoiceIsolationBridge`; and
+`ProceduralAudio.clickSampleWAV(variant:)`.
+
+READY R7 69b040a+worktree + Lead checkpoint needed | Render-owned BS-1/3/4 and CAM-06/14/21 consumption/goldens, S-07, S-04, MKT-019 and MKT-115 complete; integration HOLD is limited to Core's revision gate and 450 ms Ripple clock below | portable/legacy focused 6 PASS / 4 explicit Metal skips; offline Metal compile PASS; pending-Core exact gates 2 FAIL / 27 assertions.
+
+BLOCKED R7 integration | pending Core archive 3ad03ae applies CAM-14/CAM-21 to legacy revisions and publishes a 400 ms Ripple ring lifetime instead of MKT-019's required 450 ms | exact gates: `CameraProjectTests.testLegacyProjectCameraLayoutGeometryStaysByteIdentical` and `CoreCameraStyleTests.testCoreRippleContractMapsKindDurationAndSnapshot`. Full pending-Core preflight before the stricter Ripple assertion: 273 tests, 183 pass / 89 hardware-or-opt-in skips / 1 failed test with 24 assertions. Current focused preflight: both gates fail with 27 assertions (24 legacy across revisions 0...3, 3 Ripple duration/clock). Render implementation otherwise ready for final verification after both Core corrections land.
+
+R7 MKT-019 | worktree on b670fd4 (Core correction + Lead checkpoint needed) | CursorCompositorTests.testRippleIsThreeDistinctStaggeredRingsOnHost + CoreCameraStyleTests.testCoreRippleContractMapsKindDurationAndSnapshot | live: not verified; typed decode and offline Metal compilation PASS, native three-ring pixel proof is present but the Metal host gate skips; Core's required 450 ms clock is pending.
+R7 MKT-115 | worktree on b670fd4 (Lead checkpoint needed) | RenderTests.testMissingCustomBackgroundFallsBackToDefaultBackground | live: not verified; missing/undecodable linked assets now fall back to Deep Slate, native pixel proof present but Metal host gate skipped.
+R7 BS-1 | worktree on 69b040a + Core checkpoint needed | Core `parity_tests::bs1_factory_cursor_glides_at_full_strength_and_slice_opt_out_stays_raw` + full Render preflight | live: not verified; evaluated cursor frames require no renderer-local golden change.
+R7 BS-3 | worktree on 69b040a + Core checkpoint needed | CameraProjectTests.testNewProjectZoomTransitionRenderedFramesAreMonotonicAndOneSecond | live: not verified; 60 fps crop sequence reaches target in 0.9...1.0 s with no reversal/overshoot.
+R7 BS-4 | worktree on 69b040a + Core checkpoint needed | Core `motion::pan_and_camera_regressions::bs4_auto_follow_uses_screen_spring_and_none_is_raw` + full Render preflight | live: not verified; Render consumes Core's evaluated crop without a second spring.
+R7 CAM-06 | worktree on 69b040a + Core checkpoint needed | CameraProjectTests.testFactoryTwoCameraFitsSquareWithEdgePaddingAndPreservesSavedLegacyGeometry | live: not verified; new-project zoom camera golden is 0.6× and legacy explicit geometry remains frozen.
+R7 CAM-14 | worktree on 69b040a + Core correction needed | CameraProjectTests.testLegacyProjectCameraLayoutGeometryStaysByteIdentical + CoreCameraStyleTests.testOptionalLayoutEffectsDecodeStrictlyAndKeepLegacyDefaults | live: not verified; centred aspect-fill crop is decoded strictly; revisions 0...3 remain the integration gate.
+R7 CAM-21 | worktree on 69b040a + Core correction needed | CoreCameraStyleTests.testLayoutTransitionScreenFadeAndCameraBlurChangePixelsOnHost + CameraProjectTests.testLegacyProjectCameraLayoutGeometryStaysByteIdentical | live: not verified; screen/window/lens fade and camera blur are wired; native pixels skip on this host and revisions 0...3 remain the integration gate.
+R7 S-07 | worktree on 69b040a (Lead checkpoint needed) | PreviewSettingsTests.testPowerSavingCapsOnlyPreviewPresentationRate + testControlsResizeBackingRestoreDefaultsAndKeepSnapshotOnHost | live: not verified; portable 60/30 policy PASS, live MTKView assertion present but Metal/media host gate skipped.
+R7 S-04 | worktree on 69b040a (Lead checkpoint needed) | ReferenceExportTests.testWebCompressionStaysVisibleButDoesNotSupport4K | live: reference bundle answer confirms four visible presets with Web/Web (Low) disabled at 4K; Render policy already matched, focused test PASS.
+
+## Round 7 — preview power saving
+
+Render's S-07 side is implemented without changing export settings: `PreviewSettings.powerSaving`
+defaults to `false`, derives a 60 fps normal / 30 fps power-saving presentation cap, and
+`PreviewPlayer` applies that cap both when its `MTKView` is created and whenever settings
+change. Paused previews remain event-driven (`isPaused` + `enableSetNeedsDisplay`), so the
+toggle does not introduce idle redraw work. Focused release verification executed 5
+`PreviewSettingsTests`: **3 PASS / 2 explicit Metal-media host skips / 0 failures**.
+The complete release `YapcamRenderTests` suite after both independent R7 items
+executed **266 tests: 180 PASS / 86 explicit hardware-or-opt-in skips / 0 failures**.
+
+QA's Screen Studio 4.0.4 bundle answer selects S-04's restricted branch. Render
+already exposes all four `Compression.allCases` entries and reports `supports4K`
+as `[true, true, false, false]` for Studio, Social Media, Web and Web (Low). A
+dedicated regression now locks that public contract for the Export UI owner; no
+production Render change was necessary.
+
+F17/F18 were not launched. At **2026-10-18 00:26:55 CEST**, the required
+`pgrep -fl 'round6-soak|Yapcam.app/Contents/MacOS'` check failed with
+`Cannot get process list`; because the user's Yapcam may be running, Render
+remains fail-closed and did not start, signal, or stop any app process.
+The Round 7 recheck at **2026-10-18 01:09:39 CEST** failed identically
+(`sysmond service not found` / `Cannot get process list`), so no native F17/F18
+measurement was attempted.
+
+### Requests
+
+- Editor owner for S-07: add persisted Quality / Performance / Custom selection
+  plus `PreviewOptions.powerSaving: Bool = false`. Quality maps to existing
+  full resolution + motion blur on; Performance maps to half resolution +
+  motion blur off; changing either detail manually selects Custom. Pass the
+  toggle through `PreviewPlayerAdapter.setPreviewOptions` as
+  `s.powerSaving = o.powerSaving`. The new Render API is exactly
+  `PreviewSettings(powerSaving: Bool = false)` / mutable `.powerSaving`; no
+  export API changes are required.
+- Inspector/Export UI owner for S-04: keep the segments sourced from
+  `ExportSettings.Compression.allCases`, and at 2160p disable entries where
+  `.supports4K == false` (Web and Web Low) with the specified tooltip. Render's
+  public API and validation already implement this exact policy.
+- Core + Lead CAM-21 handoff is consumed: Render decodes `camera_source_crop`,
+  `screen_opacity`, and `camera_blur` from the pending query contract without a
+  C-ABI change. Lead must land the Core checkpoint before final verification.
+- Core for CAM-14/CAM-21: Round 7 explicitly requires old-project render
+  goldens to stay byte-identical. The in-progress Core worktree currently
+  applies fullscreen cover-fill and layout interpolation without a
+  `defaults_revision >= 4`/equivalent legacy gate. Please keep hard-cut,
+  padded-fit camera behavior for revisions 0...3. Render now locks the exact
+  pre-R7 overlay/fullscreen geometry for each of revisions 0...3 in
+  `CameraProjectTests.testLegacyProjectCameraLayoutGeometryStaysByteIdentical`;
+  it passes exact geometry against the pre-R7 Core archive and must remain green
+  after integration. Preflight against pending Core archive `3ad03ae…` confirms
+  the gap: at 0.95 s it returns an interpolated `791.35×465.03` camera instead
+  of the legacy `422.4×264`, and fullscreen becomes `1920×1080 @ 0,0` instead
+  of legacy padded-fit `1574.4×984 @ 172.8,48`. Gate source crop, cover-fill,
+  zero-corner/shadow and layout-transition evaluation on revision 4.
+- Core for MKT-019: evaluate `highlight` with a 450,000,000 ns per-ring
+  lifetime and a 590,000,000 ns total click clock (450 ms + two 70 ms
+  staggers), including `cursor_click_duration_ns: 450000000` in
+  `render_options_at`. The pending archive currently returns the persisted
+  legacy 400 ms value and ends at 540 ms, so Render cannot finish the third
+  required 450 ms ring. Keep Circle's existing 400 ms timing unchanged.
+
+R7 PREP 999879d+worktree | Agentic-editor handoff and new Render vision path reviewed; no listed flaky test is Render-owned and no source change is needed | AgentVisionRenderTests 6 PASS / 4 explicit Metal-or-real-fixture skips / 0 failures after rebuilding the current Core archive.
+
+## Round 7 preparation — agentic editor merge
+
+Read `docs/handoff/2026-10-18-agentic-editor.md` and the new Render-owned
+`AgentFrameRenderer`, `AgentContactSheet`, decoder callback/window changes, and
+`AgentVisionRenderTests`. The agent path evaluates an immutable Project snapshot
+off the UI thread, renders through the shared compositor, maps raw screen/camera
+frames through Core's edited timeline, bounds decoded signature windows to 16
+frames / 64 MiB, and bounds contact sheets to 12 frames plus a 1 MB base64 wire
+budget. The full inspector/chat/design decisions do not require a Render change.
+
+None of the handoff's three flaky tests is Render-owned:
+`Round6StartDecisionTests.backToBack…` belongs to UI, while
+`ExportPlanningWiringTests.gifDefaults…` and `AgentPlaybookTests` belong to
+Editor. No speculative cross-team edit was made. Round 7's `tasks.md` was not
+present when prep ran.
+
+Focused release verification initially linked against an ignored Rust archive
+from before the MCP symbols were added and failed with missing `yc_agent_doc`,
+`yc_agent_docs_rpc`, `yc_mcp_catalog`, and `yc_mcp_handle`. Rebuilding the current
+Core release archive resolved the environment artifact without a source change.
+The rerun executed 10 `AgentVisionRenderTests`: **6 PASS / 4 explicit skips / 0
+failures**. Skips are the three Metal/media host checks and the opt-in real-package
+parity proof. Existing Round 6 status edits below were preserved.
+
+READY R6 f92e62c+worktree | Render crash audit fixed preview-clock integer traps and zero-span/out-of-range audio clock mapping; post-soak F17/F18 and strict native GPU acceptance are BLOCKED by unverifiable app ownership plus unavailable Metal/media services | release Render 172 PASS / 82 explicit skips / 0 failures; strict 172 PASS / 10 skips / 72 explicit unavailable failures; harness self-tests PASS.
 
 ## Round 6 — Render hardening
 
@@ -10,12 +228,17 @@ zero-length physical device tail maps to its start instead of dividing by zero.
 Both fixes have boundary regressions covering `Int64.min`/`max`, non-finite and
 huge player clocks, out-of-range queries, and a zero physical span.
 
-F17/F18 are **BLOCKED with no measurements claimed**. The required initial
-`pgrep -fl Yapcam.app/Contents/MacOS` could not read the process list on this
-host, and the harness's independent NSWorkspace check reported no visible Cocoa
-application session. It therefore failed closed before launch, as required;
-later strict-suite coverage also observed the shared app lock in use. No app was
-launched, signalled, or killed. `run_round3.py --self-test` passed 3/3 and
+F17/F18 are **BLOCKED with no measurements claimed**. QA's 260-run Round 6 soak
+held the shared app lock, so Render waited without launching anything; the lock
+cleared at exactly **2026-10-17 12:38:49 CEST**. At the post-soak gate at exactly
+**2026-10-17 12:39:00 CEST**, the lock was absent and LaunchServices listed no
+Yapcam, but the required `pgrep -fl 'round6-soak|Yapcam.app/Contents/MacOS'`
+could not read the process list and the harness's independent NSWorkspace check
+reported no visible Cocoa application session. The machine's otherwise-idle
+state and app ownership therefore could not be positively certified, so the
+harness remained fail-closed before launch. Load averages at that check were
+2.52/2.68/3.23; they are recorded as evidence, not claimed as an idle machine.
+No app was launched, signalled, or killed. `run_round3.py --self-test` passed 3/3 and
 `run_round4.py --self-test` passed its positive/negative PSNR gates and cleanup.
 A native logged-in host with confirmed app ownership must run
 `Tests/YapcamRenderTests/run_round4.py` to supply the F17 <=150 ms p95 and F18
@@ -38,8 +261,9 @@ skips / 0 failures**. The required strict command executed the same 254 tests:
 **172 PASS / 10 opt-in skips / 72 explicit failures**, all from the deliberate
 `Metal/media services unavailable in this execution environment; host verification
 required` gate. Focused new boundary coverage is 4/4 PASS. `git diff --check`
-passes. Lead should checkpoint the five Render source/test paths, this status,
-and deletion of the accidentally generated Python bytecode; no UI source changed.
+passes. Lead checkpointed the five Render source/test paths and removed the
+accidentally generated Python bytecode; only this post-soak status update remains
+in the worktree. No UI source changed.
 
 READY RV 24feacf+worktree | R5 finding 3 Render side complete: Core `highlight`/`spotlight` purposes pass lens validation; only `privacy_mask` and conservative legacy untagged opaque covers fail closed, while blur protection remains intrinsic | 14 PASS / 8 explicit Metal-media skips; real export regression added for host gate.
 

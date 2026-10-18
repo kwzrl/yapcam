@@ -59,7 +59,7 @@ final class CoreLensLayoutTests: XCTestCase {
         let c=try p.renderEffects(atNs: f.tl_ns,canvasSize: CGSize(width: Int(f.canvas_w),height: Int(f.canvas_h))).configuration
         XCTAssertTrue(c.cameraBackgroundRemoval)
         XCTAssertEqual(c.cameraMatte,.init(edgeSoftness: 0.7,edgeInsetPixels: 3))
-        XCTAssertEqual(f.motion_blur,0.4,accuracy: 0.000001)
+        XCTAssertEqual(f.motion_blur,0,accuracy: 0.000001,"A new-project zoom at timeline zero has no preceding lead-in delta")
         let evaluated=try p.frameMotion(atNs: f.tl_ns)
         let strength=MotionBlurPolicy.strengths(frame: f,configuration: c,framesPerSecond: 30,enabled: true)
         XCTAssertEqual(strength.x,evaluated.zoom_motion_blur*0.5,accuracy: 0.000001)

@@ -73,6 +73,18 @@ final class RenderTests: XCTestCase {
         XCTAssertEqual(Double(bytes[(20*100+49)*4]), 187, accuracy: 2)
         XCTAssertLessThan(bytes[0], bytes[99*4])
     }
+    func testMissingCustomBackgroundFallsBackToDefaultBackground() throws {
+        var missing=try TestSource(package: temp).frame(atNs: 0)
+        missing.background_kind=2; missing.background_asset = .max
+        let actual=try pixels(missing,source: TestSource(package: temp),width: 100,height: 60)
+
+        let preset=BackgroundLibrary.defaultPreset
+        var expected=missing; expected.background_kind=1
+        expected.background_color=(preset.colors[0].x,preset.colors[0].y,preset.colors[0].z,1)
+        expected.background_color2=(preset.colors[1].x,preset.colors[1].y,preset.colors[1].z,1)
+        expected.background_angle_deg=preset.angleDegrees
+        XCTAssertEqual(actual,try pixels(expected,source: TestSource(package: temp),width: 100,height: 60))
+    }
     func testIOSurfaceNearestFrameAndRandomScrub() throws {
         var cache: CVMetalTextureCache?; CVMetalTextureCacheCreate(nil,nil,try device(),nil,&cache)
         let source = try FrameSource(url: fixture.appendingPathComponent("recording/seg-000/screen.mov"), cache: XCTUnwrap(cache))

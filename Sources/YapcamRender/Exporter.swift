@@ -19,6 +19,42 @@ private final class PendingExportFrame {
     }
 }
 
+struct ParallelExportPlan: Sendable, Equatable {
+    let ranges: [Range<Int64>]
+    static func make(range: Range<Int64>,fps: Int) -> Self {
+        let count=ExportTiming.frameCount(durationNs: Int64(range.count),fps: fps)
+        guard count>=2 else { return Self(ranges: [range]) }
+        let midpoint=count/2
+        let boundary=CMTimeConvertScale(CMTime(value: Int64(midpoint),timescale: Int32(fps)),
+                                        timescale: 1_000_000_000,method: .roundTowardNegativeInfinity).value
+        // Nanosecond rounding can otherwise make each half round outward and add
+        // one frame. Select the nearest exact partition whose child counts sum to
+        // the serial grid count.
+        for delta: Int64 in [0,-1,1,-2,2,-3,3,-4,4] {
+            let split=range.lowerBound+boundary+delta
+            guard split>range.lowerBound,split<range.upperBound else { continue }
+            let left=range.lowerBound..<split,right=split..<range.upperBound
+            if ExportTiming.frameCount(durationNs: Int64(left.count),fps: fps)
+                + ExportTiming.frameCount(durationNs: Int64(right.count),fps: fps) == count {
+                return Self(ranges: [left,right])
+            }
+        }
+        return Self(ranges: [range])
+    }
+}
+
+private final class ParallelExportProgress: @unchecked Sendable {
+    private let lock=NSLock()
+    private var values=[0.0,0.0]
+    func report(index: Int,value: Double,to progress: @Sendable (Double) -> Void) {
+        lock.withLock {
+            values[index]=min(1,max(0,value))
+            // Serialize concurrent child callbacks and preserve monotonic delivery.
+            progress((values[0]+values[1])/2*0.9)
+        }
+    }
+}
+
 /// All mutable state is confined to the video request queue. Only completed
 /// diagnostics are read after the pump joins; GPU resources are joined on exit.
 private final class CallbackVideoSequence: @unchecked Sendable {
@@ -95,6 +131,9 @@ public final class Exporter: @unchecked Sendable {
     /// Actual submitted video samples; metrics.frames still counts rendered grid
     /// evaluations. Both sums its two files; GIF has no encoded video track.
     public var encodedVideoFrames: Int? { lock.withLock { completedEncodedVideoFrames } }
+    /// Upper bound on rendered frames retained by the writer pipeline. Low-memory
+    /// exports additionally reduce decoder and compositor caches.
+    public var maxInFlightFrames: Int { videoPipelineDepth }
     public convenience init(project: any RenderProjectSource, settings: ExportSettings, destination: URL) throws {
         try self.init(project: project,settings: settings,destination: destination,videoPipelineDepth: 2)
     }
@@ -145,6 +184,10 @@ public final class Exporter: @unchecked Sendable {
         let startTime = ProcessInfo.processInfo.systemUptime
         if settings.codec == .both { return try await runBoth(startTime: startTime, progress: progress) }
         let range = try settings.validatedRange(duration: project.durationNs)
+        let parallelPlan=ParallelExportPlan.make(range: range,fps: settings.fps)
+        if settings.parallelSegments,settings.format != .gif,parallelPlan.ranges.count==2 {
+            return try await runParallelSegments(plan: parallelPlan,startTime: startTime,progress: progress)
+        }
         let first = try project.frame(atNs: range.lowerBound)
         let size = try settings.outputSize(canvasWidth: first.canvas_w, canvasHeight: first.canvas_h)
         let width = size.width, height = size.height
@@ -154,7 +197,8 @@ public final class Exporter: @unchecked Sendable {
         defer { if FileManager.default.fileExists(atPath: partial.path) { try? FileManager.default.removeItem(at: partial) } }
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw RenderError.metal("Metal unavailable") }
         let compositor = try FrameCompositor(device: device, project: project, framesPerSecond: settings.fps,
-                                             screenQuality: settings.screenQuality)
+                                             screenQuality: settings.screenQuality,
+                                             hardwareDecodingEnabled: settings.hardwareDecodingEnabled,lowMemory: settings.lowMemory)
         var cache: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(nil, nil, device, [kCVMetalTextureUsage as String: MTLTextureUsage([.shaderRead,.renderTarget]).rawValue] as CFDictionary, &cache) == kCVReturnSuccess, let cache else { throw RenderError.metal("Export texture cache unavailable") }
         progress(0)
@@ -170,6 +214,95 @@ public final class Exporter: @unchecked Sendable {
         lock.withLock { completedOutputs = [destination] }
         progress(1)
         return destination
+    }
+    private func runParallelSegments(plan: ParallelExportPlan,startTime: Double,
+                                     progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        guard !FileManager.default.fileExists(atPath: destination.path) else {
+            throw RenderError.write("Destination already exists; choose a new filename")
+        }
+        let directory=destination.deletingLastPathComponent().appendingPathComponent(".yapcam-parallel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let progressState=ParallelExportProgress()
+        let children: [Exporter] = try plan.ranges.enumerated().map { index,range in
+            var options=settings
+            options.rangeStartNs=range.lowerBound; options.rangeEndNs=range.upperBound
+            options.parallelSegments=false
+            return try Exporter(project: project,settings: options,
+                                destination: directory.appendingPathComponent("segment-\(index).\(settings.format.rawValue)"),
+                                videoPipelineDepth: videoPipelineDepth,callbackVideo: callbackVideo)
+        }
+        try await withThrowingTaskGroup(of: Int.self) { group in
+            for index in children.indices {
+                group.addTask {
+                    _ = try await children[index].renderInSlot { value in
+                        progressState.report(index: index,value: value,to: progress)
+                    }
+                    return index
+                }
+            }
+            while try await group.next() != nil { }
+        }
+        try Task.checkCancellation()
+        let partial=directory.appendingPathComponent("joined.\(settings.format.rawValue)")
+        try await Self.joinEncodedSegments(children.map(\.destination),to: partial,format: settings.format)
+        try Task.checkCancellation()
+        try FileManager.default.moveItem(at: partial,to: destination)
+        let range=try settings.validatedRange(duration: project.durationNs)
+        lock.withLock {
+            completedOutputs=[destination]
+            completedEncodedVideoFrames=children.reduce(0) { $0+($1.encodedVideoFrames ?? 0) }
+            completedVideoDiagnostics=children.flatMap(\.videoDiagnostics)
+            speechReports=children.flatMap(\.speechEnhancementReports)
+            completedMetrics=ExportMetrics(frames: children.reduce(0) { $0+($1.metrics?.frames ?? 0) },
+                                           elapsedSeconds: ProcessInfo.processInfo.systemUptime-startTime,
+                                           mediaSeconds: Double(range.count)/1e9)
+        }
+        progress(1)
+        return destination
+    }
+    private static func joinEncodedSegments(_ urls: [URL],to destination: URL,format: ExportSettings.Format) async throws {
+        let composition=AVMutableComposition()
+        var videoDestination: AVMutableCompositionTrack?
+        var audioDestination: AVMutableCompositionTrack?
+        var cursor=CMTime.zero
+        for url in urls {
+            try Task.checkCancellation()
+            let asset=AVURLAsset(url: url)
+            let duration=try await asset.load(.duration)
+            if let source=try await asset.loadTracks(withMediaType: .video).first {
+                if videoDestination == nil {
+                    videoDestination=composition.addMutableTrack(withMediaType: .video,preferredTrackID: kCMPersistentTrackID_Invalid)
+                    videoDestination?.preferredTransform=try await source.load(.preferredTransform)
+                }
+                try videoDestination?.insertTimeRange(try await source.load(.timeRange),of: source,at: cursor)
+            }
+            if let source=try await asset.loadTracks(withMediaType: .audio).first {
+                if audioDestination == nil {
+                    audioDestination=composition.addMutableTrack(withMediaType: .audio,preferredTrackID: kCMPersistentTrackID_Invalid)
+                }
+                try audioDestination?.insertTimeRange(try await source.load(.timeRange),of: source,at: cursor)
+            }
+            cursor=cursor+duration
+        }
+        guard videoDestination != nil,
+              let session=AVAssetExportSession(asset: composition,presetName: AVAssetExportPresetPassthrough) else {
+            throw RenderError.write("Cannot join parallel export segments")
+        }
+        let fileType: AVFileType = format == .mp4 ? .mp4 : .mov
+        guard session.supportedFileTypes.contains(fileType) else {
+            throw RenderError.write("Parallel export segments cannot be joined in this container")
+        }
+        session.outputURL=destination; session.outputFileType=fileType
+        await withTaskCancellationHandler {
+            await session.export()
+        } onCancel: {
+            session.cancelExport()
+        }
+        try Task.checkCancellation()
+        guard session.status == .completed else {
+            throw RenderError.write(session.error?.localizedDescription ?? "Parallel segment join failed")
+        }
     }
     private func runBoth(startTime: Double, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         let companion = settings.destinations(for: destination)[1]
@@ -382,7 +515,7 @@ public final class Exporter: @unchecked Sendable {
         try await pump.run()
     }
     private func writeGIF(_ url: URL, range: Range<Int64>, count: Int, width: Int, height: Int, compositor: FrameCompositor, queue: MTLCommandQueue, cache: CVMetalTextureCache, progress: @Sendable (Double) -> Void) async throws {
-        let destination = try GIFFrameDestination(url: url, count: count, disableLoop: settings.gifDisableLoop)
+        let destination = try GIFFrameDestination(url: url,count: count,disableLoop: settings.gifDisableLoop,loopCount: settings.gifLoopCount)
         let context = CIContext(mtlDevice: compositor.device)
         let colors = CGColorSpace(name: CGColorSpace.sRGB)!
         let pool = try makePool(width: width, height: height)
@@ -426,8 +559,7 @@ public final class Exporter: @unchecked Sendable {
 
 /// The public encoder preference is translated at the AVAssetWriter boundary.
 /// `false` is Apple's supported request for a VideoToolbox software encoder;
-/// decoding remains system-managed because AVAssetReader has no corresponding
-/// per-output decoder switch.
+/// decoding uses the independent AVAssetReader preference in FrameSource.
 func videoOutputSettings(for settings: ExportSettings, width: Int, height: Int) -> [String: Any] {
     let compression: [String: Any] = [
         AVVideoAverageBitRateKey: settings.videoBitrate(width: width, height: height),

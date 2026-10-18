@@ -6,6 +6,12 @@ import AppKit
 @testable import YapcamRender
 
 final class ReferenceExportTests: XCTestCase {
+    func testWebCompressionStaysVisibleButDoesNotSupport4K() {
+        let presets=ExportSettings.Compression.allCases
+        XCTAssertEqual(presets.map(\.title),["Studio","Social Media","Web","Web (Low)"])
+        XCTAssertEqual(presets.map(\.supports4K),[true,true,false,false])
+    }
+
     func testExactOptionSetsDefaultsAndResolutionGates() throws {
         let video = ExportSettings(), gif = ExportSettings(format: .gif)
         XCTAssertEqual(video.outputHeight,720); XCTAssertEqual(video.fps,60)
@@ -38,13 +44,94 @@ final class ReferenceExportTests: XCTestCase {
         XCTAssertEqual(ExportSettings(outputHeight: 2160,compression: .web).summary(),"MP4 • H.264 • 1080p • 60fps • Web")
         XCTAssertEqual(ExportSettings(format: .gif).summary(),"GIF • 480p • 15fps • High quality • Loop")
         XCTAssertEqual(ExportSettings(format: .gif,fps: 24,gifHighQuality: false,gifDisableLoop: true).summary(),"GIF • 480p • 20fps • Standard quality • Play once")
+        XCTAssertEqual(ExportSettings(format: .gif,gifLoopCount: 4).summary(),"GIF • 480p • 15fps • High quality • Loop 4×")
         let legacy=try JSONDecoder().decode(ExportSettings.self,from: Data(#"{"quality":0.4}"#.utf8))
         XCTAssertTrue(legacy.hardwareEncodingEnabled)
+        XCTAssertTrue(legacy.hardwareDecodingEnabled); XCTAssertFalse(legacy.lowMemory)
+        XCTAssertFalse(legacy.parallelSegments)
         XCTAssertEqual(legacy.summary(),"MP4 • H.264 • 720p • 60fps • Custom")
-        let software=ExportSettings(codec: .both,hardwareEncodingEnabled: false)
+        let software=ExportSettings(codec: .both,hardwareEncodingEnabled: false,hardwareDecodingEnabled: false,lowMemory: true,parallelSegments: true)
         XCTAssertEqual(try JSONDecoder().decode(ExportSettings.self,from: JSONEncoder().encode(software)),software)
         XCTAssertFalse(software.closestValidPreset().hardwareEncodingEnabled)
+        XCTAssertFalse(software.closestValidPreset().hardwareDecodingEnabled)
+        XCTAssertTrue(software.closestValidPreset().lowMemory)
+        XCTAssertTrue(software.closestValidPreset().parallelSegments)
         XCTAssertThrowsError(try JSONDecoder().decode(ExportSettings.self,from: Data(#"{"hardwareEncodingEnabled":"false"}"#.utf8)))
+    }
+    func testFiniteGIFLoopCountPolicyAndValidation() throws {
+        let properties=try XCTUnwrap(GIFFrameDestination.containerProperties(disableLoop: false,loopCount: 7) as? [CFString:Any])
+        let gif=try XCTUnwrap(properties[kCGImagePropertyGIFDictionary] as? [CFString:Any])
+        XCTAssertEqual(gif[kCGImagePropertyGIFLoopCount] as? Int,7)
+        XCTAssertNil(GIFFrameDestination.containerProperties(disableLoop: true,loopCount: nil))
+        XCTAssertNoThrow(try ExportSettings(format: .gif,gifLoopCount: 2).validatedRange(duration: 1))
+        XCTAssertNoThrow(try ExportSettings(format: .gif,gifLoopCount: 10).validatedRange(duration: 1))
+        XCTAssertThrowsError(try ExportSettings(format: .gif,gifLoopCount: 1).validatedRange(duration: 1))
+        XCTAssertThrowsError(try ExportSettings(format: .gif,gifDisableLoop: true,gifLoopCount: 2).validatedRange(duration: 1))
+    }
+    func testSoftwareDecoderAndLowMemoryPoliciesReachReaderAndExporter() throws {
+        let software=FrameSource.outputSettings(hardwareDecodingEnabled: false)
+        let properties=try XCTUnwrap(software[AVVideoDecompressionPropertiesKey] as? [String:Any])
+        XCTAssertEqual(properties[kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder as String] as? Bool,false)
+        let normal=FrameSource.outputSettings(hardwareDecodingEnabled: true)
+        let normalProperties=try XCTUnwrap(normal[AVVideoDecompressionPropertiesKey] as? [String:Any])
+        XCTAssertEqual(normalProperties[kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder as String] as? Bool,true)
+
+        let root=try temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let exporter=try Exporter(project: try syntheticSource(root),settings: .init(lowMemory: true),destination: root.appendingPathComponent("low-memory.mp4"))
+        XCTAssertTrue(exporter.effectiveSettings.lowMemory)
+        XCTAssertEqual(exporter.maxInFlightFrames,2)
+    }
+    func testParallelExportPlanPreservesContiguousFrameGrid() {
+        for fps in ExportSettings.frameRates(for: .mp4) {
+            for duration: Int64 in [16_000_000,100_000_000,1_000_000_000,1_234_567_890,9_999_999_999] {
+                let range=123_456_789..<(123_456_789+duration)
+                let plan=ParallelExportPlan.make(range: range,fps: fps)
+                XCTAssertEqual(plan.ranges.first?.lowerBound,range.lowerBound)
+                XCTAssertEqual(plan.ranges.last?.upperBound,range.upperBound)
+                if plan.ranges.count==2 { XCTAssertEqual(plan.ranges[0].upperBound,plan.ranges[1].lowerBound) }
+                XCTAssertEqual(plan.ranges.reduce(0) { $0+ExportTiming.frameCount(durationNs: Int64($1.count),fps: fps) },
+                               ExportTiming.frameCount(durationNs: duration,fps: fps))
+            }
+        }
+    }
+    func testTwoHundredMillisecondSixtyFPSGridAndParallelPlanProduceTwelveFrames() {
+        let duration: Int64=200_000_000, fps=60
+        let plan=ParallelExportPlan.make(range: 0..<duration,fps: fps)
+        XCTAssertEqual(ExportTiming.frameCount(durationNs: duration,fps: fps),12)
+        XCTAssertEqual(plan.ranges.reduce(0) { $0+ExportTiming.frameCount(durationNs: Int64($1.count),fps: fps) },12)
+    }
+    func testLowMemoryAndParallelExportsMatchSerialFrameCountOnHost() async throws {
+        _ = try requireRenderDevice()
+        let root=try temporaryRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let source=try syntheticSource(root)
+        var mediaCounts: [Int]=[], submittedCounts: [Int]=[]
+        for (name,settings) in [
+            ("serial",ExportSettings(fps: 60,includeAudio: false)),
+            ("low-memory",ExportSettings(fps: 60,includeAudio: false,lowMemory: true)),
+            ("parallel",ExportSettings(fps: 60,includeAudio: false,parallelSegments: true))
+        ] {
+            let url=root.appendingPathComponent("\(name).mp4")
+            let exporter=try Exporter(project: source,settings: settings,destination: url)
+            _ = try await exporter.run { _ in }
+            XCTAssertGreaterThan(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0,1_024)
+            let asset=AVURLAsset(url: url),reader=try AVAssetReader(asset: asset)
+            let tracks=try await asset.loadTracks(withMediaType: .video)
+            let track=try XCTUnwrap(tracks.first)
+            let output=AVAssetReaderTrackOutput(track: track,outputSettings: nil)
+            reader.add(output); XCTAssertTrue(reader.startReading())
+            var mediaCount=0, markerCount=0
+            while let sample=output.copyNextSampleBuffer() {
+                let samples=CMSampleBufferGetNumSamples(sample)
+                mediaCount+=samples
+                if samples==0 { markerCount+=1 }
+            }
+            XCTAssertEqual(reader.status,.completed)
+            print("RENDER_EXPORT_COUNT path=\(name) media_samples=\(mediaCount) marker_buffers=\(markerCount)")
+            mediaCounts.append(mediaCount)
+            submittedCounts.append(try XCTUnwrap(exporter.encodedVideoFrames))
+        }
+        XCTAssertEqual(submittedCounts,[12,12,12],"Serial, low-memory, and parallel paths must submit the same twelve-frame logical grid")
+        XCTAssertEqual(mediaCounts,submittedCounts,"Marker-only AVAssetReader buffers are not encoded video frames")
     }
     func testExplicitSoftwareH264ExportOnHost() async throws {
         _ = try requireRenderDevice()

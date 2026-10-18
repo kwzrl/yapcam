@@ -3,6 +3,12 @@ import MetalKit
 @testable import YapcamRender
 
 final class PreviewSettingsTests: XCTestCase {
+    func testThirtySecondIdlePolicyReleasesOnlyPausedPreview() {
+        XCTAssertFalse(PreviewIdlePolicy.shouldRelease(lastActivity: 10,now: 39.999,isPlaying: false))
+        XCTAssertTrue(PreviewIdlePolicy.shouldRelease(lastActivity: 10,now: 40,isPlaying: false))
+        XCTAssertFalse(PreviewIdlePolicy.shouldRelease(lastActivity: 10,now: 50,isPlaying: true))
+        XCTAssertFalse(PreviewIdlePolicy.shouldRelease(lastActivity: .nan,now: 50,isPlaying: false))
+    }
     func testPixelCapsResolutionAndInvalidRequests() throws {
         let backing=CGSize(width: 3840,height: 2160)
         XCTAssertEqual(try PreviewSettings().drawableSize(forBackingSize: backing),backing)
@@ -24,6 +30,11 @@ final class PreviewSettingsTests: XCTestCase {
         for size in [CGSize.zero,CGSize(width: -1,height: 100),CGSize(width: CGFloat.infinity,height: 100)] {
             XCTAssertThrowsError(try PreviewSettings().drawableSize(forBackingSize: size))
         }
+    }
+
+    func testPowerSavingCapsOnlyPreviewPresentationRate() {
+        XCTAssertEqual(PreviewSettings().preferredFramesPerSecond,60)
+        XCTAssertEqual(PreviewSettings(powerSaving: true).preferredFramesPerSecond,30)
     }
 
     func testHostClockRateChangesAreContinuousAndSaturateAtEnd() {
@@ -53,8 +64,10 @@ final class PreviewSettingsTests: XCTestCase {
         defer { player.pause() }
         let view=PreviewMetalView(frame: NSRect(x: 0,y: 0,width: 1920,height: 1080),device: device)
         view.isPaused=true; view.player=player; player.view=view
-        let selected=PreviewSettings(maximumHeight: 480,resolution: .half,playbackRate: 2)
+        view.preferredFramesPerSecond=60
+        let selected=PreviewSettings(maximumHeight: 480,resolution: .half,playbackRate: 2,powerSaving: true)
         try player.setPreviewSettings(selected)
+        XCTAssertEqual(view.preferredFramesPerSecond,30)
         XCTAssertFalse(view.autoResizeDrawable)
         XCTAssertEqual(view.drawableSize,try selected.drawableSize(forBackingSize: view.convertToBacking(view.bounds).size))
         view.setFrameSize(NSSize(width: 300,height: 300))
@@ -64,6 +77,7 @@ final class PreviewSettingsTests: XCTestCase {
         XCTAssertFalse(player.isPlaying,"Changing settings while paused must not start audio/playback")
         XCTAssertEqual(player.currentNs,0)
         try player.setPreviewSettings(.init())
+        XCTAssertEqual(view.preferredFramesPerSecond,60)
         XCTAssertTrue(view.autoResizeDrawable)
         XCTAssertEqual(view.drawableSize,view.convertToBacking(view.bounds).size)
         XCTAssertEqual(source.snapshotCount,1,"Local preview controls must not rebuild the project snapshot")

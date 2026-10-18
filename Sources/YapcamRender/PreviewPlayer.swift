@@ -16,6 +16,13 @@ struct PreviewSubmissionMetrics {
     var failed = 0
 }
 
+public enum PreviewIdlePolicy {
+    public static let releaseDelaySeconds: Double = 30
+    public static func shouldRelease(lastActivity: Double,now: Double,isPlaying: Bool) -> Bool {
+        !isPlaying && lastActivity.isFinite && now.isFinite && now-lastActivity >= releaseDelaySeconds
+    }
+}
+
 /// Internal host-benchmark diagnostics; no playback policy or public API change.
 struct PreviewAudioStartupDiagnostics: Encodable {
     let phase: String
@@ -63,16 +70,21 @@ struct PreviewAudioStartupDiagnostics: Encodable {
     private let renderQueue = PreviewRenderQueue()
     private var submissions = PreviewSubmissionMetrics()
     private var redrawRevision = 0
+    private var idleTask: Task<Void,Never>?
     weak var view: MTKView?
 
-    public init(project: any RenderProjectSource,speechEnhancement: SpeechEnhancementSettings? = nil,reuseVideoSeekReader: Bool = true) throws {
+    public init(project: any RenderProjectSource,speechEnhancement: SpeechEnhancementSettings? = nil,
+                reuseVideoSeekReader: Bool = true,hardwareDecodingEnabled: Bool = true) throws {
         try speechEnhancement?.validate()
         speechEnhancementSettings=speechEnhancement
         self.project = project
         renderProject = try project.renderSnapshot()
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { throw RenderError.metal("Metal preview unavailable") }
-        self.queue = queue; compositor = try FrameCompositor(device: device, project: project,reuseVideoSeekReader: reuseVideoSeekReader)
+        self.queue = queue
+        compositor = try FrameCompositor(device: device,project: project,reuseVideoSeekReader: reuseVideoSeekReader,
+                                         hardwareDecodingEnabled: hardwareDecodingEnabled)
         rebuildAudio()
+        scheduleIdleRelease()
     }
     func observeChanges(name: Notification.Name,object: AnyObject) {
         observation=ProjectObservation(name: name,object: object) { [weak self] in
@@ -82,6 +94,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
     public func play() {
         guard !isPlaying, !audioPreparationFailed, project.durationNs > 0 else { return }
         if atEnd || currentNs >= project.durationNs { seek(toNs: 0, precise: true) }
+        idleTask?.cancel(); idleTask=nil
         anchorNs = currentNs; anchorHost = ProcessInfo.processInfo.systemUptime
         isPlaying = true
         if !audioLoading && !seeking { player?.play() }
@@ -93,9 +106,11 @@ struct PreviewAudioStartupDiagnostics: Encodable {
     public func pause() {
         updateClock(); isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
         finishMetrics()
+        scheduleIdleRelease()
     }
     public func togglePlay() { isPlaying ? pause() : play() }
     public func seek(toNs ns: Int64, precise: Bool) {
+        idleTask?.cancel(); idleTask=nil
         atEnd = ns >= project.durationNs
         currentNs = PreviewClock.position(ns,durationNs: project.durationNs)
         anchorNs = currentNs; anchorHost = ProcessInfo.processInfo.systemUptime
@@ -115,6 +130,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
             }
         }
         view?.needsDisplay = true
+        if !isPlaying { scheduleIdleRelease() }
     }
     public func setSpeechEnhancement(_ settings: SpeechEnhancementSettings?) throws {
         try settings?.validate()
@@ -141,8 +157,18 @@ struct PreviewAudioStartupDiagnostics: Encodable {
             player?.defaultRate=Float(settings.playbackRate)
             if isPlaying && !audioLoading && !seeking { player?.play() }
         }
-        if let view { applyPreviewSize(to: view); (view as? PreviewMetalView)?.setReelMode(settings.reelMode); view.needsDisplay=true }
+        if let view {
+            applyPreviewSize(to: view)
+            applyPreviewFrameRate(to: view)
+            (view as? PreviewMetalView)?.setReelMode(settings.reelMode)
+            view.needsDisplay=true
+        }
         redrawRevision += 1
+    }
+    func applyPreviewFrameRate(to view: MTKView) {
+        let framesPerSecond=previewSettings.preferredFramesPerSecond
+        guard view.preferredFramesPerSecond != framesPerSecond else { return }
+        view.preferredFramesPerSecond=framesPerSecond
     }
     func applyPreviewSize(to view: MTKView) {
         let automatic=previewSettings.maximumHeight == nil && previewSettings.resolution == .full
@@ -288,6 +314,17 @@ struct PreviewAudioStartupDiagnostics: Encodable {
             lastMetricUpdate = now
         }
         if error == nil && (!isPlaying && ns != currentNs || revision != redrawRevision) { view?.needsDisplay = true }
+        if error == nil && !isPlaying { scheduleIdleRelease() }
+    }
+
+    private func scheduleIdleRelease() {
+        idleTask?.cancel()
+        guard !isPlaying else { idleTask=nil; return }
+        idleTask=Task { [weak self] in
+            try? await Task.sleep(for: .seconds(PreviewIdlePolicy.releaseDelaySeconds))
+            guard !Task.isCancelled,let self,!self.isPlaying else { return }
+            self.compositor.releaseIdleResources()
+        }
     }
 
 }
@@ -301,12 +338,14 @@ public struct PreviewView: NSViewRepresentable {
         view.player=player
         view.setReelMode(player.previewSettings.reelMode)
         view.colorPixelFormat = .bgra8Unorm_srgb; view.framebufferOnly = true
-        view.enableSetNeedsDisplay = !player.isPlaying; view.isPaused = !player.isPlaying; view.preferredFramesPerSecond = 60
-        view.delegate = context.coordinator; player.view = view; player.applyPreviewSize(to: view)
+        view.enableSetNeedsDisplay = !player.isPlaying; view.isPaused = !player.isPlaying
+        view.delegate = context.coordinator; player.view = view
+        player.applyPreviewSize(to: view); player.applyPreviewFrameRate(to: view)
         return view
     }
     public func updateNSView(_ view: MTKView, context: Context) {
         player.applyPreviewSize(to: view)
+        player.applyPreviewFrameRate(to: view)
         (view as? PreviewMetalView)?.setReelMode(player.previewSettings.reelMode)
         view.needsDisplay = true
     }

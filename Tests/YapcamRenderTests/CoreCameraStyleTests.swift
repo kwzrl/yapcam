@@ -18,6 +18,48 @@ final class CoreCameraStyleTests: XCTestCase {
         let f=try project.frame(atNs: 0)
         return try project.renderEffects(atNs: 0,canvasSize: CGSize(width: Int(f.canvas_w),height: Int(f.canvas_h))).configuration
     }
+    func testCoreRippleContractMapsKindDurationAndSnapshot() throws {
+        let project=try Project.create(package: package)
+        try project.apply(.set(path: "cursor.click_effect",value: .string("highlight")))
+        let selected=try configuration(project)
+        XCTAssertEqual(selected.cursorClickEffect,.ripple)
+        XCTAssertEqual(selected.cursorClickDurationNs,450_000_000,"Ripple has three 450 ms rings regardless of Circle's legacy timing")
+        let snapshot=try project.renderSnapshot()
+        try project.apply(.set(path: "cursor.click_effect",value: .string("ring")))
+        XCTAssertEqual(try configuration(project).cursorClickEffect,.circle)
+        XCTAssertEqual(try configuration(project).cursorClickDurationNs,400_000_000,"Circle retains today's single-ring timing")
+        XCTAssertGreaterThan(try snapshot.frame(atNs: 2_250_000_000).click_progress,0,"Ripple's 590 ms total clock keeps the final ring alive")
+        XCTAssertEqual(try snapshot.frame(atNs: 2_300_000_000).click_progress,-1)
+        XCTAssertEqual(try project.frame(atNs: 2_250_000_000).click_progress,-1,"Circle remains finished after its 400 ms lifetime")
+        let frame=try snapshot.frame(atNs: 0)
+        let frozen=try snapshot.renderEffects(atNs: 0,canvasSize: CGSize(width: Int(frame.canvas_w),height: Int(frame.canvas_h))).configuration
+        XCTAssertEqual(frozen.cursorClickEffect,.ripple)
+        XCTAssertEqual(frozen.cursorClickDurationNs,450_000_000)
+    }
+    func testOptionalLayoutEffectsDecodeStrictlyAndKeepLegacyDefaults() throws {
+        let decoder=JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let legacy=try decoder.decode(ProjectRenderOptions.self,from: Data("{}".utf8))
+        XCTAssertNil(legacy.cameraSourceCrop); XCTAssertNil(legacy.screenOpacity); XCTAssertNil(legacy.cameraBlur)
+        XCTAssertNil(legacy.cursorClickEffect); XCTAssertNil(legacy.cursorClickDurationNs)
+        let selected=try decoder.decode(ProjectRenderOptions.self,from: Data(#"{"camera_source_crop":[0,0.125,1,0.75],"screen_opacity":0.25,"camera_blur":0.75,"cursor_click_effect":"highlight","cursor_click_duration_ns":450000000}"#.utf8))
+        XCTAssertEqual(selected.cameraSourceCrop,SIMD4(0,0.125,1,0.75))
+        XCTAssertEqual(selected.screenOpacity,0.25); XCTAssertEqual(selected.cameraBlur,0.75)
+        XCTAssertEqual(selected.cursorClickEffect,.ripple); XCTAssertEqual(selected.cursorClickDurationNs,450_000_000)
+        for json in [
+            #"{"camera_source_crop":[0,0,1]}"#,
+            #"{"camera_source_crop":[0,0,1,"bad"]}"#,
+            #"{"camera_source_crop":[-0.1,0,1,1]}"#,
+            #"{"camera_source_crop":[0.1,0,1,1]}"#,
+            #"{"screen_opacity":-0.01}"#,
+            #"{"screen_opacity":1.01}"#,
+            #"{"camera_blur":-0.01}"#,
+            #"{"camera_blur":1.01}"#,
+            #"{"cursor_click_effect":"unknown"}"#,
+            #"{"cursor_click_duration_ns":0}"#
+        ] {
+            XCTAssertThrowsError(try decoder.decode(ProjectRenderOptions.self,from: Data(json.utf8)),json)
+        }
+    }
     func testEveryCoreRecipeOriginalBypassSnapshotAndSaveReopen() throws {
         let project=try Project.create(package: package)
         let original=try configuration(project)
@@ -82,6 +124,9 @@ final class CoreCameraStyleTests: XCTestCase {
         c.cameraCrop=SIMD4(0,0,1,1)
         c.cameraBackgroundPop = .nan; XCTAssertThrowsError(try validateFrame(f,configuration: c))
         c.cameraBackgroundPop=0; c.cameraBackgroundBlur=2; XCTAssertThrowsError(try validateFrame(f,configuration: c))
+        c.cameraBackgroundBlur=0; c.screenOpacity = -0.1; XCTAssertThrowsError(try validateFrame(f,configuration: c))
+        c.screenOpacity=1; c.cameraBlur = 1.1; XCTAssertThrowsError(try validateFrame(f,configuration: c))
+        c.cameraBlur=0; c.cursorClickDurationNs = 0; XCTAssertThrowsError(try validateFrame(f,configuration: c))
     }
     func testCameraCropChangesSourceRegionOnHost() throws {
         _ = try requireRenderDevice()
@@ -99,6 +144,36 @@ final class CoreCameraStyleTests: XCTestCase {
         for (x,y) in [(10,10),(80,50),(140,80)] {
             for channel in 0..<3 { XCTAssertEqual(Double(cropped[(y*160+x)*4+channel]),Double(full[((50+y)*320+80+x)*4+channel]),accuracy: 2) }
         }
+    }
+    func testLayoutTransitionScreenFadeAndCameraBlurChangePixelsOnHost() throws {
+        _ = try requireRenderDevice()
+        let session=package.appendingPathComponent("recording/session.json")
+        var json=try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: session)) as? [String:Any])
+        var segments=try XCTUnwrap(json["segments"] as? [[String:Any]])
+        var files=try XCTUnwrap(segments[0]["files"] as? [String:String]); files["camera"]=files["screen"]; segments[0]["files"]=files; json["segments"]=segments
+        try JSONSerialization.data(withJSONObject: json).write(to: session)
+
+        var screen=YcFrame(); screen.canvas_w=320; screen.canvas_h=200; screen.background_color=(0.02,0.02,0.02,1); screen.click_progress = -1
+        screen.screen.present=1; screen.screen.segment=0; screen.screen.file_ns=500_000_000
+        screen.screen_dest = .init(x: 0,y: 0,w: 320,h: 200); screen.screen_crop = .init(x: 0,y: 0,w: 1,h: 1)
+        var visible=RenderConfiguration(); visible.screenOpacity=1
+        visible.glassLoupe=GlassLoupeSettings(instruction: .init(center: SIMD2(160,100),sourceCenter: SIMD2(0.5,0.5),scale: 2,radiusPixels: 60,opacity: 1))
+        var hidden=visible; hidden.screenOpacity=0
+        let visiblePixels=try RenderTests().pixels(screen,source: TestSource(package: package,configuration: visible),width: 320,height: 200)
+        let hiddenPixels=try RenderTests().pixels(screen,source: TestSource(package: package,configuration: hidden),width: 320,height: 200)
+        XCTAssertNotEqual(visiblePixels,hiddenPixels,"Fullscreen transitions must fade the screen layer")
+        var background=screen; background.screen.present=0; background.screen_dest = .init()
+        let backgroundPixels=try RenderTests().pixels(background,source: TestSource(package: package),width: 320,height: 200)
+        XCTAssertEqual(hiddenPixels,backgroundPixels,"Screen opacity zero must also hide an overlapping glass lens and its shadow")
+
+        var camera=screen; camera.screen.present=0; camera.screen_dest = .init()
+        camera.camera.present=1; camera.camera.segment=0; camera.camera.file_ns=500_000_000
+        camera.camera_dest = .init(x: 0,y: 0,w: 320,h: 200); camera.camera_opacity=1
+        var sharp=RenderConfiguration(); sharp.cameraBlur=0
+        var blurred=sharp; blurred.cameraBlur=1
+        let sharpPixels=try RenderTests().pixels(camera,source: TestSource(package: package,configuration: sharp),width: 320,height: 200)
+        let blurredPixels=try RenderTests().pixels(camera,source: TestSource(package: package,configuration: blurred),width: 320,height: 200)
+        XCTAssertNotEqual(sharpPixels,blurredPixels,"Hidden-camera transitions must ramp camera blur")
     }
     func testCameraBlurFiltersOnlySelectedSourcePixelsOnHost() throws {
         let device=try requireRenderDevice()

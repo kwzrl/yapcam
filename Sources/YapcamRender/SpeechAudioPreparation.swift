@@ -14,7 +14,26 @@ final class SpeechAudioPreparation: @unchecked Sendable {
         for (index,source) in sources.enumerated() {
             try Task.checkCancellation()
             let destination=directory.appendingPathComponent("mic-\(index).caf")
-            let report=try await SpeechEnhancer.prepareMicrophoneFile(source,to: destination,settings: settings,mono: mono) { value in
+            var input=source
+            if settings?.voiceIsolation == true,let processor=VoiceIsolationBridge.processor() {
+                let staged=directory.appendingPathComponent("isolation-input-\(index).\(source.pathExtension)")
+                let isolated=directory.appendingPathComponent("isolation-output-\(index).caf")
+                do {
+                    try FileManager.default.copyItem(at: source,to: staged)
+                    let processed=try await processor(staged,isolated)
+                    guard processed.standardizedFileURL==isolated.standardizedFileURL,
+                          FileManager.default.fileExists(atPath: processed.path) else {
+                        throw RenderError.decode("Voice isolation did not publish its requested output")
+                    }
+                    input=processed
+                } catch {
+                    // Voice isolation is an optional on-device stage. Unsupported
+                    // OS/CPU/audio-unit states retain the DSP result.
+                    try? FileManager.default.removeItem(at: isolated)
+                    input=source
+                }
+            }
+            let report=try await SpeechEnhancer.prepareMicrophoneFile(input,to: destination,settings: settings,mono: mono) { value in
                 progress((Double(index)+value)/Double(sources.count))
             }
             if FileManager.default.fileExists(atPath: destination.path) { files[source]=destination }

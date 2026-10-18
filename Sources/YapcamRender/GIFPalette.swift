@@ -113,12 +113,18 @@ final class GIFFrameDestination {
     private let destination: CGImageDestination
     private let url: URL
     private let count: Int
-    init(url: URL, count: Int, disableLoop: Bool) throws {
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, count, nil) else { throw RenderError.write("Cannot create GIF") }
-        self.destination = destination; self.url = url; self.count = count
+    static func containerProperties(disableLoop: Bool,loopCount: Int?) -> CFDictionary? {
         // Omitting the repeat extension means one playback. A count of 1 would
         // request a repeat and is not equivalent to disabling looping.
-        if !disableLoop { CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary) }
+        guard !disableLoop else { return nil }
+        return [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: loopCount ?? 0]] as CFDictionary
+    }
+    init(url: URL, count: Int, disableLoop: Bool,loopCount: Int? = nil) throws {
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, count, nil) else { throw RenderError.write("Cannot create GIF") }
+        self.destination = destination; self.url = url; self.count = count
+        if let properties=Self.containerProperties(disableLoop: disableLoop,loopCount: loopCount) {
+            CGImageDestinationSetProperties(destination,properties)
+        }
     }
     func add(_ image: CGImage, delay: Double) {
         CGImageDestinationAddImage(destination, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay, kCGImagePropertyGIFUnclampedDelayTime: delay]] as CFDictionary)

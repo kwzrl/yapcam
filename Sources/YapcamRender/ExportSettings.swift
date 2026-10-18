@@ -41,19 +41,32 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     public var screenQuality: ScreenQualitySettings?
     public var gifHighQuality: Bool
     public var gifDisableLoop: Bool
+    /// Nil preserves the legacy Forever/Once switch. Values 2...10 request an
+    /// explicit finite repeat count in the GIF application extension.
+    public var gifLoopCount: Int?
     /// Experimental MP4/MOV mode: omit exact duplicate rendered frames, retaining
     /// their timeline spacing and final endpoint. Evaluation remains on the fps grid.
     public var variableFrameRate: Bool
     /// False explicitly requests a software encoder through Apple's public
-    /// encoder specification. Does not change decoder acceleration or GPU drawing.
+    /// encoder specification. Decoder acceleration is controlled separately.
     public var hardwareEncodingEnabled: Bool
+    /// False explicitly requests software video decoding for every preview/export
+    /// AVAssetReader created by Render. GPU compositing remains unchanged.
+    public var hardwareDecodingEnabled: Bool
+    /// Bounds retained decode/compositing resources more aggressively. The output
+    /// frame grid and encoding settings are intentionally identical.
+    public var lowMemory: Bool
+    /// Experimental file-export mode: render two frame-aligned ranges concurrently
+    /// and join their encoded tracks without another generation of compression.
+    public var parallelSegments: Bool
 
     public init(format: Format = .mp4, codec: Codec = .h264, outputHeight: Int? = nil, fps: Int? = nil,
                 quality: Double? = nil, includeAudio: Bool = true, bitrate: Int? = nil,
                 rangeStartNs: Int64? = nil, rangeEndNs: Int64? = nil,
                 speechEnhancement: SpeechEnhancementSettings? = nil, compression: Compression? = nil,
-                gifHighQuality: Bool = true, gifDisableLoop: Bool = false, variableFrameRate: Bool = false,
-                screenQuality: ScreenQualitySettings? = nil,hardwareEncodingEnabled: Bool = true) {
+                gifHighQuality: Bool = true, gifDisableLoop: Bool = false,gifLoopCount: Int? = nil,variableFrameRate: Bool = false,
+                screenQuality: ScreenQualitySettings? = nil,hardwareEncodingEnabled: Bool = true,
+                hardwareDecodingEnabled: Bool = true,lowMemory: Bool = false,parallelSegments: Bool = false) {
         self.format = format; self.codec = codec
         self.outputHeight = outputHeight ?? (format == .gif ? 480 : 720)
         self.fps = fps ?? (format == .gif ? 15 : 60)
@@ -63,9 +76,12 @@ public struct ExportSettings: Sendable, Codable, Equatable {
         self.bitrate = bitrate; self.rangeStartNs = rangeStartNs; self.rangeEndNs = rangeEndNs
         self.speechEnhancement = speechEnhancement
         self.screenQuality = screenQuality
-        self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop
+        self.gifHighQuality = gifHighQuality; self.gifDisableLoop = gifDisableLoop; self.gifLoopCount=gifLoopCount
         self.variableFrameRate = format == .gif ? false : variableFrameRate
         self.hardwareEncodingEnabled=hardwareEncodingEnabled
+        self.hardwareDecodingEnabled=hardwareDecodingEnabled
+        self.lowMemory=lowMemory
+        self.parallelSegments=parallelSegments
     }
     public static let primaryFormats: [Format] = [.mp4, .gif]
     public static func heightTitle(_ height: Int) -> String { height == 2160 ? "4K" : "\(height)p" }
@@ -78,7 +94,8 @@ public struct ExportSettings: Sendable, Codable, Equatable {
         if s.format != .gif { parts.append(s.codec.title) }
         parts += [Self.heightTitle(s.outputHeight),"\(s.fps)fps"]
         if s.format == .gif {
-            parts += [s.gifHighQuality ? "High quality" : "Standard quality",s.gifDisableLoop ? "Play once" : "Loop"]
+            let loop = s.gifDisableLoop ? "Play once" : s.gifLoopCount.map { "Loop \($0)×" } ?? "Loop"
+            parts += [s.gifHighQuality ? "High quality" : "Standard quality",loop]
         } else { parts.append(s.compression?.title ?? "Custom") }
         return parts.joined(separator: " • ")
     }
@@ -133,6 +150,8 @@ public struct ExportSettings: Sendable, Codable, Equatable {
         guard supports(height: outputHeight), Self.frameRates(for: format).contains(fps),
               quality.isFinite, (0...1).contains(quality),
               bitrate.map({ (100_000...200_000_000).contains($0) }) ?? true,
+              gifLoopCount.map({ (2...10).contains($0) }) ?? true,
+              !(gifDisableLoop && gifLoopCount != nil),
               format != .gif || codec != .both else {
             throw RenderError.invalidSettings("Export size, frame rate, compression or codec is unsupported for this format")
         }
@@ -157,7 +176,8 @@ public struct ExportSettings: Sendable, Codable, Equatable {
     }
     private enum CodingKeys: String, CodingKey {
         case format, codec, outputHeight, fps, quality, compression, includeAudio, bitrate
-        case rangeStartNs, rangeEndNs, speechEnhancement, gifHighQuality, gifDisableLoop, variableFrameRate, screenQuality, hardwareEncodingEnabled
+        case rangeStartNs, rangeEndNs, speechEnhancement, gifHighQuality, gifDisableLoop, gifLoopCount, variableFrameRate, screenQuality
+        case hardwareEncodingEnabled, hardwareDecodingEnabled, lowMemory, parallelSegments
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -174,9 +194,13 @@ public struct ExportSettings: Sendable, Codable, Equatable {
                   compression: try c.decodeIfPresent(Compression.self, forKey: .compression),
                   gifHighQuality: try c.decodeIfPresent(Bool.self, forKey: .gifHighQuality) ?? true,
                   gifDisableLoop: try c.decodeIfPresent(Bool.self, forKey: .gifDisableLoop) ?? false,
+                  gifLoopCount: try c.decodeIfPresent(Int.self,forKey: .gifLoopCount),
                   variableFrameRate: try c.decodeIfPresent(Bool.self,forKey: .variableFrameRate) ?? false,
                   screenQuality: try c.decodeIfPresent(ScreenQualitySettings.self,forKey: .screenQuality),
-                  hardwareEncodingEnabled: try c.decodeIfPresent(Bool.self,forKey: .hardwareEncodingEnabled) ?? true)
+                  hardwareEncodingEnabled: try c.decodeIfPresent(Bool.self,forKey: .hardwareEncodingEnabled) ?? true,
+                  hardwareDecodingEnabled: try c.decodeIfPresent(Bool.self,forKey: .hardwareDecodingEnabled) ?? true,
+                  lowMemory: try c.decodeIfPresent(Bool.self,forKey: .lowMemory) ?? false,
+                  parallelSegments: try c.decodeIfPresent(Bool.self,forKey: .parallelSegments) ?? false)
     }
 }
 public struct ExportMetrics: Sendable {
