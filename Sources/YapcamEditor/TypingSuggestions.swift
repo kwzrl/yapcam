@@ -24,10 +24,11 @@ public enum TypingBursts {
 extension EditorModel {
     public static let typingSpeedKey = "yapcam.typingSpeed"
     public static let typingSpeedRange = 1.5...8.0
+    public static let defaultTypingSpeed = 3.0
 
     /// Remembered speed for typing suggestions (default 3x).
     public var typingSpeed: Double {
-        get { let v = defaults.double(forKey: Self.typingSpeedKey); return v == 0 ? 3 : min(max(v, Self.typingSpeedRange.lowerBound), Self.typingSpeedRange.upperBound) }
+        get { let v = defaults.double(forKey: Self.typingSpeedKey); return v == 0 ? Self.defaultTypingSpeed : min(max(v, Self.typingSpeedRange.lowerBound), Self.typingSpeedRange.upperBound) }
         set { defaults.set(min(max(newValue, Self.typingSpeedRange.lowerBound), Self.typingSpeedRange.upperBound), forKey: Self.typingSpeedKey); objectWillChange.send() }
     }
 

@@ -103,3 +103,14 @@ import Testing
         #expect(m.zooms.map(\.scale) == before)
     }
 }
+
+@MainActor @Suite struct MaskChipTextTests {
+    @Test func dimmingMasksShowTheirStrength() {
+        var h = HighlightRegion.preset(.highlight, id: "h", start: 0, end: 1)
+        h.dimOpacity = 0.54
+        #expect(TimelineChipText.maskTitle(h) == "Highlight 54%")
+        h.enabled = false
+        #expect(TimelineChipText.maskTitle(h) == "Highlight 54% (off)")
+        #expect(EditorModel.defaultTypingSpeed == 3)
+    }
+}

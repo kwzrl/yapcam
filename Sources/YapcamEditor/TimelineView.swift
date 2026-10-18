@@ -346,7 +346,7 @@ struct TimelineView: View {
             laneHint(g, top: layout.highlightTop, lane: .highlight, empty: model.highlights.isEmpty, text: "Click or drag to add a mask")
             ForEach(model.highlights) { h in
                 rangeChip(g, key: h.id, span: h.span, top: layout.highlightTop, fill: TimelineLook.regions,
-                          title: h.kind.label + (h.enabled ? "" : " (off)"), sel: .highlight(h.id), enabled: h.enabled)
+                          title: TimelineChipText.maskTitle(h), sel: .highlight(h.id), enabled: h.enabled)
             }
         }
     }
@@ -759,8 +759,13 @@ struct TypingPopover: View {
                 Spacer()
                 Text("\(formatTimecode(span.startNs, showFraction: false)) – \(formatTimecode(span.endNs, showFraction: false))").technical()
             }
-            ValueSlider("Speed", value: String(format: "%.1fx", speed), amount: amount)
-                .accessibilityLabel("Typing speed").accessibilityValue(String(format: "%.1f times", speed))
+            HStack(spacing: 8) {
+                ValueSlider("Speed", value: String(format: "%.1fx", speed), amount: amount)
+                    .accessibilityLabel("Typing speed").accessibilityValue(String(format: "%.1f times", speed))
+                Button("Reset") { speed = EditorModel.defaultTypingSpeed }
+                    .buttonStyle(.plain).font(Yap.Font.caption).foregroundStyle(Yap.caption)
+                    .disabled(speed == EditorModel.defaultTypingSpeed).help("Back to \(String(format: "%.0fx", EditorModel.defaultTypingSpeed))")
+            }
             HStack(spacing: 8) {
                 Button("Apply") { model.typingSpeed = speed; model.applyTypingSuggestion(span) }.keyboardShortcut(.defaultAction)
                 Button("Apply to all (\(model.typingSuggestions.count))") { model.typingSpeed = speed; model.applyAllTypingSuggestions() }
