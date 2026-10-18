@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.11.0 — agentic editor, Screen Studio website parity pass
+
+New since 0.10.1. Gaps found by reading every screen.studio guide page, the full changelog and the use-case pages
+and checking each feature against Yapcam's code (research notes kept outside the repo).
+
+- Editor redesign: docked layout on the YapcamDesign glass kit, full inspector with icon rail, timeline on the ground
+  with a 1 px playhead, track names, Timeline/Transcript switch, blocks bar (Title, Spotlight, Text). New toolbar,
+  onboarding with one page per permission and a troubleshooting page, app icon v10.
+- Agent (opt-in, chat icon): in-app MCP server on 127.0.0.1, chat runs a local Claude Code session per document;
+  tools to read moments, see rendered frames, check, cut words, tighten pauses, remove fillers, zoom on clicks.
+  Every agent change is one undo step. Stdio MCP server in tools/yapcam-mcp for closed projects.
+- Motion (new projects; existing projects keep their look): smooth cursor on by default at full strength; zoom
+  transitions about 1 s, critically damped, no overshoot; the zoomed view glides after the cursor; camera shrinks
+  during zooms; camera layout changes animate; Fullscreen camera fills the frame; Ripple click effect has its own rings.
+- Timeline: right-click menus on clips, zooms, masks, layouts, text and music (speed, volume, split at click, reset
+  trim, merge, hide cursor, disable smoothing, duplicate, enable/disable, zoom level, remove all); drag clip edges to
+  trim; cut markers on the ruler that restore a cut; pinch, ⌘-scroll and wheel navigation anchored at the pointer;
+  lane visibility menu; click or drag to add layouts and masks; Mask button and keys; ⌥ holds the cut tool;
+  disabled zooms look disabled; cursor badges on clips; playhead restored on reopen.
+- Inspector and dialogs: per-layout camera position (9 points) and size, roundness, mirror; crop sheet with handles,
+  pixel fields and aspect lock; transcript editor with word correction and caption-only hide; hide captions;
+  click sound under Cursor with preview and volume; zoom panel Set as default / Reset; manual zoom target thumbnail;
+  per-kind motion blur reachable; background blur for wallpapers and images; ⌘/ shortcuts guide; export dialog and
+  presets menu reworked; ⌘C copies the frame; Export current frame as image.
+- App and recording: Dock menu (finish/cancel/restart, recent projects); File ▸ Save ⌘S, Open Recent, Export menu;
+  camera preview stays visible while recording; ⌘⌃↩ opens the picker when idle; speaker notes in one window with
+  play/pause, speed and size; clean-up voice can be chosen before recording; use-last-project-settings on by default;
+  preset files open from Finder and import correctly; confirm before quitting during an export; ⌘K in the recording HUD.
+- Capture: automatic transcription language detection; stereo microphone records two channels; focus events
+  (app, window title) in events.jsonl.
+- Fixes: a missing custom background image falls back to the default instead of failing the render; start chime
+  crash when the sound was cut off; flaky focus-event test made deterministic.
+
 ## 0.10.1 — fixes from the first hands-on test
 
 - Fixed a crash when pressing Start on the display/window source overlay (settings observer used
