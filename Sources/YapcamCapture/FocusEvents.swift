@@ -70,6 +70,7 @@ enum FocusWindowInfo {
     private var running = false
     private(set) var inFlight = false
     private var previous: FocusWindowSnapshot?
+    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(provider: @escaping Provider = FocusWindowInfo.read,
          application: @escaping @MainActor () -> FocusApplication? = FocusApplication.frontmost,
@@ -79,12 +80,13 @@ enum FocusWindowInfo {
         self.clock = clock; self.receive = receive
     }
 
-    func start() {
+    func start(periodic: Bool = true) {
         guard !running else { return }
         running = true
         generation &+= 1
         previous = nil
         poll()
+        guard periodic else { return }
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
             MainActor.assumeIsolated { self.poll() }
@@ -100,13 +102,27 @@ enum FocusWindowInfo {
         Task { [weak self] in
             let snapshot = await Task.detached(priority: .utility) { provider(app) }.value
             guard let self else { return }
-            self.inFlight = false
+            defer { self.finishLookup() }
             guard self.running, self.generation == generation, self.application() == app,
                   let snapshot else { return }
             if let previous = self.previous, snapshot.hasSameFocus(as: previous) { return }
             self.previous = snapshot
             self.receive(snapshot, hostNs)
         }
+    }
+
+    /// Deterministic completion boundary for tests and controlled callers. This
+    /// observes the whole lookup, including stale-result rejection and delivery.
+    func waitUntilIdle() async {
+        guard inFlight else { return }
+        await withCheckedContinuation { idleWaiters.append($0) }
+    }
+
+    private func finishLookup() {
+        inFlight = false
+        let waiters = idleWaiters
+        idleWaiters.removeAll()
+        waiters.forEach { $0.resume() }
     }
 
     func stop() {

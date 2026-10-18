@@ -5,6 +5,11 @@ import Testing
 private let focusApp = FocusApplication(pid: 123, bundleID: "test.browser", name: "Browser")
 private let focusRect = CGRect(x: -80, y: 70, width: 400, height: 300)
 
+@MainActor private final class FocusApplicationFixture {
+    var value: FocusApplication
+    init(_ value: FocusApplication) { self.value = value }
+}
+
 private func window(_ id: UInt32, pid: Int32 = 123, title: String? = "Page", layer: Int = 0,
                     alpha: Double = 1, onScreen: Bool = true, rect: CGRect = focusRect) -> [String: Any] {
     var info: [String: Any] = [kCGWindowNumber as String: id, kCGWindowOwnerPID as String: pid,
@@ -20,26 +25,36 @@ private final class FocusProviderFixture: @unchecked Sendable {
     private var windows: [[String: Any]] = [window(10)]
     private var available = true
     private var calls = 0
-    let gate: DispatchSemaphore?
+    private let gate: DispatchSemaphore?
+    private var callWaiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
     init(blocked: Bool = false) { gate = blocked ? DispatchSemaphore(value: 0) : nil }
     func set(_ windows: [[String: Any]], available: Bool = true) {
         lock.withLock { self.windows = windows; self.available = available }
     }
     var callCount: Int { lock.withLock { calls } }
+    func waitForCallCount(_ target: Int) async {
+        await withCheckedContinuation { continuation in
+            let reached = lock.withLock {
+                guard calls < target else { return true }
+                callWaiters.append((target, continuation))
+                return false
+            }
+            if reached { continuation.resume() }
+        }
+    }
+    func release() { gate?.signal() }
     func read(_ app: FocusApplication) -> FocusWindowSnapshot? {
         #expect(!Thread.isMainThread)
-        lock.withLock { calls += 1 }
-        if let gate { _ = gate.wait(timeout: .now() + 5) }
+        let ready = lock.withLock {
+            calls += 1
+            let ready = callWaiters.filter { $0.target <= calls }.map(\.continuation)
+            callWaiters.removeAll { $0.target <= calls }
+            return ready
+        }
+        ready.forEach { $0.resume() }
+        gate?.wait()
         return lock.withLock { available ? FocusWindowInfo.select(app: app, windows: windows) : nil }
     }
-}
-
-@MainActor private func waitForFocus(_ condition: () -> Bool) async throws {
-    for _ in 0..<400 {
-        if condition() { return }
-        try await Task.sleep(for: .milliseconds(5))
-    }
-    try #require(condition(), "Focus poll did not complete")
 }
 
 @Suite struct FocusEventsTests {
@@ -67,35 +82,35 @@ private final class FocusProviderFixture: @unchecked Sendable {
 
     @Test @MainActor func emitsInitialAppWindowAndTitleChangesOnly() async throws {
         let fixture = FocusProviderFixture()
-        var app = focusApp
+        let app = FocusApplicationFixture(focusApp)
         var seen: [FocusWindowSnapshot] = []
         var times: [Int64] = []
-        let poller = FocusEventPoller(provider: fixture.read, application: { app }, clock: { 1234 }) {
+        let poller = FocusEventPoller(provider: fixture.read, application: { app.value }, clock: { 1234 }) {
             seen.append($0); times.append($1)
         }
         defer { poller.stop() }
-        poller.start()
-        try await waitForFocus { !poller.inFlight }
+        poller.start(periodic: false)
+        await poller.waitUntilIdle()
         #expect(seen.count == 1)
         poller.poll()
-        try await waitForFocus { !poller.inFlight }
+        await poller.waitUntilIdle()
         #expect(seen.count == 1)
         fixture.set([window(10, rect: CGRect(x: 0, y: 0, width: 800, height: 600))])
         poller.poll()
-        try await waitForFocus { !poller.inFlight }
+        await poller.waitUntilIdle()
         #expect(seen.count == 1)
         fixture.set([window(10, title: "Next page — Browser")])
         poller.poll()
-        try await waitForFocus { !poller.inFlight }
+        await poller.waitUntilIdle()
         fixture.set([window(11, title: "Next page — Browser")])
         poller.poll()
-        try await waitForFocus { !poller.inFlight }
-        app = FocusApplication(pid: 456, bundleID: "test.editor", name: "Editor")
+        await poller.waitUntilIdle()
+        app.value = FocusApplication(pid: 456, bundleID: "test.editor", name: "Editor")
         fixture.set([window(20, pid: 456, title: "Document")])
         poller.poll()
-        try await waitForFocus { !poller.inFlight }
+        await poller.waitUntilIdle()
         #expect(seen.map(\.windowID) == [10, 10, 11, 20])
-        #expect(seen.last?.app == app)
+        #expect(seen.last?.app == app.value)
         #expect(times == [1234, 1234, 1234, 1234])
     }
 
@@ -104,14 +119,14 @@ private final class FocusProviderFixture: @unchecked Sendable {
         var count = 0
         let poller = FocusEventPoller(provider: fixture.read, application: { focusApp }) { _, _ in count += 1 }
         defer { poller.stop() }
-        poller.start()
-        try await waitForFocus { !poller.inFlight }
+        poller.start(periodic: false)
+        await poller.waitUntilIdle()
         fixture.set([], available: false)
         poller.poll()
-        try await waitForFocus { !poller.inFlight }
+        await poller.waitUntilIdle()
         fixture.set([window(10)])
         poller.poll()
-        try await waitForFocus { !poller.inFlight }
+        await poller.waitUntilIdle()
         #expect(count == 1)
     }
 
@@ -119,35 +134,35 @@ private final class FocusProviderFixture: @unchecked Sendable {
         let fixture = FocusProviderFixture(blocked: true)
         var count = 0
         let poller = FocusEventPoller(provider: fixture.read, application: { focusApp }) { _, _ in count += 1 }
-        defer { fixture.gate?.signal(); poller.stop() }
-        poller.start()
-        try await waitForFocus { fixture.callCount == 1 }
+        defer { fixture.release(); poller.stop() }
+        poller.start(periodic: false)
+        await fixture.waitForCallCount(1)
         for _ in 0..<1000 { poller.poll() }
         #expect(fixture.callCount == 1)
         poller.stop() // Must return even while the provider is blocked.
-        fixture.gate?.signal()
-        try await waitForFocus { !poller.inFlight }
+        fixture.release()
+        await poller.waitUntilIdle()
         #expect(count == 0)
         poller.poll()
         #expect(fixture.callCount == 1)
         // A new segment must get an initial observation even with unchanged focus.
-        fixture.gate?.signal()
-        poller.start()
-        try await waitForFocus { !poller.inFlight }
+        fixture.release()
+        poller.start(periodic: false)
+        await poller.waitUntilIdle()
         #expect(count == 1)
     }
 
     @Test @MainActor func appSwitchDuringLookupDiscardsStaleSnapshot() async throws {
         let fixture = FocusProviderFixture(blocked: true)
-        var app = focusApp
+        let app = FocusApplicationFixture(focusApp)
         var count = 0
-        let poller = FocusEventPoller(provider: fixture.read, application: { app }) { _, _ in count += 1 }
-        defer { fixture.gate?.signal(); poller.stop() }
-        poller.start()
-        try await waitForFocus { fixture.callCount == 1 }
-        app.pid = 999
-        fixture.gate?.signal()
-        try await waitForFocus { !poller.inFlight }
+        let poller = FocusEventPoller(provider: fixture.read, application: { app.value }) { _, _ in count += 1 }
+        defer { fixture.release(); poller.stop() }
+        poller.start(periodic: false)
+        await fixture.waitForCallCount(1)
+        app.value.pid = 999
+        fixture.release()
+        await poller.waitUntilIdle()
         #expect(count == 0)
     }
 
