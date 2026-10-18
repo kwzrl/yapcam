@@ -90,8 +90,19 @@ extension EditorCommand {
         case .processSilence: "Silence"
         case .coalesced(_, let inner): inner.undoName
         case .batch(let cs): Set(cs.compactMap(\.undoName)).count == 1 ? cs.compactMap(\.undoName).first : nil
-        case .set: nil
+        case .set(let path, _): Self.settingUndoName(path)
         }
+    }
+
+    /// Names a settings edit by the group it belongs to ("Undo Crop"); unknown paths stay generic.
+    static func settingUndoName(_ path: String) -> String? {
+        let table: [(prefix: String, name: String)] = [
+            ("canvas.crop", "Crop"), ("canvas.background", "Change Background"), ("canvas", "Change Canvas"),
+            ("cursor", "Change Cursor"), ("camera", "Change Camera"), ("captions", "Change Captions"),
+            ("audio.click_sound", "Change Click Sound"), ("audio.music", "Change Music"), ("audio", "Change Audio"),
+            ("zoom_settings", "Change Zoom Settings"),
+        ]
+        return table.first { path == $0.prefix || path.hasPrefix($0.prefix + ".") }?.name
     }
 }
 

@@ -893,3 +893,13 @@ import YapcamCore
         #expect(CameraAspect.key(for: 1.5) == "custom" && CameraAspect.key(for: 16.0 / 9 + 0.01) == "custom")
     }
 }
+
+@MainActor @Suite struct SettingUndoNameTests {
+    @Test func settingsEditsAreNamedByTheirGroup() {
+        let m = EditorModel(project: FakeProject(), player: FakePlayer())
+        m.set("canvas.crop", .array([.number(0), .number(0), .number(0.5), .number(0.5)]))
+        #expect(m.undoTitle == "Undo Crop")
+        m.set("cursor.size", number: 2); #expect(m.undoTitle == "Undo Change Cursor")
+        m.set("unknown.path", number: 1); #expect(m.undoTitle == "Undo")
+    }
+}
