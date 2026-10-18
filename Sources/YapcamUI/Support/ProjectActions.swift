@@ -159,11 +159,26 @@ import YapcamCore
         if FileManager.default.fileExists(atPath: package.appending(path: "project.json").path) { return try Project.open(package: package) }
         let project = try Project.create(package: package)
         applyInitialLook(to: project, package: package)
-        applyRecordTimeAudio(to: project, cleanVoice: AppSettings.shared.cleanVoiceOnRecord && AppSettings.shared.microphoneID != nil)
+        applySessionAudio(to: project, package: package)
         return project
     }
 
     /// The microphone menu's "Clean up voice" choice becomes the new project's voice clean-up (after the look, so presets don't override it).
+    /// What capture recorded about the microphone (`recording/session.json`, tracks.mic) becomes project audio settings,
+    /// after the look so presets and reused looks do not override the recorded choice.
+    static func applySessionAudio(to project: Project, package: URL) {
+        let flags = micFlags(in: package)
+        applyRecordTimeAudio(to: project, cleanVoice: flags.cleanVoice)
+        if flags.stereo { try? project.apply(.set(path: "audio.stereo_mic", value: .bool(true))) }
+    }
+
+    static func micFlags(in package: URL) -> (cleanVoice: Bool, stereo: Bool) {
+        guard let data = try? Data(contentsOf: package.appending(path: "recording/session.json")),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mic = (root["tracks"] as? [String: Any])?["mic"] as? [String: Any] else { return (false, false) }
+        return (mic["speech_enhancement"] as? Bool ?? false, mic["stereo_mic"] as? Bool ?? false)
+    }
+
     static func applyRecordTimeAudio(to project: Project, cleanVoice: Bool) {
         guard cleanVoice else { return }
         try? project.apply(.set(path: "audio.speech_enhancement", value: .bool(true)))

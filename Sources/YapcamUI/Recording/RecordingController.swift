@@ -231,13 +231,16 @@ enum RecordingPhase: Equatable {
             .volumeAvailableCapacityForImportantUsage, free < 1_000_000_000 {
             throw EngineError.diskFull(availableBytes: free)
         }
+        let micID = PermissionsModel.shared.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) ? settings.microphoneID : nil
         return UIRecordingOptions(
             target: target,
             systemAudio: settings.systemAudio,
             systemAudioApps: settings.systemAudioAppsForRecording,
-            microphoneID: PermissionsModel.shared.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) ? settings.microphoneID : nil,
+            microphoneID: micID,
             cameraID: PermissionsModel.shared.state(.camera) == .granted && DeviceModel.shared.isAvailable(camera: settings.cameraID) ? settings.cameraID : nil,
             cameraMaxResolution: settings.cameraMaxResolution,
+            cleanVoiceOnRecord: micID != nil && settings.cleanVoiceOnRecord,
+            recordStereoMicrophone: micID != nil && settings.recordStereoMicrophone,
             recordKeystrokes: settings.recordKeystrokes && PermissionsModel.shared.state(.inputMonitoring) == .granted,
             maxFPS: settings.maxFPS,
             hideDesktopIcons: settings.hideDesktopIcons,

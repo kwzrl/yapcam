@@ -39,6 +39,8 @@ import YapcamEditor
         }
         return RecordingOptions(
             target: target, systemAudio: o.systemAudio, microphoneID: o.microphoneID,
+            cleanVoiceOnRecord: o.cleanVoiceOnRecord && o.microphoneID != nil,
+            recordStereoMicrophone: o.recordStereoMicrophone && o.microphoneID != nil,
             cameraID: o.cameraID, recordKeystrokes: o.recordKeystrokes, maxFPS: o.maxFPS,
             excludeYapcamWindows: true, hideDesktopIcons: o.hideDesktopIcons,
             systemAudioSelection: selection(for: o), cameraMaxResolution: o.cameraMaxResolution,

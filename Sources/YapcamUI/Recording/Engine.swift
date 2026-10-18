@@ -18,6 +18,9 @@ struct UIRecordingOptions {
     var microphoneID: String?
     var cameraID: String?
     var cameraMaxResolution: CameraMaxResolution = .hd1080
+    /// Both only apply while a microphone is chosen (the controller clears them otherwise).
+    var cleanVoiceOnRecord: Bool = false
+    var recordStereoMicrophone: Bool = false
     var recordKeystrokes: Bool
     var maxFPS: Int
     /// Exclude Finder's desktop-icon surfaces from display/area capture without changing Finder preferences.

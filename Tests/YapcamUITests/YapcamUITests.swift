@@ -1692,11 +1692,11 @@ extension UISmokeTests {
         #expect(await seen.keyterms() == [["Yapcam", "Kilian"]])
     }
 
-    @Test func autoUsesTheSystemLanguage() async throws {
+    @Test func autoIsHandedToCaptureForDetection() async throws {
         let seen = Seen()
         let run: TranscriptionWiring.Transcribe = { _, l, k in await seen.add(l, k); return Data() }
         _ = try await TranscriptionWiring.transcribe(package: URL(fileURLWithPath: "/p"), options: TranscriptionOptions(), using: run, system: "fr_FR")
-        #expect(await seen.langs() == ["fr_FR"])
+        #expect(await seen.langs() == ["auto"])
     }
 
     @Test func languageListIsSortedAndDeduplicated() {
