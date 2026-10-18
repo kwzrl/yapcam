@@ -135,6 +135,8 @@ pub(crate) fn validate(p: &ProjectData) -> Result<()> {
             && (0.0..=1.0).contains(&s.edge_softness)
             && (0.0..=8.0).contains(&s.edge_inset)
             && (0.0..=1.0).contains(&s.edge_padding_ratio)
+            && s.edge_distance_ratio
+                .is_none_or(|v| (0.0..=0.5).contains(&v))
             && s.corner_ratio.is_none_or(|v| (0.0..=0.5).contains(&v))
     }
     if !valid(&p.camera.layout_settings)
@@ -214,6 +216,21 @@ mod tests {
         );
     }
     #[test]
+    fn camera_roundness_one_tracks_half_the_evaluated_short_edge() {
+        let (fixture, mut p) = make();
+        p.apply(&json!({"op":"batch","commands":[
+            {"op":"set","path":"camera.layout_settings.aspect","value":1},
+            {"op":"set","path":"camera.roundness","value":1}
+        ]}))
+        .unwrap();
+        let frame = p.frame(0).unwrap();
+        assert!((frame.camera_dest.w - frame.camera_dest.h).abs() < 1e-9);
+        assert!((frame.camera_corner_radius as f64 - frame.camera_dest.w / 2.0).abs() < 1e-5);
+        p.save(&fixture.0).unwrap();
+        let reopened = Project::open(&fixture.0).unwrap().frame(0).unwrap();
+        assert_eq!(reopened.camera_corner_radius, frame.camera_corner_radius);
+    }
+    #[test]
     fn cam21_layout_boundaries_animate_geometry_and_hidden_opacity() {
         let (_f, mut p) = make();
         p.apply(&json!({"op":"set","path":"camera.layouts","value":[{"id":"full","tl_start_ns":2_000_000_000_i64,"tl_end_ns":4_000_000_000_i64,"mode":"camera"}]}))
@@ -259,37 +276,92 @@ mod tests {
     }
     #[test]
     fn legacy_revisions_keep_padded_camera_geometry_and_hard_layout_cuts() {
-        let (_f, mut p) = make();
-        p.data.defaults_revision = 3;
-        p.session.tracks.camera.as_mut().unwrap().pixel_size = [640, 480];
-        p.apply(&json!({"op":"batch","commands":[
-            {"op":"set","path":"canvas.aspect","value":"custom"},
-            {"op":"set","path":"canvas.output_size","value":[1920,1080]},
-            {"op":"set","path":"camera.layouts","value":[{"id":"full","tl_start_ns":2_000_000_000_i64,"tl_end_ns":4_000_000_000_i64,"mode":"camera"}]}
-        ]}))
-        .unwrap();
-
-        let before = p.frame(1_999_999_999).unwrap();
-        let at_cut = p.frame(2_000_000_000).unwrap();
-        assert_eq!(before.screen.present, 1);
-        assert_eq!(at_cut.screen.present, 0);
-        assert_eq!(
-            at_cut.camera_dest,
-            Rect {
-                x: 528.0,
-                y: 108.0,
-                w: 864.0,
-                h: 864.0
+        let assert_rect = |actual: Rect, expected: [f64; 4], label: &str| {
+            for (actual, expected) in [actual.x, actual.y, actual.w, actual.h]
+                .into_iter()
+                .zip(expected)
+            {
+                assert!(
+                    (actual - expected).abs() <= 1e-6,
+                    "{label}: {actual} != {expected}"
+                );
             }
-        );
-        assert!((at_cut.camera_corner_radius as f64 - 129.6).abs() < 1e-4);
-        assert_eq!(source_crop(&p, 2_000_000_000), [0.0, 0.0, 1.0, 1.0]);
-        let options = p
-            .query(&json!({"q":"render_options_at","tl_ns":2_000_000_000_i64}))
+        };
+        let assert_geometry = |p: &Project, revision| {
+            let before = p.frame(950_000_000).unwrap();
+            let immediately_before = p.frame(999_999_999).unwrap();
+            assert_rect(
+                before.camera_dest,
+                [1363.2, 710.4, 422.4, 264.0],
+                &format!("revision {revision} overlay"),
+            );
+            assert_rect(
+                immediately_before.camera_dest,
+                [1363.2, 710.4, 422.4, 264.0],
+                &format!("revision {revision} immediately before cut"),
+            );
+            let at_cut = p.frame(1_000_000_000).unwrap();
+            assert_rect(
+                at_cut.camera_dest,
+                [172.8, 48.0, 1574.4, 984.0],
+                &format!("revision {revision} at hard cut"),
+            );
+            let fullscreen = p.frame(1_500_000_000).unwrap();
+            assert_rect(
+                fullscreen.camera_dest,
+                [172.8, 48.0, 1574.4, 984.0],
+                &format!("revision {revision} padded fullscreen"),
+            );
+            assert_eq!(fullscreen.screen.present, 0);
+            assert_eq!(fullscreen.camera_corner_radius, 24.0);
+            assert_eq!(source_crop(p, 1_500_000_000), [0.0, 0.0, 1.0, 1.0]);
+            let options = p
+                .query(&json!({"q":"render_options_at","tl_ns":1_500_000_000_i64}))
+                .unwrap();
+            assert_eq!(options["camera_source_crop"], json!([0.0, 0.0, 1.0, 1.0]));
+            assert_eq!(options["camera_shadow_radius"], p.data.camera.shadow_radius);
+            assert_eq!(options["screen_opacity"], 0.0);
+        };
+
+        for revision in 0..=3 {
+            // Mirror Render's frozen-fixture setup exactly: install a camera in
+            // the recording manifest, then open v1-minimal with only the
+            // defaults revision varied. This catches any factory-only fields
+            // that could otherwise perturb legacy geometry.
+            let fixture = Fixture::new();
+            let session_path = fixture.0.join("recording/session.json");
+            let mut session: Value =
+                serde_json::from_slice(&std::fs::read(&session_path).unwrap()).unwrap();
+            session["tracks"]["camera"] = json!({
+                "device_name":"Original synthetic fixture",
+                "pixel_size":[320,200],"fps":30,"mirrored":false
+            });
+            for segment in session["segments"].as_array_mut().unwrap() {
+                segment["files"]["camera"] = segment["files"]["screen"].clone();
+            }
+            std::fs::write(&session_path, serde_json::to_vec(&session).unwrap()).unwrap();
+            let schema_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../Tests/Fixtures/schema/v1-minimal.json");
+            let mut project_json: Value =
+                serde_json::from_slice(&std::fs::read(schema_path).unwrap()).unwrap();
+            project_json["defaults_revision"] = revision.into();
+            std::fs::write(
+                fixture.0.join("project.json"),
+                serde_json::to_vec(&project_json).unwrap(),
+            )
             .unwrap();
-        assert_eq!(options["camera_source_crop"], json!([0.0, 0.0, 1.0, 1.0]));
-        assert_eq!(options["camera_shadow_radius"], p.data.camera.shadow_radius);
-        assert_eq!(options["screen_opacity"], 0.0);
+            let mut p = Project::open(&fixture.0).unwrap();
+            p.apply(&json!({"op":"set","path":"camera.layouts","value":[{
+                "id":"legacy-fullscreen","tl_start_ns":1_000_000_000_i64,
+                "tl_end_ns":2_000_000_000_i64,"mode":"camera"
+            }]}))
+            .unwrap();
+            assert_geometry(&p, revision);
+            let snapshot = p.clone();
+            assert_geometry(&snapshot, revision);
+            p.save(&fixture.0).unwrap();
+            assert_geometry(&Project::open(&fixture.0).unwrap(), revision);
+        }
     }
     #[test]
     fn cutout_split_orientation_overrides_and_legacy_geometry_are_allocation_free() {

@@ -72,6 +72,10 @@ pub struct AudioTrack {
     pub device_name: Option<String>,
     pub sample_rate: u32,
     pub channels: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speech_enhancement: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stereo_mic: Option<bool>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Segment {
@@ -255,6 +259,7 @@ settings!(Cursor {
     use_default_if_app_has_low_resolution: bool = true, rotate_on_move: bool = false,
     rotation_mode: String = "static".into(), rotation_degrees: f64 = 0.0,
     tilt_amount: f64 = 1.0, shake_threshold: f64 = 500.0,
+    blend_cuts: bool = false,
     stop_before_end_ns: i64 = 0, remove_shakes: bool = false, optimize_types: bool = false,
 });
 /// Normalize persisted legacy cursor fields or a portable cursor patch. Never
@@ -319,7 +324,7 @@ settings!(CameraLayoutSettings {
     split_ratio: Option<f64> = None, split_flip: bool = false, split_padded: bool = false,
     cutout_position: [f64; 2] = [1.0,1.0], cutout_size: f64 = 0.5,
     edge_softness: f64 = 0.2, edge_inset: f64 = 0.0, corner_ratio: Option<f64> = None,
-    edge_padding_ratio: f64 = 0.0
+    edge_padding_ratio: f64 = 0.0, edge_distance_ratio: Option<f64> = None
 });
 settings!(Camera {
     layout_settings: CameraLayoutSettings = CameraLayoutSettings::default(),
@@ -328,7 +333,7 @@ settings!(Camera {
     speech_activity: Option<SpeechActivity> = None,
     style: CameraStyle = CameraStyle::default(),
     visible: bool = true, position: [f64; 2] = [0.82, 0.78], size: f64 = 0.22,
-    shape: String = "rounded_rect".into(), radius: f64 = 24.0,
+    shape: String = "rounded_rect".into(), radius: f64 = 24.0, roundness: Option<f64> = None,
     mirrored: bool = true, opacity: f64 = 1.0, layouts: Vec<Layout> = vec![],
     shadow_radius: f64 = 0.0, background_removal: bool = false,
     face_framing: bool = false, zoom_scale: f64 = 1.0,
@@ -399,7 +404,7 @@ settings!(Canvas {
     screen_quality: Option<ScreenQuality> = None,
     device_frame: Option<String> = None,
     aspect: String = "16:9".into(),
-    avoid_empty_zoom_area: bool = false, auto_layout: bool = false,
+    avoid_empty_zoom_area: bool = false, keep_zoomed: bool = false, auto_layout: bool = false,
     output_size: [u32; 2] = [1920, 1080],
     background: Background = Background::default(),
     padding: f64 = 48.0, padding_ratio: Option<f64> = None,
@@ -594,6 +599,7 @@ settings!(KeyOverlay {
     duration_ns: i64 = 1_000_000_000,
     shortcuts_only: bool = true,
     hidden_shortcuts: Vec<String> = vec![],
+    disabled_events: Vec<u32> = vec![],
     rect: [f64; 4] = [0.3, 0.82, 0.4, 0.12],
     style: TextStyle = TextStyle::default(),
 });
@@ -700,10 +706,10 @@ impl ProjectData {
         data.cursor.size_points = Some(48.0);
         data.cursor.set_id = Some("original".into());
         data.cursor.click_effect = "none".into();
-        data.cursor.click_duration_ns = 450_000_000;
         data.cursor.smoothing = 1.0;
         data.cursor.speed_preset = "smooth".into();
         data.cursor.physics_version = 1;
+        data.cursor.blend_cuts = true;
         data.cursor.motion_blur = 1.0;
         data.zoom_settings.physics_version = 2;
         data.zoom_settings.animation_style = "smooth".into();
@@ -725,6 +731,7 @@ impl ProjectData {
         data.camera.layout_settings.aspect = Some(1.0);
         data.camera.layout_settings.corner_ratio = Some(0.15);
         data.camera.layout_settings.edge_padding_ratio = 0.5;
+        data.camera.layout_settings.edge_distance_ratio = Some(0.03);
         data.cursor.loop_duration_ns = 1_000_000_000;
         data.cursor.remove_shakes = true;
         data.cursor.optimize_types = true;
@@ -738,6 +745,10 @@ impl ProjectData {
         data.canvas.inset_color = [0.0, 0.0, 0.0, 0.5];
         data.canvas.screen_quality = Some(ScreenQuality::default());
         data.audio.click_sound.gain_db = 20.0 * 0.25_f64.log10();
+        if let Some(mic) = &session.tracks.mic {
+            data.audio.speech_enhancement = mic.speech_enhancement.unwrap_or(false);
+            data.audio.stereo_mic = mic.stereo_mic.unwrap_or(false);
+        }
         data
     }
 }
@@ -747,7 +758,7 @@ mod tests {
     use super::*;
     #[test]
     fn synthetic_session_and_project_roundtrip() {
-        let s: Session = serde_json::from_str(include_str!(
+        let mut s: Session = serde_json::from_str(include_str!(
             "../../Tests/Fixtures/synthetic/basic.yapcam/recording/session.json"
         ))
         .unwrap();
@@ -767,5 +778,15 @@ mod tests {
             let event: Event = serde_json::from_str(line).unwrap();
             assert!(event.t >= 0);
         }
+        s.tracks.mic = Some(AudioTrack {
+            device_name: Some("Stereo fixture".into()),
+            sample_rate: 48_000,
+            channels: 2,
+            speech_enhancement: Some(true),
+            stereo_mic: Some(true),
+        });
+        let captured = ProjectData::from_session(&s, "captured-options".into());
+        assert!(captured.audio.speech_enhancement);
+        assert!(captured.audio.stereo_mic);
     }
 }

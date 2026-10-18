@@ -397,6 +397,9 @@ pub fn validate_data(p: &ProjectData) -> Result<()> {
     if !(0.01..=1.0).contains(&cam.size)
         || cam.position.iter().any(|v| !(0.0..=1.0).contains(v))
         || !(0.0..=16384.0).contains(&cam.radius)
+        || cam
+            .roundness
+            .is_some_and(|value| !(0.0..=1.0).contains(&value))
         || !(0.0..=1.0).contains(&cam.opacity)
         || !matches!(cam.shape.as_str(), "rounded_rect" | "circle" | "squircle")
         || !(0.25..=4.0).contains(&cam.zoom_scale)

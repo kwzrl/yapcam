@@ -1,4 +1,82 @@
-READY R7 30a5d5d + Lead checkpoint needed | BS-1/3/4, CAM-06/14/21/31/37, S-EDT-23/26, MKT-019 Core complete; CAM-14/21 + Ripple legacy gates fixed after Render review; BS-5 skipped per QA verdict | Rust174 PASS/1 intentional ignore; Core Swift92 PASS; MCP12 PASS; fmt + strict Clippy PASS; live not verified
+READY R7b 9281d80 + Lead checkpoint needed | R7 corrections + Core requests + remaining P1/small P2: record-time audio handoff, keep-zoomed, typing suppression/per-event disable, keycaps, cursor fades/tilt/cut blend, camera roundness/edge distance, frame-zero/insert-on-cursor zoom | Rust182 PASS/1 intentional ignore; Core Swift93 PASS; MCP12 PASS; fmt + strict Clippy + diff PASS; live/native pixels not verified
+
+
+## Round 7b — requests, remaining research and polish (2026-10-18)
+
+Completed on Lead checkpoint `9281d80`; Lead must checkpoint the twenty owned
+paths. The earlier CAM-14/CAM-21 legacy gate and 450 ms Ripple correction remain
+in this same working tree. No Editor/Inspector/Render/UI-owned source was edited.
+The user's app was not launched.
+
+R7 REC-B-06 / MKT-107 | 9281d80 + Lead checkpoint needed | `model::tests::synthetic_session_and_project_roundtrip` + Swift `recordingMicrophoneChoicesReachTypedProjectDefaults` | live: not verified; optional capture `tracks.mic.speech_enhancement`/`stereo_mic` initialize project audio, survive absent legacy fields, and are exposed through typed `recordingAudioDefaults()` for post-preset precedence
+
+R7 S-EDT-06 | 9281d80 + Lead checkpoint needed | `frame::m2_tests::keep_zoomed_covers_vertical_canvas_and_idle_cursor_fades_both_directions` | live: not verified; authored crop precedes aspect-cover, padding/background exposure/shadow/corners are removed, smoothed-cursor follow clamps inside the crop, and ordinary zoom multiplies on top
+
+R7 S-EDT-53 | 9281d80 + Lead checkpoint needed | `key_overlay::tests::typing_bursts_are_suppressed_and_individual_events_can_be_disabled` | live: not verified; ≥3 single characters under 500 ms are suppressed when single keys are enabled while chords inside the burst remain visible
+
+R7 S-EDT-54 | 9281d80 + Lead checkpoint needed | `key_overlay::tests::typing_bursts_are_suppressed_and_individual_events_can_be_disabled` | live: not verified; max-4096 `disabled_events` uses stable flattened `event_index`, affects only that occurrence across segments/repeats, persists, and is surfaced by `key_events`
+
+R7 MKT-022 | 9281d80 + Lead checkpoint needed | `frame::m2_tests::keep_zoomed_covers_vertical_canvas_and_idle_cursor_fades_both_directions` | live: not verified; idle opacity eases out over 250 ms and first movement eases in over 120 ms
+
+R7 MKT-050 | existing Core contract reverified on 9281d80 | Swift `backgroundImageAndPortablePresetStayLocal` | live: not verified; `_background_image` remains embedded base64 and is restored into destination project assets
+
+R7 MKT-076 | 9281d80 + Lead checkpoint needed | Rust `key_overlay::tests::command_shift_key_is_three_ordered_keycaps_with_six_percent_gaps` + Swift `indexedKeyOverlayRemapsAcrossFFIHistoryAndKeepsSnapshots` | live: not verified; typed layers append ordered `{glyph,name,rect}` caps with distinct rects and 6% gaps while retaining compatible joined text
+
+R7 MKT-081 | existing revision-4 factory reverified on 9281d80 | `cursor_catalog::tests::authored_cursor_paths_catalog_defaults_roundtrip_and_legacy_abi_are_stable` | live: not verified; fresh projects select `original`, which preserves the OS-captured cursor artwork instead of guessing a palette from an unstable OS version string
+
+R7 MKT-091 core part | 9281d80 + Lead checkpoint needed | Swift `recordingMicrophoneChoicesReachTypedProjectDefaults` | live: not verified; typed audio disposition reports `shouldMuteForNoSpeech` only for a real mic plus completed empty speech activity; Editor owns applying the one-time mute and toast
+
+R7 MKT-140 | 9281d80 + Lead checkpoint needed | `parity_tests::revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projects` + full camera-layout suite | live: not verified; fresh camera inset is 3% of the shorter canvas edge and independent of canvas padding; absent field preserves the legacy padding-derived inset
+
+R7 MKT-181 | 9281d80 + Lead checkpoint needed | `zoom_lens::tests::revision_four_zoom_at_frame_zero_starts_fully_zoomed` | live: not verified; a revision-4 zoom beginning within the first frame evaluates at full scale
+
+R7 CAM-04 | 9281d80 + Lead checkpoint needed | `camera_layout::tests::camera_roundness_one_tracks_half_the_evaluated_short_edge` | live: not verified; optional 0…1 `camera.roundness` evaluates after layout geometry and 1.0 is a circle/capsule; null retains radius/corner-ratio behavior
+
+R7 BS-13 | 9281d80 + Lead checkpoint needed | `motion::tests::revision_four_tilt_filters_six_frame_jitter_and_tracks_constant_velocity` | live: not verified; revision 4 uses an analytic allocation-free six-frame velocity mean, cancelling ±1 px jitter below 0.5° while 600 px/s reaches at least 90% by 250 ms; revisions 0–3 retain one-frame tilt
+
+R7 BS-14 | intentionally skipped | no positive reference verification was published; the spec says verify before building. MKT-022's independently specified idle fade is implemented, but range/slice visibility remains an immediate hard gate.
+
+R7 BS-15 | 9281d80 + Lead checkpoint needed | `editing::tests::inserted_auto_zoom_targets_the_cursor_at_its_start` | live: not verified; omitted insert target samples the cursor at `tl_start_ns`, explicit targets win, and no mouse data retains centre
+
+R7 MKT-206 | 9281d80 + Lead checkpoint needed | `frame::m2_tests::fresh_projects_blend_cursor_position_for_120ms_across_a_cut` | live: not verified; additive `cursor.blend_cuts` is true for fresh projects and false when absent, easing source cursor position across a cut for exactly 120 ms without altering old saved projects
+
+The remaining Core-tagged marketing roadmap rows are not represented as inert
+project fields: MKT-199 (held media beyond source), MKT-212 (multiple recording
+sessions), MKT-214 (timeline-occupying full-frame slides), and MKT-216 (still-image
+clip projects) require a shared source/clip format plus Editor/Render consumers;
+MKT-213 requires AX target labels that Capture does not record. No cross-team API
+or migration decision exists in Round 7b, so implementing any of these solely in
+Core would create unreadable data and risk current packages. MKT-013 is already
+covered by camera-style/LUT render options and portable LUT presets; its thumbnail
+and named-look library are Inspector-owned.
+
+### Exact consumer handoffs
+
+- **UI — REC-B-06/MKT-107:** after `ProjectActions.applyInitialLook`, call
+  `project.recordingAudioDefaults()`, then set
+  `audio.speech_enhancement` and `audio.stereo_mic` from the returned values when
+  `hasMicrophone`. The factory already applies them before presets; this second
+  typed read gives the recorded choice final precedence.
+- **Editor — MKT-091:** after publishing completed speech activity, read
+  `recordingAudioDefaults().shouldMuteForNoSpeech`; when true, set
+  `audio.mic_muted=true` and show the specified toast once.
+- **Editor — S-EDT-06/S-EDT-54:** the aspect-menu switch writes
+  `canvas.keep_zoomed`. The Shortcuts lane reads `key_events.event_index` and
+  rewrites `cursor.key_overlay.disabled_events`; `disabled` is the current state.
+- **Render — MKT-076:** when `CoreRenderLayer.keycaps` is present, draw each cap
+  using its own rect and the enclosing layer's style. Joined `text`/`rect` remain
+  the old-Core fallback.
+- **Inspector — CAM-04:** write normalized slider values directly to optional
+  `camera.roundness`; Reset may set null to recover the saved radius/corner-ratio
+  path. The prior local radius×64 approximation is no longer needed.
+
+Verification after the final release archive rebuild: Rust **182 PASS / 1
+intentional long benchmark ignored**; YapcamCore Swift Testing **93 PASS**; stdio
+MCP **12 PASS**; `cargo fmt --check`, strict Core/MCP Clippy and
+`git diff --check` PASS. SwiftPM required `--disable-sandbox` under the outer
+managed sandbox and emitted only pre-existing cross-module warnings. No native
+Render suite, live pointer, audio audition, camera hardware or app launch is
+claimed.
 
 
 ## Round 7 — motion, camera layouts, clip restoration/merge, captions and library music (2026-10-18)
@@ -9,6 +87,13 @@ ownership split). The sandbox cannot write Git metadata, so Lead must checkpoint
 the owned working-tree changes. No Inspector/Editor/Render-owned file was edited,
 and the app was not launched while the user reviewed UI elsewhere.
 
+R7b correction on Lead checkpoint `9281d80`: CAM-14/CAM-21 evaluation is gated
+on `defaults_revision >= 4`. The Rust regression now opens the same frozen
+`v1-minimal.json` package used by Render and checks revisions 0–3 at the exact
+overlay, boundary, fullscreen, clone and save/reopen points. MKT-019 keeps the
+stored/default Circle lifetime at 400 ms while only revision-4 Ripple evaluates
+to a 450 ms per-ring lifetime and a 590 ms total staggered clock.
+
 R7 BS-1 | b670fd4 + Lead checkpoint needed | `parity_tests::bs1_factory_cursor_glides_at_full_strength_and_slice_opt_out_stays_raw` | live: not verified; analytic Rust step response, per-clip raw opt-out and zero-allocation frame path verified
 
 R7 BS-3 | b670fd4 + Lead checkpoint needed | `motion::tests::bs3_new_zoom_spring_is_centered_monotonic_and_uncompressed` | live: not verified; Rust verifies one-second centred lead/trail, 0.15–0.30 s half response, monotonic clamp and revision-gated legacy physics
@@ -17,9 +102,9 @@ R7 BS-4 | b670fd4 + Lead checkpoint needed | `motion::pan_and_camera_regressions
 
 R7 CAM-06 | b670fd4 + Lead checkpoint needed | `parity_tests::revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projects` | live: not verified; fresh-project full zoom shrinks camera width to 0.6 while decoded legacy settings remain unchanged
 
-R7 CAM-14 | 30a5d5d + Lead checkpoint needed | `camera_layout::tests::cam14_fullscreen_fills_canvas_and_reports_centered_aspect_fill_crop` + `legacy_revisions_keep_padded_camera_geometry_and_hard_layout_cuts` | live: not verified; revision 4 gets canvas-edge destination, zero corner/shadow and centred aspect-fill crop; revisions 0–3 retain byte-stable padded aspect-fit geometry, authored crop and saved corner/shadow
+R7 CAM-14 | 9281d80 + Lead checkpoint needed | `camera_layout::tests::cam14_fullscreen_fills_canvas_and_reports_centered_aspect_fill_crop` + `legacy_revisions_keep_padded_camera_geometry_and_hard_layout_cuts` | live: not verified; revision 4 gets canvas-edge destination, zero corner/shadow and centred aspect-fill crop; frozen revisions 0–3 retain exact `[172.8,48,1574.4,984]` padded aspect-fit geometry through live/clone/reopen, authored crop and saved corner/shadow
 
-R7 CAM-21 | 30a5d5d + Lead checkpoint needed | `camera_layout::tests::cam21_layout_boundaries_animate_geometry_and_hidden_opacity` + `legacy_revisions_keep_padded_camera_geometry_and_hard_layout_cuts` | live: not verified; revision 4 gets deterministic centred 350 ms geometry/corner/opacity transitions; revisions 0–3 retain an exact hard cut; close-boundary clamp, silence fade and zero-allocation new path verified
+R7 CAM-21 | 9281d80 + Lead checkpoint needed | `camera_layout::tests::cam21_layout_boundaries_animate_geometry_and_hidden_opacity` + `legacy_revisions_keep_padded_camera_geometry_and_hard_layout_cuts` | live: not verified; revision 4 gets deterministic centred 350 ms geometry/corner/opacity transitions; frozen revisions 0–3 retain exact `[1363.2,710.4,422.4,264]` overlay geometry through 999,999,999 ns and hard-cut at 1 s; close-boundary clamp, silence fade and zero-allocation new path verified
 
 R7 S-EDT-23 | b670fd4 + Lead checkpoint needed | `source_insert::tests::edge_growth_restores_source_into_the_original_clip_and_is_one_undo_step` | live: not verified; restored source preserves the original clip id, ripple/effect clocks and one undo step
 
@@ -29,7 +114,7 @@ R7 CAM-37 | b670fd4 + Lead checkpoint needed | `effects::tests::cam37_replacing_
 
 R7 CAM-31 | b670fd4 + Lead checkpoint needed | `layers::tests::cam31_hidden_captions_skip_layers_without_mutating_records` | live: not verified; persisted `captions.hidden=false` gates caption layers only and preserves authored/transcript records
 
-R7 MKT-019 | 30a5d5d + Lead checkpoint needed | `renderer_contract_tests::mkt019_circle_and_ripple_have_distinct_render_contracts` + `mkt019_revision_four_uses_450ms_rings_while_legacy_keeps_400ms_circle` | live: not verified; revision 4 Ripple exposes three 450 ms rings with two 70 ms staggers; revisions 0–3 preserve the former 400 ms single-ring `highlight` pixels; typed Swift decode and old-Core absence compatibility pass
+R7 MKT-019 | 9281d80 + Lead checkpoint needed | `renderer_contract_tests::mkt019_circle_and_ripple_have_distinct_render_contracts` + `mkt019_revision_four_uses_450ms_rings_while_legacy_keeps_400ms_circle` | live: not verified; Circle remains a 400 ms single ring; revision-4 Ripple exposes three 450 ms rings with two 70 ms staggers; revisions 0–3 preserve the former 400 ms single-ring `highlight` pixels; typed Swift decode and old-Core absence compatibility pass
 
 BS-5 was intentionally not built. QA's Round 7 reference answer says connected
 manual zoom behaviour is unconfirmed and the task explicitly requires skipping

@@ -153,6 +153,16 @@ impl Project {
             "markers" => Ok(crate::markers::query(self)),
             "typing_suggestions" => Ok(crate::auto::typing_suggestions(self)),
             "speech_enhancement" => self.speech_enhancement_plan(),
+            "recording_audio_defaults" => {
+                let mic = self.session.tracks.mic.as_ref();
+                Ok(json!({
+                    "has_microphone": mic.is_some(),
+                    "speech_enhancement": mic.and_then(|track| track.speech_enhancement).unwrap_or(false),
+                    "stereo_microphone": mic.and_then(|track| track.stereo_mic).unwrap_or(false),
+                    "should_mute_for_no_speech": mic.is_some() && self.data.camera.speech_activity
+                        .as_ref().is_some_and(|activity| activity.ranges.is_empty())
+                }))
+            }
             "microphone_media" => crate::microphone::query(self),
             "audio_automation" => Ok(serde_json::to_value(&self.data.audio.ranges)?),
             "map_audio_ranges" => self.map_audio_ranges(query),
@@ -316,11 +326,19 @@ impl Project {
                 .shortcut_catalog(&self.data.cursor.key_overlay.hidden_shortcuts)),
             "key_events" => {
                 let mut rows = Vec::new();
-                for (segment, event, src, tl) in self.key_overlay_index.events() {
+                for (segment, event, event_index, src, tl) in self.key_overlay_index.events() {
                     let mut row = serde_json::to_value(&self.events[segment][event])?;
                     row["src_ns"] = src.into();
                     row["tl_ns"] = tl.into();
                     row["segment"] = (segment as u32).into();
+                    row["event_index"] = event_index.into();
+                    row["disabled"] = self
+                        .data
+                        .cursor
+                        .key_overlay
+                        .disabled_events
+                        .contains(&event_index)
+                        .into();
                     rows.push(row);
                 }
                 Ok(rows.into())
@@ -770,6 +788,8 @@ mod speech_enhancement_tests {
             device_name: Some("fixture".into()),
             sample_rate: 48000,
             channels: 1,
+            speech_enhancement: None,
+            stereo_mic: None,
         });
         p.session.segments[0]
             .files

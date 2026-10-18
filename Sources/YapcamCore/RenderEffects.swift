@@ -88,6 +88,12 @@ public struct CoreRenderLayer: Decodable, Sendable, Equatable, Identifiable {
     public var color: [Float]?
     public var fontFamily: TextStyle.FontFamily?
     public var caption: CoreCaptionEvaluation?
+    public var keycaps: [CoreKeycap]?
+}
+public struct CoreKeycap: Decodable, Sendable, Equatable {
+    public var glyph: String
+    public var name: String?
+    public var rect: [Double]
 }
 
 /// Supplemental mask instructions; indices match frameExtras.highlights on the

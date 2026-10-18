@@ -29,6 +29,12 @@ public struct SpeechEnhancementPlan: Decodable, Sendable, Equatable {
     public var settings: CoreSpeechEnhancementSettings
     public var media: [Media]
 }
+public struct RecordingAudioDefaults: Decodable, Sendable, Equatable {
+    public var hasMicrophone: Bool
+    public var speechEnhancement: Bool
+    public var stereoMicrophone: Bool
+    public var shouldMuteForNoSpeech: Bool
+}
 public struct PreparedMicrophoneMedia: Sendable, Equatable {
     public var originalPath: String
     public var processedURL: URL
@@ -83,6 +89,11 @@ extension Project {
     }
     public func speechEnhancementPlan() throws -> SpeechEnhancementPlan {
         try query("{\"q\":\"speech_enhancement\"}", as: SpeechEnhancementPlan.self)
+    }
+    /// Capture-time choices from recording/session.json. Apply these after a
+    /// default preset/last look so the recorded microphone choice wins.
+    public func recordingAudioDefaults() throws -> RecordingAudioDefaults {
+        try query("{\"q\":\"recording_audio_defaults\"}", as: RecordingAudioDefaults.self)
     }
     /// Supply Render's offline SpeechEnhancer via an Editor closure, avoiding a
     /// Core->Render dependency cycle. Originals/clocks/settings are never edited.
