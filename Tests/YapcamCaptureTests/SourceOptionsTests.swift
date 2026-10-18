@@ -12,16 +12,22 @@ import Testing
 }
 
 @Test func newCaptureOptionsDecodeOlderPreferencesAndRoundTrip() throws {
-    let options = RecordingOptions(target: .display(2), hideDesktopIcons: true, captureNotifications: false, outputDirectory: URL(fileURLWithPath: "/tmp"))
+    let options = RecordingOptions(target: .display(2), cleanVoiceOnRecord: true, recordStereoMicrophone: true,
+        hideDesktopIcons: true, captureNotifications: false, outputDirectory: URL(fileURLWithPath: "/tmp"))
     let data = try JSONEncoder().encode(options)
     let roundTrip = try JSONDecoder().decode(RecordingOptions.self, from: data)
     #expect(roundTrip.hideDesktopIcons)
     #expect(!roundTrip.captureNotifications)
+    #expect(roundTrip.cleanVoiceOnRecord)
+    #expect(roundTrip.recordStereoMicrophone)
     var old = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     old.removeValue(forKey: "hideDesktopIcons"); old.removeValue(forKey: "captureNotifications")
+    old.removeValue(forKey: "cleanVoiceOnRecord"); old.removeValue(forKey: "recordStereoMicrophone")
     let decodedOld = try JSONDecoder().decode(RecordingOptions.self, from: JSONSerialization.data(withJSONObject: old))
     #expect(!decodedOld.hideDesktopIcons)
     #expect(decodedOld.captureNotifications)
+    #expect(!decodedOld.cleanVoiceOnRecord)
+    #expect(!decodedOld.recordStereoMicrophone)
     #expect(decodedOld.excludeYapcamWindows)
     #expect(decodedOld.recordKeystrokes)
 }

@@ -1,3 +1,101 @@
+READY R7 b670fd4+worktree | CAM-46 camera relay, CAM-27 automatic locale, REC B-06 clean voice, MKT-107 stereo mic | 191 capture tests / 7 suites pass
+
+R7 CAM-46 | b670fd4+worktree | lifecycleFakeCameraFramesReachPreviewAndDisconnectStopsDelivery | live: not verified (no camera/app launch)
+R7 CAM-27 | b670fd4+worktree | automaticLanguageDetectionRetranscribesGermanAndPersistsDetectedLocale | live: not verified (no Speech permission/model run)
+R7 REC-B-06 | b670fd4+worktree | recordTimeCleanVoiceFlagIsAppliedOnlyToMicrophoneMetadata | live: not verified (no microphone/app launch)
+R7 MKT-107 | b670fd4+worktree | requestedStereoMicrophonePublishesTwoChannelMicTrack | live: not verified (no stereo microphone/app launch)
+
+## Round 7 implementation
+
+- **CAM-46 capture provider delivered:** `RecordingSession.cameraPreviewHandler`
+  publishes `CameraPreviewUpdate.frame(CameraPreviewFrame)` from the same accepted
+  camera samples written by the recording's existing `AVCaptureSession`; no second
+  device session is opened. Delivery coalesces to the newest pending frame off the
+  writer queue. Camera loss publishes `.unavailable(reason)` once, and the writer
+  suppresses later camera frames while screen recording continues. Segment
+  generation checks reject stale pause/resume callbacks; no update on normal pause
+  means the UI can keep and dim its last displayed frame.
+- **Request UI R7-CAM-46:** add a writable
+  `cameraPreviewHandler: (@MainActor @Sendable (CameraPreviewUpdate) -> Void)?` to
+  `EngineSession`; `LiveEngine.Session` forwards it to the inner
+  `RecordingSession`. Before capture start, stop the panel's standalone
+  `AVCaptureSession`; during starting/recording/paused, enqueue
+  `frame.sampleBuffer` on an `AVSampleBufferDisplayLayer` (mirror presentation
+  horizontally), retain/dim the last frame while paused, and show the supplied
+  unavailable reason after disconnect. Keep the existing window exclusion and
+  hide-preview rule. Do not open another camera session while recording.
+- **CAM-27 capture provider delivered:** passing `localeIdentifier: "auto"` to
+  `TranscriptionService.transcribe` runs one offline Apple Speech preview in the
+  Mac locale, capped at 20 seconds. `NLLanguageRecognizer` accepts a different
+  supported language only at confidence >= 0.6, the recording is then transcribed
+  with that locale, and `transcript.json.locale` stores the resolved identifier.
+  Forced locale identifiers retain their prior one-pass behavior. The regression's
+  injected German preview causes both full segment calls to use `de-DE` and verifies
+  the persisted locale.
+- **Request UI R7-CAM-27:** in `TranscriptionWiring.localeIdentifier(for:)`, map
+  the **Auto** picker value to the literal `"auto"` instead of `Locale.current`;
+  continue passing explicit locale identifiers unchanged. The inspector can display
+  the detected language from the returned/persisted `RecordingTranscript.locale`.
+- **REC B-06 capture provider delivered:** `RecordingOptions` now has public
+  `cleanVoiceOnRecord: Bool = false` with backward-compatible decoding. When a mic
+  track exists, capture snapshots the flag as
+  `tracks.mic.speech_enhancement: true` in `recording/session.json`; the field is
+  absent/off for false and is never applied to system audio. Raw mic media remains
+  unchanged for the existing non-destructive project preview/export processor.
+- **Request UI/core R7-REC-B-06:** add `cleanVoiceOnRecord` to
+  `UIRecordingOptions`; set it from persisted `AppSettings.cleanVoiceOnRecord`
+  (default false) only while a microphone is selected, and pass it through
+  `LiveEngine.captureOptions(for:)`. After `ProjectActions.applyInitialLook`, read
+  `recording/session.json` and, when
+  `tracks.mic.speech_enhancement == true`, apply
+  `audio.speech_enhancement = true` to the new project. This ordering preserves the
+  recorded choice over presets/reused looks while retaining the default voice preset
+  and default loudness normalization. The microphone popover row remains UI-owned.
+- **MKT-107 capture fix delivered:** `RecordingOptions` now has public,
+  backward-compatible `recordStereoMicrophone: Bool = false`. With it enabled,
+  `AuxiliaryCapture` requests two-channel PCM only when the selected microphone's
+  active device format exposes at least two channels; otherwise it safely records
+  mono. The writer already carries the negotiated channel count through AAC and now
+  publishes both the actual `tracks.mic.channels` and the snapshotted
+  `tracks.mic.stereo_mic` choice. System audio is unchanged. A two-channel fake mic
+  verifies the finished mic track metadata, and the policy regression covers stereo
+  unavailable and toggle-off cases.
+- **Request UI/core R7-MKT-107:** add persisted recording setting
+  `AppSettings.recordStereoMicrophone` (default false) and a **Record stereo
+  microphone** row shown only for a selected microphone. Add the same Boolean to
+  `UIRecordingOptions` and forward it as
+  `RecordingOptions.recordStereoMicrophone` in `LiveEngine.captureOptions(for:)`.
+  After `ProjectActions.applyInitialLook`, map
+  `recording/session.json`'s `tracks.mic.stereo_mic == true` to project path
+  `audio.stereo_mic = true`, so editor preview/export preserves both captured
+  channels; false continues the existing mono mix.
+- **Validation:** isolated full suite passed **191 tests in 7 suites** in 44.783s;
+  native/hardware opt-ins were skipped. Focused CAM-46, CAM-27, REC B-06 on/off,
+  and old-options compatibility regressions all pass. `git diff --check` passes.
+- Git metadata is sandbox read-only; Lead must commit/push the owned worktree at
+  the integration checkpoint.
+
+R7 PREP 00b7e27 | agentic-editor handoff and new focus-event capture path reviewed; no capture-owned listed flaky test | FocusEventsTests 7/7 pass
+
+## Round 7 preparation (2026-10-18)
+
+- Read `docs/handoff/2026-10-18-agentic-editor.md` and the complete new capture
+  surface: `FocusEvents.swift`, its `InputEvents` integration, unit suite,
+  metadata-only harness, runner, and capture validation notes.
+- Focus lookup is bounded to one detached WindowServer query at a time; stop/restart
+  generations discard late results, app identity is rechecked before delivery, and
+  only the main-actor recorder writes the event journal. Missing/redacted titles and
+  apps without a normal window retain useful app-level metadata without requesting
+  Accessibility access.
+- PREP's named flaky tests are owned by UI/editor
+  (`Round6StartDecisionTests`, `ExportPlanningWiringTests`, and
+  `AgentPlaybookTests`); no capture-owned flaky was listed, so capture did not edit
+  another team's files.
+- Isolated validation: `FocusEventsTests` passed **7/7** in 0.057s. No app launch,
+  screen recording, input tap, TCC request, or live focus harness was used.
+- `/Users/larry/yapcam-fleet/round7/tasks.md` was not present at prep completion;
+  capture awaits the published Round 7 assignment.
+
 READY R6 11ce970+worktree | queued stop/start serialization, source-loss and malformed-input crash hardening; countdown UI handoff | 179 capture tests / 6 suites pass
 
 ## R6 capture hardening (2026-10-17)

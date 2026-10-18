@@ -195,6 +195,46 @@ private final class SpeechCancellationCount: @unchecked Sendable {
     var count: Int { lock.withLock { value } }
 }
 
+private final class SpeechLocaleCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+    func append(_ locale: String) { lock.withLock { values.append(locale) } }
+    var locales: [String] { lock.withLock { values } }
+}
+
+@Test func automaticLanguageDetectionRetranscribesGermanAndPersistsDetectedLocale() async throws {
+    let fixture = try SpeechFixture(); defer { fixture.cleanup() }
+    let calls = SpeechLocaleCalls()
+    let service = TranscriptionService(
+        recognizeRequest: { _, locale, _ in
+            calls.append(locale)
+            return RecognizedSpeech(words: [RecognizedSpeechWord(
+                text: "Guten", startNs: 0, endNs: 100_000_000, confidence: 1
+            )])
+        },
+        recognizePreview: { _, locale, _ in
+            #expect(locale == "en-US")
+            return RecognizedSpeech(words: [
+                RecognizedSpeechWord(text: "Guten Morgen.", startNs: 0, endNs: 500_000_000, confidence: 1),
+                RecognizedSpeechWord(text: "Heute testen wir die automatische Spracherkennung mit einem längeren deutschen Beispielsatz.",
+                                     startNs: 500_000_000, endNs: 2_000_000_000, confidence: 1)
+            ])
+        },
+        detectLanguage: {
+            SpeechLanguageDetection.localeIdentifier(in: $0, supported: [Locale(identifier: "en-US"), Locale(identifier: "de-DE")],
+                                                        systemLocaleIdentifier: "en-US")
+        },
+        systemLocaleIdentifier: "en-US"
+    )
+
+    let transcript = try await service.transcribe(package: fixture.package, localeIdentifier: "auto")
+
+    #expect(calls.locales == ["de-DE", "de-DE"])
+    #expect(transcript.locale == "de-DE")
+    let persisted = try JSONDecoder().decode(RecordingTranscript.self, from: Data(contentsOf: fixture.transcript))
+    #expect(persisted.locale == "de-DE")
+}
+
 @Test func speechJobResolvesOnceAndCancelsEvenWithImmediateFinalCallback() async throws {
     let counter = SpeechCancellationCount()
     let result = try await SpeechRecognitionJob().run { complete in

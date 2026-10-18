@@ -9,6 +9,9 @@ import ScreenCaptureKit
     @Published public private(set) var micLevel: Float = 0
     @Published public private(set) var warnings: [String] = []
     public private(set) var packageURL: URL?
+    /// Main-actor updates from the recording's own camera stream. Frames are
+    /// latest-only so a busy UI cannot apply backpressure to the media writer.
+    public var cameraPreviewHandler: (@MainActor @Sendable (CameraPreviewUpdate) -> Void)?
     private let options: RecordingOptions
     private let services: CaptureSessionServices
     private var manifest: SessionManifest?
@@ -28,6 +31,10 @@ import ScreenCaptureKit
     private var completedNs: Int64 = 0
     private var activeStartNs: Int64?
     private var activeHostStartNs: Int64?
+    private lazy var cameraPreviewRelay = CameraPreviewRelay { [weak self] generation, update in
+        guard let self, self.activeStartNs == generation else { return }
+        self.cameraPreviewHandler?(update)
+    }
 
     public convenience init(options: RecordingOptions) { self.init(options: options, services: .live) }
 
@@ -211,6 +218,12 @@ import ScreenCaptureKit
                 do { try self.persist() } catch { await self.handleFailure(self.asCaptureError(error)) }
             }
         }
+        writer.onCameraPreviewFrame = { [cameraPreviewRelay] frame in
+            cameraPreviewRelay.submit(.frame(frame), generation: start)
+        }
+        writer.onCameraPreviewUnavailable = { [cameraPreviewRelay] reason in
+            cameraPreviewRelay.submit(.unavailable(reason), generation: start)
+        }
         writer.onTrackStarted = { [weak self] key, offset in
             Task { @MainActor in
                 guard let self, self.activeStartNs == start, self.manifest?.segments.indices.contains(index) == true else { return }
@@ -261,8 +274,13 @@ import ScreenCaptureKit
         let devices = AuxiliaryCapture(writer: writer, fps: manifest.tracks.screen.maxFPS >= 60 ? 60 : 30)
         devices.onWarning = writer.onWarning
         self.devices = devices
-        let deviceMetadata = await devices.start(microphoneID: options.microphoneID, cameraID: options.cameraID, cameraMaxResolution: options.cameraMaxResolution)
-        if let mic = deviceMetadata.mic { self.manifest?.tracks.mic = mic }
+        let deviceMetadata = await devices.start(microphoneID: options.microphoneID, cameraID: options.cameraID,
+            recordStereoMicrophone: options.recordStereoMicrophone, cameraMaxResolution: options.cameraMaxResolution)
+        if var mic = deviceMetadata.mic {
+            mic.speechEnhancement = options.cleanVoiceOnRecord
+            mic.stereoMicrophone = options.recordStereoMicrophone
+            self.manifest?.tracks.mic = mic
+        }
         if let camera = deviceMetadata.camera { self.manifest?.tracks.camera = camera }
         try persist()
     }
@@ -308,6 +326,8 @@ import ScreenCaptureKit
             manifest?.tracks.systemAudio = format
         } else if key == "mic" {
             format.deviceName = manifest?.tracks.mic?.deviceName
+            format.speechEnhancement = options.cleanVoiceOnRecord
+            format.stereoMicrophone = options.recordStereoMicrophone
             manifest?.tracks.mic = format
         }
     }

@@ -85,7 +85,7 @@ final class InjectedCaptureSamples: @unchecked Sendable {
     private let videoFormat: CMVideoFormatDescription
     private let audioFormat: CMAudioFormatDescription
     private let pcm: CMBlockBuffer
-    init(width: Int = 64, height: Int = 64) throws {
+    init(width: Int = 64, height: Int = 64, audioChannels: UInt32 = 1) throws {
         var image: CVPixelBuffer?
         guard CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, nil, &image) == kCVReturnSuccess,
               let image else { throw CaptureError.writerFailed("Cannot allocate injected image") }
@@ -97,19 +97,22 @@ final class InjectedCaptureSamples: @unchecked Sendable {
         guard CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixel,
             formatDescriptionOut: &video) == noErr, let video else { throw CaptureError.writerFailed("Cannot describe injected video") }
         videoFormat = video
+        let audioBytesPerFrame = 4 * audioChannels
         var asbd = AudioStreamBasicDescription(mSampleRate: 48_000, mFormatID: kAudioFormatLinearPCM,
-            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: 4, mFramesPerPacket: 1,
-            mBytesPerFrame: 4, mChannelsPerFrame: 1, mBitsPerChannel: 32, mReserved: 0)
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: audioBytesPerFrame,
+            mFramesPerPacket: 1, mBytesPerFrame: audioBytesPerFrame, mChannelsPerFrame: audioChannels,
+            mBitsPerChannel: 32, mReserved: 0)
         var audio: CMAudioFormatDescription?
         guard CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault, asbd: &asbd, layoutSize: 0, layout: nil,
             magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &audio) == noErr,
               let audio else { throw CaptureError.writerFailed("Cannot describe injected PCM") }
         audioFormat = audio
         var block: CMBlockBuffer?
-        guard CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: 800 * 4,
-            blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0, dataLength: 800 * 4,
+        let audioByteCount = 800 * Int(audioBytesPerFrame)
+        guard CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: audioByteCount,
+            blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0, dataLength: audioByteCount,
             flags: 0, blockBufferOut: &block) == noErr, let block else { throw CaptureError.writerFailed("Cannot allocate injected PCM") }
-        guard CMBlockBufferFillDataBytes(with: 0, blockBuffer: block, offsetIntoDestination: 0, dataLength: 800 * 4) == noErr else {
+        guard CMBlockBufferFillDataBytes(with: 0, blockBuffer: block, offsetIntoDestination: 0, dataLength: audioByteCount) == noErr else {
             throw CaptureError.writerFailed("Cannot clear injected PCM")
         }
         pcm = block
