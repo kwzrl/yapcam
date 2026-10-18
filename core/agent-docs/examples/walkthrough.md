@@ -1,14 +1,14 @@
 # Example: feature walkthrough with zooms on the key clicks
 
-Calls are written as `{"name","arguments"}` shorthand for the Yapcam MCP tools; call the tools
-themselves, and pass numbers as JSON numbers, not strings.
+Calls are written as `tool {arguments}`, the same shorthand as `yapcam://tools`. Call the Yapcam MCP tool
+of that name; numbers stay JSON numbers.
 
 Request: "Make this a walkthrough of the new export dialog." Recording: 58 s, already tight, 1440×900 screen.
 
 ## 1. Read and pick the story clicks
 
-```json
-{"name":"moments","arguments":{}}
+```
+moments {}
 ```
 
 ```
@@ -34,41 +34,41 @@ ceiling; drop #0 (the toolbar button is obvious and the dialog opens full-frame 
 
 Already tight. Still run it:
 
-```json
-{"name":"check","arguments":{}}
+```
+check {}
 ```
 
 `warning pause at 26.1 s: 3.4 s` (progress bar). Keep 1 s of it so the viewer sees it finish:
 
-```json
-{"name":"tighten_pauses","arguments":{"max_gap_s":1.0,"keep_s":1.0,"from_s":24,"to_s":31}}
+```
+tighten_pauses {"max_gap_s":1.0,"keep_s":1.0,"from_s":24,"to_s":31}
 ```
 
 ## 3. Zooms, one call per zoom, then check
 
-```json
-{"name":"zoom_on_click","arguments":{"click_index":1,"scale":1.8,"lead_s":0.4,"hold_s":2.2}}
-{"name":"zoom_on_click","arguments":{"click_index":3,"scale":1.8,"lead_s":0.4,"hold_s":2.0}}
-{"name":"zoom_on_click","arguments":{"click_index":4,"scale":2.0,"lead_s":0.4,"hold_s":1.6}}
-{"name":"zoom_on_click","arguments":{"click_index":5,"scale":1.6,"lead_s":0.4,"hold_s":1.4}}
-{"name":"check","arguments":{}}
+```
+zoom_on_click {"click_index":1,"scale":1.8,"lead_s":0.4,"hold_s":2.2}
+zoom_on_click {"click_index":3,"scale":1.8,"lead_s":0.4,"hold_s":2.0}
+zoom_on_click {"click_index":4,"scale":2.0,"lead_s":0.4,"hold_s":1.6}
+zoom_on_click {"click_index":5,"scale":1.6,"lead_s":0.4,"hold_s":1.4}
+check {}
 ```
 
 The hold on #1 is 2.2 s so it also covers click #2 (WebM) — one zoom, not two stacked.
 
 ## 4. Verify the picture
 
-```json
-{"name":"capture","arguments":{"times":[5.6,6.0,8.2,10.4,12.8,16.8,17.2,22.2,22.6,24.5]}}
+```
+capture {"times":[5.6,6.0,8.2,10.4,12.8,16.8,17.2,22.2,22.6,24.5]}
 ```
 
 The sheet shows the zoom on #3 framing the slider's left half; the drag goes to the right edge out of frame. Fix
 the largest problem: undo that zoom and place it on the drag's midpoint.
 
-```json
-{"name":"undo","arguments":{}}
-{"name":"zoom_on_click","arguments":{"at_s":11.4,"scale":1.6,"lead_s":0.5,"hold_s":2.0}}
-{"name":"capture","arguments":{"times":[11.0,12.6]}}
+```
+undo {}
+zoom_on_click {"at_s":11.4,"scale":1.6,"lead_s":0.5,"hold_s":2.0}
+capture {"times":[11.0,12.6]}
 ```
 
 ## 5. Reply

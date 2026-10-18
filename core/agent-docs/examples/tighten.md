@@ -1,14 +1,14 @@
 # Example: tighten a raw demo
 
-Calls are written as `{"name","arguments"}` shorthand for the Yapcam MCP tools; call the tools
-themselves, and pass numbers as JSON numbers, not strings.
+Calls are written as `tool {arguments}`, the same shorthand as `yapcam://tools`. Call the Yapcam MCP tool
+of that name; numbers stay JSON numbers.
 
 Request: "Clean this up, it's too long." Recording: 2:14 demo of creating an API key in a dashboard.
 
 ## 1. Read
 
-```json
-{"name":"moments","arguments":{}}
+```
+moments {}
 ```
 
 Relevant lines from the result (indices are word indices):
@@ -31,33 +31,33 @@ start, fillers, the spinner wait, the tail.
 
 ## 2. Spine, one step at a time
 
-```json
-{"name":"cut_words","arguments":{"from_word_index":0,"to_word_index":9}}
-{"name":"trim_start_to_first_word","arguments":{"lead_s":0.1}}
-{"name":"remove_fillers","arguments":{}}
-{"name":"tighten_pauses","arguments":{"max_gap_s":0.5,"keep_s":0.35}}
+```
+cut_words {"from_word_index":0,"to_word_index":9}
+trim_start_to_first_word {"lead_s":0.1}
+remove_fillers {}
+tighten_pauses {"max_gap_s":0.5,"keep_s":0.35}
 ```
 
 The spinner is silent screen time, not a pause between words, so cut it with a raw command. Re-read `moments` first:
 the cuts above moved it.
 
-```json
-{"name":"moments","arguments":{"from_s":10,"to_s":40}}
-{"name":"batch","arguments":{"commands":[{"op":"delete_range","tl_start_ns":21400000000,"tl_end_ns":36800000000}]}}
+```
+moments {"from_s":10,"to_s":40}
+batch {"commands":[{"op":"delete_range","tl_start_ns":21400000000,"tl_end_ns":36800000000}]}
 ```
 
 ## 3. Check and verify
 
-```json
-{"name":"check","arguments":{}}
+```
+check {}
 ```
 
 `warning tail at 77.9 s: 4.6 s after last word` → fix: the tail is the stop-recording motion.
 
-```json
-{"name":"batch","arguments":{"commands":[{"op":"delete_range","tl_start_ns":78300000000,"tl_end_ns":82500000000}]}}
-{"name":"check","arguments":{}}
-{"name":"capture","arguments":{"times":[0,10.9,11.3,21.2,21.6,78.2]}}
+```
+batch {"commands":[{"op":"delete_range","tl_start_ns":78300000000,"tl_end_ns":82500000000}]}
+check {}
+capture {"times":[0,10.9,11.3,21.2,21.6,78.2]}
 ```
 
 Look at the sheet: the first frame shows the dashboard, the cut at 21.4 s lands on the loaded key list, the last
