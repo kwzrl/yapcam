@@ -429,7 +429,8 @@ import YapcamCore
             #expect(m.number("canvas.radius") == 16 && m.number("canvas.motion_blur") == 1 && m.number("canvas.background.blur") == 0)
             #expect(m.usesPaddingRatio && abs(m.number("canvas.padding_ratio") - 0.10) < 1e-9)
             #expect(abs(min(g.dest.minX, g.dest.minY) - 0.10 * min(g.canvasWidth, g.canvasHeight)) < 1.5)          // 108 px padding on the constraining axis (content is centered on the other)
-            #expect(m.string("cursor.set_id") == "original" && m.number("cursor.smoothing") == 0 && m.string("cursor.click_effect") == "none")
+            #expect(m.string("cursor.set_id") == "original" && m.string("cursor.click_effect") == "none")
+            #expect(m.number("cursor.smoothing") == (m.defaultsRevision >= 4 ? 1 : 0))                       // revision 4: smooth cursor at full strength (BS-1)
             #expect(m.springValues(screen: true) == (125, 12, 1.5))
         } else {
             #expect(m.string("canvas.aspect") == "16:9" && g.canvasWidth == 1920 && g.canvasHeight == 1080)
@@ -857,5 +858,19 @@ import YapcamCore
         let result = m.createPreset(named: "Demo"), after = try Data(contentsOf: url)
         #expect(result == .needsReplace && after == Data("old".utf8))
         #expect(m.createPreset(named: "Demo", replace: true) == .created)
+    }
+
+    /// Import Preset… (S-11) adds the file to the library without replacing an existing preset of the same name.
+    @Test func importingAPresetFileKeepsExistingPresets() throws {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let m = EditorModel(project: FakeProject(), player: FakePlayer()); m.presetStore = iso.store; m.defaults = iso.defaults
+        #expect(m.createPreset(named: "Look") == .created)
+        let original = try Data(contentsOf: iso.store.url("Look"))
+        let outside = FileManager.default.temporaryDirectory.appendingPathComponent("imp-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true); defer { try? FileManager.default.removeItem(at: outside) }
+        let file = outside.appendingPathComponent("Look.yapcampreset"); try Data("{}".utf8).write(to: file)
+        let name = m.importPresetFile(file)
+        #expect(name == "Look 2" && iso.store.names().contains("Look 2"))
+        #expect(try Data(contentsOf: iso.store.url("Look")) == original)
     }
 }

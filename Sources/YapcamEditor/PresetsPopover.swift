@@ -15,6 +15,20 @@ extension EditorModel {
         savePreset(named: name)
         return lastError == nil ? .created : .invalid
     }
+    /// Adds a preset file to the library (a unique name; never replaces one) and applies it. Returns the library name.
+    @discardableResult
+    public func importPresetFile(_ url: URL) -> String? {
+        let base = presetStore.clean(url.deletingPathExtension().lastPathComponent)
+        guard !base.isEmpty else { return nil }
+        var name = base, n = 2
+        while FileManager.default.fileExists(atPath: presetStore.url(name).path) { name = "\(base) \(n)"; n += 1 }
+        do {
+            try FileManager.default.createDirectory(at: presetStore.directory, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: url, to: presetStore.url(name))
+        } catch { lastError = "Could not add the preset: \(error.localizedDescription)"; return nil }
+        applyPreset(at: presetStore.url(name))
+        return name
+    }
     public func revealPreset(named name: String) { NSWorkspace.shared.activateFileViewerSelecting([presetStore.url(name)]) }
 }
 
@@ -40,6 +54,7 @@ struct PresetsPopover: View {
             Text("A preset is a snapshot. After changing the project, use Update in the gear menu to save the change into it.")
                 .font(Yap.Font.caption).foregroundStyle(Yap.caption).fixedSize(horizontal: false, vertical: true)
             Divider().opacity(0.3)
+            Button("Import preset…") { importPreset() }.buttonStyle(.plain).foregroundStyle(Yap.label)
             HStack(spacing: 6) {
                 TextField("New preset name…", text: $newName).textFieldStyle(.roundedBorder).focused($focused).onSubmit { create() }
                 Button("Create preset") { create() }.disabled(model.presetStore.clean(newName).isEmpty)
@@ -51,6 +66,13 @@ struct PresetsPopover: View {
             Button("Replace", role: .destructive) { _ = model.createPreset(named: newName, replace: true); newName = ""; refresh() }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private func importPreset() {
+        let panel = NSOpenPanel(); panel.allowsOtherFileTypes = true; panel.message = "Choose a Yapcam preset file"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if model.importPresetFile(url) != nil { shown = false }
+        refresh()
     }
 
     private func create() {
