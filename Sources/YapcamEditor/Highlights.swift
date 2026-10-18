@@ -142,13 +142,8 @@ extension EditorModel {
     func writeHighlightList(_ hs: [HighlightRegion]) { writeHighlights(hs) }
 
     public func addHighlightAtPlayhead(kind: HighlightRegion.Kind = .highlight) {
-        let start = playheadNs, end = min(start + 3_000_000_000, durationNs)
-        guard end - start >= minItemNs else { lastError = "Not enough room for a region here."; return }
-        var h = HighlightRegion.preset(kind, id: "region-" + UUID().uuidString.prefix(8).lowercased(), start: start, end: end)
         // New regions inherit the style of the last edited one (when it is of the same kind).
-        if let last = lastRegionStyle, last.kind == kind { h.fill = last.fill; h.stroke = last.stroke; h.strokeWidth = last.strokeWidth; h.radius = last.radius; h.dimOpacity = last.dimOpacity; h.opacity = last.opacity; h.blurRadius = last.blurRadius }
-        writeHighlights(highlights + [h])
-        if lastError == nil { selection = .highlight(h.id) }
+        addHighlight(fromNs: playheadNs, kind: kind)
     }
 
     public func updateHighlight(id: String, _ change: (inout HighlightRegion) -> Void) {

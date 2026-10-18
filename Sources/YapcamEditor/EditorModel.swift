@@ -81,6 +81,18 @@ public final class EditorModel: ObservableObject {
         defaults.set(Array(favoriteWallpapers).sorted(), forKey: "editor.favoriteWallpapers")
     }
     public var timelineViewportWidth: Double = 900
+    /// The timeline's scroll view (set by the view), for zoom anchoring.
+    var timelineScroller: (any TimelineScroller)?
+    @Published var laneVisibility = LaneVisibility()
+    var optionRestoresCutTool: Bool?
+    /// Audio scrubbing (S-EDT-31): attached by the app once render provides a scrubber; the user switch is remembered.
+    public var audioScrubber: (any AudioScrubbing)?
+    var scrubVelocity = ScrubVelocity()
+    public var scrubAudioEnabled: Bool { get { defaults.bool(forKey: "editor.scrubAudio") } set { defaults.set(newValue, forKey: "editor.scrubAudio") } }
+    /// Project path under which the playhead position is remembered (set by the document).
+    var playheadMemoryPath: String?
+    /// Range being dragged out in an empty Layouts or Masks lane.
+    @Published var laneCreatePreview: (lane: TimelineLane, start: Int64, end: Int64)?
     /// Set once the timeline view has fitted the project to its real width.
     var timelineFitted = false
     /// Raised by the toolbar-less "Move to Trash" command; the editor shows its confirmation.
@@ -106,6 +118,8 @@ public final class EditorModel: ObservableObject {
     @Published public var extraZoomSelection: Set<String> = []
     /// Set by the document: renders the current preview frame to the clipboard.
     public var copyFrameHandler: (() -> Void)?
+    /// "Export Current Frame as Image…" (save panel).
+    public var exportFrameHandler: (() -> Void)?
     @Published public var lastError: String?
     @Published public private(set) var silenceState: SilenceState = .idle
     @Published public private(set) var saveState: SaveState = .clean
@@ -130,6 +144,7 @@ public final class EditorModel: ObservableObject {
     /// Saves pending edits, cancels all background work and makes the model inert.
     public func close() {
         guard !isClosed else { return }
+        rememberPlayhead()
         saveNow()
         isClosed = true
         autosaveTask?.cancel()
@@ -636,7 +651,7 @@ public final class EditorModel: ObservableObject {
     // MARK: timeline zoom
 
     /// Native horizontal scrolling owns the offset, so the model only changes the scale.
-    public func zoomTimeline(by factor: Double, anchorX: Double = 0) {
+    func setTimelineScale(by factor: Double) {
         // The visible window stays between 2 s and min(project length, 10 min).
         let maxPPS = timelineViewportWidth / 2
         let minPPS = timelineViewportWidth / max(min(Double(durationNs) / 1e9, 600), 2)

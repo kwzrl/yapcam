@@ -129,7 +129,7 @@ import YapcamCore
 
     @Test func zoomKeysOnlyActOnASelectedZoom() {
         let (m, _) = make()
-        #expect(!m.handleShortcut("a") && !m.handleShortcut("5") && !m.handleShortcut("="))
+        #expect(!m.handleShortcut("a") && !m.handleShortcut("9") && !m.handleShortcut("="))      // 2…8 toggle timelines
         m.addZoomAtPlayhead(); let id = m.zooms[0].id
         #expect(m.handleShortcut("a") && m.zooms[0].mode == .auto); #expect(m.handleShortcut("m") && m.zooms[0].mode == .manual)
         #expect(m.handleShortcut("d") && !m.zooms[0].enabled); m.handleShortcut("d"); #expect(m.zooms[0].enabled)
@@ -146,13 +146,15 @@ import YapcamCore
         m.seek(toNs: 1_000_000_000); m.addZoomAtPlayhead(); m.seek(toNs: 10_000_000_000); m.addZoomAtPlayhead()
         let a = m.zooms[0], b = m.zooms[1]
         m.selection = .zoom(a.id); m.setZoomScale(id: a.id, 3.2); m.setZoomEase(id: a.id, inNs: 0, outNs: 0)
-        #expect(m.handleShortcut("c", .command))                                      // copies the zoom's settings, not the frame
+        var framesCopied = 0; m.copyFrameHandler = { framesCopied += 1 }
+        #expect(m.handleShortcut("c", .command) && framesCopied == 1)                 // S-EDT-60: ⌘C copies the frame even with a zoom selected
+        m.apply(.copySettings(.zoom(a.id)))                                           // settings are copied from the context menu
         m.selection = .zoom(b.id); #expect(m.handleShortcut("v", .command))
         #expect(m.zooms[1].scale == 3.2 && m.zooms[1].easeInNs == 0)
         m.selection = .none; var copied = 0
         m.copyFrameHandler = { copied += 1 }
         m.handleShortcut("c", .command); #expect(copied == 1)                         // nothing selected: copies the frame
-        m.selection = .clip(m.clips[0].id); m.setSpeed(clipID: m.clips[0].id, 4); m.handleShortcut("c", .command)
+        m.selection = .clip(m.clips[0].id); m.setSpeed(clipID: m.clips[0].id, 4); m.handleShortcut("c", .command); #expect(copied == 2); m.apply(.copySettings(.clip(m.clips[0].id)))
         m.selection = .zoom(a.id); #expect(!m.handleShortcut("v", .command))         // kinds must match
     }
 
