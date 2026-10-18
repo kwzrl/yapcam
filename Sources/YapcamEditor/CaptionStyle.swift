@@ -69,7 +69,7 @@ struct CaptionStyleControls: View {
     var body: some View {
         let look = model.captionLook
         CommitSlider(title: "Size", range: CaptionLook.sizeRange, get: { look.size }, commit: { var l = look; l.size = $0; model.setCaptionLook(l) },
-                     text: { String(format: "%.1f %%", $0 * 100) })
+                     text: { String(format: "%.1f %%", $0 * 100) }, defaultValue: 0.05)
         ChoiceRow("Color", selection: Binding(get: { look.light }, set: { v in var l = look; l.light = v; model.setCaptionLook(l) }), options: [("Dark", false), ("Light", true)])
         ChoiceRow("Position", selection: Binding(get: { look.center }, set: { v in var l = look; l.center = v; model.setCaptionLook(l) }), options: [("Bottom", false), ("Center", true)])
         typography("Font", "font_family", "sans", [("Sans", "sans"), ("Serif", "serif"), ("Mono", "mono")])

@@ -34,7 +34,7 @@ struct BackgroundPanel: View {
                 typePicker
                 modeContent
             }
-            InspectorGroup("Look") { LookRows(model: model, blur: effectiveMode == .blur || kind == "blurred_screen") }
+            InspectorGroup("Look") { LookRows(model: model, blur: [.blur, .wallpaper, .image].contains(effectiveMode) || kind == "blurred_screen", screenBlur: effectiveMode == .blur || kind == "blurred_screen") }
         }
     }
 
@@ -96,12 +96,13 @@ struct BackgroundPanel: View {
 private struct LookRows: View {
     @ObservedObject var model: EditorModel
     let blur: Bool
+    var screenBlur = true         // false: wallpaper / image backgrounds, which start unblurred
     var body: some View {
         ChoiceRow("Format", selection: Binding(get: { AspectPreset(rawValue: model.string("canvas.aspect", default: "source")) ?? .auto },
                                                set: { model.setAspect($0) }),
                   options: AspectPreset.allCases.map { ($0.label, $0) }, forceMenu: true)
         if blur {
-            NumberRow(model: model, title: "Background blur", path: "canvas.background.blur", range: 0...100, format: "%.0f", defaultValue: model.factoryDefault(backgroundBlur: true))
+            NumberRow(model: model, title: "Background blur", path: "canvas.background.blur", range: 0...100, format: "%.0f", defaultValue: screenBlur ? model.factoryDefault(backgroundBlur: true) : 0)
         }
         PaddingRow(model: model)
         NumberRow(model: model, title: "Rounded corners", path: "canvas.radius", range: 0...128, unit: "pt", format: "%.0f", defaultValue: model.factoryDefault(radius: true), snaps: [0, 12, 16, 20, 26])

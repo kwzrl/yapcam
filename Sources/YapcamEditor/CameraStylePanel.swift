@@ -52,7 +52,8 @@ struct CameraStylePanel: View {
     @ViewBuilder private var shape: some View {
         PickerRow(model: model, title: "Shape", path: "camera.shape",
                   options: [("Rounded rectangle", "rounded_rect"), ("Circle", "circle"), ("Squircle", "squircle")])
-        NumberRow(model: model, title: "Corner radius", path: "camera.radius", range: 0...64, unit: "pt", format: "%.0f", defaultValue: 24)
+        CommitSlider(title: "Roundness", range: 0...1, get: { model.cameraRoundness }, commit: { model.setCameraRoundness($0) },
+                     text: { "\(Int(($0 * 100).rounded())) %" }, defaultValue: CameraPlacement.defaultRadius / CameraPlacement.roundnessMaxRadius)
         NumberRow(model: model, title: "Opacity", path: "camera.opacity", range: 0...1, defaultValue: 1)
         NumberRow(model: model, title: "Shadow", path: "camera.shadow_radius", range: 0...60, unit: "pt", format: "%.0f", defaultValue: 0)
         InspectorMore("Crop camera", value: cropValue) { CropSection(model: model, path: "camera.style.crop", title: "") }

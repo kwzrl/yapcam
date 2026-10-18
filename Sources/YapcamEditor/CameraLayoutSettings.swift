@@ -11,6 +11,7 @@ struct CameraLayoutSettings: View {
     var body: some View {
         InspectorGroup("Camera", first: true) {
             ToggleRow(model: model, title: "Show camera", path: "camera.visible", defaultValue: true)
+            ToggleRow(model: model, title: "Mirror camera", path: "camera.mirrored", defaultValue: true)
             ChoiceRow("Layout", selection: Binding(get: { mode }, set: { model.setCameraLayoutMode($0) }),
                       options: [("Overlay", "overlay"), ("Cutout", "cutout"), ("Split", "split")])
         }
@@ -137,6 +138,7 @@ struct LayoutOwnSettings: View {
                      text: { v in pct ? "\(Int((v * 100).rounded())) %" : String(format: unit.isEmpty ? "%.2f" : "%.0f", v) + (unit.isEmpty ? "" : " \(unit)") })
     }
     var body: some View {
+        if layout.mode == "overlay" { LayoutPlacementRows(model: model, layout: layout) }
         SwitchRow("Own settings for this section", isOn: Binding(get: { layout.settings != nil }, set: { model.setLayoutOwnSettings(id: layout.id, $0) }))
         if layout.settings != nil {
             switch layout.mode {
@@ -145,8 +147,7 @@ struct LayoutOwnSettings: View {
                 slider("Edge softness", "edge_softness", 0...1, 0.2)
                 slider("Edge inset", "edge_inset", 0...8, 0, unit: "px")
             case "split": splitRows
-            default:
-                InspectorNote("Overlay position and size use the camera settings.")
+            default: EmptyView()
             }
         }
     }

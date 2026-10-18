@@ -69,7 +69,7 @@ extension EditorModel {
 
     public func importMusicFile(_ url: URL) {
         guard !isClosed else { return }
-        let start = playheadNs
+        let start = music.isEmpty ? 0 : playheadNs          // the first background audio covers the whole video
         musicTask = Task { [weak self] in
             guard let self, !isClosed else { return }
             do {
@@ -120,11 +120,17 @@ extension EditorModel {
     }
     public func musicTracks(in category: String) -> [LibraryTrack] { project.musicLibrary.filter { $0.category == category } }
 
-    /// Adds a library track at the playhead, running to the end of the timeline (one undo step; looping, 5 % volume).
+    /// Picks a library track as the one background track: it covers the whole timeline (looping, 5 % volume) and replaces any
+    /// earlier library track (CAM-37). Own files stay. Replacing is a separate undo step from adding.
     public func addLibraryMusic(trackID: String) {
         guard !isClosed else { return }
-        let start = playheadNs
+        let start: Int64 = 0
         guard durationNs - start >= minItemNs else { lastError = "Not enough room here."; return }
+        if music.contains(where: { $0.source == trackID }) { return }       // already the active track
+        if music.contains(where: { $0.source != "file" }) {
+            let keep = rawMusicRowsForPatch().filter { if case .object(let o) = $0, case .string(let s)? = o["source"] { s == "file" } else { true } }
+            set("audio.music", .array(keep))
+        }
         musicTask = Task { [weak self] in
             guard let self, !isClosed else { return }
             do {
@@ -175,7 +181,7 @@ extension EditorModel {
 
     // The user's own audio folder (the reference's "audio library folder"): files in it are listed and added from the panel.
     public static var defaultMusicFolder: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/Yapcam/Audio Library", isDirectory: true) }
-    public static let musicFileExtensions: Set<String> = ["wav", "mp3", "m4a", "aac", "aif", "aiff", "caf", "flac"]
+    public static let musicFileExtensions: Set<String> = ["wav", "mp3", "m4a", "aac", "aif", "aiff", "caf", "flac", "mp4", "mov", "m4v"]
     public func userMusicFiles() -> [URL] {
         let files = (try? FileManager.default.contentsOfDirectory(at: userMusicFolder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
         return files.filter { Self.musicFileExtensions.contains($0.pathExtension.lowercased()) }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
