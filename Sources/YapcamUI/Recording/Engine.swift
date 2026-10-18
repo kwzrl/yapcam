@@ -1,3 +1,4 @@
+import CoreMedia
 import AppKit
 import YapcamCapture
 
@@ -37,6 +38,13 @@ enum EngineError: LocalizedError {
     var errorDescription: String? { UserMessage.describe(self) }
 }
 
+/// What the recording's own camera stream tells the floating preview (so no second camera session is opened).
+struct CameraFrame: @unchecked Sendable { let sampleBuffer: CMSampleBuffer }
+enum CameraPreviewFeed: Sendable {
+    case frame(CameraFrame)
+    case unavailable(String)
+}
+
 /// One recording in flight. The only place the app talks to the capture layer.
 @MainActor protocol EngineSession: AnyObject {
     var elapsed: TimeInterval { get }
@@ -46,6 +54,8 @@ enum EngineError: LocalizedError {
     var failure: EngineError? { get }
     /// The recording folder once capture has created it.
     var packageURL: URL? { get }
+    /// Set before `start()`; called on the main actor with the newest camera frame, or once when the camera is lost.
+    var cameraFeed: (@MainActor @Sendable (CameraPreviewFeed) -> Void)? { get set }
     func start() async throws
     func pause() async throws
     func resume() async throws
@@ -68,3 +78,8 @@ enum EngineError: LocalizedError {
 extension RecordingEngine { func preflight(_ options: UIRecordingOptions) async -> [PreflightIssue] { [] } }
 
 extension EngineSession { var packageURL: URL? { nil } }
+
+extension EngineSession {
+    /// Engines without a camera stream (test doubles) ignore the feed.
+    var cameraFeed: (@MainActor @Sendable (CameraPreviewFeed) -> Void)? { get { nil } set {} }
+}

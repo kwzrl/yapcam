@@ -45,4 +45,18 @@ import YapcamCore
         #expect(TranscriptionWiring.localeIdentifier(for: "", system: "en_US") == "auto")
         #expect(TranscriptionWiring.localeIdentifier(for: "de-DE", system: "en_US") == "de-DE")
     }
+
+    @Test func previewUsesItsOwnSessionOnlyUntilCaptureOwnsTheCamera() {
+        for p in [RecordingPhase.idle, .countdown(3), .finishing] { #expect(CameraPreviewPanel.source(for: p) == .standalone) }
+        for p in [RecordingPhase.starting, .recording, .paused] { #expect(CameraPreviewPanel.source(for: p) == .recording) }
+    }
+
+    @Test func lostCameraShowsAPlaceholderWithTheReason() {
+        #expect(CameraPreviewPanel.disconnectedText("") == "Camera disconnected")
+        #expect(CameraPreviewPanel.disconnectedText("Unplugged") == "Camera disconnected\nUnplugged")
+        let panel = CameraPreviewPanel()
+        #expect(panel.placeholderText == nil)
+        panel.receive(.unavailable("Unplugged"))
+        #expect(panel.placeholderText == "Camera disconnected\nUnplugged")
+    }
 }

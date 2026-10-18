@@ -300,6 +300,7 @@ enum RecordingPhase: Equatable {
         let playSound = settings.playSounds
         let player = cuePlayer
         let s = engine.makeSession(options)
+        s.cameraFeed = { CameraPreviewPanel.shared.receive($0) }
         session = s
         elapsed = 0
         startTask = Task {
