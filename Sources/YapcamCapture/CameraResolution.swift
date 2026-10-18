@@ -11,6 +11,13 @@ public enum CameraMaxResolution: Int, CaseIterable, Codable, Sendable {
     }
 }
 
+/// Camera capture cadence is independent of screen cadence. Thirty frames per
+/// second is the default; callers may explicitly opt in to 60 when supported.
+public enum CameraFrameRate: Int, CaseIterable, Codable, Sendable {
+    case fps30 = 30
+    case fps60 = 60
+}
+
 struct CameraFormatChoice: Equatable {
     var index: Int
     var width: Int
@@ -26,12 +33,19 @@ struct CameraFormatCandidate {
 }
 
 public enum CameraFormatPolicy {
+    /// Kept as a pure boundary so screen refresh can never silently select the
+    /// camera cadence again. `screenMaxFPS` is intentionally ignored.
+    static func captureFPS(_ requested: CameraFrameRate, screenMaxFPS: Int) -> Int {
+        _ = screenMaxFPS
+        return requested.rawValue
+    }
+
     /// Read-only preview of the format recording would select. The default camera
-    /// request is 60 fps with the same 30/29.97 fallback as recording. Pass 30 when
-    /// recording an explicit lower-rate source. Does not prompt or configure a device.
+    /// request is 30 fps, independently of the screen refresh rate. Pass 60 only
+    /// for an explicit high-rate camera setting. Does not prompt or configure a device.
     /// nil means permission/device/compatible format is unavailable.
     @MainActor public static func effectiveSize(deviceID: String, maximum: CameraMaxResolution,
-                                                fps: Int = 60) -> (width: Int, height: Int)? {
+                                                fps: Int = CameraFrameRate.fps30.rawValue) -> (width: Int, height: Int)? {
         effectiveSize(deviceID: deviceID, maximum: maximum, fps: fps, formatsForDevice: { id in
             guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized,
                   let device = AVCaptureDevice(uniqueID: id), device.isConnected,

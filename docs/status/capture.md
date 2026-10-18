@@ -1,9 +1,78 @@
-READY R7 b670fd4+worktree | CAM-46 camera relay, CAM-27 automatic locale, REC B-06 clean voice, MKT-107 stereo mic | 191 capture tests / 7 suites pass
+READY R7 fff0368+worktree | CAM-46, CAM-27, REC B-06, MKT-107 merged; R7b MKT-097 camera 30/60 fps policy ready; consumer requests and dependency-bound P2 rows documented | YapcamCaptureTests 192 pass / 7 suites; live camera/mic/Speech not verified
 
-R7 CAM-46 | b670fd4+worktree | lifecycleFakeCameraFramesReachPreviewAndDisconnectStopsDelivery | live: not verified (no camera/app launch)
-R7 CAM-27 | b670fd4+worktree | automaticLanguageDetectionRetranscribesGermanAndPersistsDetectedLocale | live: not verified (no Speech permission/model run)
-R7 REC-B-06 | b670fd4+worktree | recordTimeCleanVoiceFlagIsAppliedOnlyToMicrophoneMetadata | live: not verified (no microphone/app launch)
-R7 MKT-107 | b670fd4+worktree | requestedStereoMicrophonePublishesTwoChannelMicTrack | live: not verified (no stereo microphone/app launch)
+R7 MKT-097 | fff0368+worktree | cameraFrameRateDefaultsToThirtyIndependentOfScreenCadence | live: not verified (no camera hardware)
+
+## Round 7b — requests, remaining research and polish
+
+- Current status-file audit found no new **From qa** capture item. UI's request
+  for `CameraFormatPolicy.effectiveSize` and Render's request for positive cursor
+  `shape` metadata are already present on integrated main, with regressions.
+- **MKT-097 delivered:** `RecordingOptions.cameraFrameRate` is a typed 30/60
+  setting with default and legacy migration at 30. Camera cadence no longer follows
+  screen refresh. The same default reaches the public effective-size query, and a
+  pure production boundary verifies 30/60 choices against 30/60/120/144 Hz screens.
+  Request UI: persist a 30/60 **Camera frame rate** setting (default 30) and pass
+  it as `UIRecordingOptions.cameraFrameRate` →
+  `RecordingOptions.cameraFrameRate`; capture is already correct when UI omits it.
+- **MKT-044:** explicitly skipped by the research spec (no cloud/server path).
+- **CAM-25/26 / MKT-045 remains dependency-blocked:** the repository has no
+  bundled whisper.cpp runtime, signed model manifest (URLs, byte sizes, SHA-256),
+  model resources, or `en_clean` fixture. A Homebrew/Python executable on this
+  development Mac is not a shipping dependency. Required inputs are a redistributable
+  signed runtime/model manifest and fixture; then Capture owns checksum/download,
+  runner, timestamps, keyterm prompt and automatic-language tests.
+- **MKT-148 remains architecture-blocked:** the microphone is captured through
+  `AVCaptureAudioDataOutput`, which exposes PCM output settings but no automatic
+  gain control. Apple's AGC is a property of a voice-processing
+  `AVAudioInputNode`; switching only this option therefore requires a second,
+  device-selectable `AVAudioEngine` microphone backend with host-clock, stereo,
+  pause/resume and disconnect parity. Do not label normalization metadata or a
+  custom sample multiplier as voice-processing AGC. No inert flag was added.
+- **MKT-210 is Render + Editor owned by its build spec.** Capture's existing
+  `VoiceIsolationService` is available for their offline file-processing stage.
+
+Polish audit: the camera relay is latest-frame-only, never backpressures the
+writer, generation-rejects stale pause/resume delivery, retains normal pause as
+no-signal (so UI may dim its last frame), and publishes the exact disconnect
+reason while suppressing all later camera samples. Transcription errors retain
+actionable locale/model detail and never silently choose a network recognizer.
+
+R7 INTEGRATION-1 | fff0368 | capture consumer API audit | live: not verified; four static wiring misses routed to ui
+
+## Integration 1 audit — UI handoff
+
+Capture source and tests are merged cleanly, but the integrated UI does not yet
+consume the new APIs. The aggregate suite is green because capture-provider and UI
+tests exercise separate paths. Exact UI-owned fixes:
+
+- **CAM-46:** `EngineSession` has no `cameraPreviewHandler`, and
+  `LiveEngine.Session` never forwards to `RecordingSession.cameraPreviewHandler`.
+  Add the optional handler with type
+  `(@MainActor @Sendable (CameraPreviewUpdate) -> Void)?`, forward it, and feed the
+  recording panel's display layer from those updates. Stop the standalone camera
+  session before recording; do not open a second one.
+- **CAM-27:** `TranscriptionWiring.localeIdentifier(for:)` still maps Auto to the
+  system identifier, so capture's automatic detection is unreachable. Return the
+  literal `"auto"` for empty/Auto and leave forced locale identifiers unchanged.
+- **REC B-06:** the UI applies the current `AppSettings.cleanVoiceOnRecord` only
+  when a project is later created. `UIRecordingOptions` and
+  `LiveEngine.captureOptions(for:)` never pass
+  `RecordingOptions.cleanVoiceOnRecord`, defeating the session snapshot and making
+  delayed/recovered projects depend on a possibly changed preference. Pass the
+  Boolean at record start and apply the persisted
+  `tracks.mic.speech_enhancement` after `applyInitialLook`.
+- **MKT-107:** no `recordStereoMicrophone` setting, popover row, or
+  `UIRecordingOptions` transport exists. Add the default-off persisted setting,
+  show **Record stereo microphone** only with a selected mic, pass
+  `RecordingOptions.recordStereoMicrophone`, and apply persisted
+  `tracks.mic.stereo_mic` to project `audio.stereo_mic` after the initial look.
+
+The remaining Capture research dispositions are in the Round 7b section above.
+
+R7 CAM-46 | fff0368 | lifecycleFakeCameraFramesReachPreviewAndDisconnectStopsDelivery | live: not verified (no camera/app launch)
+R7 CAM-27 | fff0368 | automaticLanguageDetectionRetranscribesGermanAndPersistsDetectedLocale | live: not verified (no Speech permission/model run)
+R7 REC-B-06 | fff0368 | recordTimeCleanVoiceFlagIsAppliedOnlyToMicrophoneMetadata | live: not verified (no microphone/app launch)
+R7 MKT-107 | fff0368 | requestedStereoMicrophonePublishesTwoChannelMicTrack | live: not verified (no stereo microphone/app launch)
 
 ## Round 7 implementation
 
@@ -69,9 +138,10 @@ R7 MKT-107 | b670fd4+worktree | requestedStereoMicrophonePublishesTwoChannelMicT
   `recording/session.json`'s `tracks.mic.stereo_mic == true` to project path
   `audio.stereo_mic = true`, so editor preview/export preserves both captured
   channels; false continues the existing mono mix.
-- **Validation:** isolated full suite passed **191 tests in 7 suites** in 44.783s;
-  native/hardware opt-ins were skipped. Focused CAM-46, CAM-27, REC B-06 on/off,
-  and old-options compatibility regressions all pass. `git diff --check` passes.
+- **Validation:** after the Round 7b camera-rate addition, the isolated full suite
+  passed **192 tests in 7 suites** in 49.184s; native/hardware opt-ins were
+  skipped. CAM-46, CAM-27, REC B-06, MKT-107, MKT-097 and old-options
+  compatibility regressions all pass. `git diff --check` passes.
 - Git metadata is sandbox read-only; Lead must commit/push the owned worktree at
   the integration checkpoint.
 
