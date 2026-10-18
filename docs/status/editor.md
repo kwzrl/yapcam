@@ -427,7 +427,11 @@ R7 MKT-145 | (this commit) | `ViewStateTests.undoKeepsThePlayheadOnTheSameSource
 R7 MKT-142 | (this commit) | `ViewStateTests.applyToAllToastsAndPanelsToggleWithKeys` | live: not verified; capsule toast under the preview after "apply to all" (speed, zoom level)
 R7 MKT-182 | (this commit) | same test | live: not verified; ⌘\ hides/shows the inspector, ⇧⌘\ the timeline (ui may add View menu items: `model.sidebarHidden` / `timelineHidden`)
 
+R7 MKT-125 (zooms part) | (this commit) | `MultiSelectBatchTests.digitSetsEverySelectedZoomAndOneUndoRestoresThem` | live: not verified; a level key (1-9, 0, =, -) and D act on all ⌘/⇧-selected zooms in one undo step. Not done: multi-select of layouts/masks/clips, layout paste keeping all settings
+R7 MKT-161/109 | NOT done | - | needs core: a query listing each captured chord occurrence with `text`, `is_shortcut`, `tl_ns` (today `key_events` rows carry no chord text and `key_overlay_shortcuts` has no times). Then the editor adds a Keystrokes lane whose chips toggle `hidden_shortcuts`
+
 ## R7 requests
+- core (MKT-161): additive query `key_chips` -> [{text, is_shortcut, hidden, tl_ns, src_ns}] for the timeline Keystrokes lane.
 - render: `AudioScrubber` conforming to editor's `AudioScrubbing` (`scrub(toNs:velocityNsPerSec:)`, `stopScrubbing()`), ~40 ms crossfaded grains from the mixed program audio, silence after 80 ms without movement. Then the app sets `EditorModel.audioScrubber` and the editor adds the transport switch.
 - ~~core: `merge_clips{left_id}` (S-EDT-26: valid when `a.src_end == b.src_start` and equal speed). The menu entries "Merge with next/previous" are left out until it exists (a disabled item that can never work would be decorative).~~ landed in team/core; wired in R7 follow-up (see rows).
 - inspector: `CommandPalette.swift` "Copy item settings" still shows the shortcut "⌘C" — ⌘C now copies the frame; drop the shortcut label (settings copy is in the timeline menus). Also palette entries for "Merge clips" later. `Music.swift` needs a `duplicateMusic(id:)` (raw rows are private there) so the music chip's menu can offer Duplicate.

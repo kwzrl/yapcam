@@ -86,3 +86,20 @@ import Testing
         #expect(m.handleShortcut("\\", [.command, .shift]) && m.timelineHidden)
     }
 }
+
+@MainActor @Suite struct MultiSelectBatchTests {
+    static let sec: Int64 = 1_000_000_000
+    @Test func digitSetsEverySelectedZoomAndOneUndoRestoresThem() {
+        let m = EditorModel(project: FakeProject(durationNs: 30 * Self.sec), player: FakePlayer())
+        for i in 0..<3 { m.addZoom(fromNs: Int64(i) * 8 * Self.sec) }
+        #expect(m.zooms.count == 3)
+        m.selection = .zoom(m.zooms[0].id); m.extraZoomSelection = [m.zooms[1].id, m.zooms[2].id]
+        let before = m.zooms.map(\.scale)
+        #expect(m.handleShortcut("3"))
+        #expect(m.zooms.allSatisfy { abs($0.scale - zoomLevel(forDigit: 3)) < 1e-9 })
+        m.toggleSelectedZoomEnabled()
+        #expect(m.zooms.allSatisfy { !$0.enabled })
+        m.undo(); m.undo()
+        #expect(m.zooms.map(\.scale) == before)
+    }
+}

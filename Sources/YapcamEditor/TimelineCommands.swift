@@ -98,8 +98,11 @@ extension EditorModel {
     public func setSelectedZoomLevel(_ level: Double, coalesce: Bool = false) {
         guard let z = selectedZoom else { return }
         let l = min(max(level, zoomLevelRange.lowerBound), zoomLevelRange.upperBound)
-        let cmd = EditorCommand.updateZoom(id: z.id, startNs: nil, endNs: nil, scale: l, focusX: nil, focusY: nil)
-        perform(coalesce ? .coalesced(key: "zoom-level:\(z.id)", command: cmd) : cmd)
+        // MKT-125: with several zooms selected (⌘/⇧-click) the level goes to all of them in one undo step.
+        let ids = selectedZoomIDs
+        let cmd = ids.count > 1 ? EditorCommand.batch(ids.map { .updateZoom(id: $0, startNs: nil, endNs: nil, scale: l, focusX: nil, focusY: nil) })
+                                : EditorCommand.updateZoom(id: z.id, startNs: nil, endNs: nil, scale: l, focusX: nil, focusY: nil)
+        perform(coalesce ? .coalesced(key: "zoom-level:\(ids.joined(separator: ","))", command: cmd) : cmd)
     }
     public func stepSelectedZoomLevel(by delta: Double) { if let z = selectedZoom { setSelectedZoomLevel(((z.scale + delta) * 10).rounded() / 10, coalesce: true) } }
     /// Everything of a zoom that a copy of it must keep (level, focus, mode, style/lens, enabled, easing).
@@ -110,7 +113,18 @@ extension EditorModel {
         else { p["style"] = .string("classic") }
         return p
     }
-    public func toggleSelectedZoomEnabled() { if let z = selectedZoom { setZoomEnabled(id: z.id, !z.enabled) } }
+    /// The primary selected zoom first, then the ⌘/⇧-click extras that still exist (timeline order).
+    var selectedZoomIDs: [String] {
+        guard let z = selectedZoom else { return [] }
+        return [z.id] + zooms.map(\.id).filter { extraZoomSelection.contains($0) && $0 != z.id }
+    }
+    /// Enable/disable: every selected zoom follows the primary one, flipped (one undo step).
+    public func toggleSelectedZoomEnabled() {
+        guard let z = selectedZoom else { return }
+        let ids = selectedZoomIDs
+        if ids.count > 1 { perform(.batch(ids.map { .updateZoom(id: $0, startNs: nil, endNs: nil, scale: nil, focusX: nil, focusY: nil, enabled: !z.enabled) })) }
+        else { setZoomEnabled(id: z.id, !z.enabled) }
+    }
     public func duplicateSelectedZoom() {
         guard let z = selectedZoom else { return }
         let len = z.endNs - z.startNs
