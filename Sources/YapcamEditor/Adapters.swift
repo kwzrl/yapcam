@@ -86,6 +86,10 @@ public final class CoreEditingProject: EditingProject {
     }
     private var keyCache: [Int64] = []
     public var keyTimesNs: [Int64] { _ = clickTimesNs; return keyCache }
+    public var supportsAudioScrubbing: Bool { true }
+    public func makeAudioScrubber() async throws -> (any AudioScrubbing)? {
+        try await AudioScrubber.prepare(project: ProjectRenderSource(try project.snapshot()))
+    }
     public func keyChords() -> [KeyChord] {
         ((try? project.keyOverlayShortcuts()) ?? []).map { KeyChord(text: $0.text, isShortcut: $0.isShortcut, hidden: $0.hidden) }
     }

@@ -195,6 +195,9 @@ public protocol EditingProject: AnyObject {
     var cameraPixelSize: (width: Int, height: Int)? { get }
     /// The recording has cursor movement data (not an external device) / typed keys were recorded.
     var hasMouseData: Bool { get }
+    /// Audio scrubbing (S-EDT-31): whether this project can build a scrubber, and the scrubber over the current timeline.
+    var supportsAudioScrubbing: Bool { get }
+    func makeAudioScrubber() async throws -> (any AudioScrubbing)?
     var hasKeystrokes: Bool { get }
     var hasMic: Bool { get }
     func apply(_ command: EditorCommand) throws
@@ -363,6 +366,8 @@ public extension ExportEngine {
 }
 
 public extension EditingProject {
+    var supportsAudioScrubbing: Bool { false }
+    func makeAudioScrubber() async throws -> (any AudioScrubbing)? { nil }
     var markerTimesNs: [Int64] { [] }
     func waveformPoints() async throws -> [WavePoint] { [] }
     var cameraPixelSize: (width: Int, height: Int)? { nil }

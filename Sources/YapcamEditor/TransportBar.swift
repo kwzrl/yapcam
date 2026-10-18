@@ -93,6 +93,10 @@ private struct TimelineTools: View {
             IconSlot("plus.magnifyingglass", label: "Add zoom", help: "Add zoom at playhead (Z)") { model.addZoomAtPlayhead() }
             IconSlot("trash", label: "Delete selection", help: "Delete selection (⌫)") { model.deleteSelection() }
                 .disabled(model.selection == .none)
+            if model.canScrubAudio {
+                IconSlot("waveform", label: "Scrub audio", help: model.scrubAudioEnabled ? "Audio scrubbing on: dragging the playhead plays sound" : "Audio scrubbing: hear the recording while dragging the playhead",
+                         active: model.scrubAudioEnabled) { model.setScrubAudio(!model.scrubAudioEnabled) }
+            }
             IconSlot("arrow.right.and.line.vertical.and.arrow.left", label: "Snapping", help: "Snapping", active: model.snappingEnabled) { model.snappingEnabled.toggle() }
         }
     }

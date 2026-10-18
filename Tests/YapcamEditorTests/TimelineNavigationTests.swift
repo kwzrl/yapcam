@@ -107,4 +107,24 @@ import Testing
         #expect(spy.grains.count == 1 && spy.grains[0].0 == 3_000_000_000 && spy.grains[0].1 == 2_000_000_000)
         m.endAudioScrub(); #expect(spy.stops == 1)
     }
+
+    @Test func switchBuildsTheScrubberAndEditsRebuildItUntilSwitchedOff() async throws {
+        let iso = EditorStorage.makeIsolated(); defer { iso.cleanup() }
+        let p = FakeProject(durationNs: 10_000_000_000)
+        p.scrubberFactory = { Spy() }
+        let m = EditorModel(project: p, player: FakePlayer()); m.defaults = iso.defaults
+        #expect(m.canScrubAudio && m.audioScrubber == nil)
+        func wait(_ ok: () -> Bool) async { for _ in 0..<200 where !ok() { try? await Task.sleep(for: .milliseconds(25)) } }
+        m.setScrubAudio(true)
+        await wait { m.audioScrubber != nil }
+        #expect(m.audioScrubber != nil && p.scrubbersBuilt == 1)
+        m.seek(toNs: 4_000_000_000); m.splitAtPlayhead()                         // stale after an edit: rebuilt
+        #expect(m.audioScrubber == nil)
+        await wait { m.audioScrubber != nil }
+        #expect(m.audioScrubber != nil && p.scrubbersBuilt == 2)
+        m.setScrubAudio(false)
+        #expect(m.audioScrubber == nil && !m.scrubAudioEnabled)
+        let plain = EditorModel(project: FakeProject(durationNs: 1_000_000_000), player: FakePlayer())
+        #expect(!plain.canScrubAudio)                                            // no switch where there is nothing to scrub
+    }
 }
