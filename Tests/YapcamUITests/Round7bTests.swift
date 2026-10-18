@@ -130,4 +130,12 @@ import YapcamCore
         BusyHUD.shared.show(text); #expect(BusyHUD.shared.isShowing)
         BusyHUD.shared.hide(); #expect(!BusyHUD.shared.isShowing)
     }
+
+    @Test func onlyAWindowTakeRaisesAWindow() {
+        #expect(RecordingController.windowToRaise(.window(42), enabled: true) == 42)
+        #expect(RecordingController.windowToRaise(.window(42), enabled: false) == nil)
+        #expect(RecordingController.windowToRaise(.display(1), enabled: true) == nil)
+        let s = AppSettings(store: UserDefaults(suiteName: "r7b-raise-\(UUID())")!)
+        #expect(s.raiseWindowOnStart)
+    }
 }

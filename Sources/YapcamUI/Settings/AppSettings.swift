@@ -146,6 +146,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     /// Camera preview in the picker's camera menu ("Hide camera preview").
     /// Area picker: darken the screen outside the chosen area (off keeps only the outline).
     @Published var dimAreaOutside: Bool { didSet { d.set(dimAreaOutside, forKey: "dimAreaOutside") } }
+    /// Recording a window: bring it to the front when the take starts (needs Accessibility access).
+    @Published var raiseWindowOnStart: Bool { didSet { d.set(raiseWindowOnStart, forKey: "raiseWindowOnStart") } }
     @Published var hideCameraPreview: Bool { didSet { d.set(hideCameraPreview, forKey: "hideCameraPreview") } }
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
     @Published var showMenuBarItem: Bool { didSet { d.set(showMenuBarItem, forKey: "showMenuBarItem") } }
@@ -229,6 +231,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         hideDockWhileRecording = d.object(forKey: "hideDockWhileRecording") as? Bool ?? true
         showRecentsWithPicker = d.object(forKey: "showRecentsWithPicker") as? Bool ?? false
         hideCameraPreview = d.object(forKey: "hideCameraPreview") as? Bool ?? false
+        raiseWindowOnStart = d.object(forKey: "raiseWindowOnStart") as? Bool ?? true
         dimAreaOutside = d.object(forKey: "dimAreaOutside") as? Bool ?? true
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
@@ -296,7 +299,7 @@ extension AppSettings {
         microphoneID = f.microphoneID; cameraID = f.cameraID; cameraMaxResolution = f.cameraMaxResolution
         countdown = f.countdown; recordKeystrokes = f.recordKeystrokes; maxFPS = f.maxFPS
         openEditorAfterRecording = f.openEditorAfterRecording; playSounds = f.playSounds; hideDesktopIcons = f.hideDesktopIcons; disableHardwareEncoding = f.disableHardwareEncoding; cleanVoiceOnRecord = f.cleanVoiceOnRecord; recordStereoMicrophone = f.recordStereoMicrophone
-        hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview; dimAreaOutside = f.dimAreaOutside
+        hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview; dimAreaOutside = f.dimAreaOutside; raiseWindowOnStart = f.raiseWindowOnStart
         showInDock = f.showInDock; showMenuBarItem = f.showMenuBarItem
         shortcuts = f.shortcuts; highlightRecordedArea = f.highlightRecordedArea; savedWindowSizes = f.savedWindowSizes; savedAreaSizes = f.savedAreaSizes
         editorAppearance = f.editorAppearance; actionAfterQuickExport = f.actionAfterQuickExport; alwaysKeepProjectAfterQuickExport = f.alwaysKeepProjectAfterQuickExport; askKeepOnFirstClose = f.askKeepOnFirstClose; quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms

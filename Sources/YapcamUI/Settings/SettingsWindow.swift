@@ -92,6 +92,8 @@ struct RecordingSettings: View {
                 }
             }
             if let free = freeSpace { LabeledContent("Free space", value: ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) }
+            Toggle("Bring a recorded window to the front when recording starts", isOn: $s.raiseWindowOnStart)
+            Text("Needs Accessibility access. Without it the window stays where it is.").font(.caption).foregroundStyle(.secondary)
             Toggle("Dim the screen outside the area while choosing it", isOn: $s.dimAreaOutside)
             Toggle("Highlight recorded area during recording", isOn: $s.highlightRecordedArea)
             Toggle("Create zooms automatically", isOn: $s.createAutoZooms)

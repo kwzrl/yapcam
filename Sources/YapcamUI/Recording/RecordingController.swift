@@ -1,4 +1,5 @@
 import AppKit
+import YapcamCapture
 import SwiftUI
 import YapcamCore
 
@@ -268,7 +269,16 @@ enum RecordingPhase: Equatable {
 
     // MARK: Countdown
 
+    /// The window to bring to the front before a take (nil: nothing to raise).
+    static func windowToRaise(_ target: UITarget, enabled: Bool) -> UInt32? {
+        if enabled, case .window(let id) = target { return id }
+        return nil
+    }
+
     private func runCountdown(then options: UIRecordingOptions) {
+        if let id = Self.windowToRaise(options.target, enabled: settings.raiseWindowOnStart) {
+            try? CaptureWindowControl.raise(windowID: id)       // needs Accessibility; without it the window stays where it is
+        }
         let n = settings.countdown
         guard n > 0 else { startSession(options); return }
         skipRequested = false
