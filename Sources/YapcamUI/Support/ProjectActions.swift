@@ -262,8 +262,9 @@ import YapcamCore
     static func importVideo(_ video: URL) {
         let dir = AppSettings.shared.storageDirectory
         let pkg = reserveURL(in: dir, name: video.deletingPathExtension().lastPathComponent)
+        BusyHUD.shared.show(BusyHUD.importText(video))
         Task {
-            defer { release(pkg) }
+            defer { release(pkg); BusyHUD.shared.hide() }
             do {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 let imported = try await Project.importVideo(video, package: pkg)

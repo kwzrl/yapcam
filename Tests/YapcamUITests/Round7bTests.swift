@@ -116,4 +116,18 @@ import YapcamCore
         m.rename(to: "Demo: day/1"); #expect(m.title == "Demo- day-1" && m.renameError == nil)
         #expect(FileManager.default.fileExists(atPath: dir.appending(path: "Demo- day-1.yapcam").path))
     }
+
+    @Test func busyCaptionsSayWhatIsHappening() {
+        #expect(RecordingController.busyCaption(.finishing) == "Saving recording…")
+        #expect(RecordingController.busyCaption(.starting) == "Starting…")
+        #expect(RecordingController.busyHelp(.finishing).contains("Long recordings"))
+    }
+
+    @Test func importShowsALoaderUntilItIsDone() {
+        _ = NSApplication.shared
+        let text = BusyHUD.importText(URL(fileURLWithPath: "/tmp/fixture/clip.mov"))
+        #expect(text == "Importing “clip.mov”…")
+        BusyHUD.shared.show(text); #expect(BusyHUD.shared.isShowing)
+        BusyHUD.shared.hide(); #expect(!BusyHUD.shared.isShowing)
+    }
 }

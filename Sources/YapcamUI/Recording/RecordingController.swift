@@ -37,6 +37,18 @@ enum RecordingPhase: Equatable {
     @Published private(set) var countdownProgress = 0.0
     /// True when starting/finishing takes longer than 3 s: the widget then says "Working…".
     @Published private(set) var workingLong = false
+
+    /// What the toolbar says when a step takes more than a moment.
+    static func busyCaption(_ phase: RecordingPhase) -> String {
+        switch phase { case .finishing: "Saving recording…"; case .starting: "Starting…"; default: "Working…" }
+    }
+    static func busyHelp(_ phase: RecordingPhase) -> String {
+        switch phase {
+        case .finishing: "Yapcam is closing the files and preparing the project. Long recordings take longer; nothing is lost."
+        case .starting: "Waiting for the screen, camera and microphone to start."
+        default: "Still working."
+        }
+    }
     /// Markers added with the flag button or shortcut, in recording time (pauses excluded).
     @Published private(set) var markers: [Int64] = []
     /// The package of the last finished recording (quick export and "open last").
