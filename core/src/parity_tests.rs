@@ -18,6 +18,7 @@ fn revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projec
     assert_eq!(p.data.camera.layout_settings.corner_ratio, Some(0.15));
     assert_eq!(p.data.camera.layout_settings.edge_padding_ratio, 0.5);
     assert_eq!(p.data.cursor.loop_duration_ns, 1_000_000_000);
+    assert_eq!(p.data.cursor.click_duration_ns, 450_000_000);
     assert!(p.data.cursor.remove_shakes && p.data.cursor.optimize_types);
     assert_eq!(p.data.cursor.rotation_mode, "tilt");
     assert_eq!(p.data.cursor.tilt_amount, 0.5);
@@ -93,6 +94,7 @@ fn revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projec
     assert_eq!(decoded.camera.layout_settings.edge_padding_ratio, 0.0);
     assert_eq!(decoded.camera.size, 0.22);
     assert!(decoded.camera.mirrored);
+    assert_eq!(decoded.cursor.click_duration_ns, 400_000_000);
 }
 
 #[test]

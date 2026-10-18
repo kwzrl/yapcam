@@ -173,7 +173,7 @@ loading a version-0 spring preserves its legacy bounds and response.
 | `cursor.hide_when_idle` | boolean | false |
 | `cursor.idle_timeout_ns` | nonnegative Int64 ns | 2000000000 |
 | `cursor.click_effect` | none / ring / highlight | ring |
-| `cursor.click_duration_ns` | positive Int64 ns | 400000000 |
+| `cursor.click_duration_ns` | positive Int64 ns | 400000000 legacy missing-field value; revision-4 factory writes 450000000 |
 | `cursor.speed_preset` | custom / slow / mellow / quick / rapid / smooth / medium / none | custom |
 | `cursor.spring.tension` | 5…600 on edit; legacy version-0 decode 1…2000 | 250 |
 | `cursor.spring.friction` | 5…200 on edit; legacy version-0 decode 1…200 | 28 |
@@ -481,6 +481,9 @@ For `ring`, progress spans `cursor_click_duration_ns`. For `highlight`, it spans
 `cursor_click_duration_ns + 140 ms`, covering three ring lifetimes whose starts
 are staggered by 70 ms; Render recovers elapsed time by multiplying progress by
 that total and computes each local ring phase from the configured ring lifetime.
+This distinct Ripple contract is revision-4-only. Earlier revisions retain their
+400 ms single-ring pixels: an authored legacy `highlight` is evaluated as `ring`
+in render options and its frame clock ends after the stored 400 ms lifetime.
 
 `audio_overlays` rows: `{id,source,path,tl_start_ns,tl_end_ns,file_start_ns,
 file_duration_ns,loop,gain,gain_start,gain_end,fade_in_ns,fade_out_ns}`. Music splits
@@ -1138,6 +1141,13 @@ returns `{mode,settings,visible}`; time-specific render options agree. Swift
 cameraLayout(atNs:) returns CoreCameraLayout, and CoreRenderOptions.cameraLayout
 is optional for older libraries. Root layout settings/hide preference/minimum are
 portable style; per-range records and silence ranges remain project-specific.
+
+Revision 4 makes `mode:"camera"` an edge-to-edge aspect-fill camera with zero
+corner/shadow and a centered source crop, and animates layout/silence boundaries
+over the evaluated 350 ms window. Revisions 0–3 retain the previous byte-stable
+camera-only frame: aspect-fit inside the padded canvas, authored source crop,
+saved corner/shadow, and a hard layout cut. The same revision gate controls the
+supplemental `screen_opacity`/`camera_blur` transition values.
 
 
 ## Magnifying lens zoom (GAP-RND-5, Core contract)
