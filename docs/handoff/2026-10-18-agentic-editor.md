@@ -39,7 +39,16 @@ Durchgehend: 0 Schnitte im Wort, alle Füllwörter/Fehlstarts raus, Start 0,1 s 
 kein Zoom auf versehentliche Klicks, Unterhaltung ("mach kürzer", "undo") korrekt. Behoben über die Runden: Zoom auf
 leere neue Seite (auch ohne Fensterdaten), Tippen/Laden als Stille gekürzt, Kontext abgeschnitten (`include`),
 unlesbare Kontaktbögen. Letzter Bug (Runde 3): Intention-Tools erhöhten die Revision nicht, behoben in `db86998`
-mit Regressionstest. Runde 4 lief bei Übergabe noch (Branch `delegate/ae-eval`, Report-Abschnitt "Runde 4").
+mit Regressionstest. **Runde 4 bestätigt den Fix:** 0 Werkzeug-Fehler in allen Szenarien, Kosten pro Szenario
+0,13 bis 0,34 $ (Unterhaltung mit 3 Prompts 0,51 $), Beispiele in `core/agent-docs/examples/` auf `tool {arguments}`
+umgestellt (8b49577), danach keine falschen Aufrufe mehr.
+
+**Offener Rest (nächster Fix, ae-vision):** `view_changes` vergleicht die mittlere Differenz über das ganze Bild
+(Schwelle 0.005). Kleine, kontrastarme Meldungen im Dark Mode (ca. 1,7 % der Fläche) fallen darunter, deshalb
+markiert `toast_cut_short` die nur 0,4 s sichtbare "Invite sent"-Meldung im Changelog nicht. Vorschlag:
+kachelweise Differenz (z. B. 16×10, Kachel-Schwelle ca. 0.03 bis 0.05), Kachel unter Cursor/Caret ignorieren
+(`AgentFrameSignature` in `AgentVision.swift`). Regressionstest ohne Claude: Changelog-Golden, Schnitte aus Runde 3
+nachspielen, `check` muss `toast_cut_short` bei ca. 20,7 s melden.
 
 ## Bauen auf dem Mac mini
 
