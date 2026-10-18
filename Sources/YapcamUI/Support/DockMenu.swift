@@ -3,7 +3,7 @@ import AppKit
 /// What the Dock icon's right-click menu offers in each recording phase (REC-46). Pure, so the lists are testable.
 enum DockMenu {
     enum Kind: Equatable {
-        case finish, pauseResume, restart, cancel, cancelCountdown, settings, newRecording, openLast, keepInDock, separator
+        case finish, pauseResume, restart, cancel, cancelCountdown, settings, newRecording, projects, openLast, keepInDock, separator
     }
     struct Item: Equatable {
         var kind: Kind
@@ -15,7 +15,7 @@ enum DockMenu {
     static func items(phase: RecordingPhase, showInDock: Bool) -> [Item] {
         switch phase {
         case .idle:
-            return [Item(kind: .newRecording, title: "New Recording"), Item(kind: .openLast, title: "Open Last Recording"),
+            return [Item(kind: .newRecording, title: "New Recording"), Item(kind: .projects, title: "Projects"), Item(kind: .openLast, title: "Open Last Recording"),
                     Item(kind: .separator, title: ""), Item(kind: .settings, title: "Settings…"),
                     Item(kind: .keepInDock, title: "Keep in Dock", checked: showInDock)]
         case .countdown:

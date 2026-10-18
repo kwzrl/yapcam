@@ -4,7 +4,7 @@ import Carbon.HIToolbox
 /// Everything that has a keyboard shortcut. Global ones work from any app; the rest are menu shortcuts.
 enum HotkeyAction: String, CaseIterable, Identifiable {
     case startStop, recordDisplay, recordWindow, recordArea, pauseResume, restart, marker
-    case toggleWidget, prompterPlay, toggleNotes, cancel, quickExportCopy, quickExportSave, openLast
+    case toggleWidget, prompterPlay, toggleNotes, cancel, quickExportCopy, quickExportSave, openLast, switchPlace
     var id: String { rawValue }
 
     var title: String {
@@ -23,13 +23,14 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .quickExportCopy: "Quick export: copy to clipboard"
         case .quickExportSave: "Quick export: save to file"
         case .openLast: "Open last recording"
+        case .switchPlace: "Switch between toolbar and editor"
         }
     }
 
     /// Registered system-wide (works while another app is in front). The others are menu shortcuts.
     var isGlobal: Bool {
         switch self {
-        case .quickExportCopy, .quickExportSave, .openLast: false
+        case .quickExportCopy, .quickExportSave, .openLast, .switchPlace: false
         default: true
         }
     }
@@ -51,11 +52,17 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
         case .quickExportCopy: return KeyCombo(keyCode: UInt32(kVK_ANSI_C), modifiers: cmdOpt)
         case .quickExportSave: return KeyCombo(keyCode: UInt32(kVK_ANSI_S), modifiers: cmdOpt)
         case .openLast: return KeyCombo(keyCode: UInt32(kVK_ANSI_Z), modifiers: cmdOpt)
+        case .switchPlace: return KeyCombo(keyCode: KeyCombo.code(forLetter: "Y", fallback: kVK_ANSI_Y), modifiers: UInt32(cmdKey | shiftKey))
         }
     }
 }
 
 extension KeyCombo {
+    /// The key that types `letter` on the current keyboard layout (the letter keys move on QWERTZ and AZERTY).
+    static func code(forLetter letter: String, fallback: Int) -> UInt32 {
+        (0..<64).first { keyName(UInt32($0)).uppercased() == letter.uppercased() }.map(UInt32.init) ?? UInt32(fallback)
+    }
+
     /// "No shortcut" marker (the user cleared it).
     static let none = KeyCombo(keyCode: 0xFFFF, modifiers: 0)
     var isNone: Bool { keyCode == 0xFFFF }
@@ -134,6 +141,7 @@ extension KeyCombo {
         case .quickExportCopy: QuickExport.shared.runOnLast(.copy)
         case .quickExportSave: QuickExport.shared.runOnLast(.save)
         case .openLast: ProjectActions.openLast()
+        case .switchPlace: PlaceCoordinator.shared.switchPlace()
         }
     }
 }

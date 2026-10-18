@@ -84,7 +84,9 @@ import SwiftUI
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refit() }
     }
 
-    func hide() { panel.orderOut(nil); CameraPreviewPanel.shared.update() }
+    /// Posted when the toolbar is hidden (the editors hidden for a recording come back if nothing is being recorded).
+    static let didHide = Notification.Name("YapcamToolbarDidHide")
+    func hide() { panel.orderOut(nil); CameraPreviewPanel.shared.update(); NotificationCenter.default.post(name: Self.didHide, object: nil) }
     var isVertical: Bool { layout.vertical }
     func toggleVertical() { layout.vertical.toggle() }
 

@@ -517,8 +517,8 @@ enum RecordingPhase: Equatable {
             stopTicker()
             if let pkg = s.packageURL { PostRecording.salvage(package: pkg, notes: notes, markers: markers) }
             finish()
-            alert = AppAlert(title: "Recording stopped", message: UserMessage.describe(f) + " What was written to disk can be recovered from the Recordings window.")
-            RecentProjectsWindow.shared.show()
+            alert = AppAlert(title: "Recording stopped", message: UserMessage.describe(f) + " What was written to disk can be recovered from Projects.")
+            PlaceCoordinator.shared.showProjects()
         }
     }
 }

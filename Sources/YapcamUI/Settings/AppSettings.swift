@@ -149,6 +149,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     /// Recording a window: bring it to the front when the take starts (needs Accessibility access).
     @Published var raiseWindowOnStart: Bool { didSet { d.set(raiseWindowOnStart, forKey: "raiseWindowOnStart") } }
     @Published var hideCameraPreview: Bool { didSet { d.set(hideCameraPreview, forKey: "hideCameraPreview") } }
+    /// Settings ▸ General ▸ On launch show.
+    @Published var launchPlace: LaunchPlace { didSet { d.set(launchPlace.rawValue, forKey: "launchPlace") } }
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
     @Published var showMenuBarItem: Bool { didSet { d.set(showMenuBarItem, forKey: "showMenuBarItem") } }
     @Published var storageDirectory: URL { didSet { d.set(storageDirectory.path, forKey: "storageDirectory") } }
@@ -234,6 +236,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         raiseWindowOnStart = d.object(forKey: "raiseWindowOnStart") as? Bool ?? true
         dimAreaOutside = d.object(forKey: "dimAreaOutside") as? Bool ?? true
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true
+        launchPlace = LaunchPlace(rawValue: d.string(forKey: "launchPlace") ?? "") ?? .toolbar
         showMenuBarItem = d.object(forKey: "showMenuBarItem") as? Bool ?? true
         storageDirectory = d.string(forKey: "storageDirectory").map { URL(filePath: $0, directoryHint: .isDirectory) } ?? Self.defaultStorage
         shortcuts = (store.data(forKey: "shortcuts.v2").flatMap { try? JSONDecoder().decode([String: KeyCombo].self, from: $0) }) ?? [:]
@@ -299,7 +302,7 @@ extension AppSettings {
         microphoneID = f.microphoneID; cameraID = f.cameraID; cameraMaxResolution = f.cameraMaxResolution
         countdown = f.countdown; recordKeystrokes = f.recordKeystrokes; maxFPS = f.maxFPS
         openEditorAfterRecording = f.openEditorAfterRecording; playSounds = f.playSounds; hideDesktopIcons = f.hideDesktopIcons; disableHardwareEncoding = f.disableHardwareEncoding; cleanVoiceOnRecord = f.cleanVoiceOnRecord; recordStereoMicrophone = f.recordStereoMicrophone
-        hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview; dimAreaOutside = f.dimAreaOutside; raiseWindowOnStart = f.raiseWindowOnStart
+        hideDockWhileRecording = f.hideDockWhileRecording; showRecentsWithPicker = f.showRecentsWithPicker; hideCameraPreview = f.hideCameraPreview; dimAreaOutside = f.dimAreaOutside; launchPlace = f.launchPlace; raiseWindowOnStart = f.raiseWindowOnStart
         showInDock = f.showInDock; showMenuBarItem = f.showMenuBarItem
         shortcuts = f.shortcuts; highlightRecordedArea = f.highlightRecordedArea; savedWindowSizes = f.savedWindowSizes; savedAreaSizes = f.savedAreaSizes
         editorAppearance = f.editorAppearance; actionAfterQuickExport = f.actionAfterQuickExport; alwaysKeepProjectAfterQuickExport = f.alwaysKeepProjectAfterQuickExport; askKeepOnFirstClose = f.askKeepOnFirstClose; quickExport = f.quickExport; showRecordingWidget = f.showRecordingWidget; createAutoZooms = f.createAutoZooms

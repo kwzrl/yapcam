@@ -51,7 +51,7 @@ import AppKit
 
         menu.addItem(.separator())
         add("Settings…", key: KeyCombo(keyCode: 43, modifiers: UInt32(256))) { SettingsWindow.shared.show() }     // ⌘,
-        add("Projects…") { RecentProjectsWindow.shared.show() }
+        add("Projects…") { PlaceCoordinator.shared.showProjects() }
         add("Permissions…") { OnboardingWindow.shared.show(reason: nil, all: true) }
         menu.addItem(.separator())
         add("Hide Toolbar") { ToolbarPanelController.shared.hide() }

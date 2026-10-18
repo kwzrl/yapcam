@@ -109,7 +109,7 @@ import SwiftUI
         out.append(("popover-mic", { host(MicrophonePopover(), width: 280) }))
         out.append(("popover-camera", { host(CameraPopover(), width: 280) }))
         out.append(("popover-notes", { host(SpeakerNotesView().environmentObject(RecordingController.shared), width: 360) }))
-        out.append(("recordings", { host(RecentProjectsView(model: RecentProjectsWindow.shared.model).frame(height: 300), width: 560) }))
+        out.append(("recordings", { host(HomeView(model: ProjectsModel.shared).frame(height: 400), width: 760) }))
         out.append(("settings-general", { host(GeneralSettings().frame(height: 380), width: 520) }))
         out.append(("settings-recording", { host(RecordingSettings().frame(height: 380), width: 520) }))
         out.append(("settings-shortcuts", { host(ShortcutSettings().frame(height: 380), width: 520) }))

@@ -16,7 +16,7 @@ struct ToolbarView: View {
     @ObservedObject private var picker = PickerState.shared
     @ObservedObject private var recovery = RecoveryModel.shared
     @ObservedObject private var devices = DeviceModel.shared
-    @ObservedObject private var library = RecentProjectsWindow.shared.model
+    @ObservedObject private var library = ProjectsModel.shared
     @State private var open: ToolbarPopover?
 
     private var vertical: Bool { layout.vertical }
@@ -120,15 +120,23 @@ struct ToolbarView: View {
 
     /// Opens the latest recording in the editor; its first frame stands in for the icon.
     private var editButton: some View {
-        let last = library.projects.first
+        let last = library.projects.first(where: \.available)
         return ToolbarButton(symbol: "film", label: "Edit", help: last.map { "Open “\($0.name)” in the editor" } ?? "No recording to edit yet",
                              active: false, enabled: last != nil, compact: vertical, image: last.flatMap { library.thumbnails[$0.url] }) {
             guard let last else { return }
             open = nil
             rec.engine.openEditor(package: last.url)
         }
+        .contextMenu {
+            Button("Open Projects…") { PlaceCoordinator.shared.showProjects() }
+            let recent = Array(library.projects.filter(\.available).prefix(5))
+            if !recent.isEmpty {
+                Divider()
+                ForEach(recent) { p in Button(p.name) { rec.engine.openEditor(package: p.url) } }
+            }
+        }
         .onAppear { if let last { library.loadThumbnail(last) } }
-        .onChange(of: last?.url) { _, _ in if let first = library.projects.first { library.loadThumbnail(first) } }
+        .onChange(of: last?.url) { _, _ in if let first = library.projects.first(where: \.available) { library.loadThumbnail(first) } }
     }
 
     /// Display / Window / Area: one click selects the mode and shows its overlay with **Start recording**.

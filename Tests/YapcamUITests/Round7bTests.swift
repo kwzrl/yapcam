@@ -74,7 +74,7 @@ import YapcamCore
         let store = UserDefaults(suiteName: "r7b-win-\(UUID())")!
         store.set([1.0, 2.0], forKey: "cameraPreviewOrigin")
         store.set("x", forKey: ToolbarPanelController.positionKeyPrefix + "1")
-        store.set("x", forKey: "NSWindow Frame RecentProjects")
+        store.set("x", forKey: "NSWindow Frame YapcamHome")
         store.set(true, forKey: "playSounds")
         #expect(WindowPositions.resetAll(in: store) == 3)
         #expect(store.object(forKey: "cameraPreviewOrigin") == nil)

@@ -357,8 +357,8 @@ import YapcamCore
         case .alertFirstButtonReturn:
             var last: URL?
             for u in found { do { last = try engine.recover(u) } catch { Probe.log("recover failed \(u.lastPathComponent): \(error)") } }
-            if let last { engine.openEditor(package: last) } else { RecentProjectsWindow.shared.show() }
-        case .alertSecondButtonReturn: RecentProjectsWindow.shared.show()
+            if let last { engine.openEditor(package: last) } else { PlaceCoordinator.shared.showProjects() }
+        case .alertSecondButtonReturn: PlaceCoordinator.shared.showProjects()
         default: break
         }
     }

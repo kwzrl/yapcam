@@ -59,6 +59,7 @@ struct GeneralSettings: View {
                 loginError = LoginItem.set(on); loginOn = LoginItem.isEnabled
             }))
             if let loginError { Text(loginError).font(.caption).foregroundStyle(.orange) }
+            Picker("On launch show", selection: $s.launchPlace) { ForEach(LaunchPlace.allCases) { Text($0.label).tag($0) } }
             Toggle("Hide Dock Icon", isOn: Binding(get: { !s.showInDock }, set: { s.showInDock = !$0 }))
             Text("The icon only disappears while no project window is open.").font(.caption).foregroundStyle(.secondary)
             Toggle("Show menu bar item", isOn: $s.showMenuBarItem)

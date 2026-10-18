@@ -2,7 +2,7 @@ import Foundation
 
 /// Every window position Yapcam remembers, so one button can put them all back.
 @MainActor enum WindowPositions {
-    static let fixedKeys = ["cameraPreviewOrigin", "NSWindow Frame RecentProjects"]
+    static let fixedKeys = ["cameraPreviewOrigin", "NSWindow Frame YapcamHome"]
 
     /// Keys in `store` that hold a remembered window position.
     static func keys(in store: UserDefaults) -> [String] {

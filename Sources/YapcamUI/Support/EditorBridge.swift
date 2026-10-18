@@ -42,6 +42,10 @@ import YapcamEditor
         editors.last?.makeKeyAndOrderFront(nil)
     }
 
+    static func isEditorWindow(_ w: NSWindow) -> Bool {
+        w.windowController.map { find(EditorDocument.self, labeled: "editorDocument", in: $0) != nil } == true
+    }
+
     /// True when the app is active and an editor window is the key window.
     static var editorIsFrontAndKey: Bool {
         guard NSApp.isActive, let key = NSApp.keyWindow, let c = key.windowController else { return false }

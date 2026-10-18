@@ -51,12 +51,12 @@ import AppKit
             item("Quit Yapcam", #selector(NSApplication.terminate(_:)), "q", target: NSApp),
         ])
         add("File", [
+            item("New Recording", #selector(AppDelegate.newRecording), "n"),
             item("Open Recording…", #selector(AppDelegate.openProject), "o"),
             openRecentItem(),
             item("Import Video…", #selector(AppDelegate.importVideo), "i"),
             item("Import Preset…", #selector(AppDelegate.importPreset)),
             item("Recover Recording…", #selector(AppDelegate.recoverRecording)),
-            item("Recordings…", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
             item("Show Recordings Folder", #selector(AppDelegate.showStorageFolder)),
             .separator(),
             item("Save", #selector(AppDelegate.saveProject), "s"),
@@ -122,6 +122,10 @@ import AppKit
         add("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m", target: nil),
             item("Zoom", #selector(NSWindow.performZoom(_:)), target: nil),
+            .separator(),
+            shortcutItem("Toolbar", #selector(AppDelegate.showToolbarPlace), .toggleWidget),
+            item("Projects", #selector(AppDelegate.showRecordings), "r", mods: [.command, .shift]),
+            shortcutItem("Switch Toolbar / Editor", #selector(AppDelegate.switchPlace), .switchPlace),
         ])
         NSApp.windowsMenu = main.items.first { $0.title == "Window" }?.submenu
         _ = s
@@ -142,7 +146,7 @@ import AppKit
             let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = target; m.addItem(i)
         }
         m.addItem(.separator())
-        for (title, sel) in [("Recordings…", #selector(AppDelegate.showRecordings)),
+        for (title, sel) in [("Projects…", #selector(AppDelegate.showRecordings)),
                              ("Open Recording…", #selector(AppDelegate.openProject)),
                              ("Settings…", #selector(AppDelegate.showSettings))] {
             let i = NSMenuItem(title: title, action: sel, keyEquivalent: ""); i.target = target; m.addItem(i)

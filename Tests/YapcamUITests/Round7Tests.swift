@@ -13,7 +13,7 @@ import YapcamEditor
         func titles(_ p: RecordingPhase, dock: Bool = true) -> [String] { DockMenu.items(phase: p, showInDock: dock).filter { $0.kind != .separator }.map(\.title) }
         #expect(titles(.recording) == ["Finish Recording", "Pause Recording", "Restart Recording…", "Cancel Recording…", "Settings…"])
         #expect(titles(.paused) == ["Finish Recording", "Resume Recording", "Restart Recording…", "Cancel Recording…", "Settings…"])
-        #expect(titles(.idle) == ["New Recording", "Open Last Recording", "Settings…", "Keep in Dock"])
+        #expect(titles(.idle) == ["New Recording", "Projects", "Open Last Recording", "Settings…", "Keep in Dock"])
         #expect(titles(.countdown(3)) == ["Cancel Countdown"])
         #expect(DockMenu.items(phase: .starting, showInDock: true).first?.enabled == false)
         #expect(DockMenu.items(phase: .idle, showInDock: true).last?.checked == true)

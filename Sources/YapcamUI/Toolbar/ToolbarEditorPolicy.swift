@@ -52,6 +52,9 @@ struct ToolbarEditorPolicy: Equatable {
             .store(in: &bag)
     }
 
+    /// The user moved to the editor side on purpose: the toolbar steps aside and returns when the last editor closes.
+    func hideForEditor() { apply { $0.editorOpened(toolbarVisible: $1, recordingActive: RecordingController.shared.phase != .idle) } }
+
     /// Menu "Show/Hide Toolbar".
     func userToggled() { policy.userToggled() }
 

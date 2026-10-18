@@ -89,8 +89,13 @@ import YapcamEditor
         applyMenuBarItem()
         bindShortcuts()
 
-        ToolbarPanelController.shared.show()
+        let plan = AppSettings.shared.launchPlace.plan(editorsOpen: EditorWindows.openCount > 0)
+        if plan.toolbar { ToolbarPanelController.shared.show() }
         ToolbarEditorCoordinator.shared.start()
+        PlaceCoordinator.shared.start()
+        if plan.home { HomeWindow.shared.show() }
+        EditorWindows.onRecordRequested = { PlaceCoordinator.shared.newRecording() }
+        EditorWindows.onShowProjects = { PlaceCoordinator.shared.showProjects() }
         DesktopIcons.restoreIfNeeded()
         installTranscriber()
         PresetsFolder.apply(AppSettings.shared.presetsDirectory)
@@ -127,9 +132,12 @@ import YapcamEditor
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if RecordingController.shared.isRecording { RecordingController.shared.confirmFinish(); return false }
-        ToolbarPanelController.shared.show()
-        return true
+        switch ReopenDecision.decide(isRecording: RecordingController.shared.isRecording, editorSideExists: PlaceCoordinator.shared.editorSideExists) {
+        case .finishRecording: RecordingController.shared.confirmFinish()
+        case .showEditorSide: PlaceCoordinator.shared.showEditorSide()
+        case .showToolbar: PlaceCoordinator.shared.showToolbar()
+        }
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -280,6 +288,7 @@ import YapcamEditor
             case .cancelCountdown: sel = #selector(dockCancelCountdown)
             case .settings: sel = #selector(showSettings)
             case .newRecording: sel = #selector(dockNewRecording)
+            case .projects: sel = #selector(showRecordings)
             case .openLast: sel = #selector(openLastRecording)
             case .keepInDock: sel = #selector(dockToggleKeep)
             case .separator: continue
@@ -298,7 +307,7 @@ import YapcamEditor
     @objc func pickDisplay() { SourcePicker.open(.display) }
     @objc func pickWindow() { SourcePicker.open(.window) }
     @objc func pickArea() { SourcePicker.open(.area) }
-    @objc func dockNewRecording() { ToolbarPanelController.shared.show() }
+    @objc func dockNewRecording() { PlaceCoordinator.shared.newRecording() }
     @objc func dockToggleKeep() { AppSettings.shared.showInDock.toggle() }
     @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil, all: true) }
     @objc func openProject() {
@@ -331,7 +340,10 @@ import YapcamEditor
         } catch { RecordingController.shared.alert = AppAlert(title: "Could not rename", error: error) }
     }
     @objc func showProjectInFinder() { if let u = EditorBridge.keyDocument()?.project.packageURL { FinderReveal.show(u) } }
-    @objc func showRecordings() { RecentProjectsWindow.shared.show() }
+    @objc func showRecordings() { PlaceCoordinator.shared.showProjects() }
+    @objc func newRecording() { PlaceCoordinator.shared.newRecording() }
+    @objc func switchPlace() { PlaceCoordinator.shared.switchPlace() }
+    @objc func showToolbarPlace() { PlaceCoordinator.shared.showToolbar() }
     @objc func importPreset() {
         let p = NSOpenPanel(); p.allowedContentTypes = PresetFileType.openTypes; p.allowsOtherFileTypes = true
         p.message = "Choose a Yapcam preset file"

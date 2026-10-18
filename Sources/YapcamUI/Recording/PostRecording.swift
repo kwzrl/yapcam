@@ -317,7 +317,7 @@ import YapcamRender
             if dontAskAgain { AppSettings.shared.alwaysKeepProjectAfterQuickExport = true }
             panel?.orderOut(nil)
         case .trash:
-            do { try ProjectActions.trash(pkg); panel?.orderOut(nil); RecentProjectsWindow.shared.model.reload() }
+            do { try ProjectActions.trash(pkg); panel?.orderOut(nil); ProjectsModel.shared.reload() }
             catch { RecordingController.shared.alert = AppAlert(title: "Could not move to the Trash", error: error) }
         }
     }
