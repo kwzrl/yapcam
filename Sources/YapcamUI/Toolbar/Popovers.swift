@@ -95,6 +95,10 @@ struct MicrophonePopover: View {
                         Text("Clean up voice (noise + level)")
                     }
                     .help("New recordings start with the editor's Clean up voice turned on")
+                    SelectableRow(selected: settings.recordStereoMicrophone) { settings.recordStereoMicrophone.toggle() } content: {
+                        Text("Record stereo microphone")
+                    }
+                    .help("Keeps both channels when the microphone has two. A mono microphone records mono.")
                 }
                 SelectableRow(selected: settings.microphoneID == nil) { settings.microphoneID = nil } content: {
                     Text("Don't record microphone")

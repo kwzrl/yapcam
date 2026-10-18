@@ -437,3 +437,6 @@ R7 EDT-40 / EDT-34 | (this commit) | `MaskChipTextTests.dimmingMasksShowTheirStr
 - render: `AudioScrubber` conforming to editor's `AudioScrubbing` (`scrub(toNs:velocityNsPerSec:)`, `stopScrubbing()`), ~40 ms crossfaded grains from the mixed program audio, silence after 80 ms without movement. Then the app sets `EditorModel.audioScrubber` and the editor adds the transport switch.
 - ~~core: `merge_clips{left_id}` (S-EDT-26: valid when `a.src_end == b.src_start` and equal speed). The menu entries "Merge with next/previous" are left out until it exists (a disabled item that can never work would be decorative).~~ landed in team/core; wired in R7 follow-up (see rows).
 - inspector: `CommandPalette.swift` "Copy item settings" still shows the shortcut "⌘C" — ⌘C now copies the frame; drop the shortcut label (settings copy is in the timeline menus). Also palette entries for "Merge clips" later. `Music.swift` needs a `duplicateMusic(id:)` (raw rows are private there) so the music chip's menu can offer Duplicate.
+
+## From qa (R7 integration 1, fff0368)
+- Cosmetic: CommandPalette.swift:49 lists "Copy current frame" as shift-cmd-C, but the key is cmd-C (Shortcuts.swift:23-25, both work). Show cmd-C.

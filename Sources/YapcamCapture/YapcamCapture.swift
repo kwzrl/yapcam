@@ -144,6 +144,7 @@ public struct RecordingOptions: Sendable, Codable {
     public var recordStereoMicrophone: Bool
     public var cameraID: String?
     public var cameraMaxResolution: CameraMaxResolution
+    public var cameraFrameRate: CameraFrameRate
     public var recordKeystrokes: Bool
     /// 0 follows the initial display refresh rate (default). Positive values are explicit caps.
     public var maxFPS: Int
@@ -157,18 +158,20 @@ public struct RecordingOptions: Sendable, Codable {
                 cameraID: String? = nil, recordKeystrokes: Bool = true, maxFPS: Int = 0,
                 excludeYapcamWindows: Bool = true, hideDesktopIcons: Bool = false,
                 captureNotifications: Bool = true, systemAudioSelection: SystemAudioSelection? = nil,
-                cameraMaxResolution: CameraMaxResolution = .hd1080, outputDirectory: URL) {
+                cameraMaxResolution: CameraMaxResolution = .hd1080,
+                cameraFrameRate: CameraFrameRate = .fps30, outputDirectory: URL) {
         self.target = target; self.systemAudioSelection = systemAudioSelection ?? (systemAudio ? .allApplications : .off); self.microphoneID = microphoneID
         self.cleanVoiceOnRecord = cleanVoiceOnRecord
         self.recordStereoMicrophone = recordStereoMicrophone
-        self.cameraID = cameraID; self.cameraMaxResolution = cameraMaxResolution; self.recordKeystrokes = recordKeystrokes; self.maxFPS = maxFPS
+        self.cameraID = cameraID; self.cameraMaxResolution = cameraMaxResolution; self.cameraFrameRate = cameraFrameRate
+        self.recordKeystrokes = recordKeystrokes; self.maxFPS = maxFPS
         self.excludeYapcamWindows = excludeYapcamWindows; self.outputDirectory = outputDirectory
         self.hideDesktopIcons = hideDesktopIcons; self.captureNotifications = captureNotifications
     }
 
     enum CodingKeys: String, CodingKey {
         case target, systemAudio, systemAudioSelection, microphoneID, cleanVoiceOnRecord, recordStereoMicrophone
-        case cameraID, cameraMaxResolution, recordKeystrokes, maxFPS
+        case cameraID, cameraMaxResolution, cameraFrameRate, recordKeystrokes, maxFPS
         case excludeYapcamWindows, hideDesktopIcons, captureNotifications, outputDirectory
     }
 
@@ -187,6 +190,7 @@ public struct RecordingOptions: Sendable, Codable {
             captureNotifications: try values.decodeIfPresent(Bool.self, forKey: .captureNotifications) ?? true,
             systemAudioSelection: try values.decodeIfPresent(SystemAudioSelection.self, forKey: .systemAudioSelection),
             cameraMaxResolution: try values.decodeIfPresent(CameraMaxResolution.self, forKey: .cameraMaxResolution) ?? .hd1080,
+            cameraFrameRate: try values.decodeIfPresent(CameraFrameRate.self, forKey: .cameraFrameRate) ?? .fps30,
             outputDirectory: try values.decode(URL.self, forKey: .outputDirectory))
     }
     public func encode(to encoder: Encoder) throws {
@@ -199,6 +203,7 @@ public struct RecordingOptions: Sendable, Codable {
         try values.encode(recordStereoMicrophone, forKey: .recordStereoMicrophone)
         try values.encodeIfPresent(cameraID, forKey: .cameraID)
         try values.encode(cameraMaxResolution, forKey: .cameraMaxResolution)
+        try values.encode(cameraFrameRate, forKey: .cameraFrameRate)
         try values.encode(recordKeystrokes, forKey: .recordKeystrokes)
         try values.encode(maxFPS, forKey: .maxFPS)
         try values.encode(excludeYapcamWindows, forKey: .excludeYapcamWindows)

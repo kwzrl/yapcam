@@ -107,6 +107,19 @@ enum AreaGeometry {
         return r.width >= recordMin && r.height >= recordMin
     }
 
+    /// Guide lines for the area being dragged: a quarter, half and three quarters across and down.
+    static func guides(in r: CGRect) -> (xs: [CGFloat], ys: [CGFloat]) {
+        ([0.25, 0.5, 0.75].map { r.minX + r.width * $0 }, [0.25, 0.5, 0.75].map { r.minY + r.height * $0 })
+    }
+
+    /// "640 × 360" with the largest area the display allows beside it: "640 × 360 · max 1512 × 982".
+    static func readout(_ r: CGRect, max: CGSize) -> String {
+        "\(Int(r.width.rounded())) × \(Int(r.height.rounded())) · max \(Int(max.width.rounded())) × \(Int(max.height.rounded()))"
+    }
+
+    /// How dark the screen outside the area is drawn (the setting turns the dimming off).
+    static func dimAlpha(dimOutside: Bool) -> CGFloat { dimOutside ? 0.45 : 0.01 }
+
     enum Arrow { case left, right, up, down }
 
     /// Arrow-key editing like the reference: arrows move by 1 pt (⇧: 10), ⌘+arrows resize by 1 pt (⌘⇧: 10).

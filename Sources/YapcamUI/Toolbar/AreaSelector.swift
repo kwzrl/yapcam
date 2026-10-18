@@ -119,7 +119,7 @@ private final class AreaOverlayView: NSView {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.45).setFill()
+        NSColor.black.withAlphaComponent(AreaGeometry.dimAlpha(dimOutside: AppSettings.shared.dimAreaOutside)).setFill()
         bounds.fill()
         guard let r = rect else {
             drawHint("Drag area you want to record", at: CGPoint(x: bounds.midX, y: bounds.midY))
@@ -136,7 +136,15 @@ private final class AreaOverlayView: NSView {
             NSColor.white.setFill(); NSBezierPath(roundedRect: hr, xRadius: 2, yRadius: 2).fill()
             NSColor.black.withAlphaComponent(0.4).setStroke(); NSBezierPath(roundedRect: hr, xRadius: 2, yRadius: 2).stroke()
         }
-        let label = "\(Int(r.width.rounded())) × \(Int(r.height.rounded()))"
+        if case .none = drag {} else {
+            NSColor.white.withAlphaComponent(0.5).setStroke()
+            let g = AreaGeometry.guides(in: r)
+            let lines = NSBezierPath(); lines.lineWidth = 0.5
+            for x in g.xs { lines.move(to: CGPoint(x: x, y: r.minY)); lines.line(to: CGPoint(x: x, y: r.maxY)) }
+            for y in g.ys { lines.move(to: CGPoint(x: r.minX, y: y)); lines.line(to: CGPoint(x: r.maxX, y: y)) }
+            lines.stroke()
+        }
+        let label = AreaGeometry.readout(r, max: bounds.size)
         let y = r.minY > 34 ? r.minY - 28 : r.minY + 8
         drawHint(label, at: CGPoint(x: r.midX, y: y + 11))
     }
@@ -182,6 +190,7 @@ private final class AreaOverlayView: NSView {
     override func mouseUp(with event: NSEvent) {
         if let r = rect, r.width < 16 || r.height < 16 { rect = nil }
         drag = .none
+        needsDisplay = true
     }
 
     private func clamp(_ p: CGPoint) -> CGPoint {

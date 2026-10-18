@@ -1,3 +1,4 @@
+READY R7b 33c85c8 | requests: CAM-46 preview from the recording stream + disconnected placeholder, CAM-27 Auto language, REC-B-06 + MKT-107 session.json -> project audio; MKT-113, 121, 130/137/154/167, 131, 080, 068, 176, 174; tooltips name shortcuts | YapcamUITests 271 green; not run live. Open: MKT-124 drop on menu-bar icon, MKT-069 palette outside editor, MKT-108 wide preview
 READY R7 89c255e | P0 B-01..B-04, S-01, S-02; P1 B-05..B-08, B-10, S-09, S-11, S-15, S-EDT-76/83/84, quit-guard; P2 B-11..B-13, B-16, S-EDT-48 | YapcamUITests green; not run live. Open: see ## R7 items
 READY R6 d2e148f | crash-class audit (4 fixes), SourceChoice start decisions testable, speaker notes/saved sizes confirmed | YapcamUITests 200 green; not run live
 READY W3 571c2e2 | A1.5, A7.3, X5, B.HW done | swift test --filter YapcamUITests 188 green; not run live
@@ -450,3 +451,14 @@ R7 MKT Quick Look preview of project files | NOT done: needs a Quick Look previe
 
 ## R7 flaky test (PREP)
 Round6StartDecisionTests.backToBackSettingChangesWithAnObserverDoNotTrap: it slept a fixed 300 ms and expected the 50 ms debounce (RunLoop.main) to have fired. Under load (other suites running in parallel) the run loop was serviced later, so `fired` was still 0. It now waits (up to 5 s) for the first fire, then 200 ms of quiet, and then checks the count. Ran the ui suite three times in a row, green.
+
+## R7b items
+R7 CAM-46 | see commit "CAM-46" | previewUsesItsOwnSessionOnlyUntilCaptureOwnsTheCamera, lostCameraShowsAPlaceholderWithTheReason | live: not verified (no camera)
+R7 CAM-27 | R7b mic/locale commit | autoLanguageIsPassedToCaptureLiterally, autoIsHandedToCaptureForDetection | live: not verified
+R7 REC-B-06 / MKT-107 | R7b mic/locale commit | sessionJSONMicFlagsAreRead, recordTimeMicChoicesReachCaptureOnlyWithAMic, stereoMicSettingDefaultsOffAndResets | live: not verified (no mic)
+R7 MKT-113 / 121 | R7b commit | projectNamesAreMadeSafeForTheFileSystem, resetWindowPositionsClearsEveryRememberedSpot | live: not verified
+R7 MKT-130/137/154/167 | R7b commit | areaGuidesReadoutAndDimming | live: not verified (no pointer)
+R7 MKT-131 | R7b commit | menuBarMenuStartsADisplayWindowOrAreaRecording | live: not verified
+R7 MKT-080 / 068 / 176 / 174 | R7b commits | widgetRenamesTheProjectAndRefusesTakenNames, importShowsALoaderUntilItIsDone, busyCaptionsSayWhatIsHappening, onlyAWindowTakeRaisesAWindow | live: not verified
+Not done: MKT-124 (a drop target on the status item button cannot be checked without a real drag), MKT-069 (palette outside the editor), MKT-108 (wide preview conflicts with the square reference note), MKT-091/097 (core/capture).
+Note: a one-off crash in EditorBridge (nil-unwrapped) seen once in a parallel run, not reproduced in 3 later runs.

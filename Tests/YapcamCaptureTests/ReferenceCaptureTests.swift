@@ -103,14 +103,39 @@ import Testing
 
 @Test func cameraResolutionOptionsRoundTripAndLegacyDefault() throws {
     for cap in CameraMaxResolution.allCases {
-        let options = RecordingOptions(target: .display(1), cameraMaxResolution: cap, outputDirectory: URL(fileURLWithPath: "/tmp"))
-        #expect(try JSONDecoder().decode(RecordingOptions.self, from: JSONEncoder().encode(options)).cameraMaxResolution == cap)
+        for rate in CameraFrameRate.allCases {
+            let options = RecordingOptions(target: .display(1), cameraMaxResolution: cap, cameraFrameRate: rate,
+                                           outputDirectory: URL(fileURLWithPath: "/tmp"))
+            let decoded = try JSONDecoder().decode(RecordingOptions.self, from: JSONEncoder().encode(options))
+            #expect(decoded.cameraMaxResolution == cap)
+            #expect(decoded.cameraFrameRate == rate)
+        }
     }
     let options = RecordingOptions(target: .display(1), outputDirectory: URL(fileURLWithPath: "/tmp"))
     #expect(options.cameraMaxResolution == .hd1080)
+    #expect(options.cameraFrameRate == .fps30)
     var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(options)) as? [String: Any])
     legacy.removeValue(forKey: "cameraMaxResolution")
-    #expect(try JSONDecoder().decode(RecordingOptions.self, from: JSONSerialization.data(withJSONObject: legacy)).cameraMaxResolution == .hd1080)
+    legacy.removeValue(forKey: "cameraFrameRate")
+    let decodedLegacy = try JSONDecoder().decode(RecordingOptions.self, from: JSONSerialization.data(withJSONObject: legacy))
+    #expect(decodedLegacy.cameraMaxResolution == .hd1080)
+    #expect(decodedLegacy.cameraFrameRate == .fps30)
+}
+
+@Test func cameraFrameRateDefaultsToThirtyIndependentOfScreenCadence() throws {
+    let formats = [CameraFormatCandidate(width: 1920, height: 1080, rates: [30...60])]
+    let defaultSize = try #require(CameraFormatPolicy.effectiveSize(
+        deviceID: "camera", maximum: .hd1080, fps: CameraFrameRate.fps30.rawValue,
+        formatsForDevice: { _ in formats }))
+    #expect(defaultSize.width == 1920 && defaultSize.height == 1080)
+    #expect(try CameraFormatPolicy.choose(formats, maximum: .hd1080,
+                                          fps: CameraFrameRate.fps30.rawValue).fps == 30)
+    #expect(try CameraFormatPolicy.choose(formats, maximum: .hd1080,
+                                          fps: CameraFrameRate.fps60.rawValue).fps == 60)
+    for screenFPS in [30, 60, 120, 144] {
+        #expect(CameraFormatPolicy.captureFPS(.fps30, screenMaxFPS: screenFPS) == 30)
+        #expect(CameraFormatPolicy.captureFPS(.fps60, screenMaxFPS: screenFPS) == 60)
+    }
 }
 
 @Test @MainActor func markerJournalSurvivesRecoveryAndTrimsUnreadableTail() throws {

@@ -270,8 +270,10 @@ import ScreenCaptureKit
         // The Mac's cursor/keys do not describe touches on the USB device screen.
         if isDeviceScreen { try events.openEventLog() }
         else { try services.startEvents(events) }
-        // Camera devices commonly offer 30/60, independently of the screen's refresh.
-        let devices = AuxiliaryCapture(writer: writer, fps: manifest.tracks.screen.maxFPS >= 60 ? 60 : 30)
+        // Camera cadence is explicit and never follows the screen refresh rate.
+        let cameraFPS = CameraFormatPolicy.captureFPS(options.cameraFrameRate,
+                                                      screenMaxFPS: manifest.tracks.screen.maxFPS)
+        let devices = AuxiliaryCapture(writer: writer, fps: cameraFPS)
         devices.onWarning = writer.onWarning
         self.devices = devices
         let deviceMetadata = await devices.start(microphoneID: options.microphoneID, cameraID: options.cameraID,

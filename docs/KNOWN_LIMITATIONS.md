@@ -44,6 +44,11 @@ Mac mini M4, one non-Retina 1680×1050 display, no camera, no microphone, no sec
   user's decision; Loom-style sharing is prepared architecturally only.
 - GIF has no audio (format limit).
 - Round 5 parity gaps left (FEATURES.md section R): Settings > Shortcuts cannot yet rebind the editing keys (editor API exists), and the "Disable hardware-accelerated encoding" setting does not reach the editor's export dialog until ui assigns EditorWindows.hardwareEncodingEnabled (quick export honours it). Hide Desktop Icons, Esc two-step and other wave-3 items are code/test verified only, not live.
+- Not in 0.11.0 (Lead decision, Round 7b): update check (REC B-18), macOS 13/14 and Intel support (B-19), and a
+  Quick Look preview for project files (needs a separate app-extension target that SwiftPM cannot build).
+- "Camera disconnected" placeholder in the recording preview: needs a capture disconnect signal plus a UI placeholder; in progress.
+- Hardware-decoding switch (B-14) and export memory limit (B-15): hooks come from render, the Settings switch from ui; check the
+  Settings page of the released build before relying on them.
 
 ## Process notes
 - Codex-team worktrees cannot write `.git`; Lead commits their work, so history contains

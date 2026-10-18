@@ -380,9 +380,11 @@ or an empty checklist fail preparation rather than accidentally capturing all au
 USB device targets accept all/off, not a Mac application checklist.
 
 `cameraMaxResolution` is `.hd720`, `.hd1080` (default), or `.uhd4K`. This bounds
-native webcam dimensions, preserves aspect ratio, never upscales and falls back
-from 60 to 30 fps when the largest supported size requires it. Fractional
-29.97/59.94 modes keep their supported native clock (manifest fps is nominal). No suitable format
+native webcam dimensions, preserves aspect ratio and never upscales.
+`cameraFrameRate` is `.fps30` (default) or `.fps60`; it is independent of the
+screen refresh rate, with a 30 fps fallback when an explicit 60 fps request is
+unavailable. Fractional 29.97/59.94 modes keep their supported native clock
+(manifest fps is nominal). No suitable format
 means a warning and screen recording without camera. USB screen dimensions are
 independent. Actual webcam dimensions/fps remain in the existing manifest fields.
 Real format negotiation is unverified here because there is no webcam.
@@ -715,8 +717,8 @@ recovery. `CAPTURE_SIGKILL_PASS` lines are the required native evidence.
 ## R5b consumer handoffs
 
 - `@MainActor CameraFormatPolicy.effectiveSize(deviceID:maximum:fps:)` is a
-  read-only optional `(width: Int, height: Int)` query. `fps` defaults60, with the
-  same30/29.97 fallback as recording; pass30 for a lower-rate source. Uses actual
+  read-only optional `(width: Int, height: Int)` query. `fps` defaults 30, with the
+  same 30/29.97 behavior as recording; pass 60 for an explicit high-rate camera. Uses actual
   connected camera formats and the production cap/rate chooser. nil means no
   permission/device/compatible mode; no prompt, capture session or device mutation.
 - `TranscriptionService.supportedLocales() -> [Locale]` returns the native Speech
