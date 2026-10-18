@@ -462,3 +462,7 @@ R7 MKT-131 | R7b commit | menuBarMenuStartsADisplayWindowOrAreaRecording | live:
 R7 MKT-080 / 068 / 176 / 174 | R7b commits | widgetRenamesTheProjectAndRefusesTakenNames, importShowsALoaderUntilItIsDone, busyCaptionsSayWhatIsHappening, onlyAWindowTakeRaisesAWindow | live: not verified
 Not done: MKT-124 (a drop target on the status item button cannot be checked without a real drag), MKT-069 (palette outside the editor), MKT-108 (wide preview conflicts with the square reference note), MKT-091/097 (core/capture).
 Note: a one-off crash in EditorBridge (nil-unwrapped) seen once in a parallel run, not reproduced in 3 later runs.
+
+## From qa (R8)
+- Request: add `--place-switch-selftest <sec>` (same pattern as --ui-record-selftest) that drives: launch -> toolbar; PlaceSwitch toggle -> home; open the newest project; editor record button action -> toolbar; run the existing fake/real short recording with after-recording=create; verify the editor reopens on the new project. Append exactly these probe.log lines in order: `place-switch: launch place=toolbar`, `place-switch: shortcut -> home`, `place-switch: opened project <name>`, `place-switch: record button -> toolbar`, `place-switch: recording finished, editor reopened with new project`, `place-switch: ok` (any failure: `place-switch: FAILED <reason>`). qa runs it with scripts/qa/round8-switch.sh under the app lock.
+- Also needed as pure functions with tests (qa checks them): PlaceSwitch.decide, ReopenDecision, LaunchPlace; home test on a temp library with 3 packages incl. one broken.
