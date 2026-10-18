@@ -35,8 +35,19 @@ import YapcamCore
     }
     static func release(_ url: URL) { reserved.remove(key(url)) }
 
+    /// A project name that is safe as a file name: no "/" or ":" (they are path separators in Finder), no control
+    /// characters, no leading dots (hidden files), no outer spaces, at most 120 characters.
+    static func cleanName(_ raw: String) -> String {
+        var s = String(raw.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(Character.init))
+        s = s.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasPrefix(".") { s.removeFirst() }
+        s = String(s.prefix(120)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return s
+    }
+
     static func rename(_ url: URL, to newName: String) throws -> URL {
-        let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-")
+        let clean = cleanName(newName)
         guard !clean.isEmpty else { throw EngineError.failed("The name can't be empty.") }
         let dest = url.deletingLastPathComponent().appending(path: "\(clean).yapcam", directoryHint: .isDirectory)
         guard dest != url else { return url }

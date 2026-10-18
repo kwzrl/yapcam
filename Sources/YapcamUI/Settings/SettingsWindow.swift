@@ -271,12 +271,12 @@ struct AdvancedSettings: View {
             Toggle("Hide desktop icons while recording", isOn: $s.hideDesktopIcons)
             Text("Desktop icons are excluded from the recording. Finder and your desktop stay unchanged.")
                 .font(.caption).foregroundStyle(.secondary)
-            Button("Reset toolbar position") {
-                for key in AppDefaults.store.dictionaryRepresentation().keys where key.hasPrefix(ToolbarPanelController.positionKeyPrefix) {
-                    AppDefaults.store.removeObject(forKey: key)
-                }
+            Button("Reset window positions") {
+                WindowPositions.resetAll()
                 ToolbarPanelController.shared.hide(); ToolbarPanelController.shared.show()
+                CameraPreviewPanel.shared.update()
             }
+            .help("The toolbar, camera preview and Recordings window go back to their default places")
             Button("Show onboarding again") { s.hasCompletedOnboarding = false; OnboardingWindow.shared.show(reason: nil) }
             Button("Export diagnostics…") { ProjectActions.exportDiagnostics() }
             Button("Open logs folder") {

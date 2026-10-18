@@ -59,4 +59,24 @@ import YapcamCore
         panel.receive(.unavailable("Unplugged"))
         #expect(panel.placeholderText == "Camera disconnected\nUnplugged")
     }
+
+    @Test func projectNamesAreMadeSafeForTheFileSystem() {
+        #expect(ProjectActions.cleanName("a/b:c") == "a-b-c")
+        #expect(ProjectActions.cleanName("  ..hidden ") == "hidden")
+        #expect(ProjectActions.cleanName("tab\tname\u{7}") == "tabname")
+        #expect(ProjectActions.cleanName(String(repeating: "x", count: 300)).count == 120)
+        #expect(ProjectActions.cleanName("...") == "")
+        #expect(ProjectActions.cleanName("Demo day") == "Demo day")
+    }
+
+    @Test func resetWindowPositionsClearsEveryRememberedSpot() {
+        let store = UserDefaults(suiteName: "r7b-win-\(UUID())")!
+        store.set([1.0, 2.0], forKey: "cameraPreviewOrigin")
+        store.set("x", forKey: ToolbarPanelController.positionKeyPrefix + "1")
+        store.set("x", forKey: "NSWindow Frame RecentProjects")
+        store.set(true, forKey: "playSounds")
+        #expect(WindowPositions.resetAll(in: store) == 3)
+        #expect(store.object(forKey: "cameraPreviewOrigin") == nil)
+        #expect(store.object(forKey: "playSounds") != nil)         // other settings stay
+    }
 }
