@@ -35,7 +35,7 @@ import Testing
     @Test func clipMenuHasTheSpecifiedEntriesAndChecks() throws {
         let (m, _) = model(); let id = m.clips[0].id
         let e = TimelineMenu.entries(for: .clip(id: id, atNs: 5 * Self.sec), in: m)
-        #expect(titles(e) == ["Set Speed", "Set Volume", "Microphone Volume", "System Audio Volume", "Remove", "Split Here", "Copy Settings", "Reset Trim",
+        #expect(titles(e) == ["Set Speed", "Set Volume", "Microphone Volume", "System Audio Volume", "Remove", "Merge with Next Clip", "Merge with Previous Clip", "Split Here", "Copy Settings", "Reset Trim",
                               "Reset All Trims and Cuts", "Hide Cursor", "Disable Smooth Cursor Movement"])
         let speeds = try #require(find(e, "Set Speed")).children
         #expect(speeds.first { $0.checked }?.title == "1× (normal)")
@@ -155,9 +155,9 @@ import Testing
 
     @Test func growingRestoresOnlyWhatWasCutAwayNextToTheEdge() {
         let g = plan(.end, 11 * Self.sec, after: 5 * Self.sec)
-        #expect(g.commands == [.insertSource(startNs: 10 * Self.sec, endNs: 11 * Self.sec, atNs: 10 * Self.sec, speed: 1, micGain: 1, systemGain: 1, hideCursor: false, disableSmoothing: false)])
+        #expect(g.commands == [.restoreClipEdge(clipID: "a", start: false, sourceNs: 11 * Self.sec)])
         let s = plan(.start, 3 * Self.sec, before: 4 * Self.sec)
-        #expect(s.commands == [.insertSource(startNs: 3 * Self.sec, endNs: 4 * Self.sec, atNs: 4 * Self.sec, speed: 1, micGain: 1, systemGain: 1, hideCursor: false, disableSmoothing: false)])
+        #expect(s.commands == [.restoreClipEdge(clipID: "a", start: true, sourceNs: 3 * Self.sec)])
         #expect(plan(.end, 99 * Self.sec, after: 2 * Self.sec).deltaNs == 2 * Self.sec)  // clamped to the available source
         #expect(plan(.end, 11 * Self.sec).commands.isEmpty && plan(.start, 3 * Self.sec).commands.isEmpty)     // nothing cut away: nothing to grow
     }
@@ -166,7 +166,7 @@ import Testing
         let c = clip(speed: 2)                                                           // 6 s of source = 3 s on the timeline: ends at 7 s
         #expect(c.endNs == 7 * Self.sec)
         let g = plan(.end, 8 * Self.sec, clip: c, after: 10 * Self.sec)                 // +1 s on the timeline = +2 s of source
-        #expect(g.commands == [.insertSource(startNs: 10 * Self.sec, endNs: 12 * Self.sec, atNs: 7 * Self.sec, speed: 2, micGain: 1, systemGain: 1, hideCursor: false, disableSmoothing: false)])
+        #expect(g.commands == [.restoreClipEdge(clipID: "a", start: false, sourceNs: 12 * Self.sec)])
     }
 
     @Test func modelCommitsOneUndoStepAndBringsTheMaterialBack() throws {
@@ -181,6 +181,22 @@ import Testing
         #expect(m.durationNs == 13 * Self.sec)
         m.undo(); #expect(m.durationNs == 10 * Self.sec)                                 // one undo step
         #expect(!m.trimClipEdge(clipID: "missing", start: true, toNs: 0))
+    }
+
+    @Test func mergeMenuEntriesNeedAContiguousNeighbourAndMergeOneUndoStep() throws {
+        let p = FakeProject(durationNs: 20 * Self.sec), m = EditorModel(project: p, player: FakePlayer())
+        let first = m.clips[0].id
+        let single = TimelineMenu.entries(for: .clip(id: first, atNs: Self.sec), in: m).filter { $0.title.hasPrefix("Merge") }
+        #expect(single.count == 2 && single.allSatisfy { !$0.enabled })                  // a lone clip has no neighbour
+        m.seek(toNs: 8 * Self.sec); m.splitAtPlayhead()
+        let (a, b) = (m.clips[0].id, m.clips[1].id)
+        let next = try #require(TimelineMenu.entries(for: .clip(id: a, atNs: 0), in: m).first { $0.title == "Merge with Next Clip" })
+        #expect(next.action == .mergeClip(id: a, withNext: true) && next.enabled)
+        #expect(TimelineMenu.entries(for: .clip(id: a, atNs: 0), in: m).first { $0.title == "Merge with Previous Clip" }?.enabled == false)
+        #expect(TimelineMenu.entries(for: .clip(id: b, atNs: 0), in: m).first { $0.title == "Merge with Next Clip" }?.enabled == false)
+        m.apply(.mergeClip(id: b, withNext: false))                                       // previous: keeps the right clip's settings
+        #expect(m.clips.count == 1 && m.durationNs == 20 * Self.sec)
+        m.undo(); #expect(m.clips.count == 2)
     }
 
     @Test func clickRouterGivesEdgeDragsAnEdgeAndScissorsKeepCutting() {

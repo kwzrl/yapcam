@@ -190,6 +190,8 @@ public final class CoreEditingProject: EditingProject {
         case .insertSource(let s, let e, let at, let speed, let mic, let sys, let hide, let smooth):
             return .insertSource(startNs: s, endNs: e, atNs: at, speed: speed,
                                  settings: ClipSettings(micGain: mic, systemGain: sys, hideCursor: hide, disableSmoothing: smooth))
+        case .restoreClipEdge(let id, let start, let src): return .restoreClipEdge(clipID: id, edge: start ? .start : .end, sourceNs: src)
+        case .mergeClips(let id, let right): return .mergeClips(leftID: id, keepSettings: right ? .right : .left)
         case .insertZoomWith(let s, let e, let patch): return .insertTimelineItem(.zoom, startNs: s, durationNs: e - s, patch: patch)
         case .coalesced(let key, let inner): return .coalescedEdit(key: key, command: map(inner))
         case .setZoomLens(let id, let lens):
@@ -212,7 +214,7 @@ public final class CoreEditingProject: EditingProject {
     /// Structural timeline edits go through core's checked envelope (minimum clip/zoom lengths, atomic, history-safe).
     private func isStructural(_ c: EditorCommand) -> Bool {
         switch c {
-        case .split, .deleteRange, .addZoom, .insertZoom, .insertSource, .insertZoomWith, .updateZoom, .setZoomLens, .processSilence: true
+        case .split, .deleteRange, .addZoom, .insertZoom, .insertSource, .restoreClipEdge, .mergeClips, .insertZoomWith, .updateZoom, .setZoomLens, .processSilence: true
         case .batch(let cs): cs.contains(where: isStructural)
         case .coalesced(_, let inner): isStructural(inner)
         default: false

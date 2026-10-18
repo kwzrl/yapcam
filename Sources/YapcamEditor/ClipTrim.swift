@@ -48,10 +48,9 @@ enum ClipTrim {
                         commands: [edge == .start ? .deleteRange(startNs: c.startNs, endNs: c.startNs + cut) : .deleteRange(startNs: c.endNs - cut, endNs: c.endNs)])
         }
         let src = Int64(Double(delta) * speed)
-        let (s, e, at): (Int64, Int64, Int64) = edge == .start ? (c.srcStartNs - src, c.srcStartNs, c.startNs) : (c.srcEndNs, c.srcEndNs + src, c.endNs)
-        return Plan(edgeNs: edgeNs, deltaNs: delta,
-                    commands: [.insertSource(startNs: s, endNs: e, atNs: at, speed: c.speed, micGain: settings.mic, systemGain: settings.system,
-                                             hideCursor: settings.hideCursor, disableSmoothing: settings.disableSmoothing)])
+        // Growth extends the same clip over the cut-away source (core `restore_clip_edge`), so its settings and identity stay.
+        let boundary = edge == .start ? c.srcStartNs - src : c.srcEndNs + src
+        return Plan(edgeNs: edgeNs, deltaNs: delta, commands: [.restoreClipEdge(clipID: c.id, start: edge == .start, sourceNs: boundary)])
     }
 }
 

@@ -121,6 +121,16 @@ public final class FakeProject: EditingProject {
             var c = TimelineClip(id: newID("c"), srcStartNs: s, srcEndNs: e, speed: speed)
             c.micGain = mic; c.systemGain = sys; c.hideCursor = hide; c.disableSmoothing = smooth
             clips.insert(c, at: index)
+        case .restoreClipEdge(let id, let start, let src):
+            guard let i = clips.firstIndex(where: { $0.id == id }) else { return }
+            if start { clips[i].srcStartNs = src } else { clips[i].srcEndNs = src }
+        case .mergeClips(let id, let right):
+            guard let i = clips.firstIndex(where: { $0.id == id }), i + 1 < clips.count, clips[i].srcEndNs == clips[i + 1].srcStartNs else {
+                throw NSError(domain: "Fake", code: 6, userInfo: [NSLocalizedDescriptionKey: "cannot merge"])
+            }
+            var m = right ? clips[i + 1] : clips[i]
+            m.srcStartNs = clips[i].srcStartNs; m.srcEndNs = clips[i + 1].srcEndNs
+            clips.replaceSubrange(i...(i + 1), with: [m])
         case .insertZoomWith(let st, let e, let patch):
             var z = TimelineZoom(id: newID("z"), startNs: st, endNs: e, mode: .manual, scale: 2, focusX: 0.5, focusY: 0.5)
             if case .number(let v)? = patch["scale"] { z.scale = v }

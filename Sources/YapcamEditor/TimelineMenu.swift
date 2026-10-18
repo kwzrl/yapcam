@@ -16,7 +16,7 @@ enum TimelineMenu {
     enum Action: Equatable {
         case clipSpeed(id: String, Double), speedToAll(Double)
         case clipVolume(id: String, percent: Int, VolumeTrack)
-        case removeClip(id: String), splitClip(id: String, atNs: Int64), resetTrim(id: String), resetAllTrims
+        case removeClip(id: String), mergeClip(id: String, withNext: Bool), splitClip(id: String, atNs: Int64), resetTrim(id: String), resetAllTrims
         case clipHideCursor(id: String, Bool), clipSmoothingOff(id: String, Bool)
         case removeZoom(id: String), duplicateZoom(id: String), zoomEnabled(id: String, Bool), zoomLevel(id: String, Double)
         case allZoomsEnabled(Bool), restoreAutoZooms, removeAllZooms
@@ -100,6 +100,8 @@ enum TimelineMenu {
         out += [.separator,
                 Entry(title: "Remove", action: .removeClip(id: id), enabled: m.clips.count > 1, shortcut: "⌫"),
                 .separator,
+                Entry(title: "Merge with Next Clip", action: .mergeClip(id: id, withNext: true), enabled: m.canMerge(clipID: id, withNext: true)),
+                Entry(title: "Merge with Previous Clip", action: .mergeClip(id: id, withNext: false), enabled: m.canMerge(clipID: id, withNext: false)),
                 Entry(title: "Split Here", action: .splitClip(id: id, atNs: ns), enabled: m.canSplit(clipID: id, atNs: ns), shortcut: "C"),
                 Entry(title: "Copy Settings", action: .copySettings(.clip(id))),
                 Entry(title: "Reset Trim", action: .resetTrim(id: id), enabled: m.hasTrim(clipID: id)),
@@ -110,6 +112,22 @@ enum TimelineMenu {
                     Entry(title: "Disable Smooth Cursor Movement", action: .clipSmoothingOff(id: id, !c.disableSmoothing), checked: c.disableSmoothing)]
         }
         return out
+    }
+}
+
+extension EditorModel {
+    /// Two neighbours join only when they are contiguous in the recording (core also rejects a recording-segment boundary).
+    func canMerge(clipID: String, withNext: Bool) -> Bool {
+        guard let i = clips.firstIndex(where: { $0.id == clipID }) else { return false }
+        let j = withNext ? i + 1 : i - 1
+        guard clips.indices.contains(j) else { return false }
+        let (l, r) = withNext ? (clips[i], clips[j]) : (clips[j], clips[i])
+        return l.srcEndNs == r.srcStartNs
+    }
+    /// Merge with the next clip keeps this clip's settings; with the previous one keeps this (right) clip's. One undo step.
+    func mergeClips(clipID: String, withNext: Bool) {
+        guard canMerge(clipID: clipID, withNext: withNext), let i = clips.firstIndex(where: { $0.id == clipID }) else { return }
+        perform(.mergeClips(leftID: withNext ? clipID : clips[i - 1].id, keepRight: !withNext))
     }
 }
 
@@ -217,6 +235,7 @@ extension EditorModel {
         case .speedToAll(let s): applySpeedToAll(s)
         case .clipVolume(let id, let p, let t): setClipVolume(clipID: id, percent: p, track: t)
         case .removeClip(let id): selection = .clip(id); deleteSelection()
+        case .mergeClip(let id, let next): mergeClips(clipID: id, withNext: next)
         case .splitClip(let id, let ns): contextSplit(clipID: id, atNs: ns)
         case .resetTrim(let id): resetTrim(clipID: id)
         case .resetAllTrims: resetAllTrimsAndCuts()

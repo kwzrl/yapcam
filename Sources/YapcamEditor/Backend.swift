@@ -83,6 +83,10 @@ public enum EditorCommand: Equatable, Sendable {
     case insertZoom(startNs: Int64, endNs: Int64)
     /// Puts a span of the original recording back on the timeline as a clip at an existing clip boundary (restores cuts/trims).
     case insertSource(startNs: Int64, endNs: Int64, atNs: Int64, speed: Double, micGain: Double, systemGain: Double, hideCursor: Bool, disableSmoothing: Bool)
+    /// Grows a clip back over cut-away source at one edge (`sourceNs` = the new source boundary). One undo step; core clamps it.
+    case restoreClipEdge(clipID: String, start: Bool, sourceNs: Int64)
+    /// Joins the clip with its successor into one (S-EDT-26). `keepRight`: the merged clip keeps the right clip's settings.
+    case mergeClips(leftID: String, keepRight: Bool)
     /// New zoom with explicit fields (scale, target, mode, style, lens, enabled, easing): used by split and duplicate so nothing is lost.
     case insertZoomWith(startNs: Int64, endNs: Int64, patch: [String: JSONValue])
     /// A continuous interactive change: edits with the same key less than 100 ms apart share one undo step (core coalesced_edit).
