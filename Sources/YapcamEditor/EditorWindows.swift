@@ -44,11 +44,6 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
     /// Settings > Experimental > variable frame rate for MP4/MOV (ui). Read when an export starts.
     nonisolated(unsafe) public static var variableFrameRate: () -> Bool = { false }
 
-    /// The editor's record button / ⌘K "New Recording" (ui hides the editors and shows the toolbar picker).
-    nonisolated(unsafe) public static var onRecordRequested: (@MainActor () -> Void)?
-    /// The editor's "Projects" entry / ⌘K "Show Projects" (ui shows the projects home).
-    nonisolated(unsafe) public static var onShowProjects: (@MainActor () -> Void)?
-
     /// Opens (or focuses) the editor for a `.yapcam` package. Asks before restoring an
     /// unsaved autosave journal and offers relinking when media is missing.
     public static func open(package: URL) {

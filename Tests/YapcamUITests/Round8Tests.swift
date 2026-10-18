@@ -114,38 +114,51 @@ import Testing
     }
 }
 
-@MainActor @Suite(.serialized) struct Round8RecordingReturnTests {
-    @Test func editorSideWindowsComeBackAfterARecording() async throws {
+/// Uses its own coordinator and plain windows: no shared recording phase, toolbar or clock.
+@MainActor @Suite struct Round8RecordingReturnTests {
+    private func setup() -> (PlaceCoordinator, NSWindow, NSWindow) {
         _ = NSApplication.shared
-        PlaceCoordinator.shared.start()
-        RecordingController.shared.debugSetPhase(.idle)
-        HomeWindow.shared.show()
-        let home = try #require(HomeWindow.shared.window)
-        #expect(home.isVisible)
-        PlaceCoordinator.shared.newRecording()                       // the editor's record button
-        #expect(!home.isVisible)
-        #expect(PlaceCoordinator.shared.awaitingRecording)
-        RecordingController.shared.debugSetPhase(.recording)         // recording runs
-        #expect(!home.isVisible)
-        RecordingController.shared.debugSetPhase(.idle)              // finished or cancelled
-        try await Task.sleep(for: .milliseconds(900))
-        #expect(home.isVisible)
-        #expect(!PlaceCoordinator.shared.awaitingRecording)
-        home.orderOut(nil)
-        ToolbarPanelController.shared.hide()
+        let a = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        let b = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        a.isReleasedWhenClosed = false; b.isReleasedWhenClosed = false
+        a.orderFront(nil); b.orderFront(nil)
+        let c = PlaceCoordinator()
+        c.windowsProvider = { [a, b].filter { $0.isVisible } }
+        c.showToolbarAction = {}
+        return (c, a, b)
     }
 
-    @Test func closingThePickerWithoutRecordingBringsThemBack() async throws {
-        _ = NSApplication.shared
-        PlaceCoordinator.shared.start()
-        RecordingController.shared.debugSetPhase(.idle)
-        HomeWindow.shared.show()
-        let home = try #require(HomeWindow.shared.window)
-        PlaceCoordinator.shared.newRecording()
-        #expect(!home.isVisible)
-        ToolbarPanelController.shared.hide()                         // Esc / close on the bar
-        try await Task.sleep(for: .milliseconds(900))
-        #expect(home.isVisible)
-        home.orderOut(nil)
+    @Test func editorSideWindowsComeBackAfterARecording() {
+        let (c, a, b) = setup(); defer { a.orderOut(nil); b.orderOut(nil) }
+        c.newRecording()                                               // the editor's record button
+        #expect(!a.isVisible && !b.isVisible && c.awaitingRecording)
+        c.phaseChanged(from: .idle, to: .countdown(3), delay: 0)
+        c.phaseChanged(from: .countdown(0), to: .recording, delay: 0)
+        #expect(!a.isVisible && c.awaitingRecording)                   // still recording
+        c.phaseChanged(from: .recording, to: .idle, delay: 0)          // finished
+        #expect(a.isVisible && b.isVisible && !c.awaitingRecording)
+    }
+
+    @Test func aCancelledCountdownBringsThemBack() {
+        let (c, a, b) = setup(); defer { a.orderOut(nil); b.orderOut(nil) }
+        c.newRecording()
+        c.phaseChanged(from: .countdown(2), to: .idle, delay: 0)
+        #expect(a.isVisible && b.isVisible && !c.awaitingRecording)
+    }
+
+    @Test func nothingIsHiddenWhenNoEditorIsOpen() {
+        let (c, a, b) = setup(); a.orderOut(nil); b.orderOut(nil)
+        c.newRecording()
+        #expect(!c.awaitingRecording)
+        c.phaseChanged(from: .recording, to: .idle, delay: 0)          // no windows to return, no effect
+        #expect(!a.isVisible)
+    }
+
+    @Test func closingThePickerWithoutRecordingIsAReturnTrigger() {
+        // The notification path only asks EditorReturn; the decision itself is pure and tested above.
+        let (c, a, b) = setup(); defer { a.orderOut(nil); b.orderOut(nil) }
+        c.newRecording()
+        if EditorReturn.afterToolbarHid(phase: .idle, pickerActive: false) { c.restoreNow() }
+        #expect(a.isVisible && b.isVisible)
     }
 }

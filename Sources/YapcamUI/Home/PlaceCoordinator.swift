@@ -8,6 +8,9 @@ import YapcamEditor
     static let shared = PlaceCoordinator()
 
     /// Editor-side windows hidden for a recording, front to back.
+    /// Injectable for tests: which windows count as editor side, and how the toolbar is shown.
+    var windowsProvider: (() -> [NSWindow])?
+    var showToolbarAction: (() -> Void)?
     private(set) var hidden: [NSWindow] = []
     private(set) var awaitingRecording = false
     private var bag = Set<AnyCancellable>()
@@ -20,7 +23,7 @@ import YapcamEditor
         RecordingController.shared.$phase.removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] phase in
             guard let self else { return }
             let old = lastPhase; lastPhase = phase
-            if awaitingRecording, EditorReturn.afterPhaseChange(from: old, to: phase) { restore(after: 0.5) }
+            phaseChanged(from: old, to: phase, delay: 0.5)
         }.store(in: &bag)
         NotificationCenter.default.publisher(for: EditorWindows.openCountDidChange).receive(on: DispatchQueue.main).sink { [weak self] note in
             guard let self else { return }
@@ -33,11 +36,17 @@ import YapcamEditor
         }.store(in: &bag)
     }
 
+    /// A recording phase change; brings the hidden windows back when the recording ended in any way.
+    func phaseChanged(from old: RecordingPhase, to new: RecordingPhase, delay: TimeInterval) {
+        if awaitingRecording, EditorReturn.afterPhaseChange(from: old, to: new) { restore(after: delay) }
+    }
+
     // MARK: Windows
 
     /// Visible (or minimized) editors and the projects home, front to back.
     func editorSideWindows() -> [NSWindow] {
-        NSApp.orderedWindows.filter { ($0.isVisible || $0.isMiniaturized) && isEditorSide($0) }
+        if let windowsProvider { return windowsProvider() }
+        return NSApp.orderedWindows.filter { ($0.isVisible || $0.isMiniaturized) && isEditorSide($0) }
     }
 
     func isEditorSide(_ w: NSWindow) -> Bool { w === HomeWindow.shared.window || EditorBridge.isEditorWindow(w) }
@@ -87,7 +96,7 @@ import YapcamEditor
             awaitingRecording = true
             windows.forEach { $0.orderOut(nil) }
         }
-        showToolbar()
+        if let showToolbarAction { showToolbarAction() } else { showToolbar() }
     }
 
     /// Brings the hidden windows back; a project that opened meanwhile stays in front.
@@ -103,7 +112,7 @@ import YapcamEditor
         let fresh = editorSideWindows().first { w in !back.contains { $0 === w } }
         for w in back.reversed() { w.orderFront(nil) }
         if let fresh { fresh.makeKeyAndOrderFront(nil) } else { back.first?.makeKeyAndOrderFront(nil) }
-        if !back.isEmpty { NSApp.activate() }
+        if !back.isEmpty, windowsProvider == nil { NSApp.activate() }
     }
 
     private func toolbarHid() {
