@@ -87,6 +87,13 @@ struct CropToolView: View {
                     .allowsHitTesting(false)
                 Rectangle().stroke(Color.white, lineWidth: 1).frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY)
                     .allowsHitTesting(false)
+                Path { p in                                    // 25/50/75 % guides inside the crop (MKT-137)
+                    for f in [0.25, 0.5, 0.75] {
+                        p.move(to: CGPoint(x: r.minX + r.width * f, y: r.minY)); p.addLine(to: CGPoint(x: r.minX + r.width * f, y: r.maxY))
+                        p.move(to: CGPoint(x: r.minX, y: r.minY + r.height * f)); p.addLine(to: CGPoint(x: r.maxX, y: r.minY + r.height * f))
+                    }
+                }
+                .stroke(Color.white.opacity(0.3), lineWidth: 0.5).allowsHitTesting(false)
                 Rectangle().fill(Color.white.opacity(0.001)).frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY)
                     .gesture(drag(.body, scale: scale))
                 ForEach(CropHandle.allCases.filter { $0 != .body }, id: \.self) { h in
