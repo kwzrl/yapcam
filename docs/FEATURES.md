@@ -77,7 +77,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | AUD-07 | Audio | Background music library + volume | technical (bundled music in 5 genres) | Own royalty-free tracks only (not reference files); loop, fade | editor+render | integrated | core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host | Add music, export has 3rd source |
 | AUD-08 | Audio | Mouse click sounds | docs / technical (click sound sets) | Own click sounds (2 variants), volume | render | integrated | core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host | Click event → audio impulse at time |
 | AUD-09 | Audio | Recording start/stop sounds | technical | Optional | ui | integrated | ui: synthesized start/stop chimes, start sound gain 0.33, capture waits ≤540 ms; unit-tested with injected player; live audio untested | Setting toggles |
-| AUD-10 | Audio | Captions via local transcription | docs / technical (whisper binary) | On-device speech recognition (Speech/ whisper.cpp later); caption style | editor | integrated | programmatic, native file transcription (Lead, F13 fix dd39be4, signed debug, M4): EN clean/noisy WER 9.26 / 9.88 % (154/156 of 162 tokens), DE 163/163 WER 8.59 %; sentence boundaries median 45–70 ms. Filler removal weak (0–1 candidates for 3 hesitations). Editor transcript panel, SRT/VTT export and per-language filler lists exist (editor c2e5a17, 2f01b0f). NOT wired: keyterms + language pickers have no effect because ui never sets EditorWindows.transcriberWithOptions / languageProvider (git grep: only `transcriber` is set, AppDelegate.swift:153); ui d: Keyterms + Language now reach capture: AppDelegate sets EditorWindows.transcriberWithOptions (locale = chosen language, 'auto' = system language; keyterms cleaned) and languageProvider (SFSpeechRecognizer.supportedLocales, localised names); unit-tested with an injected transcriber (TranscriptionWiringTests); NOT run live | Transcribe sample; caption times align ±200 ms |
+| AUD-10 | Audio | Captions via local transcription | docs / technical (whisper binary) | On-device speech recognition (Speech/ whisper.cpp later); caption style | editor | integrated | R7 research (camera-audio.md CAM-28): keyterms and language ARE wired (InspectorCaptions.swift:135-140 -> TranscriptionWiring.swift:43 -> AppleOnDeviceSpeech.swift:130); the older 'NOT wired' note is outdated. Still open: transcript correction editor is unreachable dead code (CAM-33), hide-captions toggle (CAM-31), Whisper method (CAM-25/26) | Transcribe sample; caption times align ±200 ms |
 | AUD-11 | Audio | Silence detection → speed-up/cut | technical (detect-silence) | Offer to cut/speed silent ranges | core+editor | implemented | core PCM silence analysis verified; AAC decode unavailable in sandbox; editor Audio tab -> cut/speed | Silence range detected in known file |
 
 ## C. Camera
@@ -97,8 +97,8 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 |---|---|---|---|---|---|---|---|---|
 | CUR-01 | Cursor | Cursor recorded as data, rendered in editor | docs/technical | events.jsonl + cursors PNG, screen without cursor (M1) | capture | verified live | programmatic (launch-flag self-test / tooling on the signed app; no user interaction): events.jsonl + cursors sidecar recorded; screen video cursor-free by design; scripted moves/clicks round-trip, see CUR-02 | Events count>0; video cursor-free |
 | CUR-02 | Cursor | Click/scroll/move capture | docs | CGEventTap listen-only | capture | verified live | programmatic (launch-flag self-test / tooling on the signed app; no user interaction): qa: --drive-input-selftest 10 with Accessibility+Input Monitoring: 38/38 scripted events found in events.jsonl, time error 0.4-15.4 ms (mean 2.3), position error <=0.98 pt, 4/4 clicks with down+up; scripts/qa/compare-input.py | Scripted CGEvent clicks appear at right times |
-| CUR-03 | Cursor | Smooth cursor movement toggle | docs | cursor.smoothing; off = raw | core+render | integrated | editor toggle -> core spring -> render; Rust frame goldens; pixels unverified | Off: frame cursor == raw event pos |
-| CUR-04 | Cursor | Cursor speed presets (reference: smooth 470/70/3, medium 340/60/3, rapid 530/40/1, none; custom stiffness/damping/mass) | docs; technical | spring params; presets map to values (see GAP-ED-13) | core | integrated | editor speed presets -> core spring params; Rust spring test | Spring step response unit tests |
+| CUR-03 | Cursor | Smooth cursor movement toggle | docs | cursor.smoothing; off = raw | core+render | partial | R7 research (cursor-zoom.md CZ-13): toggle exists, but new projects ship with a raw cursor (smoothing 0); reference default is smooth at full strength -> BS-1 | Off: frame cursor == raw event pos |
+| CUR-04 | Cursor | Cursor speed presets (reference: smooth 470/70/3, medium 340/60/3, rapid 530/40/1, none; custom stiffness/damping/mass) | docs; technical | spring params; presets map to values (see GAP-ED-13) | core | partial | R7 research (CZ-14): speed presets apply at 15 % strength only, no true Smooth/Medium/Rapid/None feel -> BS-1/BS-2 | Spring step response unit tests |
 | CUR-05 | Cursor | Cursor size, show/hide, hide when idle, hide in sections | docs | cursor.size/visible/hide_when_idle + range overrides | core+editor | integrated | editor cursor tab + hidden-sections lane -> core ranges | Hidden section frame has no cursor |
 | CUR-06 | Cursor | Cursor sets (macOS, tahoe, touch, many custom) | technical (assets: ~24 sets) | Native macOS cursor images + a few own styles | render | verified | R4: carousel Original + Touch + 12 sets (editor 848d0a6). qa E2E testCursorSetsOriginalAndTouchInExport: unset (Original), "touch" and "coral" each draw a cursor (4-8k px differ from a cursor-less export) and differ pairwise (12-14k px original/touch). Library-level export; the carousel was not clicked by a person. | Switch set changes image |
 | CUR-07 | Cursor | Click effect (ripple/ring) | docs/assumption | cursor.click_effect | render | integrated | editor click effect -> core -> render procedural effect; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86) | Click frame differs from idle frame |
@@ -116,8 +116,8 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ZOM-03 | Zoom | Zoom level per zoom | docs | scale 1…N | core | integrated | editor scale slider -> core | Scale applied exactly |
 | ZOM-04 | Zoom | Auto/Manual per zoom toggle | docs | mode switch | core+editor | integrated | editor per-zoom Auto/Manual -> core | Switch changes target source |
 | ZOM-05 | Zoom | Disable automatic zooms (global/per zoom) | docs | setting | core | integrated | editor auto-zoom toggle -> core | No auto zooms generated when off |
-| ZOM-06 | Zoom | Zoom speed presets + tension/friction/mass | docs | ease_in/out + spring | core | integrated | editor speed preset -> core ease/spring | Curve unit tests (no overshoot unless set) |
-| ZOM-07 | Zoom | Camera follows cursor while zoomed | docs | pan with cursor, dead-zone | core | integrated | editor follow-cursor toggle -> core pan; Rust frame goldens | Cursor at edge pans view |
+| ZOM-06 | Zoom | Zoom speed presets + tension/friction/mass | docs | ease_in/out + spring | core | partial | R7 research (CZ-49): zoom transitions are fixed 300 ms compressed springs; reference ~1.0-1.2 s soft settle (qa-reference-answers.md) -> BS-3 | Curve unit tests (no overshoot unless set) |
+| ZOM-07 | Zoom | Camera follows cursor while zoomed | docs | pan with cursor, dead-zone | core | partial | R7 research (CZ-50): the follow camera is unsmoothed in the default 'custom' style (frame.rs:240-300) -> BS-4 | Cursor at edge pans view |
 | ZOM-08 | Zoom | Instant zoom | docs | zoom without easing | core | integrated | editor 'Instant (no easing)' per zoom | ease=0 |
 | ZOM-09 | Zoom | Zoom motion blur | docs | strength slider | render | integrated | editor zoom motion blur control; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86) | – |
 | ZOM-10 | Zoom | Zoom-aware sharpness (render from source resolution) | assumption | sample source at needed resolution | render | implemented | render samples source at native size; sharpness check pending Metal host test; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86) | Zoomed export has native detail |
@@ -133,7 +133,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | EDT-05 | Edit | Undo/redo | assumption | command stack | core+editor | verified | core: 100-edit and 300-edit undo/redo exact, E2E; UI: --editor-selftest undo/redo via the Edit menu actions, padding 72 -> 48 -> 72 on main 3b68bde | 100 ops undo/redo exact |
 | EDT-06 | Edit | Autosave + reopen | docs | autosave journal, project.json.prev | core | verified live | programmatic (--editor-selftest --crash-now / --crash-after-autosave on the signed app): reopen restores clips, zoom, padding via the journal (qa main 01f05df; again 3c6279f round 3: 2/2 PASS). Autosave now completes inside the hook wait (F13 closed in round 3) | Kill app, reopen, edits intact |
 | EDT-07 | Edit | Aspect ratio + crop (reference presets: auto, 16:9, 1:1, 4:3, 9:16, 3:4, 4:5) | docs; technical | canvas.aspect, screen crop (see GAP-ED-2) | core+render | integrated | editor aspect/crop -> core canvas; GAP-ED-2 real-core tests render each ratio; export sizes per ratio exercised in editor tests (not verified by qa) | 9:16 export size correct |
-| EDT-08 | Edit | Mask/highlight regions | docs | rect/rounded highlight with dim outside | core+render | integrated | editor Overlays tab + lane + rect editor -> core highlights; editor OverlayTests; pixels unverified; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86) | – |
+| EDT-08 | Edit | Mask/highlight regions | docs | rect/rounded highlight with dim outside | core+render | partial | R7 research (editing.md): masks have no lane-click or key entry point (key 4 / Mask button S-EDT-36), chip label and blur warning missing (S-EDT-40/44); the inspector and render path exist | – |
 | EDT-09 | Edit | Annotations / text overlays [extra: not in the reference] | assumption | text blocks on timeline | editor+render | integrated | core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host; render stage verified on Metal M4 (Lead run 03:15, YAPCAM_REQUIRE_RENDER_HARDWARE=1, render 86/86) | – |
 | EDT-10 | Edit | Command menu (⌘K style) | docs | searchable action palette | editor | verified | editor palette unit tests; also cheat sheet | – |
 | EDT-11 | Edit | Copy current frame as image | docs | clipboard PNG of composited frame | editor | verified | editor RealStackTests: copy-frame PNG 1920x1080 | Clipboard image equals frame |
@@ -159,7 +159,7 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Evidence | Acceptance test |
 |---|---|---|---|---|---|---|---|---|
 | PRJ-01 | Project | Package save/open (M1) | docs | .yapcam package, atomic writes | core | verified | testSaveReopen (.prev kept) | Save/open roundtrip |
-| PRJ-02 | Project | Presets create/apply/share (file-based) | docs | export/import preset JSON (local file sharing only) | core+ui | integrated | ui Presets menu: save/apply/import/export/library -> core presets; YapcamUITests | Apply preset changes settings |
+| PRJ-02 | Project | Presets create/apply/share (file-based) | docs | export/import preset JSON (local file sharing only) | core+ui | partial | R7 research (export.md): presets exist, but import uses a .json filter and the preset file type/Import preset parity is open (S-10, S-11, S-12); earlier 'integrated' overstated | Apply preset changes settings |
 | PRJ-03 | Project | Default settings for new recordings | docs | settings panel | ui | implemented | ui: Settings Recording tab; build only | – |
 | PRJ-04 | Project | Recent projects, open file association | assumption | – | ui | implemented | ui: recent projects + .yapcam association; build only | – |
 | PRJ-05 | Project | Missing media detection + relink | architecture | open throws missingMedia | core+ui | verified | testMissingMediaIsReported | Remove screen.mov → clear error |
@@ -204,12 +204,12 @@ background/padding + manual zoom → MP4 1080p). Everything else is **M2**.
 | CUR-15 | Cursor | Remove cursor shakes (tiny jitters) | docs | filter in evaluator | core+editor | integrated | core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host | Jitter < threshold removed |
 | CUR-16 | Cursor | Optimize original cursor types (less rapid type flicker) | docs | debounce cursor id changes | core | integrated | core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host | Flicker fixture collapses |
 | CUR-17 | Cursor | Cursor type: macOS or Touch | docs | = CUR-06 (touch style exists in render) | render+editor | verified | R4: Original/Touch through cursor.set_id (editor carousel); exported pixels differ from the recorded cursor (see CUR-06). Library-level export, not user interaction. | – |
-| ANI-01 | Motion | Cursor animation style (reference: smooth, medium, rapid, none - the earlier Slow/Mellow/Quick/Rapid wording was wrong) | docs; technical | = CUR-04 presets; add "None" (see GAP-ED-13) | core+editor | integrated | presets; 'None' = smoothing off | – |
+| ANI-01 | Motion | Cursor animation style (reference: smooth, medium, rapid, none - the earlier Slow/Mellow/Quick/Rapid wording was wrong) | docs; technical | = CUR-04 presets; add "None" (see GAP-ED-13) | core+editor | partial | R7 research: cursor style presets blend a 15 % spring and the editor preset buttons force animation_style 'custom' (Animations.swift:26) -> BS-1/BS-4 | – |
 | ANI-02 | Motion | Screen animation style: Focused (stabilizes fast, readable) vs Smooth (fluid) | docs | zoom pan/settle presets | core+editor | integrated | core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host | Two presets differ in settle time |
-| ANI-03 | Motion | Motion blur strength slider + advanced per-kind (cursor movement, zoom in/out, screen move) | docs | blur per kind | core+editor+render | integrated | core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host | – |
+| ANI-03 | Motion | Motion blur strength slider + advanced per-kind (cursor movement, zoom in/out, screen move) | docs | blur per kind | core+editor+render | partial | R7 research (editing.md EDT-57): core has MotionBlurSettings{zoom,pan} (model.rs:454) but the per-kind rows `InheritedBlurRow` (InspectorSections.swift:108-119) are never instantiated, so only cursor + global blur are reachable; S-EDT-57 | – |
 | LOK-09 | Canvas | Background types: Wallpaper, Gradient (from chosen color), Color (hex/palette), Image upload | docs | background kinds | editor+render | integrated | solid/gradient/blur/image; wallpaper library = LOK-02 | – |
 | LOK-10 | Canvas | Padding 0 hides background; rounded corners; inset frame; shadow | docs | canvas.* | render | verified | RenderTests crop/radius pixel tests | – |
-| CAM-07 | Camera | "Camera during zoom": resize frame while zoomed, or keep constant | docs | camera.zoom_scale option | core+editor+render | integrated | core model + editor UI; editor TextAndMusicTests/unit tests; pixels/audio unverified on a Metal host | Frame size changes at mid-zoom |
+| CAM-07 | Camera | "Camera during zoom": resize frame while zoomed, or keep constant | docs | camera.zoom_scale option | core+editor+render | partial | R7 research (CAM-06/07): 'Size during zoom' control exists (25-80 %), but shrink-during-zoom is OFF by default (zoom_scale 1.0 in legacy; new-project factory 0.8 only from defaults revision 2); reference shrinks by default -> CAM-06 | Frame size changes at mid-zoom |
 | EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented | E2E verifies 720/1080, 60 fps, GIF | – |
 
 
@@ -353,18 +353,111 @@ only; capture-side A/V sync on a real recording stays open (TCC).
 | R5-09 | Editor | Highlight mask default dim 0.5 | core | dim_opacity 0.4 (model.rs:202,429) | integrated | Matrix E13.3 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
 | R5-10 | Timeline | C, X, Backspace, V, S, Cmd+C/X/V full set | editor | split/ripple/merge chords partly done (TimelineCommands.swift:56) | integrated | Matrix P4 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
 | R5-11 | Export | Separate remembered store for quick export | ui+render | remember(in: .quick) not called; only .dialog (EditorDocument.swift:41) | integrated | Matrix X5 (closed in wave 3, code/test evidence in docs/status/qa.md); code reading, not run live |
+| R5-12 | Recording | System audio menu shows 'Sound from N apps' / 'No system audio' labels | ui | labels are 'Record system audio from all apps / selected apps' and 'Don't record system audio' (SystemAudioChoice.swift:10); no per-app count | partial | Matrix A3.3, downgraded in R6; code reading |
 
 Parity matrix on a12448c (135 rows, match = equal in code, not user-verified): 127 match; 6 out of scope; 2 gaps open (B.Shortcuts, B.Advanced); wave 3 closed the other rows (W4 shares R5-02). Per area match/total: Recording flow 41/44, Settings 7/9, Editor 49/50, Project/timeline 6/6, Export 9/10, Project handling 6/6, Website 9/10 (final recount on a12448c).
 
-## Status counts (round-5 update, main a12448c; section R rows added as partial; others as in round 4 (main c6ae74a);  rows other than the six listed in TEST_REPORT "Round 4" are as audited on 63e239b; 176 rows incl. section J)
+## S. Round 7 website-parity gaps (research files in the fleet's round7/research, main 4397417; status is the state BEFORE round 7 builds, updated at READY R7)
+| ID | Area | Reference behavior (spec id) | Team | Status | Evidence |
+|---|---|---|---|---|---|
+| R7-REC-B-01 | Recording | Dock right-click menu (recording.md B-01) | ui | partial | P0; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-02 | Recording | Camera preview visible during recording (recording.md B-02) | ui | partial | P0; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-03 | Recording | Start/Finish shortcut opens the picker when idle (recording.md B-03) | ui | partial | P0; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-04 | Recording | Speaker notes as one window with a working prompter (recording.md B-04) | ui | partial | P0; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-05 | Recording | Show speaker notes as global shortcut (recording.md B-05) | ui | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-06 | Recording | Microphone menu: noise reduction at record time (recording.md B-06) | ui+core | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-07 | Recording | Use-last-project-settings default and precedence (recording.md B-07) | ui | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-08 | Recording | Hide Dock Icon semantics (recording.md B-08) | ui | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-09 | Recording | Editor Shortcuts Guide on Cmd+/ (recording.md B-09) | editor | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-10 | Recording | Window button context menu (recording.md B-10) | ui | partial | P1; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-11 | Recording | Hide recording widget from its context menu (recording.md B-11) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-12 | Recording | Menu-bar icon click opens the picker (recording.md B-12) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-13 | Recording | Display card size in points (recording.md B-13) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-14 | Recording | Hardware decoding switch (recording.md B-14) | ui+render | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-15 | Recording | Reduce export memory usage (recording.md B-15) | ui+render | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-16 | Recording | Fuller diagnostics report (recording.md B-16) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-17 | Recording | Device frames for phone recordings (out of scope: device frames) (recording.md B-17) | editor+render+core | excluded by user | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-18 | Recording | Update check and release notes (needs decision) (recording.md B-18) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-REC-B-19 | Recording | OS and CPU coverage (decision first) (recording.md B-19) | ui | partial | P2; research spec; gap or partial in main 4397417, owner builds in R7 |
+| R7-CZ-BS-1 | Cursor/zoom | Smooth cursor on by default at full strength (cursor-zoom.md BS-1) | core | partial | P0; research spec |
+| R7-CZ-BS-2 | Cursor/zoom | One cursor-animation control (cursor-zoom.md BS-2) | editor | partial | P1; research spec |
+| R7-CZ-BS-3 | Cursor/zoom | Zoom transitions about 1 s, critically damped (cursor-zoom.md BS-3) | core | partial | P0; research spec |
+| R7-CZ-BS-4 | Cursor/zoom | Smooth follow camera by default (cursor-zoom.md BS-4) | core+editor | partial | P0; research spec |
+| R7-CZ-BS-5 | Cursor/zoom | Connected zooms (NOT confirmed in the reference, qa-reference-answers.md) (cursor-zoom.md BS-5) | core | partial | P1; research spec |
+| R7-CZ-BS-6 | Cursor/zoom | Timeline context menus (zoom/clip chips) (cursor-zoom.md BS-6) | editor | partial | P0; research spec |
+| R7-CZ-BS-7 | Cursor/zoom | Disabled zooms look disabled (cursor-zoom.md BS-7) | editor | partial | P1; research spec |
+| R7-CZ-BS-8 | Cursor/zoom | Slice cursor badges (cursor-zoom.md BS-8) | editor | partial | P1; research spec |
+| R7-CZ-BS-9 | Cursor/zoom | Slice Cursor group (cursor-zoom.md BS-9) | editor | partial | P2; research spec |
+| R7-CZ-BS-10 | Cursor/zoom | Click sound under Cursor with preview (cursor-zoom.md BS-10) | inspector | partial | P1; research spec |
+| R7-CZ-BS-11 | Cursor/zoom | Zoom panel parity (cursor-zoom.md BS-11) | inspector | partial | P1; research spec |
+| R7-CZ-BS-12 | Cursor/zoom | Manual target thumbnail (cursor-zoom.md BS-12) | inspector | partial | P1; research spec |
+| R7-CZ-BS-13 | Cursor/zoom | Eased tilt (cursor-zoom.md BS-13) | core | partial | P2; research spec |
+| R7-CZ-BS-14 | Cursor/zoom | Fade cursor visibility (cursor-zoom.md BS-14) | core | partial | P2; research spec |
+| R7-CZ-BS-15 | Cursor/zoom | Auto zoom without clicks (decision) (cursor-zoom.md BS-15) | core | partial | P2; research spec |
+| R7-CZ-BS-16 | Cursor/zoom | Small placement fixes (cursor-zoom.md BS-16) | inspector | partial | P2; research spec |
+| R7-CAM-CAM-46 | Camera/audio | Camera preview visible while recording (camera-audio.md CAM-46) | ui+capture | partial | P0; research spec |
+| R7-CAM-CAM-06 | Camera/audio | Shrink camera during zoom on by default (camera-audio.md CAM-06) | core | partial | P0; research spec |
+| R7-CAM-CAM-37 | Camera/audio | Library music spans the whole timeline (camera-audio.md CAM-37) | editor+core | partial | P0; research spec |
+| R7-CAM-CAM-54/55 | Camera/audio | Clip right-click Set volume (camera-audio.md CAM-54/55) | editor | partial | P0; research spec |
+| R7-CAM-CAM-15/16 | Camera/audio | Per-layout camera position and size (camera-audio.md CAM-15/16) | editor | partial | P0; research spec |
+| R7-CAM-CAM-21 | Camera/audio | Animated layout transitions (camera-audio.md CAM-21) | core | partial | P1; research spec |
+| R7-CAM-CAM-11 | Camera/audio | Click or drag to add on the Layouts lane (camera-audio.md CAM-11) | editor | partial | P1; research spec |
+| R7-CAM-CAM-14 | Camera/audio | Fullscreen fills the frame (camera-audio.md CAM-14) | core | partial | P1; research spec |
+| R7-CAM-CAM-13 | Camera/audio | Layout type control (camera-audio.md CAM-13) | editor | partial | P2; research spec |
+| R7-CAM-CAM-22 | Camera/audio | Lane visibility menu (camera-audio.md CAM-22) | editor | partial | P2; research spec |
+| R7-CAM-CAM-03 | Camera/audio | Mirror default and placement (camera-audio.md CAM-03) | core+editor | partial | P2; research spec |
+| R7-CAM-CAM-04 | Camera/audio | Roundness slider (camera-audio.md CAM-04) | editor+core | partial | P2; research spec |
+| R7-CAM-CAM-25/26 | Camera/audio | Whisper transcription method (camera-audio.md CAM-25/26) | capture+editor | partial | P2; research spec |
+| R7-CAM-CAM-27 | Camera/audio | Language auto-detection (camera-audio.md CAM-27) | capture | partial | P1; research spec |
+| R7-CAM-CAM-31 | Camera/audio | Hide captions toggle (camera-audio.md CAM-31) | core+editor | partial | P1; research spec |
+| R7-CAM-CAM-32 | Camera/audio | Caption size Reset (camera-audio.md CAM-32) | editor | partial | P2; research spec |
+| R7-CAM-CAM-33 | Camera/audio | Edit transcript (camera-audio.md CAM-33) | editor | partial | P1; research spec |
+| R7-CAM-CAM-42 | Camera/audio | Add own background audio (camera-audio.md CAM-42) | editor | partial | P1; research spec |
+| R7-CAM-CAM-50 | Camera/audio | Noise reduction choice in mic menu (camera-audio.md CAM-50) | ui+editor | partial | P1; research spec |
+| R7-CAM-CAM-57 | Camera/audio | Reactions warning and Video Effects shortcut (camera-audio.md CAM-57) | ui | partial | P2; research spec |
+| R7-EXP-S-01 | Export/project | Explicit Save Cmd+S (export.md S-01) | ui+editor | partial | P0; research spec |
+| R7-EXP-S-02 | Export/project | Open Recent + Dock recents (export.md S-02) | ui | partial | P0; research spec |
+| R7-EXP-S-03 | Export/project | Export dialog parity: segmented rows, descriptions, speed note (export.md S-03) | editor | partial | P1; research spec |
+| R7-EXP-S-04 | Export/project | Web compression at 4K: Web and Web (Low) shown but disabled (reference confirmed) (export.md S-04) | editor+render | partial | P2; research spec |
+| R7-EXP-S-05 | Export/project | Full destination path in progress view (export.md S-05) | editor | partial | P2; research spec |
+| R7-EXP-S-06 | Export/project | Long GIF warning (export.md S-06) | editor | partial | P2; research spec |
+| R7-EXP-S-07 | Export/project | Preview mode Quality/Performance + power saving (export.md S-07) | editor | partial | P2; research spec |
+| R7-EXP-S-08 | Export/project | Quick widget: double-click to edit (export.md S-08) | ui | partial | P2; research spec |
+| R7-EXP-S-09 | Export/project | Always save project when using quick export + discard on close (export.md S-09) | ui | partial | P1; research spec |
+| R7-EXP-S-10 | Export/project | Presets dropdown parity (export.md S-10) | editor | partial | P1; research spec |
+| R7-EXP-S-11 | Export/project | Preset file type + Import preset (export.md S-11) | editor | partial | P1; research spec |
+| R7-EXP-S-12 | Export/project | Presets folder unreadable (export.md S-12) | editor | partial | P2; research spec |
+| R7-EXP-S-13 | Export/project | Save As continues on the copy (export.md S-13) | ui | partial | P2; research spec |
+| R7-EXP-S-14 | Export/project | File-menu items Shift+Cmd+O, recent clipboard exports (export.md S-14) | ui | partial | P2; research spec |
+| R7-EXP-S-15 | Export/project | Export menu in the menu bar (export.md S-15) | ui | partial | P1; research spec |
+| R7-ED-S-EDT-21/22 | Editing | Timeline context menus (editing.md S-EDT-21/22) | editor | partial | P0; research spec |
+| R7-ED-S-EDT-23 | Editing | Edge-drag trim on clips (editing.md S-EDT-23) | editor+core | partial | P0; research spec |
+| R7-ED-S-EDT-06 | Editing | Always keep zoomed in (editing.md S-EDT-06) | core+render+editor | partial | P1; research spec |
+| R7-ED-S-EDT-09/10/11/13 | Editing | Crop tool window (editing.md S-EDT-09/10/11/13) | editor | partial | P1; research spec |
+| R7-ED-S-EDT-24 | Editing | Cut/trim bubbles on the ruler (editing.md S-EDT-24) | editor | partial | P1; research spec |
+| R7-ED-S-EDT-26 | Editing | Merge with next / previous (editing.md S-EDT-26) | core+editor | partial | P1; research spec |
+| R7-ED-S-EDT-31 | Editing | Audio scrubbing (editing.md S-EDT-31) | render+editor | partial | P1; research spec |
+| R7-ED-S-EDT-36/37/85 | Editing | Lane visibility menu, Mask button, key 4 (editing.md S-EDT-36/37/85) | editor | partial | P1; research spec |
+| R7-ED-S-EDT-47/63 | Editing | Export current frame as image + palette export entries (editing.md S-EDT-47/63) | editor+ui | partial | P1; research spec |
+| R7-ED-S-EDT-53 | Editing | Single-key suppression while typing (editing.md S-EDT-53) | core | partial | P1; research spec |
+| R7-ED-S-EDT-54 | Editing | Shortcuts timeline + per-occurrence disable (editing.md S-EDT-54) | core+editor | partial | P1; research spec |
+| R7-ED-S-EDT-57 | Editing | Advanced motion blur reachable (editing.md S-EDT-57) | editor | partial | P1; research spec |
+| R7-ED-S-EDT-60/61 | Editing | Copy frame semantics + preview context menu (editing.md S-EDT-60/61) | editor | partial | P1; research spec |
+| R7-ED-S-EDT-69 | Editing | Background blur for wallpaper/image (editing.md S-EDT-69) | editor | partial | P1; research spec |
+| R7-ED-S-EDT-74 | Editing | Save Cmd+S (editing.md S-EDT-74) | ui+editor | partial | P1; research spec |
+| R7-ED-S-EDT-77 | Editing | Open Recent + Dock recents (editing.md S-EDT-77) | ui | partial | P1; research spec |
+| R7-ED-S-EDT-83 | Editing | Extract raw recording files from the editor (editing.md S-EDT-83) | ui+core | partial | P1; research spec |
+| R7-ED-S-EDT-86 | Editing | Fix cut-tool tooltips (editing.md S-EDT-86) | editor | partial | P1; research spec |
+
+## Status counts (round-7 start, main 4397417; round-5 base as before; 9 rows corrected from integrated to partial by the research (ANI-03, PRJ-02, CUR-03, CUR-04, ANI-01, ZOM-06, ZOM-07, CAM-07, EDT-08); section S adds 88 research rows (87 partial, 1 excluded) BEFORE round-7 builds; final recount at READY R7)
 | Status | Rows |
 |---|---:|
 | verified live (programmatic, signed app) | 21 |
 | verified (named test / native measurement) | 29 |
-| integrated | 79 |
+| integrated | 70 |
 | implemented | 33 |
-| partial | 9 |
+| partial | 106 |
 | limited (no hardware) | 10 |
-| excluded by user | 6 |
+| excluded by user | 7 |
 | extra | 8 (section M list; their technical status is counted above) |
-| **Total rows** | **187** |
+| **Total rows** | **276** |
