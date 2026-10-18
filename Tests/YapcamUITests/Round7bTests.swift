@@ -101,4 +101,19 @@ import YapcamCore
         let item = NSMenuItem(title: "x", action: #selector(AppDelegate.pickArea), keyEquivalent: "")
         #expect(d.validateMenuItem(item) == (RecordingController.shared.phase == .idle))
     }
+
+    @Test func widgetRenamesTheProjectAndRefusesTakenNames() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "r7b-w-\(UUID())", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appending(path: "Take.yapcam", directoryHint: .isDirectory), b = dir.appending(path: "Other.yapcam", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: a, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: b, withIntermediateDirectories: true)
+        let m = QuickExportWidgetModel()
+        m.package = a
+        m.rename(to: "  "); #expect(m.title == "Take" && m.renameError == nil)
+        m.rename(to: "Other"); #expect(m.title == "Take" && m.renameError != nil)
+        m.rename(to: "Demo: day/1"); #expect(m.title == "Demo- day-1" && m.renameError == nil)
+        #expect(FileManager.default.fileExists(atPath: dir.appending(path: "Demo- day-1.yapcam").path))
+    }
 }
