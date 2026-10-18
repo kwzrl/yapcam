@@ -298,6 +298,24 @@ EXP-10 'no cloud'); **local transcription uses the system speech API** (consiste
 | ANI-03 | Per-kind motion blur | reference has one global amount (GAP-ED-13, GAP-RND-8) | extra |
 | REC-11 | 30/60 fps option | reference follows the display (GAP-CAP-4) | extra |
 
+## K. Additional options found in official guides (audit 2026-10-15)
+
+| ID | Area | Reference behavior | Src | Yapcam behavior | Team | Status | Acceptance test |
+|---|---|---|---|---|---|---|---|
+| CUR-12 | Cursor | "Always use default system cursor" (keep system cursor for e.g. text selection) | docs | cursor option | core+editor+render | todo | Option on: I-beam recorded as arrow |
+| CUR-13 | Cursor | Rotate cursor slightly while moving | docs | cursor.rotate_on_move | core+editor+render | todo | Fast move frame shows tilt |
+| CUR-14 | Cursor | Stop cursor movement before end of video | docs | cursor option | core+editor | todo | Last N ms position constant |
+| CUR-15 | Cursor | Remove cursor shakes (tiny jitters) | docs | filter in evaluator | core+editor | todo | Jitter < threshold removed |
+| CUR-16 | Cursor | Optimize original cursor types (less rapid type flicker) | docs | debounce cursor id changes | core | todo | Flicker fixture collapses |
+| CUR-17 | Cursor | Cursor type: macOS or Touch | docs | = CUR-06 (touch style exists in render) | render+editor | implemented (render has recorded/pointer/touch; no picker) | – |
+| ANI-01 | Motion | Cursor animation style: Smooth / Medium / Rapid / None (guide wording; search snippet said Slow/Mellow/Quick/Rapid – to observe) | docs | = CUR-04 presets; add "None" | core+editor | integrated (presets; 'None' = smoothing off) | – |
+| ANI-02 | Motion | Screen animation style: Focused (stabilizes fast, readable) vs Smooth (fluid) | docs | zoom pan/settle presets | core+editor | todo | Two presets differ in settle time |
+| ANI-03 | Motion | Motion blur strength slider + advanced per-kind (cursor movement, zoom in/out, screen move) | docs | blur per kind | core+editor+render | implemented (single motion blur; per-kind controls todo) | – |
+| LOK-09 | Canvas | Background types: Wallpaper, Gradient (from chosen color), Color (hex/palette), Image upload | docs | background kinds | editor+render | integrated (solid/gradient/blur/image; wallpaper library = LOK-02) | – |
+| LOK-10 | Canvas | Padding 0 hides background; rounded corners; inset frame; shadow | docs | canvas.* | render | verified (RenderTests crop/radius pixel tests) | – |
+| CAM-07 | Camera | "Camera during zoom": resize frame while zoomed, or keep constant | docs | camera.zoom_scale option | core+editor+render | todo | Frame size changes at mid-zoom |
+| EXP-12 | Export | Formats named by guide: GIF and MP4; resolutions HD and 4K; FPS 24/30/60; compression level does not affect time | docs | matches EXP-02/03/05 | render | implemented (E2E verifies 720/1080, 60 fps, GIF) | – |
+
 ## Audit log
 **Round-3 audit (2026-10-16, against main 63e239b):** every row whose status said pending / required / "-> team" / not wired / untested was checked with `git grep` on main and rewritten with file evidence; statuses normalised to the vocabulary at the top (counts in the last table of this file). Stale rows corrected: GAP-ED-5/8/9/11/12/15, GAP-CORE-6, GAP-RND-6/7/8, AUD-06, REC-14/16, EDT-07, GAP-UI-4/9/10, GAP-CORE-10, EDT-06. Rows that are REALLY unwired (code exists, nothing in the app uses it): GAP-CAP-1 (no app checklist), GAP-CAP-6 (preflight prompts never shown), AUD-10 keyterms + language pickers (EditorWindows.transcriberWithOptions / languageProvider never set by ui).
 Live results (qa, signed build, main b5d1268): see docs/TEST_REPORT.md section 4.
