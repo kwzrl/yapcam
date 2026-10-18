@@ -9,6 +9,21 @@ import YapcamEditor
         init(_ options: UIRecordingOptions) {
             inner = RecordingSession(options: LiveEngine.captureOptions(for: options))
         }
+        var cameraFeed: (@MainActor @Sendable (CameraPreviewFeed) -> Void)? {
+            get { feed }
+            set {
+                feed = newValue
+                inner.cameraPreviewHandler = newValue.map { handler in
+                    { @MainActor @Sendable update in
+                        switch update {
+                        case .frame(let f): handler(.frame(CameraFrame(sampleBuffer: f.sampleBuffer)))
+                        case .unavailable(let why): handler(.unavailable(why))
+                        }
+                    }
+                }
+            }
+        }
+        private var feed: (@MainActor @Sendable (CameraPreviewFeed) -> Void)?
         var elapsed: TimeInterval { inner.elapsed }
         var micLevel: Float { inner.micLevel }
         var warnings: [String] { inner.warnings }
@@ -39,6 +54,8 @@ import YapcamEditor
         }
         return RecordingOptions(
             target: target, systemAudio: o.systemAudio, microphoneID: o.microphoneID,
+            cleanVoiceOnRecord: o.cleanVoiceOnRecord && o.microphoneID != nil,
+            recordStereoMicrophone: o.recordStereoMicrophone && o.microphoneID != nil,
             cameraID: o.cameraID, recordKeystrokes: o.recordKeystrokes, maxFPS: o.maxFPS,
             excludeYapcamWindows: true, hideDesktopIcons: o.hideDesktopIcons,
             systemAudioSelection: selection(for: o), cameraMaxResolution: o.cameraMaxResolution,

@@ -27,9 +27,10 @@ enum TranscriptionWiring {
         return "Some parts of the recording could not be turned into text: \(first)\(more). The captions that were found are kept; you can run Generate captions again or edit the text by hand."
     }
 
-    /// "Auto" means the language the Mac is set to; anything else is the chosen locale as is.
+    /// "Auto" is passed through as the literal "auto": capture then listens to the first seconds, and uses the
+    /// Mac's language unless it is confident the speech is another supported one. Anything else is the chosen locale as is.
     static func localeIdentifier(for language: String, system: String = Locale.current.identifier) -> String {
-        language.isEmpty || language == "auto" ? system : language
+        language.isEmpty || language == "auto" ? "auto" : language
     }
 
     /// Blank entries are dropped and repeats removed; order is kept.

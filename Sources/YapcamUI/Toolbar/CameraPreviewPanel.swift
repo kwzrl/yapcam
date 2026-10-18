@@ -2,6 +2,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import YapcamDesign
 
 /// The floating camera preview that shows while the picker is open and a camera is chosen (reference: square shape,
 /// hidden with "Hide camera preview"). It runs its own capture session, never the one the camera menu uses, and
@@ -28,13 +29,46 @@ import SwiftUI
         return screens.contains { $0.intersects(CGRect(origin: p, size: CGSize(width: size, height: size))) } ? p : nil
     }
 
+    /// Where the preview's pictures come from: its own session until capture owns the camera, then the recording's stream.
+    enum Source: Equatable { case standalone, recording }
+    static func source(for phase: RecordingPhase) -> Source {
+        switch phase { case .idle, .countdown, .finishing: .standalone; case .starting, .recording, .paused: .recording }
+    }
+
+    /// Text on the placeholder when the camera disappears during a take.
+    static func disconnectedText(_ reason: String) -> String {
+        reason.isEmpty ? "Camera disconnected" : "Camera disconnected\n\(reason)"
+    }
+
+    /// Called with the recording's camera stream.
+    func receive(_ update: CameraPreviewFeed) {
+        switch update {
+        case .frame(let f):
+            model.unavailable = nil
+            let layer = model.displayLayer
+            if layer.status == .failed { layer.flush() }
+            layer.enqueue(f.sampleBuffer)
+        case .unavailable(let why):
+            model.displayLayer.flushAndRemoveImage()
+            model.unavailable = Self.disconnectedText(why)
+        }
+    }
+
+    var placeholderText: String? { model.unavailable }
+    private var usingFeed = false
     private var panel: NSPanel?
     private var session: AVCaptureSession?
     private var shownFor: String?
     private var bag = Set<AnyCancellable>()
     private let model = PreviewModel()
 
-    final class PreviewModel: ObservableObject { @Published var session: AVCaptureSession?; @Published var opacity = 1.0 }
+    final class PreviewModel: ObservableObject {
+        @Published var session: AVCaptureSession?
+        @Published var opacity = 1.0
+        @Published var fromRecording = false
+        @Published var unavailable: String?
+        let displayLayer = AVSampleBufferDisplayLayer()
+    }
 
     func start() {
         guard bag.isEmpty else { return }
@@ -53,7 +87,13 @@ import SwiftUI
                                    cameraID: s.cameraID, cameraAvailable: DeviceModel.shared.isAvailable(camera: s.cameraID),
                                    permissionGranted: PermissionsModel.shared.state(.camera) == .granted, hidden: s.hideCameraPreview)
         guard show, let id = s.cameraID else { hide(); return }
-        if shownFor != id { startSession(id) }     // an existing session carries on from the picker into the take
+        if Self.source(for: RecordingController.shared.phase) == .recording {
+            // Capture owns the camera now: stop the panel's own session and show the recording's stream.
+            if !usingFeed { stopSession(); usingFeed = true; model.fromRecording = true; ensurePanel() }
+        } else {
+            if usingFeed { usingFeed = false; model.fromRecording = false; model.unavailable = nil; model.displayLayer.flushAndRemoveImage(); shownFor = nil }
+            if shownFor != id { startSession(id) }
+        }
         model.opacity = Self.opacity(for: RecordingController.shared.phase)
         place()
         panel?.orderFrontRegardless()
@@ -67,6 +107,11 @@ import SwiftUI
         session.addInput(input)
         self.session = session; shownFor = id
         model.session = session
+        ensurePanel()
+        DispatchQueue.global(qos: .userInitiated).async { session.startRunning() }
+    }
+
+    private func ensurePanel() {
         if panel == nil {
             let p = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 168, height: 168), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .floating
@@ -82,7 +127,6 @@ import SwiftUI
             RecordingController.shared.engine.registerExcluded(p)
             panel = p
         }
-        DispatchQueue.global(qos: .userInitiated).async { session.startRunning() }
     }
 
     private func stopSession() {
@@ -107,12 +151,41 @@ import SwiftUI
     func hide() {
         panel?.orderOut(nil)
         stopSession()
+        if usingFeed { usingFeed = false; model.fromRecording = false; model.unavailable = nil; model.displayLayer.flushAndRemoveImage() }
+    }
+
+    /// Shows the recording's camera frames, mirrored like the picker's preview.
+    private struct RecordingFeedView: NSViewRepresentable {
+        let layer: AVSampleBufferDisplayLayer
+        func makeNSView(context: Context) -> NSView {
+            let v = NSView(); v.wantsLayer = true
+            layer.videoGravity = .resizeAspectFill
+            layer.setAffineTransform(CGAffineTransform(scaleX: -1, y: 1))
+            layer.frame = v.bounds; layer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+            v.layer?.addSublayer(layer)
+            return v
+        }
+        func updateNSView(_ v: NSView, context: Context) {}
     }
 
     private struct PreviewView: View {
         @ObservedObject var model: PreviewModel
         var body: some View {
-            CameraPreview(session: model.session)
+            Group {
+                if let text = model.unavailable {
+                    ZStack {
+                        Yap.recess
+                        VStack(spacing: 6) {
+                            Image(systemName: "video.slash").font(.system(size: 22))
+                            Text(text).font(.caption).multilineTextAlignment(.center)
+                        }.foregroundStyle(.secondary).padding(8)
+                    }
+                } else if model.fromRecording {
+                    RecordingFeedView(layer: model.displayLayer)
+                } else {
+                    CameraPreview(session: model.session)
+                }
+            }
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                 .padding(4)

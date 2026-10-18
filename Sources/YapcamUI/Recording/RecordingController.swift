@@ -1,4 +1,5 @@
 import AppKit
+import YapcamCapture
 import SwiftUI
 import YapcamCore
 
@@ -37,6 +38,18 @@ enum RecordingPhase: Equatable {
     @Published private(set) var countdownProgress = 0.0
     /// True when starting/finishing takes longer than 3 s: the widget then says "Working…".
     @Published private(set) var workingLong = false
+
+    /// What the toolbar says when a step takes more than a moment.
+    static func busyCaption(_ phase: RecordingPhase) -> String {
+        switch phase { case .finishing: "Saving recording…"; case .starting: "Starting…"; default: "Working…" }
+    }
+    static func busyHelp(_ phase: RecordingPhase) -> String {
+        switch phase {
+        case .finishing: "Yapcam is closing the files and preparing the project. Long recordings take longer; nothing is lost."
+        case .starting: "Waiting for the screen, camera and microphone to start."
+        default: "Still working."
+        }
+    }
     /// Markers added with the flag button or shortcut, in recording time (pauses excluded).
     @Published private(set) var markers: [Int64] = []
     /// The package of the last finished recording (quick export and "open last").
@@ -231,13 +244,16 @@ enum RecordingPhase: Equatable {
             .volumeAvailableCapacityForImportantUsage, free < 1_000_000_000 {
             throw EngineError.diskFull(availableBytes: free)
         }
+        let micID = PermissionsModel.shared.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) ? settings.microphoneID : nil
         return UIRecordingOptions(
             target: target,
             systemAudio: settings.systemAudio,
             systemAudioApps: settings.systemAudioAppsForRecording,
-            microphoneID: PermissionsModel.shared.state(.microphone) == .granted && DeviceModel.shared.isAvailable(microphone: settings.microphoneID) ? settings.microphoneID : nil,
+            microphoneID: micID,
             cameraID: PermissionsModel.shared.state(.camera) == .granted && DeviceModel.shared.isAvailable(camera: settings.cameraID) ? settings.cameraID : nil,
             cameraMaxResolution: settings.cameraMaxResolution,
+            cleanVoiceOnRecord: micID != nil && settings.cleanVoiceOnRecord,
+            recordStereoMicrophone: micID != nil && settings.recordStereoMicrophone,
             recordKeystrokes: settings.recordKeystrokes && PermissionsModel.shared.state(.inputMonitoring) == .granted,
             maxFPS: settings.maxFPS,
             hideDesktopIcons: settings.hideDesktopIcons,
@@ -253,7 +269,16 @@ enum RecordingPhase: Equatable {
 
     // MARK: Countdown
 
+    /// The window to bring to the front before a take (nil: nothing to raise).
+    static func windowToRaise(_ target: UITarget, enabled: Bool) -> UInt32? {
+        if enabled, case .window(let id) = target { return id }
+        return nil
+    }
+
     private func runCountdown(then options: UIRecordingOptions) {
+        if let id = Self.windowToRaise(options.target, enabled: settings.raiseWindowOnStart) {
+            try? CaptureWindowControl.raise(windowID: id)       // needs Accessibility; without it the window stays where it is
+        }
         let n = settings.countdown
         guard n > 0 else { startSession(options); return }
         skipRequested = false
@@ -297,6 +322,7 @@ enum RecordingPhase: Equatable {
         let playSound = settings.playSounds
         let player = cuePlayer
         let s = engine.makeSession(options)
+        s.cameraFeed = { CameraPreviewPanel.shared.receive($0) }
         session = s
         elapsed = 0
         startTask = Task {

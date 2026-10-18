@@ -363,6 +363,20 @@ import YapcamRender
     @Published var thumbnail: NSImage?
     /// The raw screen movie of the first segment: the widget loops a silent preview of it.
     @Published var movie: URL?
+    @Published var renameError: String?
+
+    var title: String { package?.deletingPathExtension().lastPathComponent ?? "Recording" }
+
+    /// Renames the recording's project from the widget. An unchanged or empty name keeps the old one;
+    /// a name that is taken or cannot be used leaves the project as it was and says why.
+    func rename(to raw: String) {
+        guard let pkg = package else { return }
+        let clean = ProjectActions.cleanName(raw)
+        guard !clean.isEmpty, clean != title else { renameError = nil; return }
+        do { package = try ProjectActions.rename(pkg, to: clean); renameError = nil; loadThumbnail() }
+        catch { renameError = UserMessage.describe(error) }
+    }
+
     func loadThumbnail() {
         thumbnail = nil; movie = nil
         guard let pkg = package else { return }
@@ -384,7 +398,30 @@ import YapcamRender
     }
 }
 
+/// The recording's name in the widget: click to rename, Return to keep.
+private struct TitleField: View {
+    @ObservedObject var model: QuickExportWidgetModel
+    let locked: Bool
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        TextField("Name", text: $draft)
+            .textFieldStyle(.plain).focused($focused)
+            .font(.system(size: 14, weight: .semibold)).foregroundStyle(Yap.title).lineLimit(1)
+            .disabled(locked)
+            .onAppear { draft = model.title }
+            .onChange(of: model.package) { _, _ in if !focused { draft = model.title } }
+            .onChange(of: focused) { _, now in if !now { model.rename(to: draft); draft = model.title } }
+            .onSubmit { model.rename(to: draft); draft = model.title }
+            .help(model.renameError ?? (locked ? "The name can change when the export is done" : "Click to rename this recording"))
+            .accessibilityLabel("Recording name")
+    }
+}
+
 struct QuickExportWidgetView: View {
+    /// Tooltip text that names the real shortcut when one is set.
+    static func help(_ text: String, _ combo: KeyCombo?) -> String { combo.map { "\(text) (\($0.display))" } ?? text }
+
     @ObservedObject var model: QuickExportWidgetModel
     let close: () -> Void
     @EnvironmentObject var export: QuickExport
@@ -405,8 +442,7 @@ struct QuickExportWidgetView: View {
                 .frame(width: 112, height: 70)
                 .clipShape(RoundedRectangle(cornerRadius: Yap.concentric(radius, inset: inset), style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.package?.deletingPathExtension().lastPathComponent ?? "Recording")
-                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(Yap.title).lineLimit(1)
+                    TitleField(model: model, locked: isWorking)
                     Text(QuickExport.summary(settings.quickExport)).technical().lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     status
                 }
@@ -421,11 +457,14 @@ struct QuickExportWidgetView: View {
             }
             HStack(spacing: 8) {
                 Button("Copy") { run(.copy) }.buttonStyle(CapsuleButtonStyle(.secondary, height: 30))
+                    .help(QuickExportWidgetView.help("Export with the quick export settings and copy the file", settings.combo(for: .quickExportCopy)))
                 Button("Save…") { run(.save) }.buttonStyle(CapsuleButtonStyle(.secondary, height: 30))
+                    .help(QuickExportWidgetView.help("Export with the quick export settings and choose where to save it", settings.combo(for: .quickExportSave)))
                 Spacer()
                 Button("Edit") { if let p = model.package { RecordingController.shared.engine.openEditor(package: p); close() } }
                     .buttonStyle(CapsuleButtonStyle(.primary, height: 30))
                     .keyboardShortcut(.defaultAction)
+                    .help("Open the recording in the editor (Return)")
             }
             .disabled(isWorking)
         }

@@ -295,6 +295,9 @@ import YapcamEditor
     @objc func dockRestart() { RecordingController.shared.confirmRestart() }
     @objc func dockCancel() { RecordingController.shared.confirmCancel() }
     @objc func dockCancelCountdown() { RecordingController.shared.cancelCountdown() }
+    @objc func pickDisplay() { SourcePicker.open(.display) }
+    @objc func pickWindow() { SourcePicker.open(.window) }
+    @objc func pickArea() { SourcePicker.open(.area) }
     @objc func dockNewRecording() { ToolbarPanelController.shared.show() }
     @objc func dockToggleKeep() { AppSettings.shared.showInDock.toggle() }
     @objc func showPermissions() { OnboardingWindow.shared.show(reason: nil, all: true) }
@@ -364,6 +367,7 @@ extension AppDelegate: NSMenuItemValidation {
         case #selector(saveProject), #selector(extractRawFiles), #selector(extractScreenFile), #selector(saveProjectAs), #selector(copyAndZipProject), #selector(showProjectInFinder), #selector(moveProjectToTrash), #selector(renameProject): return EditorBridge.keyDocument() != nil
         case #selector(exportPicker), #selector(exportToFile), #selector(exportCopy), #selector(exportHistory):
             return ExportMenuState.enabled(hasEditor: EditorBridge.keyEditor() != nil, exportRunning: EditorBridge.keyDocument()?.export.isRunning ?? false)
+        case #selector(pickDisplay), #selector(pickWindow), #selector(pickArea): return r.phase == .idle
         case #selector(addMarker): return r.phase == .recording
         case #selector(restartRecording), #selector(cancelRecording): return r.isRecording
         case #selector(togglePause):

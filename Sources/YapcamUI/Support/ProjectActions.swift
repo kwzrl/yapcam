@@ -35,8 +35,19 @@ import YapcamCore
     }
     static func release(_ url: URL) { reserved.remove(key(url)) }
 
+    /// A project name that is safe as a file name: no "/" or ":" (they are path separators in Finder), no control
+    /// characters, no leading dots (hidden files), no outer spaces, at most 120 characters.
+    static func cleanName(_ raw: String) -> String {
+        var s = String(raw.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.map(Character.init))
+        s = s.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasPrefix(".") { s.removeFirst() }
+        s = String(s.prefix(120)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return s
+    }
+
     static func rename(_ url: URL, to newName: String) throws -> URL {
-        let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-")
+        let clean = cleanName(newName)
         guard !clean.isEmpty else { throw EngineError.failed("The name can't be empty.") }
         let dest = url.deletingLastPathComponent().appending(path: "\(clean).yapcam", directoryHint: .isDirectory)
         guard dest != url else { return url }
@@ -159,11 +170,26 @@ import YapcamCore
         if FileManager.default.fileExists(atPath: package.appending(path: "project.json").path) { return try Project.open(package: package) }
         let project = try Project.create(package: package)
         applyInitialLook(to: project, package: package)
-        applyRecordTimeAudio(to: project, cleanVoice: AppSettings.shared.cleanVoiceOnRecord && AppSettings.shared.microphoneID != nil)
+        applySessionAudio(to: project, package: package)
         return project
     }
 
     /// The microphone menu's "Clean up voice" choice becomes the new project's voice clean-up (after the look, so presets don't override it).
+    /// What capture recorded about the microphone (`recording/session.json`, tracks.mic) becomes project audio settings,
+    /// after the look so presets and reused looks do not override the recorded choice.
+    static func applySessionAudio(to project: Project, package: URL) {
+        let flags = micFlags(in: package)
+        applyRecordTimeAudio(to: project, cleanVoice: flags.cleanVoice)
+        if flags.stereo { try? project.apply(.set(path: "audio.stereo_mic", value: .bool(true))) }
+    }
+
+    static func micFlags(in package: URL) -> (cleanVoice: Bool, stereo: Bool) {
+        guard let data = try? Data(contentsOf: package.appending(path: "recording/session.json")),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mic = (root["tracks"] as? [String: Any])?["mic"] as? [String: Any] else { return (false, false) }
+        return (mic["speech_enhancement"] as? Bool ?? false, mic["stereo_mic"] as? Bool ?? false)
+    }
+
     static func applyRecordTimeAudio(to project: Project, cleanVoice: Bool) {
         guard cleanVoice else { return }
         try? project.apply(.set(path: "audio.speech_enhancement", value: .bool(true)))
@@ -236,8 +262,9 @@ import YapcamCore
     static func importVideo(_ video: URL) {
         let dir = AppSettings.shared.storageDirectory
         let pkg = reserveURL(in: dir, name: video.deletingPathExtension().lastPathComponent)
+        BusyHUD.shared.show(BusyHUD.importText(video))
         Task {
-            defer { release(pkg) }
+            defer { release(pkg); BusyHUD.shared.hide() }
             do {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
                 let imported = try await Project.importVideo(video, package: pkg)

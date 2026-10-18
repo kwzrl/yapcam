@@ -211,7 +211,7 @@ struct ToolbarView: View {
     private var busyControls: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            if rec.workingLong { Text("Working…").font(Yap.Font.caption).foregroundStyle(Yap.caption) }
+            if rec.workingLong { Text(RecordingController.busyCaption(rec.phase)).font(Yap.Font.caption).foregroundStyle(Yap.caption).help(RecordingController.busyHelp(rec.phase)) }
         }
         .frame(minWidth: 90, minHeight: 44)
         .accessibilityLabel(rec.phase == .finishing ? "Saving recording" : "Starting recording")
@@ -254,7 +254,7 @@ struct ToolbarView: View {
             iconButton("arrow.counterclockwise", label: "Restart", help: "Discard this take and start over (asks first)", action: rec.confirmRestart)
             iconButton("flag", label: "Add marker", help: "Add a marker here (\(settings.combo(for: .marker)?.display ?? ""))", enabled: !paused, action: rec.addMarker)
             iconButton("trash", label: "Cancel recording", help: "Cancel and delete the recording (asks first)", action: rec.confirmCancel)
-            if rec.workingLong { Text("Working…").font(Yap.Font.caption).foregroundStyle(Yap.caption) }
+            if rec.workingLong { Text(RecordingController.busyCaption(rec.phase)).font(Yap.Font.caption).foregroundStyle(Yap.caption).help(RecordingController.busyHelp(rec.phase)) }
         }
         .padding(vertical ? .top : .leading, 4)
     }
