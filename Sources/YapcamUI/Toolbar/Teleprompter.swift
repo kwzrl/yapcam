@@ -16,6 +16,14 @@ enum PrompterRanges {
 }
 
 /// The prompter's state: independent of the recording phase (play scrolls whether or not a take is running).
+extension PrompterModel {
+    /// Tooltip for the play button, naming the real shortcut when one is set.
+    static func playHelp(playing: Bool, shortcut: String?) -> String {
+        let what = playing ? "Pause the prompter" : "Scroll the notes"
+        return shortcut.map { "\(what) (\($0))" } ?? what
+    }
+}
+
 @MainActor final class PrompterModel: ObservableObject {
     static let shared = PrompterModel()
     private let d = AppDefaults.store
@@ -67,7 +75,7 @@ struct SpeakerNotesView: View {
             HStack(spacing: 10) {
                 Button { prompter.togglePlay(maxOffset: maxOffset) } label: { Image(systemName: prompter.playing ? "pause.fill" : "play.fill") }
                     .buttonStyle(CircleButtonStyle(active: prompter.playing, size: 28))
-                    .help(prompter.playing ? "Pause the prompter" : "Scroll the notes").accessibilityLabel(prompter.playing ? "Pause prompter" : "Play prompter")
+                    .help(PrompterModel.playHelp(playing: prompter.playing, shortcut: AppSettings.shared.combo(for: .prompterPlay)?.display)).accessibilityLabel(prompter.playing ? "Pause prompter" : "Play prompter")
                 Text("Speaker notes").font(Yap.Font.body).foregroundStyle(Yap.label)
                 Spacer()
                 Button { showSettings.toggle() } label: { Image(systemName: "gearshape") }

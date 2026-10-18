@@ -138,4 +138,11 @@ import YapcamCore
         let s = AppSettings(store: UserDefaults(suiteName: "r7b-raise-\(UUID())")!)
         #expect(s.raiseWindowOnStart)
     }
+
+    @Test func tooltipsNameTheRealShortcut() {
+        #expect(PrompterModel.playHelp(playing: false, shortcut: "⌥⌘.") == "Scroll the notes (⌥⌘.)")
+        #expect(PrompterModel.playHelp(playing: true, shortcut: nil) == "Pause the prompter")
+        #expect(QuickExportWidgetView.help("Copy", nil) == "Copy")
+        #expect(AppSettings.shared.combo(for: .quickExportCopy) == nil || QuickExportWidgetView.help("Copy", AppSettings.shared.combo(for: .quickExportCopy)).hasPrefix("Copy ("))
+    }
 }

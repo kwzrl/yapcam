@@ -419,6 +419,9 @@ private struct TitleField: View {
 }
 
 struct QuickExportWidgetView: View {
+    /// Tooltip text that names the real shortcut when one is set.
+    static func help(_ text: String, _ combo: KeyCombo?) -> String { combo.map { "\(text) (\($0.display))" } ?? text }
+
     @ObservedObject var model: QuickExportWidgetModel
     let close: () -> Void
     @EnvironmentObject var export: QuickExport
@@ -454,11 +457,14 @@ struct QuickExportWidgetView: View {
             }
             HStack(spacing: 8) {
                 Button("Copy") { run(.copy) }.buttonStyle(CapsuleButtonStyle(.secondary, height: 30))
+                    .help(QuickExportWidgetView.help("Export with the quick export settings and copy the file", settings.combo(for: .quickExportCopy)))
                 Button("Save…") { run(.save) }.buttonStyle(CapsuleButtonStyle(.secondary, height: 30))
+                    .help(QuickExportWidgetView.help("Export with the quick export settings and choose where to save it", settings.combo(for: .quickExportSave)))
                 Spacer()
                 Button("Edit") { if let p = model.package { RecordingController.shared.engine.openEditor(package: p); close() } }
                     .buttonStyle(CapsuleButtonStyle(.primary, height: 30))
                     .keyboardShortcut(.defaultAction)
+                    .help("Open the recording in the editor (Return)")
             }
             .disabled(isWorking)
         }
