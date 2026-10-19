@@ -298,15 +298,16 @@ fn layout_transition(p: &crate::model::ProjectData, tl: i64, duration: i64) -> O
             crate::time::clip_bounds(&p.timeline.clips, i)
                 .is_some_and(|bounds| bounds.0 == boundary)
         });
+        // 0.6 s on the smootherstep curve (was 0.35 s): layout changes glide instead of snapping.
         let left = if cut {
             0
         } else {
-            175_000_000_i64.min((boundary - previous) / 2)
+            300_000_000_i64.min((boundary - previous) / 2)
         };
         let right = if cut {
-            350_000_000_i64.min((next - boundary) / 2)
+            600_000_000_i64.min((next - boundary) / 2)
         } else {
-            175_000_000_i64.min((next - boundary) / 2)
+            300_000_000_i64.min((next - boundary) / 2)
         };
         if (!cut && tl <= boundary - left) || tl >= boundary + right || left + right == 0 {
             continue;

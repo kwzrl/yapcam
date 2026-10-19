@@ -942,7 +942,7 @@ mod tests {
             p.apply(&json!({"op":"set","path":"canvas.animation.entrance","value":mode}))
                 .unwrap();
             let start = p.frame(0).unwrap();
-            let finished = p.frame(400_000_000).unwrap();
+            let finished = p.frame(600_000_000).unwrap();
             assert_eq!(finished.screen_dest, normal.screen_dest);
             assert_ne!(start.screen_dest, normal.screen_dest);
             assert!(start.screen_dest.w.is_finite());

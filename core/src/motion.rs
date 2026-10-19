@@ -619,6 +619,24 @@ mod tests {
         );
     }
     #[test]
+    fn back_to_back_zooms_glide_between_targets_and_stay_zoomed() {
+        let (_f, mut p) = make();
+        for (start, x) in [(1_000_000_000_i64, 0.25), (3_000_000_000_i64, 0.75)] {
+            p.apply(&json!({"op":"insert_zoom","tl_start_ns":start,"duration_ns":2_000_000_000_i64,"patch":{"mode":"manual","target":[x,0.5],"scale":2}}))
+                .unwrap();
+        }
+        let mut last_center = 0.0;
+        for step in 0..=200 {
+            let crop = p.frame(1_000_000_000 + step * 10_000_000).unwrap().screen_crop;
+            // Never zooms out between the two: the crop stays at the zoomed size.
+            assert!((crop.w - 0.5).abs() < 1e-9, "zoomed out at step {step}: {}", crop.w);
+            let center = crop.x + crop.w / 2.0;
+            assert!(center >= last_center - 1e-12, "the view glides one way");
+            last_center = center;
+        }
+        assert!((last_center - 0.75).abs() < 1e-9);
+    }
+    #[test]
     fn default_pointer_shake_filter_and_type_debounce_preserve_recorded_events() {
         let (_f, mut p) = make();
         let original = p.events.clone();

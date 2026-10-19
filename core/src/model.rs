@@ -467,8 +467,8 @@ settings!(MotionBlurSettings { zoom: Option<f64> = None, pan: Option<f64> = None
 settings!(Animation {
     entrance: String = "none".into(),
     exit: String = "none".into(),
-    entrance_duration_ns: i64 = 400_000_000,
-    exit_duration_ns: i64 = 400_000_000,
+    entrance_duration_ns: i64 = 600_000_000,
+    exit_duration_ns: i64 = 600_000_000,
 });
 settings!(Background {
     kind: String = "solid".into(),

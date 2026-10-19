@@ -235,10 +235,10 @@ mod tests {
         let (_f, mut p) = make();
         p.apply(&json!({"op":"set","path":"camera.layouts","value":[{"id":"full","tl_start_ns":2_000_000_000_i64,"tl_end_ns":4_000_000_000_i64,"mode":"camera"}]}))
             .unwrap();
-        let before = p.frame(1_825_000_000).unwrap();
+        let before = p.frame(1_700_000_000).unwrap();
         let entering = p.frame(1_900_000_000).unwrap();
         let leaving = p.frame(2_100_000_000).unwrap();
-        let after = p.frame(2_175_000_000).unwrap();
+        let after = p.frame(2_300_000_000).unwrap();
         assert!(
             before.camera_dest.w < entering.camera_dest.w
                 && entering.camera_dest.w < leaving.camera_dest.w
@@ -255,7 +255,7 @@ mod tests {
 
         p.apply(&json!({"op":"set","path":"camera.layouts","value":[{"id":"hidden","tl_start_ns":2_000_000_000_i64,"tl_end_ns":4_000_000_000_i64,"mode":"screen"}]}))
             .unwrap();
-        let opacities: Vec<_> = [1_825_000_000, 1_900_000_000, 2_100_000_000, 2_175_000_000]
+        let opacities: Vec<_> = [1_700_000_000, 1_900_000_000, 2_100_000_000, 2_300_000_000]
             .map(|t| p.frame(t).unwrap().camera_opacity)
             .into();
         assert_eq!(opacities[0], 1.0);
@@ -445,7 +445,7 @@ mod tests {
         assert_eq!(hiding.camera.present, 1);
         assert!((0.0..1.0).contains(&hiding.camera_opacity));
         assert_eq!(p.frame(1_000_000_000).unwrap().screen.present, 1);
-        assert_eq!(p.frame(1_175_000_000).unwrap().camera.present, 0);
+        assert_eq!(p.frame(1_300_000_000).unwrap().camera.present, 0);
         assert_eq!(p.frame(3_000_000_000).unwrap().camera.present, 1);
         let preset = p.query(&json!({"q":"preset"})).unwrap();
         assert!(preset["camera"].get("silence_ranges").is_none());
@@ -454,7 +454,7 @@ mod tests {
         assert_eq!(p.data.camera.silence_ranges[0].tl_start_ns, 500_000_000);
         assert_eq!(p.frame(500_000_000).unwrap().camera.present, 1); // now shorter than minimum
         p.undo().unwrap();
-        assert_eq!(p.frame(1_175_000_000).unwrap().camera.present, 0);
+        assert_eq!(p.frame(1_300_000_000).unwrap().camera.present, 0);
         let before = p.data.clone();
         for (path, value) in [
             ("min_silence_ns", json!(1)),
