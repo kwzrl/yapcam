@@ -1,0 +1,35 @@
+name: Bug report
+description: Something broke or looked wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Record a window\n2. Trim the start\n3. Export MP4 1080p\n4. ..."
+  - type: input
+    id: version
+    attributes:
+      label: Yapcam version
+      description: Yapcam ▸ About Yapcam (e.g. 0.11.0 (937))
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS
+      placeholder: "MacBook Air M2, macOS 15.6"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshot, recording or crash report
+      description: Crash reports are in Console ▸ Crash Reports (Yapcam-*.ips). Please check them for anything private before attaching.

@@ -1,4 +1,4 @@
-# Known limitations (release candidate 0.9.0, 2026-10-16)
+# Known limitations (release 0.11.0, 2026-10-20)
 
 Honest list of what was **not** verified or is **not** built. Details per row: `docs/FEATURES.md`;
 test evidence: `docs/TEST_REPORT.md` (section "Round 3"). Earlier states are under "History" below.
@@ -26,9 +26,13 @@ Mac mini M4, one non-Retina 1680×1050 display, no camera, no microphone, no sec
   which already holds Yapcam's permissions.
 
 ## Distribution
-- The 0.9.0 package is signed with the local self-signed identity "Yapcam Dev Signing" and is **not
-  notarized** (notarization prepared only, by user decision). Other Macs will show a Gatekeeper
-  warning; see docs/RELEASE.md for the Developer ID + notarization steps.
+- 0.11.0 is signed with a Developer ID and notarized by Apple (the GitHub release lists the DMG checksum).
+- Apple Silicon (arm64) and macOS 15+ only. Intel and macOS 13/14 are not supported.
+- Updates come through Sparkle from https://yapcam.app/appcast.xml (EdDSA-signed, no system profile);
+  the check runs at launch and can be turned off in Settings.
+- Hidden in 0.11.0 (code kept, existing projects still render): the agent chat and its local MCP server,
+  the building-blocks bar, and the "Text, regions & intro/outro" panel (no new text items or masks).
+- Earlier 0.9.0/0.10.0 packages were signed with the local self-signed identity and were not notarized.
 
 ## Quality limits measured in round 3
 - **Captions:** Apple on-device speech, measured on generated speech files: German WER 8.6 %, English
