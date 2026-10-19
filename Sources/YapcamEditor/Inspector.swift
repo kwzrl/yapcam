@@ -32,6 +32,8 @@ public enum AspectPreset: String, CaseIterable {
 public enum InspectorSection: String, CaseIterable, Identifiable {
     case background, cursor, cameraLayout, cameraStyle, captions, transcript, audio, keys, animations, extras
     public var id: String { rawValue }
+    /// The sections this release shows (see ReleaseScope).
+    public static var shipped: [InspectorSection] { allCases.filter(ReleaseScope.ships) }
     public var title: String {
         switch self {
         case .background: "Background"; case .cursor: "Cursor"; case .cameraLayout: "Camera layout"; case .cameraStyle: "Camera style"
@@ -73,10 +75,10 @@ public enum InspectorSection: String, CaseIterable, Identifiable {
 }
 
 extension EditorModel {
-    public var availableSections: [InspectorSection] { InspectorSection.allCases.filter { $0.isAvailable(in: self) } }
+    public var availableSections: [InspectorSection] { InspectorSection.shipped.filter { $0.isAvailable(in: self) } }
     /// ⌘ digit handler: selects the section bound to `digit` when it is available (and leaves any item inspector).
     @discardableResult public func selectInspector(digit: Character) -> Bool {
-        guard let s = InspectorSection.allCases.first(where: { $0.shortcutDigit == digit }), s.isAvailable(in: self) else { return false }
+        guard let s = InspectorSection.shipped.first(where: { $0.shortcutDigit == digit }), s.isAvailable(in: self) else { return false }
         showSection(s); return true
     }
     public func showSection(_ s: InspectorSection) {
@@ -95,7 +97,7 @@ struct InspectorRail: View {
     @ObservedObject var model: EditorModel
     var body: some View {
         VStack(spacing: 2) {
-            ForEach(InspectorSection.allCases) { s in slot(s) }
+            ForEach(InspectorSection.shipped) { s in slot(s) }
             Spacer(minLength: 0)
         }
         .padding(Yap.Grid.inset)

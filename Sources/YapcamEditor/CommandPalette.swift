@@ -35,8 +35,6 @@ extension EditorModel {
             PaletteCommand(title: "Previous edit point", shortcut: "⌥←", enabled: true) { [self] in jumpToEditPoint(forward: false) },
             PaletteCommand(title: "Move selection later 0.1 s", shortcut: "⌃→", enabled: hasSel) { [self] in nudgeSelection(byNs: 100_000_000) },
             PaletteCommand(title: "Move selection earlier 0.1 s", shortcut: "⌃←", enabled: hasSel) { [self] in nudgeSelection(byNs: -100_000_000) },
-            PaletteCommand(title: "Add text at playhead", shortcut: "", enabled: true) { [self] in addText(.annotation) },
-            PaletteCommand(title: "Add reaction at playhead", shortcut: "", enabled: true) { [self] in addText(.reaction, text: reactionGlyphs[0]) },
             PaletteCommand(title: "Add highlight at playhead", shortcut: "", enabled: true) { [self] in addHighlightAtPlayhead(kind: .highlight) },
             PaletteCommand(title: "Add blur mask at playhead", shortcut: "", enabled: true) { [self] in addHighlightAtPlayhead(kind: .blur) },
             PaletteCommand(title: "Add cover mask at playhead", shortcut: "", enabled: true) { [self] in addHighlightAtPlayhead(kind: .mask) },

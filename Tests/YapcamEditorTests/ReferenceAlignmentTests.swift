@@ -14,9 +14,10 @@ import YapcamCore
 
     @Test func sectionsAreOnlyShownWhenTheirInputExists() {
         let p = FakeProject(); let m = EditorModel(project: p, player: FakePlayer())
-        #expect(m.availableSections.count == 10)
+        // 0.11.0 hides the "Text, regions & intro/outro" panel (ReleaseScope).
+        #expect(m.availableSections.count == 9)
         p.hasCamera = false; p.hasMic = false; p.hasMouseData = false; p.hasKeystrokes = false
-        #expect(m.availableSections == [.background, .audio, .animations, .extras])
+        #expect(m.availableSections == [.background, .audio, .animations])
         p.hasCamera = true
         #expect(m.availableSections.contains(.cameraLayout) && m.availableSections.contains(.cameraStyle))
         m.set("camera.visible", bool: false)
@@ -29,7 +30,7 @@ import YapcamCore
         let p = FakeProject(); let m = EditorModel(project: p, player: FakePlayer())
         #expect(m.handleShortcut("2", .command) && m.inspectorSection == .cursor)
         #expect(m.handleShortcut("9", .command) && m.inspectorSection == .animations)
-        #expect(m.handleShortcut("0", .command) && m.inspectorSection == .extras)
+        #expect(!m.selectInspector(digit: "0"))   // the hidden panel has no shortcut in 0.11.0
         p.hasCamera = false
         m.inspectorSection = .background
         #expect(!m.handleShortcut("3", .command) && m.inspectorSection == .background)     // no camera → ⌘3 does nothing
@@ -431,7 +432,7 @@ import YapcamCore
             #expect(abs(min(g.dest.minX, g.dest.minY) - 0.10 * min(g.canvasWidth, g.canvasHeight)) < 1.5)          // 108 px padding on the constraining axis (content is centered on the other)
             #expect(m.string("cursor.set_id") == "original" && m.string("cursor.click_effect") == "none")
             #expect(m.number("cursor.smoothing") == (m.defaultsRevision >= 4 ? 1 : 0))                       // revision 4: smooth cursor at full strength (BS-1)
-            #expect(m.springValues(screen: true) == (125, 12, 1.5))
+            #expect(m.springValues(screen: true) == (70, 30, 3))                                            // 0.11.0: calmer zoom spring (#18)
         } else {
             #expect(m.string("canvas.aspect") == "16:9" && g.canvasWidth == 1920 && g.canvasHeight == 1080)
             #expect(m.number("canvas.radius") == 18 && m.number("canvas.motion_blur") == 0 && !m.usesPaddingRatio && m.number("canvas.padding") == 48)

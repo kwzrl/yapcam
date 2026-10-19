@@ -112,7 +112,7 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         let controller = EditorWindowController(document: doc) { controllers[key] = nil }
         controllers[key] = controller
         controller.showWindow(nil)
-        (NSClassFromString("YapcamAgentServer") as? AgentServerStarting.Type)?.startServer()
+        if ReleaseScope.agent { (NSClassFromString("YapcamAgentServer") as? AgentServerStarting.Type)?.startServer() }
         NSApp.activate()
     }
 }

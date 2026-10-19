@@ -24,11 +24,13 @@ struct EditorTitleRow: View {
     var body: some View {
         HStack(spacing: 2) {
             Color.clear.frame(width: Self.windowButtons, height: 1).accessibilityHidden(true)
-            AgentToggle(model: model, log: model.agentLog, chatShown: chatShown, action: toggleAgent)
-            SlotButton(symbol: "square.on.circle", label: "Blocks",
-                       help: model.blocksBarVisible ? "Hide building blocks" : "Show building blocks: title, spotlight, text",
-                       active: model.blocksBarVisible, compact: true) {
-                withAnimation(Yap.Motion.select) { model.blocksBarVisible.toggle() }
+            if ReleaseScope.agent {
+                AgentToggle(model: model, log: model.agentLog, chatShown: chatShown, action: toggleAgent)
+                SlotButton(symbol: "square.on.circle", label: "Blocks",
+                           help: model.blocksBarVisible ? "Hide building blocks" : "Show building blocks: title, spotlight, text",
+                           active: model.blocksBarVisible, compact: true) {
+                    withAnimation(Yap.Motion.select) { model.blocksBarVisible.toggle() }
+                }
             }
             name.padding(.leading, 10)
             Text(formatTimecode(model.durationNs, showFraction: false)).technical().padding(.leading, 6)

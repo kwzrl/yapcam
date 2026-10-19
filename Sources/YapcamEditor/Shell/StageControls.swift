@@ -12,7 +12,7 @@ struct StageControls: View {
         HStack(spacing: 4) {
             formatMenu
             cropButton
-            maskButton
+            if ReleaseScope.textRegionsPanel { maskButton }
             if model.reelPreviewAvailable { reelMenu }
             Spacer(minLength: 8)
             qualityMenu

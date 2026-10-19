@@ -8,7 +8,7 @@ extension EditorModel {
         var out: [PaletteCommand] = []
         func add(_ title: String, enabled: Bool = true, _ run: @escaping @MainActor () -> Void) { out.append(PaletteCommand(title: title, shortcut: "", enabled: enabled, run: run)) }
 
-        for s in InspectorSection.allCases { add("Go to \(s.title)", enabled: s.isAvailable(in: self)) { [self] in showSection(s) } }
+        for s in InspectorSection.shipped { add("Go to \(s.title)", enabled: s.isAvailable(in: self)) { [self] in showSection(s) } }
         for a in AspectPreset.allCases { add("Aspect ratio: \(a.label)", enabled: string("canvas.aspect", default: "source") != a.rawValue) { [self] in setAspect(a) } }
 
         // Preview.
