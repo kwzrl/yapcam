@@ -103,3 +103,6 @@ pub mod agent_docs;
 pub mod mcp;
 
 mod mcp_craft;
+
+#[cfg(test)]
+mod zoom_calm_tests;

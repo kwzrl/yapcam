@@ -112,6 +112,38 @@ fn follow_pan(mut rect: Rect, point: [f64; 2], d: f64, bounds: Rect) -> Rect {
     rect.y = coordinate(rect.y, bounds.y, bounds.y + (bounds.h - rect.h).max(0.0));
     rect
 }
+/// Calm follow (zoom physics v2): the view only moves once the cursor is within
+/// `dead_zone - 0.05` of the zoomed view's edge (0.1 by default, i.e. about to
+/// leave it); the move then glides it 0.1 further in (to 0.2 of the view).
+const CALM_EDGE_INSET: f64 = 0.05;
+const CALM_RECENTRE: f64 = 0.1;
+/// One hysteresis step for the centre of a `view`-sized window inside `bounds`.
+/// The centre stays put while `point` is inside the rest zone; once the point
+/// comes within `edge` of a side (or leaves), the window shifts just enough to
+/// put it `rest` away from that side.
+fn calm_follow(
+    centre: [f64; 2],
+    point: [f64; 2],
+    view: Rect,
+    bounds: Rect,
+    edge: f64,
+    rest: f64,
+) -> [f64; 2] {
+    let axis = |c: f64, p: f64, size: f64, low: f64, span: f64| {
+        let half = size / 2.0;
+        let mut c = coordinate(c, low + half, low + span - half);
+        if p < c - half + size * edge {
+            c = p - size * rest + half;
+        } else if p > c + half - size * edge {
+            c = p + size * rest - half;
+        }
+        coordinate(c, low + half, low + span - half)
+    };
+    [
+        axis(centre[0], point[0], view.w, bounds.x, bounds.w),
+        axis(centre[1], point[1], view.h, bounds.y, bounds.h),
+    ]
+}
 #[derive(Clone, Copy)]
 struct CameraLayoutGeometry {
     screen_dest: Rect,
@@ -579,7 +611,85 @@ impl Project {
                             p.y / self.session.source.content_rect_points[3],
                         ]
                     };
-                    if let Some(point) = input.position_filtered(local, p.cursor.remove_shakes) {
+                    if settings.physics_version >= 2 {
+                        // Calm follow: the view rests and only glides when the cursor
+                        // nears the edge of the fully zoomed view.
+                        let full = Rect {
+                            w: crop[2] / scale.max(1.0),
+                            h: crop[3] / scale.max(1.0),
+                            ..bounds
+                        };
+                        let edge = (settings.dead_zone - CALM_EDGE_INSET).max(0.05);
+                        let rest = (edge + CALM_RECENTRE).min(0.45);
+                        let speed = p.timeline.clips[clip_i].speed;
+                        let clip_local = (p.timeline.clips[clip_i].src_start_ns - seg.src_start_ns)
+                            .clamp(0, local);
+                        let start_local = match time::timeline_to_source(
+                            &p.timeline.clips,
+                            z.tl_start_ns.min(tl_ns).max(0),
+                        ) {
+                            Some((ci, s)) if ci == clip_i => {
+                                (s - seg.src_start_ns).clamp(clip_local, local)
+                            }
+                            _ => clip_local,
+                        };
+                        let window = if settings.animation_style == "none" {
+                            0
+                        } else {
+                            let settle_seconds = (20.0 * physics.mass / physics.friction)
+                                .max(20.0 * physics.friction / physics.tension)
+                                .max(2.0);
+                            (settle_seconds * 1e9 * speed).round() as i64
+                        };
+                        let cutoff = local.saturating_sub(window).max(start_local);
+                        if let Some(first) =
+                            input.position_filtered(start_local, p.cursor.remove_shakes)
+                        {
+                            let mut centre = calm_follow(
+                                [target[0], target[1]],
+                                normalized(first),
+                                full,
+                                bounds,
+                                edge,
+                                rest,
+                            );
+                            let positions = input.positions_filtered(p.cursor.remove_shakes);
+                            let a = positions.partition_point(|p| p.t <= start_local);
+                            let b = positions.partition_point(|p| p.t <= local);
+                            let mut smooth = centre;
+                            for &event in &positions[a..b] {
+                                let next = calm_follow(
+                                    centre,
+                                    normalized(event),
+                                    full,
+                                    bounds,
+                                    edge,
+                                    rest,
+                                );
+                                if event.t <= cutoff {
+                                    smooth = next;
+                                } else {
+                                    let seconds = (local - event.t) as f64 / 1e9 / speed;
+                                    let k = crate::spring::response(seconds, &physics);
+                                    smooth[0] += (next[0] - centre[0]) * k;
+                                    smooth[1] += (next[1] - centre[1]) * k;
+                                }
+                                centre = next;
+                            }
+                            x = coordinate(
+                                smooth[0] - w / 2.0,
+                                bounds.x,
+                                bounds.x + (bounds.w - w).max(0.0),
+                            );
+                            y = coordinate(
+                                smooth[1] - h / 2.0,
+                                bounds.y,
+                                bounds.y + (bounds.h - h).max(0.0),
+                            );
+                        }
+                    } else if let Some(point) =
+                        input.position_filtered(local, p.cursor.remove_shakes)
+                    {
                         let mut next =
                             follow_pan(base, normalized(point), settings.dead_zone, bounds);
                         if settings.animation_style != "none" {
@@ -837,8 +947,14 @@ impl Project {
                 // interpreted through a different final crop or layout.
                 let first = self.frame_geometry(0)?;
                 let k = ease(1.0 - remaining as f64 / window as f64);
-                frame.cursor_x += (first.cursor_x - frame.cursor_x) * k;
-                frame.cursor_y += (first.cursor_y - frame.cursor_y) * k;
+                if k >= 1.0 {
+                    // Land exactly on the first hotspot; `x + (f - x) * 1` can miss by an ulp.
+                    frame.cursor_x = first.cursor_x;
+                    frame.cursor_y = first.cursor_y;
+                } else {
+                    frame.cursor_x += (first.cursor_x - frame.cursor_x) * k;
+                    frame.cursor_y += (first.cursor_y - frame.cursor_y) * k;
+                }
                 // Looping has already chosen the canvas hotspot. Move only the
                 // camera if needed; reprojecting the crop would break the loop.
                 crate::adaptive::smart_framing(self, &mut frame, false);
