@@ -26,7 +26,8 @@ fn revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projec
     assert!(p.data.cursor.remove_shakes && p.data.cursor.optimize_types);
     assert_eq!(p.data.cursor.rotation_mode, "tilt");
     assert_eq!(p.data.cursor.tilt_amount, 0.5);
-    assert_eq!(p.data.cursor.speed_preset, "smooth");
+    // 0.11.0: a softer custom cursor spring (250/55/3) replaces the "smooth" preset for new projects.
+    assert_eq!(p.data.cursor.speed_preset, "custom");
     assert_eq!(p.data.cursor.smoothing, 1.0);
     let cursor_spring = crate::spring::cursor_preset(
         &p.data.cursor.speed_preset,
@@ -39,7 +40,7 @@ fn revision_four_smooth_cursor_and_camera_zoom_defaults_preserve_existing_projec
             cursor_spring.friction,
             cursor_spring.mass
         ),
-        (470.0, 70.0, 3.0)
+        (250.0, 55.0, 3.0)
     );
     assert_eq!(p.data.canvas.inset_color, [0.0, 0.0, 0.0, 0.5]);
     assert_eq!(p.data.canvas.screen_quality, Some(ScreenQuality::default()));
@@ -132,7 +133,7 @@ fn bs1_factory_cursor_glides_at_full_strength_and_slice_opt_out_stays_raw() {
     p.data.timeline.clips[0].settings.disable_smoothing = false;
     let progress = |x: f64| (x - initial) / (raw - initial);
     let early = progress(p.frame(1_100_000_000).unwrap().cursor_x);
-    let settled = progress(p.frame(1_600_000_000).unwrap().cursor_x);
+    let settled = progress(p.frame(1_800_000_000).unwrap().cursor_x);
     assert!(early > 0.05 && early < 0.95, "early progress {early}");
     assert!((0.99..=1.0).contains(&settled), "settled {settled}");
     for n in 0..=60 {
@@ -747,7 +748,7 @@ fn wave_three_defaults_presets_masks_and_layout_modes_match_the_reference_contra
             p.data.zoom_settings.spring.friction,
             p.data.zoom_settings.spring.mass
         ),
-        (125.0, 12.0, 1.5)
+        (70.0, 30.0, 3.0)
     );
     let mut settings = p.data.zoom_settings.clone();
     settings.animation_style = "focused".into();

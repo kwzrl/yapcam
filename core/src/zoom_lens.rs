@@ -51,7 +51,9 @@ fn is_active(p: &Project, z: &Zoom, tl: i64, can_auto: bool, duration: i64) -> b
                         z.ease_in_ns
                     }
                     .min(span / 2);
-                    let trail = z.ease_out_ns.min(span / 2);
+                    // The way out starts at the end and overlaps nothing, so it gets its whole ease;
+                    // clamping it to half the span cut a slow spring off before it settled (a visible snap).
+                    let trail = z.ease_out_ns;
                     tl >= z.tl_start_ns.saturating_sub(lead).max(0)
                         && tl < z.tl_end_ns.saturating_add(trail).min(duration)
                 } else {

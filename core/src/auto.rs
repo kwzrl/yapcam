@@ -94,8 +94,12 @@ pub fn generate_zooms(
         }
         clusters.push((start, end, target));
     }
+    // New projects carry their zoom ease in the insertion style; automatic zooms move the same way.
     let ease = if p.zoom_settings.physics_version >= 2 {
-        1_000_000_000
+        p.insertion_styles
+            .zoom
+            .as_ref()
+            .map_or(1_000_000_000, |s| s.ease_in_ns)
     } else {
         300_000_000
     };

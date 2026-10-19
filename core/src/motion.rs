@@ -572,7 +572,8 @@ mod tests {
     fn bs3_new_zoom_spring_is_centered_monotonic_and_uncompressed() {
         let (_f, mut p) = make();
         assert_eq!(p.data.zoom_settings.physics_version, 2);
-        assert_eq!(p.data.zoom_settings.animation_style, "smooth");
+        // 0.11.0: new projects use a calmer custom zoom spring (70/30/3) instead of the "smooth" preset.
+        assert_eq!(p.data.zoom_settings.animation_style, "custom");
         let id = p
             .apply(&json!({"op":"insert_zoom","tl_start_ns":1_000_000_000_i64,"duration_ns":2_500_000_000_i64,"patch":{"mode":"manual","target":[0.5,0.5],"scale":2}}))
             .unwrap()
@@ -581,7 +582,7 @@ mod tests {
         let z = p.data.zooms.iter().find(|z| z.id == id).unwrap();
         assert_eq!(
             (z.ease_in_ns, z.ease_out_ns),
-            (1_000_000_000, 1_000_000_000)
+            (1_500_000_000, 1_500_000_000)
         );
 
         let progress = |t| {
@@ -599,7 +600,7 @@ mod tests {
             }
             last = value;
         }
-        assert!((150_000_000..=300_000_000).contains(&halfway.unwrap()));
+        assert!((250_000_000..=450_000_000).contains(&halfway.unwrap()));
         assert_eq!(progress(1_000_000_000), 1.0);
         assert_eq!(progress(3_500_000_000), 1.0);
         let mut last = 1.0;
@@ -608,7 +609,7 @@ mod tests {
             assert!(value <= last + 1e-12 && value >= -1e-12);
             last = value;
         }
-        assert_eq!(p.frame(4_500_000_000).unwrap().screen_crop.w, 1.0);
+        assert_eq!(p.frame(5_000_000_000).unwrap().screen_crop.w, 1.0);
         assert_eq!(
             crate::allocation_test::count(|| {
                 std::hint::black_box(p.frame(250_000_000).unwrap());

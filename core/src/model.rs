@@ -709,21 +709,31 @@ impl ProjectData {
         data.cursor.set_id = Some("original".into());
         data.cursor.click_effect = "none".into();
         data.cursor.smoothing = 1.0;
-        data.cursor.speed_preset = "smooth".into();
+        // Softer than the "smooth" preset (470/70/3) and still critically damped: no float, no overshoot.
+        data.cursor.speed_preset = "custom".into();
+        data.cursor.spring = Spring {
+            tension: 250.0,
+            friction: 55.0,
+            mass: 3.0,
+            allow_overshoot: false,
+        };
         data.cursor.physics_version = 1;
         data.cursor.blend_cuts = true;
         data.cursor.motion_blur = 1.0;
         data.zoom_settings.physics_version = 2;
-        data.zoom_settings.animation_style = "smooth".into();
+        // A calm camera move (~1.2 s, critically damped) instead of "smooth" (170/50/3, ~0.8 s); the 1.5 s
+        // ease gives the spring room to settle before the zoom holds and after it ends.
+        data.zoom_settings.animation_style = "custom".into();
+        data.zoom_settings.speed_preset = "custom".into();
         data.zoom_settings.spring = Spring {
-            tension: 125.0,
-            friction: 12.0,
-            mass: 1.5,
+            tension: 70.0,
+            friction: 30.0,
+            mass: 3.0,
             allow_overshoot: false,
         };
         data.insertion_styles.zoom = Some(ZoomInsertionStyle {
-            ease_in_ns: 1_000_000_000,
-            ease_out_ns: 1_000_000_000,
+            ease_in_ns: 1_500_000_000,
+            ease_out_ns: 1_500_000_000,
             ..ZoomInsertionStyle::default()
         });
         data.camera.mirrored = false;
