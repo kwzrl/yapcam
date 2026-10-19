@@ -440,7 +440,8 @@ struct TimelineView: View {
                 case .laneCreate(let lane, let s):
                     model.laneCreatePreview = nil
                     let end: Int64? = dragMoved ? model.snapped(g.ns(forX: v.location.x), includePlayhead: false) : nil
-                    if lane == .camera { model.addLayout(fromNs: s, toNs: end) } else { model.addHighlight(fromNs: s, toNs: end) }
+                    if lane == .camera { model.addLayout(fromNs: s, toNs: end) }
+                    else if ReleaseScope.textRegionsPanel { model.addHighlight(fromNs: s, toNs: end) }   // 0.11.0: no new masks
                 case .clipEdge(let id, let edge):
                     if dragMoved { model.trimClipEdge(clipID: id, start: edge == .start, toNs: model.snapped(g.ns(forX: v.location.x), includePlayhead: false)) }
                     else { model.seek(toNs: model.snapped(g.ns(forX: v.location.x), includePlayhead: false), precise: true) }
@@ -536,7 +537,10 @@ struct TimelineView: View {
             model.seek(toNs: model.snapped(ns, includePlayhead: false), precise: true)
             model.splitAtPlayhead()
             return .inert
-        case .laneCreate(let lane, let ns): model.selection = .none; return .laneCreate(lane: lane, startNs: model.snapped(ns, includePlayhead: false))
+        case .laneCreate(let lane, let ns):
+            model.selection = .none
+            if lane == .highlight && !ReleaseScope.textRegionsPanel { return .inert }   // 0.11.0: no new masks
+            return .laneCreate(lane: lane, startNs: model.snapped(ns, includePlayhead: false))
         case .restoreCut(let ns): model.restoreCut(atNs: ns); return .inert
         case .clipEdge(let id, let edge): model.selection = .clip(id); return .clipEdge(id: id, edge: edge)
         case .nothing: return .inert

@@ -56,7 +56,7 @@ extension EditorModel {
         case "d": if selectedZoom != nil { toggleSelectedZoomEnabled(); return true }; return false
         case "0"..."9":
             guard selectedZoom != nil else {                              // no zoom selected: 2…8 show or hide timelines (4 = masks)
-                guard let lane = LaneVisibility.lane(forKey: k) else { return false }
+                guard let lane = LaneVisibility.lane(forKey: k), offersLane(lane) else { return false }
                 toggleLane(lane); return true
             }
             guard selectedZoom != nil, let d = k.wholeNumberValue else { return false }

@@ -27,9 +27,11 @@ import Testing
 
     @Test func keysShowLanesAndKeyFourIsMasksWithoutAZoomSelected() {
         let m = model()
-        #expect(!m.visibleLanes.contains(.highlight))
-        #expect(m.handleShortcut("4")); #expect(m.visibleLanes.contains(.highlight) && m.highlights.isEmpty)   // lane appears empty
-        #expect(m.handleShortcut("4")); #expect(!m.visibleLanes.contains(.highlight))
+        #expect(!m.visibleLanes.contains(.music))
+        #expect(m.handleShortcut("7")); #expect(m.visibleLanes.contains(.music))          // lane appears empty
+        #expect(m.handleShortcut("7")); #expect(!m.visibleLanes.contains(.music))
+        // 0.11.0 hides masks (ReleaseScope): key 4 shows no empty masks lane.
+        #expect(!m.handleShortcut("4") && !m.visibleLanes.contains(.highlight))
         #expect(!m.handleShortcut("9") && !m.handleShortcut("1"))
         m.addZoom(fromNs: Self.sec, toNs: 3 * Self.sec)                                   // a selected zoom keeps the digit for its level
         #expect(m.handleShortcut("4")); #expect(!m.visibleLanes.contains(.highlight))

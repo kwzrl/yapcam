@@ -35,7 +35,11 @@ extension EditorModel {
         if !music.isEmpty { out.append(.music) }
         return out
     }
-    var visibleLanes: [TimelineLane] { laneVisibility.visible(contentLanes: contentLanes) }
+    var visibleLanes: [TimelineLane] { laneVisibility.visible(contentLanes: contentLanes).filter(offersLane) }
+    /// Masks and text lanes belong to the hidden panel (ReleaseScope): shown only for a project that already has such items.
+    func offersLane(_ lane: TimelineLane) -> Bool {
+        ReleaseScope.textRegionsPanel || (lane != .highlight && lane != .text) || contentLanes.contains(lane)
+    }
     var visibleLaneCount: Int { 1 + visibleLanes.count }                       // the zoom track counts
 
     func setLane(_ lane: TimelineLane, visible: Bool) {
@@ -111,7 +115,7 @@ struct LaneMenu: View {
     var body: some View {
         Menu {
             Text("Zooms").foregroundStyle(.secondary)
-            ForEach(LaneVisibility.menu, id: \.lane) { item in
+            ForEach(LaneVisibility.menu.filter { model.offersLane($0.lane) }, id: \.lane) { item in
                 Button { model.toggleLane(item.lane) } label: {
                     if model.visibleLanes.contains(item.lane) { Label("\(item.title)  \(item.key)", systemImage: "checkmark") } else { Text("\(item.title)  \(item.key)") }
                 }
