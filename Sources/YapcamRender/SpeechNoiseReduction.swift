@@ -1,39 +1,28 @@
+import Accelerate
 import Foundation
 
 /// Fixed-size, real-input FFT implemented here. No model, plug-in, or audio-unit service.
+/// Fixed-size complex FFT on Accelerate's precompiled vDSP DFT. The hand-written radix-2 loop it replaces was
+/// compiled to different machine code from one clean build to the next and broke bit-reproducible releases;
+/// vDSP is library code, identical in every build, and faster. Same sign convention, inverse scaled by 1/n.
 private struct SpeechFFT {
     static let size = 2048
-    let reverse: [Int]
-    let cosine: [Double]
-    let sine: [Double]
-    init() {
-        reverse = (0..<Self.size).map { i in
-            var source = i, result = 0
-            for _ in 0..<11 { result = (result << 1) | (source & 1); source >>= 1 }
-            return result
-        }
-        cosine = (0..<Self.size/2).map { cos(2 * .pi * Double($0) / Double(Self.size)) }
-        sine = (0..<Self.size/2).map { sin(2 * .pi * Double($0) / Double(Self.size)) }
+    private final class Setups: @unchecked Sendable {
+        let forward = vDSP_DFT_zop_CreateSetupD(nil, vDSP_Length(SpeechFFT.size), .FORWARD)!
+        let inverse = vDSP_DFT_zop_CreateSetupD(nil, vDSP_Length(SpeechFFT.size), .INVERSE)!
+        deinit { vDSP_DFT_DestroySetupD(forward); vDSP_DFT_DestroySetupD(inverse) }
     }
+    private let setups = Setups()
     func transform(_ real: inout [Double], _ imaginary: inout [Double], inverse: Bool = false) {
         let n = Self.size
-        for i in 0..<n where reverse[i] > i { real.swapAt(i, reverse[i]); imaginary.swapAt(i, reverse[i]) }
-        var width = 2
-        while width <= n {
-            let half = width/2, step = n/width
-            for start in stride(from: 0, to: n, by: width) {
-                for j in 0..<half {
-                    let index = j*step, a = start+j, b = a+half
-                    let wi = inverse ? sine[index] : -sine[index]
-                    let r = cosine[index]*real[b] - wi*imaginary[b]
-                    let i = cosine[index]*imaginary[b] + wi*real[b]
-                    real[b] = real[a]-r; imaginary[b] = imaginary[a]-i
-                    real[a] += r; imaginary[a] += i
-                }
-            }
-            width *= 2
+        var outReal = [Double](repeating: 0, count: n), outImaginary = [Double](repeating: 0, count: n)
+        vDSP_DFT_ExecuteD(inverse ? setups.inverse : setups.forward, real, imaginary, &outReal, &outImaginary)
+        if inverse {
+            var scale = 1 / Double(n)
+            vDSP_vsmulD(outReal, 1, &scale, &outReal, 1, vDSP_Length(n))
+            vDSP_vsmulD(outImaginary, 1, &scale, &outImaginary, 1, vDSP_Length(n))
         }
-        if inverse { for i in 0..<n { real[i] /= Double(n); imaginary[i] /= Double(n) } }
+        real = outReal; imaginary = outImaginary
     }
 }
 
