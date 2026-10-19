@@ -102,6 +102,7 @@ enum AppPermissionState { case granted, denied, notDetermined }
     /// Triggers the system prompt where macOS has one.
     func request(_ p: AppPermission) {
         AppDefaults.store.set(true, forKey: requestedKey(p))
+        if p == .screen { AppDefaults.store.set(false, forKey: Self.screenRestartedKey) }
         switch p {
         case .screen: _ = CGRequestScreenCaptureAccess()
         case .microphone, .camera:
@@ -126,14 +127,36 @@ enum AppPermissionState { case granted, denied, notDetermined }
         try? task.run()
         task.waitUntilExit()
         AppDefaults.store.set(false, forKey: requestedKey(p))
+        if p == .screen { AppDefaults.store.set(false, forKey: Self.screenRestartedKey) }
         refresh()
     }
 
-    /// Quits and opens Yapcam again: screen recording access only applies to a fresh process.
-    func relaunch() {
+    /// Set when Yapcam restarted to pick up screen access; a restart that still sees no access points at an entry
+    /// macOS kept for another copy with the same bundle ID.
+    static let screenRestartedKey = "onboarding.screenRestarted"
+    private static let resumeStepKey = "onboarding.resumeStep"
+
+    var screenStage: OnboardingFlow.ScreenStage {
+        OnboardingFlow.screenStage(granted: state(.screen) == .granted, requested: hasRequested(.screen),
+                                   restartedSinceRequest: AppDefaults.store.bool(forKey: Self.screenRestartedKey))
+    }
+
+    /// The onboarding page to reopen after a restart, once.
+    func takeResumeStep() -> Int? {
+        guard let step = AppDefaults.store.object(forKey: Self.resumeStepKey) as? Int else { return nil }
+        AppDefaults.store.removeObject(forKey: Self.resumeStepKey)
+        return step
+    }
+
+    /// Quits and opens Yapcam again: screen recording access only applies to a fresh process. The new copy starts
+    /// only after this one has exited (no second instance), and not at all if the quit is cancelled.
+    func relaunch(resumeStep: Int? = nil) {
+        if state(.screen) != .granted, hasRequested(.screen) { AppDefaults.store.set(true, forKey: Self.screenRestartedKey) }
+        if let resumeStep { AppDefaults.store.set(resumeStep, forKey: Self.resumeStepKey) }
         let task = Process()
         task.executableURL = URL(filePath: "/bin/sh")
-        task.arguments = ["-c", "sleep 0.6; /usr/bin/open -n \"$0\"", Bundle.main.bundlePath]
+        task.arguments = ["-c", "i=0; while /bin/kill -0 \"$1\" 2>/dev/null; do i=$((i+1)); [ $i -gt 300 ] && exit 0; sleep 0.1; done; /usr/bin/open \"$0\"",
+                          Bundle.main.bundlePath, String(ProcessInfo.processInfo.processIdentifier)]
         try? task.run()
         NSApp.terminate(nil)
     }
