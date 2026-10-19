@@ -88,7 +88,24 @@ public final class FrameCompositor: @unchecked Sendable {
         try settings?.validate()
         invalidationLock.withLock { screenQualityOverride=settings }
     }
+    /// Warms the screen and camera decoders at `frame` before playback starts (FrameSource.prepareForPlayback).
+    /// Best effort: a failure here shows up, and is reported, on the next encode.
+    func prerollForPlayback(_ frame: YcFrame) {
+        lock.lock(); defer { lock.unlock() }
+        // A pending invalidation drops every source on the next encode; warming them now would be wasted.
+        guard !invalidationLock.withLock({ needsInvalidation }) else { return }
+        for (sample, track) in [(frame.screen, "screen"), (frame.camera, "camera")] {
+            guard let source = try? source(for: sample, track: track) else { continue }
+            if track == "camera", source.hasEnded(atNs: sample.file_ns) { continue }
+            try? source.prepareForPlayback(atNs: sample.file_ns)
+        }
+    }
     private func decoded(_ sample: YcSample, track: String) throws -> TextureFrame? {
+        guard let source = try source(for: sample, track: track) else { return nil }
+        if track=="camera", source.hasEnded(atNs: sample.file_ns) { return nil }
+        return try source.frame(atNs: sample.file_ns)
+    }
+    private func source(for sample: YcSample, track: String) throws -> FrameSource? {
         guard sample.present != 0 else { return nil }
         guard let segment = manifest.segment(at: sample.segment), let path = segment.files[track] else { throw RenderError.missingMedia("Missing \(track) in segment \(sample.segment)") }
         if sources[path] == nil {
@@ -97,8 +114,7 @@ public final class FrameCompositor: @unchecked Sendable {
                                             reuseSeekReader: reuseVideoSeekReader,hardwareDecodingEnabled: hardwareDecodingEnabled,
                                             frameCacheCapacity: lowMemory ? 2 : 4)
             totalSourceOpens += 1 }
-        if track=="camera", sources[path]!.hasEnded(atNs: sample.file_ns) { return nil }
-        return try sources[path]!.frame(atNs: sample.file_ns)
+        return sources[path]
     }
     private func image(_ url: URL) throws -> MTLTexture {
         if let cached = images[url.path] { return cached }

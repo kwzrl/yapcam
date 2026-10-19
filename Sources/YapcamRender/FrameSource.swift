@@ -115,6 +115,13 @@ final class FrameSource {
         complete=true
         return true
     }
+    /// Playback is about to start here: swap the scrub window for a sequential reader now, so the first played
+    /// frames do not wait on a cold decoder while the audio clock already runs.
+    func prepareForPlayback(atNs ns: Int64) throws {
+        guard ns >= 0 else { return }
+        if randomWindow || reader == nil { try restart(at: CMTime(value: ns, timescale: 1_000_000_000)) }
+        _ = try frame(atNs: ns)
+    }
     func frame(atNs ns: Int64) throws -> TextureFrame {
         guard ns >= 0 else { throw RenderError.decode("Negative source frame timestamp") }
         let time = CMTime(value: ns, timescale: 1_000_000_000)

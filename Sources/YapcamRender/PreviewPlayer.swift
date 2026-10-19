@@ -60,6 +60,9 @@ struct PreviewAudioStartupDiagnostics: Encodable {
     private var audioPreparationFailed = false
     private var seekGeneration = 0
     private var seeking = false
+    /// Play waits for the decoders to warm up at the play position before the clock starts.
+    private var prerolling = false
+    private var prerollGeneration = 0
     private var atEnd = false
     private var anchorHost = 0.0
     private var anchorNs: Int64 = 0
@@ -97,13 +100,31 @@ struct PreviewAudioStartupDiagnostics: Encodable {
         idleTask?.cancel(); idleTask=nil
         anchorNs = currentNs; anchorHost = ProcessInfo.processInfo.systemUptime
         isPlaying = true
-        if !audioLoading && !seeking { player?.play() }
+        startAfterPreroll()
         metricStart = anchorHost; frameCount = 0; dropped = 0
         submissions = PreviewSubmissionMetrics()
         metrics = PreviewMetrics(); lastMetricUpdate = anchorHost
         view?.enableSetNeedsDisplay = false; view?.isPaused = false
     }
+    /// Paused decoders sit on a short scrub window; warming them at the play position before the clock starts
+    /// keeps the camera from starting a beat after the screen.
+    private func startAfterPreroll() {
+        prerollGeneration += 1
+        let generation = prerollGeneration, ns = currentNs, source = renderProject, compositor = compositor
+        prerolling = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let frame = try? source.frame(atNs: ns) { compositor.prerollForPlayback(frame) }
+            Task { @MainActor [weak self] in
+                guard let self, self.prerollGeneration == generation else { return }
+                self.prerolling = false
+                guard self.isPlaying else { return }
+                self.anchorNs = self.currentNs; self.anchorHost = ProcessInfo.processInfo.systemUptime
+                if !self.audioLoading && !self.seeking { self.player?.play() }
+            }
+        }
+    }
     public func pause() {
+        prerollGeneration += 1; prerolling = false
         updateClock(); isPlaying = false; player?.pause(); view?.isPaused = true; view?.enableSetNeedsDisplay = true
         finishMetrics()
         scheduleIdleRelease()
@@ -124,12 +145,13 @@ struct PreviewAudioStartupDiagnostics: Encodable {
                 Task { @MainActor [weak self] in
                     guard let self, self.seekGeneration == generation else { return }
                     self.seeking = false
-                    if finished && self.isPlaying && !self.audioLoading { player.play() }
+                    if finished && self.isPlaying && !self.audioLoading && !self.prerolling { player.play() }
                     self.view?.needsDisplay = true
                 }
             }
         }
         view?.needsDisplay = true
+        if isPlaying && prerolling { startAfterPreroll() }
         if !isPlaying { scheduleIdleRelease() }
     }
     public func setSpeechEnhancement(_ settings: SpeechEnhancementSettings?) throws {
@@ -155,7 +177,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
         previewSettings=settings
         if rateChanged {
             player?.defaultRate=Float(settings.playbackRate)
-            if isPlaying && !audioLoading && !seeking { player?.play() }
+            if isPlaying && !audioLoading && !seeking && !prerolling { player?.play() }
         }
         if let view {
             applyPreviewSize(to: view)
@@ -223,7 +245,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
                 self.audioLoading = false
                 self.anchorNs = self.currentNs; self.anchorHost = ProcessInfo.processInfo.systemUptime
                 // A user seek can supersede the initial audio positioning while it awaits.
-                if self.isPlaying && !self.seeking { self.player?.play() }
+                if self.isPlaying && !self.seeking && !self.prerolling { self.player?.play() }
             } catch {
                 guard let self, self.audioGeneration == generation else { return }
                 self.audioLoading = false; self.audioPreparationFailed = true; self.error = error.localizedDescription
@@ -232,7 +254,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
         }
     }
     func updateClock() {
-        guard isPlaying, !seeking, !audioLoading else { return }
+        guard isPlaying, !seeking, !audioLoading, !prerolling else { return }
         let time: Int64
         if let player {
             guard player.currentItem?.status != .failed else { error = player.currentItem?.error?.localizedDescription ?? "Audio playback failed"; isPlaying = false; player.pause(); view?.isPaused = true; finishMetrics(); return }
@@ -251,7 +273,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
         guard let start=metricStart else { return metrics }
         return PreviewMetrics(renderedFrames: frameCount,droppedFrames: dropped,elapsedSeconds: ProcessInfo.processInfo.systemUptime-start)
     }
-    var audioClockReady: Bool { !audioLoading && !seeking && player?.currentItem?.status == .readyToPlay }
+    var audioClockReady: Bool { !audioLoading && !seeking && !prerolling && player?.currentItem?.status == .readyToPlay }
     var audioClockSeconds: Double? { player?.currentTime().seconds }
     var audioClockRate: Float { player?.rate ?? 0 }
     var audioStartupDiagnostics: PreviewAudioStartupDiagnostics {
