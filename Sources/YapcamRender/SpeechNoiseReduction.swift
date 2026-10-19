@@ -26,6 +26,31 @@ private struct SpeechFFT {
     }
 }
 
+/// The STFT's per-frame loops on vDSP. Hand-written loops in this file were compiled to different machine code from
+/// one clean release build to the next (bit-reproducibility gate); vDSP is precompiled and the same in every build.
+private enum SpeechVector {
+    /// One channel of an interleaved frame as Double, multiplied by the analysis window.
+    static func windowed(_ frame: [Float], channel: Int, channels: Int, window: [Double]) -> [Double] {
+        let n = window.count
+        var out = [Double](repeating: 0, count: n)
+        frame.withUnsafeBufferPointer { f in vDSP_vspdp(f.baseAddress! + channel, vDSP_Stride(channels), &out, 1, vDSP_Length(n)) }
+        vDSP_vmulD(out, 1, window, 1, &out, 1, vDSP_Length(n))
+        return out
+    }
+    /// power[bin] += |X[bin]|² · scale for the first power.count bins.
+    static func addPower(_ power: inout [Double], real: [Double], imaginary: [Double], scale: Double) {
+        let bins = power.count
+        var magnitudes = [Double](repeating: 0, count: bins)
+        var re = real, im = imaginary
+        re.withUnsafeMutableBufferPointer { r in im.withUnsafeMutableBufferPointer { i in
+            var split = DSPDoubleSplitComplex(realp: r.baseAddress!, imagp: i.baseAddress!)
+            vDSP_zvmagsD(&split, 1, &magnitudes, 1, vDSP_Length(bins))
+        } }
+        var k = scale
+        vDSP_vsmaD(magnitudes, 1, &k, power, 1, &power, 1, vDSP_Length(bins))
+    }
+}
+
 /// Carries only a few windows regardless of recording length or decoder chunk boundaries.
 private struct SpeechWindows {
     static let size = SpeechFFT.size, hop = 512
@@ -70,10 +95,10 @@ struct SpeechNoiseLearner48k {
         while let frame = windows.next() {
             var power = Array(repeating: 0.0, count: SpeechFFT.size/2+1)
             for channel in 0..<channels {
-                var real = (0..<SpeechFFT.size).map { Double(frame[$0*channels+channel])*window[$0] }
+                var real = SpeechVector.windowed(frame, channel: channel, channels: channels, window: window)
                 var imaginary = Array(repeating: 0.0, count: SpeechFFT.size)
                 fft.transform(&real, &imaginary)
-                for bin in power.indices { power[bin] += (real[bin]*real[bin]+imaginary[bin]*imaginary[bin])/Double(channels) }
+                SpeechVector.addPower(&power, real: real, imaginary: imaginary, scale: 1/Double(channels))
             }
             let energy = power.reduce(0,+)
             // Capture gaps/digital silence are not observations of the room's
@@ -114,6 +139,7 @@ struct SpeechNoiseReducer48k {
     private var windows: SpeechWindows
     private var overlap: [Double]
     private var weight = Array(repeating: 0.0, count: SpeechFFT.size)
+    private let windowSquared = (0..<SpeechFFT.size).map { pow(sin(.pi * (Double($0)+0.5) / Double(SpeechFFT.size)), 2) }
     private var emitted = -SpeechFFT.size/2
     private var inputFrames = 0
     private var finished = false
@@ -140,10 +166,10 @@ struct SpeechNoiseReducer48k {
             var real: [[Double]] = [], imaginary: [[Double]] = []
             var power = Array(repeating: 0.0, count: n/2+1)
             for channel in 0..<channels {
-                var r = (0..<n).map { Double(frame[$0*channels+channel])*window[$0] }
+                var r = SpeechVector.windowed(frame, channel: channel, channels: channels, window: window)
                 var i = Array(repeating: 0.0, count: n)
                 fft.transform(&r, &i)
-                for bin in power.indices { power[bin] += (r[bin]*r[bin]+i[bin]*i[bin])/Double(channels) }
+                SpeechVector.addPower(&power, real: r, imaginary: i, scale: 1/Double(channels))
                 real.append(r); imaginary.append(i)
             }
             let quiet = power.reduce(0,+) < profile.power.reduce(0,+)*1.6
@@ -156,12 +182,19 @@ struct SpeechNoiseReducer48k {
                 let highPass = 1/sqrt(1+pow(settings.highPassHz/hz,4))
                 return wiener*pauseGain*highPass
             }
+            // The real gain mirrored over the full spectrum (bin and n−bin share one gain).
+            var mirrored = [Double](repeating: 0, count: n)
+            for bin in 0..<n { mirrored[bin] = gain[min(bin,n-bin)] }
             for channel in 0..<channels {
-                for bin in 0..<n { let g = gain[min(bin,n-bin)]; real[channel][bin] *= g; imaginary[channel][bin] *= g }
+                vDSP_vmulD(real[channel], 1, mirrored, 1, &real[channel], 1, vDSP_Length(n))
+                vDSP_vmulD(imaginary[channel], 1, mirrored, 1, &imaginary[channel], 1, vDSP_Length(n))
                 fft.transform(&real[channel], &imaginary[channel], inverse: true)
-                for i in 0..<n { overlap[i*channels+channel] += real[channel][i]*window[i] }
+                overlap.withUnsafeMutableBufferPointer { o in
+                    let column = o.baseAddress! + channel
+                    vDSP_vmaD(real[channel], 1, window, 1, column, vDSP_Stride(channels), column, vDSP_Stride(channels), vDSP_Length(n))
+                }
             }
-            for i in 0..<n { weight[i] += window[i]*window[i] }
+            vDSP_vaddD(weight, 1, windowSquared, 1, &weight, 1, vDSP_Length(n))
             for i in 0..<hop where emitted+i >= 0 && emitted+i < inputFrames {
                 for channel in 0..<channels { output.append(Float(overlap[i*channels+channel]/max(weight[i],1e-20))) }
             }
