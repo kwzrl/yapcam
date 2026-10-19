@@ -12,10 +12,35 @@ pub(crate) fn has_mouse_data(events: &[Vec<Event>]) -> bool {
         .flatten()
         .any(|e| matches!(e.kind.as_str(), "move" | "down" | "up" | "cursor"))
 }
-/// Clicks within this distance (normalized content coordinates) of a zoom's target extend it.
-const CLUSTER_RADIUS: f64 = 0.25;
-/// An automatic zoom never runs longer than this; a longer run of clicks becomes several zooms.
-const MAX_ZOOM_NS: i64 = 8_000_000_000;
+/// One automatic zoom: a run of clicks without a long pause whose bounding box still fits one zoomed view.
+/// `wide`: the clicks spread over the screen too fast to follow; that stretch gets no zoom.
+struct Cluster {
+    start: i64,
+    end: i64,
+    min: [f64; 2],
+    max: [f64; 2],
+    wide: bool,
+}
+/// A pause longer than this ends a run of clicks.
+const PAUSE_NS: i64 = 2_500_000_000;
+/// A cluster only zooms if its clicks, with margin, fit a view at least this deep.
+const MIN_FIT_SCALE: f64 = 1.5;
+/// Room kept around the outermost clicks, per side (normalized content coordinates).
+const BOX_MARGIN: f64 = 0.1;
+/// A zoom that has held this long ends at a far click instead of the whole stretch going wide.
+const SETTLED_NS: i64 = 3_000_000_000;
+/// Zooms closer than this join when their clicks fit one view.
+const JOIN_GAP_NS: i64 = 1_000_000_000;
+
+fn grow(min: [f64; 2], max: [f64; 2], p: [f64; 2]) -> ([f64; 2], [f64; 2]) {
+    ([min[0].min(p[0]), min[1].min(p[1])], [max[0].max(p[0]), max[1].max(p[1])])
+}
+/// The deepest zoom that still shows the whole box with margin, if it is at least `MIN_FIT_SCALE`.
+fn fit_scale(min: [f64; 2], max: [f64; 2]) -> Option<f64> {
+    let side = (max[0] - min[0]).max(max[1] - min[1]) + 2.0 * BOX_MARGIN;
+    let scale = 1.0 / side;
+    (scale >= MIN_FIT_SCALE).then_some(scale)
+}
 
 pub fn generate_zooms(
     p: &mut ProjectData,
@@ -70,7 +95,7 @@ pub fn generate_zooms(
     let duration = time::duration(&p.timeline.clips);
     let latest_click = duration.saturating_sub(1_000_000_000);
     let latest_end = duration.saturating_sub(800_000_000);
-    let mut clusters: Vec<(i64, i64, [f64; 2])> = Vec::new();
+    let mut clusters: Vec<Cluster> = Vec::new();
     for (t, target) in candidates {
         if t >= latest_click {
             continue;
@@ -80,19 +105,41 @@ pub fn generate_zooms(
         if end <= start {
             continue;
         }
-        if let Some(last) = clusters.last_mut() {
-            // A click far from the zoomed spot, or one that would stretch the zoom past the cap, starts a new zoom.
-            let near = (target[0] - last.2[0]).hypot(target[1] - last.2[1]) <= CLUSTER_RADIUS;
-            if start.saturating_sub(last.1) <= 2_500_000_000 && near && end - last.0 <= MAX_ZOOM_NS {
-                last.1 = last.1.max(end);
-                continue;
-            }
-            // The previous zoom hands over where the next one starts; zooms never overlap.
-            if last.1 > start {
-                last.1 = start.max(last.0 + 1);
+        if let Some(c) = clusters.last_mut() {
+            if start.saturating_sub(c.end) <= PAUSE_NS {
+                if c.wide {
+                    c.end = c.end.max(end);
+                    continue;
+                }
+                let (min, max) = grow(c.min, c.max, target);
+                if fit_scale(min, max).is_some() {
+                    (c.min, c.max, c.end) = (min, max, c.end.max(end));
+                    continue;
+                }
+                if t - c.start < SETTLED_NS {
+                    // Clicks all over the screen in quick succession: show the whole screen, not a zoom ping-pong.
+                    c.wide = true;
+                    c.end = c.end.max(end);
+                    continue;
+                }
+                // A settled zoom hands over where the far click's zoom starts; zooms never overlap.
+                c.end = c.end.min(start).max(c.start + 1);
             }
         }
-        clusters.push((start, end, target));
+        clusters.push(Cluster { start, end, min: target, max: target, wide: false });
+    }
+    // Zooms less than a second apart become one when their clicks still fit one view.
+    let mut joined: Vec<Cluster> = Vec::new();
+    for c in clusters {
+        if let Some(prev) = joined.last_mut() {
+            let (min, max) = grow(prev.min, prev.max, c.min);
+            let (min, max) = grow(min, max, c.max);
+            if !prev.wide && !c.wide && c.start - prev.end < JOIN_GAP_NS && fit_scale(min, max).is_some() {
+                (prev.min, prev.max, prev.end) = (min, max, prev.end.max(c.end));
+                continue;
+            }
+        }
+        joined.push(c);
     }
     // New projects carry their zoom ease in the insertion style; automatic zooms move the same way.
     let ease = if p.zoom_settings.physics_version >= 2 {
@@ -103,7 +150,12 @@ pub fn generate_zooms(
     } else {
         300_000_000
     };
-    for (i, (start, end, target)) in clusters.into_iter().enumerate() {
+    let zooming = joined.into_iter().filter(|c| !c.wide);
+    for (i, c) in zooming.enumerate() {
+        let (start, end) = (c.start, c.end);
+        let target = [(c.min[0] + c.max[0]) / 2.0, (c.min[1] + c.max[1]) / 2.0];
+        // Close enough to show every click of the cluster, never deeper than the project's zoom.
+        let scale = fit_scale(c.min, c.max).map_or(scale, |fit| fit.min(scale));
         if p.zooms
             .iter()
             .any(|z| z.mode == "manual" && z.tl_start_ns < end && z.tl_end_ns > start)
@@ -468,10 +520,8 @@ mod tests {
             .collect();
         assert_eq!(
             bounds,
-            // 1.0s and 6.3s sit exactly at the merge gap, but together they would run 8.1s: the cap splits them.
             [
-                (700_000_000, 3_500_000_000),
-                (6_000_000_000, 8_800_000_000),
+                (700_000_000, 8_800_000_000),
                 (11_300_000_001, 14_100_000_001),
                 (28_600_000_000, 29_200_000_000)
             ]
@@ -489,7 +539,7 @@ mod tests {
         p.undo().unwrap();
         assert_eq!(p.data, before);
         p.redo().unwrap();
-        assert_eq!(p.data.zooms.len(), 4);
+        assert_eq!(p.data.zooms.len(), 3);
         p.events.iter_mut().for_each(Vec::clear);
         p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":1_000_000_000,"mode":"auto","target":[0.5,0.5],"scale":2,"ease_in_ns":0,"ease_out_ns":0})).unwrap();
         assert_eq!(p.data.zooms.last().unwrap().mode, "manual");
@@ -513,28 +563,73 @@ mod tests {
         p.apply(&json!({"op":"auto_zooms"})).unwrap();
         p.data.zooms.iter().map(|z| (z.tl_start_ns, z.tl_end_ns, z.target)).collect()
     }
-    #[test]
-    fn far_clicks_start_a_new_zoom_and_zooms_never_overlap() {
-        let s = 1_000_000_000_i64;
-        let w = Fixture::new();
-        let width = Project::create(&w.0).unwrap().session.source.content_rect_points[2];
-        // Near clicks merge; a click across the content starts its own zoom and the first hands over.
-        let z = auto_zoom_bounds(vec![
-            json!({"t":s,"type":"down","x":0,"y":0,"button":"left"}),
-            json!({"t":2*s,"type":"down","x":width*0.1,"y":0,"button":"left"}),
-            json!({"t":3*s,"type":"down","x":width,"y":0,"button":"left"}),
-        ]);
-        assert_eq!(z.len(), 2);
-        assert_eq!((z[0].0, z[0].1), (700_000_000, 2_700_000_000));
-        assert_eq!((z[1].0, z[1].1), (2_700_000_000, 5_500_000_000));
-        assert_eq!(z[1].2, [1.0, 0.0]);
+    fn content_points() -> [f64; 4] {
+        let f = Fixture::new();
+        let points = Project::create(&f.0).unwrap().session.source.content_rect_points;
+        points
     }
     #[test]
-    fn a_long_run_of_clicks_becomes_zooms_of_at_most_eight_seconds() {
+    fn nearby_clicks_become_one_zoom_that_shows_all_of_them() {
+        let s = 1_000_000_000_i64;
+        let w = content_points()[2];
+        let z = auto_zoom_bounds(vec![
+            json!({"t":s,"type":"down","x":w*0.2,"y":0,"button":"left"}),
+            json!({"t":3*s,"type":"down","x":w*0.4,"y":0,"button":"left"}),
+            json!({"t":5*s,"type":"down","x":w*0.3,"y":0,"button":"left"}),
+        ]);
+        assert_eq!(z.len(), 1);
+        assert_eq!((z[0].0, z[0].1), (700_000_000, 7_500_000_000));
+        assert!((z[0].2[0] - 0.3).abs() < 1e-9);
+    }
+    #[test]
+    fn clicks_all_over_the_screen_in_quick_succession_get_no_zoom() {
+        let s = 1_000_000_000_i64;
+        let w = content_points()[2];
+        let z = auto_zoom_bounds(
+            [0.05, 0.95, 0.1, 0.9, 0.5]
+                .iter()
+                .enumerate()
+                .map(|(i, x)| json!({"t":(i as i64 + 1)*s,"type":"down","x":w*x,"y":0,"button":"left"}))
+                .collect(),
+        );
+        assert!(z.is_empty(), "{z:?}");
+    }
+    #[test]
+    fn a_settled_zoom_hands_over_to_a_far_click_without_overlap() {
+        let s = 1_000_000_000_i64;
+        let w = content_points()[2];
+        let z = auto_zoom_bounds(vec![
+            json!({"t":s,"type":"down","x":0,"y":0}),
+            json!({"t":3*s,"type":"down","x":w*0.05,"y":0}),
+            json!({"t":5*s,"type":"down","x":w,"y":0}),
+        ]);
+        assert_eq!(z.len(), 2, "{z:?}");
+        assert_eq!(z[0].1, z[1].0, "the first zoom ends where the second starts");
+        assert!(z[1].2[0] > 0.9);
+    }
+    #[test]
+    fn a_long_run_of_clicks_in_one_place_stays_one_zoom() {
         let s = 1_000_000_000_i64;
         let z = auto_zoom_bounds((1..=25).map(|i| json!({"t":i*s,"type":"down","x":0,"y":0})).collect());
-        assert!(z.len() >= 3);
-        assert!(z.iter().all(|(a, b, _)| b - a <= 8 * s && b > a));
+        assert_eq!(z.len(), 1);
+    }
+    #[test]
+    fn kilians_take_of_october_19_gives_four_calm_zooms_instead_of_eight() {
+        // The 12 clicks of Recording-2026-10-19T175625 (content 1680x1050), scaled to the fixture.
+        let points = content_points();
+        let clicks = [
+            (2_229_366_042_i64, 661.3, 683.5), (7_025_663_833, 380.0, 207.2), (7_822_470_417, 673.0, 845.1),
+            (8_407_338_667, 705.7, 826.9), (9_757_279_375, 976.9, 821.8), (10_457_907_083, 1301.2, 773.6),
+            (12_658_082_708, 1127.5, 591.6), (13_524_133_500, 843.6, 565.9), (14_273_590_792, 494.8, 373.9),
+            (16_425_015_125, 1208.3, 473.5), (18_140_068_458, 1655.6, 569.0), (20_492_256_083, 1071.6, 467.7),
+        ];
+        let z = auto_zoom_bounds(
+            clicks
+                .iter()
+                .map(|(t, x, y)| json!({"t":t,"type":"down","x":x/1680.0*points[2],"y":y/1050.0*points[3],"button":"left"}))
+                .collect(),
+        );
+        assert_eq!(z.len(), 4, "{z:?}");
         assert!(z.windows(2).all(|w| w[0].1 <= w[1].0));
     }
     #[test]
