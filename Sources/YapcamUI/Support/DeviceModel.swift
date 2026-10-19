@@ -101,8 +101,14 @@ struct DeviceInfo: Identifiable, Equatable { let id: String; let name: String }
 
 struct CameraPreview: NSViewRepresentable {
     let session: AVCaptureSession?
+    var mirrored = true
     func makeNSView(context: Context) -> PreviewHost { PreviewHost() }
-    func updateNSView(_ v: PreviewHost, context: Context) { v.previewLayer.session = session }
+    func updateNSView(_ v: PreviewHost, context: Context) {
+        v.previewLayer.session = session
+        if let c = v.previewLayer.connection, c.isVideoMirroringSupported {
+            c.automaticallyAdjustsVideoMirroring = false; c.isVideoMirrored = mirrored
+        }
+    }
 
     final class PreviewHost: NSView {
         let previewLayer = AVCaptureVideoPreviewLayer()

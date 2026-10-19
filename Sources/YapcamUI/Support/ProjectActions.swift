@@ -171,6 +171,7 @@ import YapcamCore
         let project = try Project.create(package: package)
         applyInitialLook(to: project, package: package)
         applySessionAudio(to: project, package: package)
+        try? project.apply(.set(path: "camera.mirrored", value: .bool(AppSettings.shared.mirrorCamera)))
         return project
     }
 

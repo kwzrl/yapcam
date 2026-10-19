@@ -149,6 +149,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     /// Recording a window: bring it to the front when the take starts (needs Accessibility access).
     @Published var raiseWindowOnStart: Bool { didSet { d.set(raiseWindowOnStart, forKey: "raiseWindowOnStart") } }
     @Published var hideCameraPreview: Bool { didSet { d.set(hideCameraPreview, forKey: "hideCameraPreview") } }
+    /// The camera shows like a mirror: in the preview bubble and in new projects (existing projects keep theirs).
+    @Published var mirrorCamera: Bool { didSet { d.set(mirrorCamera, forKey: "mirrorCamera") } }
     @Published var showInDock: Bool { didSet { d.set(showInDock, forKey: "showInDock") } }
     @Published var showMenuBarItem: Bool { didSet { d.set(showMenuBarItem, forKey: "showMenuBarItem") } }
     @Published var storageDirectory: URL { didSet { d.set(storageDirectory.path, forKey: "storageDirectory") } }
@@ -231,6 +233,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         hideDockWhileRecording = d.object(forKey: "hideDockWhileRecording") as? Bool ?? true
         showRecentsWithPicker = d.object(forKey: "showRecentsWithPicker") as? Bool ?? false
         hideCameraPreview = d.object(forKey: "hideCameraPreview") as? Bool ?? false
+        mirrorCamera = d.object(forKey: "mirrorCamera") as? Bool ?? true
         raiseWindowOnStart = d.object(forKey: "raiseWindowOnStart") as? Bool ?? true
         dimAreaOutside = d.object(forKey: "dimAreaOutside") as? Bool ?? true
         showInDock = d.object(forKey: "showInDock") as? Bool ?? true

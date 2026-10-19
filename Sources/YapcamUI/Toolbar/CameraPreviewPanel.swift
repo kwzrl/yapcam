@@ -66,6 +66,7 @@ import YapcamDesign
         @Published var session: AVCaptureSession?
         @Published var opacity = 1.0
         @Published var fromRecording = false
+        @Published var mirrored = AppSettings.shared.mirrorCamera
         @Published var unavailable: String?
         let displayLayer = AVSampleBufferDisplayLayer()
     }
@@ -75,6 +76,7 @@ import YapcamDesign
         let s = AppSettings.shared
         Publishers.CombineLatest3(s.$cameraID, s.$hideCameraPreview, RecordingController.shared.$phase)
             .sink { [weak self] _ in DispatchQueue.main.async { self?.update() } }.store(in: &bag)
+        s.$mirrorCamera.sink { [weak self] on in self?.model.mirrored = on }.store(in: &bag)
         NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.update() }
         }
@@ -154,18 +156,20 @@ import YapcamDesign
         if usingFeed { usingFeed = false; model.fromRecording = false; model.unavailable = nil; model.displayLayer.flushAndRemoveImage() }
     }
 
-    /// Shows the recording's camera frames, mirrored like the picker's preview.
+    /// Shows the recording's camera frames, mirrored like the picker's preview when Mirror camera is on.
     private struct RecordingFeedView: NSViewRepresentable {
         let layer: AVSampleBufferDisplayLayer
+        let mirrored: Bool
         func makeNSView(context: Context) -> NSView {
             let v = NSView(); v.wantsLayer = true
             layer.videoGravity = .resizeAspectFill
-            layer.setAffineTransform(CGAffineTransform(scaleX: -1, y: 1))
             layer.frame = v.bounds; layer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
             v.layer?.addSublayer(layer)
             return v
         }
-        func updateNSView(_ v: NSView, context: Context) {}
+        func updateNSView(_ v: NSView, context: Context) {
+            layer.setAffineTransform(mirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity)
+        }
     }
 
     private struct PreviewView: View {
@@ -181,9 +185,9 @@ import YapcamDesign
                         }.foregroundStyle(.secondary).padding(8)
                     }
                 } else if model.fromRecording {
-                    RecordingFeedView(layer: model.displayLayer)
+                    RecordingFeedView(layer: model.displayLayer, mirrored: model.mirrored)
                 } else {
-                    CameraPreview(session: model.session)
+                    CameraPreview(session: model.session, mirrored: model.mirrored)
                 }
             }
                 .clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous))

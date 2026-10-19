@@ -146,7 +146,7 @@ struct CameraPopover: View {
                     Label("Selected camera is not connected. Recording without it.", systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
                 } else if settings.cameraID != nil && !settings.hideCameraPreview {
-                    CameraPreview(session: devices.previewSession)
+                    CameraPreview(session: devices.previewSession, mirrored: settings.mirrorCamera)
                         .frame(height: 140).clipShape(RoundedRectangle(cornerRadius: 8))
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.8)))
                 }
@@ -154,6 +154,8 @@ struct CameraPopover: View {
             Divider()
             CameraResolutionRow()
             Toggle("Hide camera preview", isOn: $settings.hideCameraPreview)
+            Toggle("Mirror camera", isOn: $settings.mirrorCamera)
+                .help("Shows the camera like a mirror, in the preview and in new recordings")
         }
         .padding(14).frame(width: 280)
         .onAppear { devices.reload(); devices.startPreview(deviceID: settings.hideCameraPreview ? nil : settings.cameraID) }
