@@ -40,6 +40,7 @@ import AppKit
 
         add("Yapcam", [
             item("About Yapcam", #selector(AppDelegate.showAbout)),
+            item("Check for Updates…", #selector(AppDelegate.checkForUpdates)),
             .separator(),
             item("Settings…", #selector(AppDelegate.showSettings), ","),
             item("Permissions…", #selector(AppDelegate.showPermissions)),

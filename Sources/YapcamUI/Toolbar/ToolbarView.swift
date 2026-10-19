@@ -17,6 +17,7 @@ struct ToolbarView: View {
     @ObservedObject private var recovery = RecoveryModel.shared
     @ObservedObject private var devices = DeviceModel.shared
     @ObservedObject private var library = RecentProjectsWindow.shared.model
+    @ObservedObject private var updates = Updates.shared
     @State private var open: ToolbarPopover?
 
     private var vertical: Bool { layout.vertical }
@@ -110,6 +111,7 @@ struct ToolbarView: View {
             ToolbarButton(symbol: "folder", label: "Library", help: "All recordings", active: open == .recents || settings.showRecentsWithPicker, compact: vertical) { toggle(.recents) }
                 .popover(isPresented: binding(.recents), arrowEdge: edge) { RecentsPopover(dismiss: { open = nil }) }
             settingsMenu
+            if updates.showsReminder { updateReminder }
         }
         .onChange(of: open) { _, new in if new == .recents { settings.showRecentsWithPicker = true } else if settings.showRecentsWithPicker, new == nil { settings.showRecentsWithPicker = false } }
         .onAppear { recovery.refresh(); library.reload(); startMeterIfNeeded(); if settings.showRecentsWithPicker { open = .recents } }
@@ -186,6 +188,18 @@ struct ToolbarView: View {
 
     /// A normal toolbar button that pops up the settings menu (an AppKit menu: it keeps the
     /// icon-over-label look that SwiftUI's `Menu` flattens into a row).
+    /// A found update, quietly: "Update" opens Sparkle's window, "Hide" puts the reminder away until the next one.
+    private var updateReminder: some View {
+        line(2) {
+            separator
+            ToolbarButton(symbol: "arrow.down.circle", label: "Update",
+                          help: "Yapcam \(updates.waitingVersion ?? "") is available", active: false, compact: vertical) { updates.checkForUpdates() }
+            ToolbarButton(symbol: "xmark", label: "Hide", help: "Hide this reminder", active: false, dim: true, compact: vertical) {
+                updates.reminderHidden = true
+            }
+        }
+    }
+
     private var settingsMenu: some View {
         ToolbarButton(symbol: "gearshape", label: "Settings", help: "Recording options and more", active: false, compact: vertical) {
             if let view = ToolbarPanelController.shared.panel.contentView, let event = NSApp.currentEvent {

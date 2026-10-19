@@ -103,6 +103,7 @@ import YapcamEditor
         if !settings.hasCompletedOnboarding || PermissionsModel.shared.state(.screen) != .granted {
             OnboardingWindow.shared.show(reason: nil)
         }
+        Updates.shared.start()
 
         // Re-apply settings that need side effects.
         // A sink, not `objectWillChange.values`: AsyncPublisher traps when two settings change back to back
@@ -356,6 +357,7 @@ import YapcamEditor
         if let m = EditorBridge.keyEditor() { m.paletteVisible = true } else { RecordingPaletteWindow.shared.show() }   // while recording: the HUD palette
     }
     @objc func showAbout() { AboutWindow.show() }
+    @objc func checkForUpdates() { Updates.shared.checkForUpdates() }
     @objc func showThirdPartyNotices() { ThirdPartyNotices.open() }
     @objc func showStorageFolder() { NSWorkspace.shared.open(AppSettings.shared.storageDirectory) }
 }
@@ -364,6 +366,7 @@ extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let r = RecordingController.shared
         switch item.action {
+        case #selector(checkForUpdates): return Updates.shared.canCheck
         case #selector(toggleRecording):
             item.title = r.isRecording || r.phase == .countdown(0) ? "Stop Recording" : "Start Recording"
             if case .countdown = r.phase { item.title = "Cancel Countdown" }

@@ -50,6 +50,7 @@ struct SettingsView: View {
 
 struct GeneralSettings: View {
     @EnvironmentObject var s: AppSettings
+    @ObservedObject private var updates = Updates.shared
     @State private var loginOn = LoginItem.isEnabled
     @State private var loginError: String?
     @State private var confirmReset = false
@@ -62,6 +63,7 @@ struct GeneralSettings: View {
             Toggle("Hide Dock Icon", isOn: Binding(get: { !s.showInDock }, set: { s.showInDock = !$0 }))
             Text("The icon only disappears while no project window is open.").font(.caption).foregroundStyle(.secondary)
             Toggle("Show menu bar item", isOn: $s.showMenuBarItem)
+            Toggle("Automatically check for updates", isOn: Binding(get: { updates.automaticallyChecks }, set: { updates.automaticallyChecks = $0 }))
             Section("Permissions") {
                 Button("Review permissions…") { OnboardingWindow.shared.show(reason: nil, all: true) }
             }

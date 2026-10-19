@@ -25,6 +25,9 @@ swift build -j 2 -c "$CONFIG" --product Yapcam
 APP="$ROOT/build/Yapcam.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Yapcam"
+# Sparkle (vendored) travels in Contents/Frameworks; the binary's rpath points there.
+rm -rf "$APP/Contents/Frameworks"; mkdir -p "$APP/Contents/Frameworks"
+ditto "$BIN_DIR/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 xcrun actool "$ROOT/Resources/Accent.xcassets" --compile "$APP/Contents/Resources" --platform macosx --minimum-deployment-target 15.0
@@ -40,10 +43,10 @@ if [[ -f "$KEYCHAIN" && -f "$PASS_FILE" ]]; then
 fi
 
 if security find-identity -p codesigning | grep -q "\"$IDENTITY\""; then
-  codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
+  "$ROOT/scripts/sign-app.sh" "$APP" "$IDENTITY"
 else
   echo "warning: signing identity '$IDENTITY' not found; ad-hoc signing (permissions reset on every build)" >&2
-  codesign --force --sign - "$APP"
+  "$ROOT/scripts/sign-app.sh" "$APP" -
 fi
 codesign --verify "$APP"
 echo "$APP"

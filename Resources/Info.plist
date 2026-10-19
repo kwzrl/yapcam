@@ -60,6 +60,12 @@
 	<string>1</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.video</string>
+	<key>SUFeedURL</key>
+	<string>https://yapcam.app/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>cwxeSlRq/Xw2W8ZAnElUft9OZ5GYBxl9UsmeP9d3DIE=</string>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>NSCameraUsageDescription</key>
