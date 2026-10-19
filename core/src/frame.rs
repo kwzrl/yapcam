@@ -540,22 +540,23 @@ impl Project {
             ..Frame::default()
         };
         let mut zoom_camera_factor = 1.0;
-        if let Some(z) = crate::zoom_lens::active(self, tl_ns, capabilities.can_auto_zoom) {
+        if let Some((z, target, scale, weight)) =
+            crate::zoom_lens::blended(self, tl_ns, capabilities.can_auto_zoom)
+        {
             let settings = &p.zoom_settings;
-            let weight = crate::zoom_lens::weight(self, z, tl_ns);
             zoom_camera_factor = 1.0 + (p.camera.zoom_scale - 1.0) * weight.clamp(0.0, 1.0);
             if z.style == "classic" {
                 let physics = crate::motion::zoom_spring(settings);
-                let size = 1.0 / (1.0 + (z.scale - 1.0) * weight);
+                let size = 1.0 / (1.0 + (scale - 1.0) * weight);
                 let w = crop[2] * size;
                 let h = crop[3] * size;
                 let mut x = coordinate(
-                    z.target[0] - w / 2.0,
+                    target[0] - w / 2.0,
                     crop[0],
                     crop[0] + (crop[2] - w).max(0.0),
                 );
                 let mut y = coordinate(
-                    z.target[1] - h / 2.0,
+                    target[1] - h / 2.0,
                     crop[1],
                     crop[1] + (crop[3] - h).max(0.0),
                 );

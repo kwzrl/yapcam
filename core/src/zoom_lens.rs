@@ -9,7 +9,38 @@ pub(crate) fn active(p: &Project, tl: i64, can_auto: bool) -> Option<&Zoom> {
     p.data
         .zooms
         .iter()
-        .filter(|z| {
+        .filter(|z| is_active(p, z, tl, can_auto, duration))
+        .max_by_key(|z| z.tl_start_ns)
+}
+/// The active classic zoom with its weight. While the next zoom eases in over one that is still on, the view
+/// glides from the earlier target and scale to the next one and stays zoomed, instead of zooming out and back in.
+/// Returns the zoom, its (glided) target and scale, and its weight; allocation free for frame queries.
+pub(crate) fn blended(p: &Project, tl: i64, can_auto: bool) -> Option<(&Zoom, [f64; 2], f64, f64)> {
+    let z = active(p, tl, can_auto)?;
+    let w = weight(p, z, tl);
+    if p.data.zoom_settings.physics_version < 2 || z.style != "classic" || w >= 1.0 {
+        return Some((z, z.target, z.scale, w));
+    }
+    let duration = crate::time::duration(&p.data.timeline.clips);
+    let prior = p
+        .data
+        .zooms
+        .iter()
+        .filter(|o| o.style == "classic" && o.tl_start_ns < z.tl_start_ns)
+        .filter(|o| is_active(p, o, tl, can_auto, duration))
+        .max_by_key(|o| o.tl_start_ns);
+    let Some(prior) = prior else {
+        return Some((z, z.target, z.scale, w));
+    };
+    let wp = weight(p, prior, tl);
+    if wp <= w {
+        return Some((z, z.target, z.scale, w));
+    }
+    let mix = |a: f64, b: f64| a + (b - a) * w;
+    let target = [mix(prior.target[0], z.target[0]), mix(prior.target[1], z.target[1])];
+    Some((z, target, mix(prior.scale, z.scale), wp))
+}
+fn is_active(p: &Project, z: &Zoom, tl: i64, can_auto: bool, duration: i64) -> bool {
             z.enabled
                 && (z.mode != "auto" || p.data.zoom_settings.automatic && can_auto)
                 && if p.data.zoom_settings.physics_version >= 2 {
@@ -30,8 +61,6 @@ pub(crate) fn active(p: &Project, tl: i64, can_auto: bool) -> Option<&Zoom> {
                         z.tl_start_ns
                     } && tl < z.tl_end_ns
                 }
-        })
-        .max_by_key(|z| z.tl_start_ns)
 }
 pub(crate) fn weight(p: &Project, z: &Zoom, tl: i64) -> f64 {
     let settings = &p.data.zoom_settings;
