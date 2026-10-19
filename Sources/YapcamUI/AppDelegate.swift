@@ -130,6 +130,7 @@ import YapcamEditor
         if RecordingController.shared.isRecording { RecordingController.shared.confirmFinish(); return false }
         // Dock click returns to where the user was: an open editor (AppKit fronts it), else the toolbar. Never both.
         if EditorWindows.openCount > 0 { return true }
+        if OnboardingWindow.shared.isVisible { OnboardingWindow.shared.front(); return false }
         ToolbarPanelController.shared.show()
         return false
     }

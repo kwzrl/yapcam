@@ -22,7 +22,7 @@ enum OnboardingFlow {
     static func allSet(_ granted: (AppPermission) -> Bool) -> Bool { readyChecks.allSatisfy(granted) }
 }
 
-@MainActor final class OnboardingWindow {
+@MainActor final class OnboardingWindow: NSObject, NSWindowDelegate {
     static let shared = OnboardingWindow()
     private var window: NSWindow?
     private let model = OnboardingModel()
@@ -51,8 +51,11 @@ enum OnboardingFlow {
                 .environmentObject(PermissionsModel.shared))
             w.center()
             RecordingController.shared.engine.registerExcluded(w)
+            w.delegate = self
             window = w
         }
+        // The floating toolbar would cover the onboarding; it comes back when the onboarding closes.
+        ToolbarPanelController.shared.hide()
         PermissionsModel.shared.refresh()
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
@@ -61,6 +64,14 @@ enum OnboardingFlow {
     func close() {
         AppSettings.shared.hasCompletedOnboarding = true
         window?.orderOut(nil)
+    }
+
+    var isVisible: Bool { window?.isVisible ?? false }
+    func front() { NSApp.activate(); window?.makeKeyAndOrderFront(nil) }
+
+    /// Closed with the window button: bring the toolbar back if Yapcam can record.
+    func windowWillClose(_ notification: Notification) {
+        if PermissionsModel.shared.state(.screen) == .granted { ToolbarPanelController.shared.show() }
     }
 }
 

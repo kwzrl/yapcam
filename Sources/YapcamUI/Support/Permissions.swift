@@ -116,7 +116,16 @@ enum AppPermissionState { case granted, denied, notDetermined }
         refresh()
     }
 
-    func open(_ p: AppPermission) { NSWorkspace.shared.open(p.settingsURL) }
+    /// Opens the right System Settings page. Screen and input monitoring ask macOS first, so Yapcam is in the list
+    /// even after its entry was reset (asking again when an entry exists shows nothing).
+    func open(_ p: AppPermission) {
+        switch p {
+        case .screen: if !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
+        case .inputMonitoring: if !CGPreflightListenEventAccess() { _ = CGRequestListenEventAccess() }
+        default: break
+        }
+        NSWorkspace.shared.open(p.settingsURL)
+    }
 
     /// Removes Yapcam's entry for this permission (`tccutil reset`), for when System Settings shows it on but
     /// macOS no longer matches it to this build. The next request asks again.
