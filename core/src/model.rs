@@ -707,7 +707,8 @@ impl ProjectData {
         data.canvas.global_motion_blur = Some(1.0);
         data.cursor.size_points = Some(48.0);
         data.cursor.set_id = Some("original".into());
-        data.cursor.click_effect = "none".into();
+        // Founder decision (rc2): a visible Screen Studio-style click (eased ring + cursor press) is on for new projects.
+        data.cursor.click_effect = "ring".into();
         data.cursor.smoothing = 1.0;
         // Softer than the "smooth" preset (470/70/3) and still critically damped: no float, no overshoot.
         data.cursor.speed_preset = "custom".into();

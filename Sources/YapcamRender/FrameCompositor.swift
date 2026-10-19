@@ -472,8 +472,19 @@ public final class FrameCompositor: @unchecked Sendable {
         }
         if (u[9].y >= 0 && u[9].y <= 1 && u[9].w >= 0) {
             if (u[9].w < .5) {
-                float radius=8+32*u[9].y; float ring=1-smoothstep(1,3,abs(length(cursorPoint-u[10].xy)-radius));
-                result=over(result,float4(.25,.55,1,ring*(1-u[9].y)*.65));
+                // Circle: a soft ring eases out from the click point (ease-out cubic), thins as it grows
+                // and fades with a short fade-in, so nothing pops. A dark outer halo under a white core
+                // keeps it readable on light and dark content alike.
+                float t=u[9].y, grow=1-pow(1-t,3.0);
+                float size=max(max(u[8].z,u[8].w),32.0);
+                float radius=mix(size*.12,size*.62,grow), width=mix(2.6,1.3,grow);
+                float alpha=smoothstep(0.0,.08,t)*(1-smoothstep(.45,1.0,t));
+                float d=length(cursorPoint-u[10].xy), edge=abs(d-radius);
+                float halo=1-smoothstep(width,width+3.5,edge);
+                float core=1-smoothstep(width*.5,width*.5+1.2,edge);
+                float fill=(1-smoothstep(radius-1.5,radius,d))*(1-grow);
+                result=over(result,float4(0,0,0,max(halo*.40,fill*.10)*alpha));
+                result=over(result,float4(1,1,1,max(core*.92,fill*.22)*alpha));
             } else {
                 float elapsed=u[9].y*u[10].w;
                 float cursorDiameter=max(max(u[8].z,u[8].w),32.0);
@@ -494,9 +505,15 @@ public final class FrameCompositor: @unchecked Sendable {
         }
         if (all(u[8].zw>0) && u[9].x>0) {
             float4 sprite=0;
+            // Click press: the glyph dips to 85% around its hotspot within ~70 ms and eases back by ~300 ms.
+            float press=1;
+            if (u[9].y >= 0 && u[9].y <= 1 && u[9].w >= 0) {
+                float elapsed=u[9].y*(u[9].w < .5 ? u[10].z : u[10].w);
+                press=1-.15*smoothstep(0.0,.07,elapsed)*(1-smoothstep(.09,.30,elapsed));
+            }
             for(int i=0;i<8;i++) {
                 float2 offset=(u[17].zw-u[17].xy)*u[16].y*float(i)/7;
-                float2 delta=cursorPoint-offset-u[17].xy;
+                float2 delta=(cursorPoint-offset-u[17].xy)/press;
                 float cosine=cos(u[9].z), sine=sin(u[9].z);
                 float2 unrotated=float2(cosine*delta.x+sine*delta.y,-sine*delta.x+cosine*delta.y)+u[17].xy;
                 float2 uv=(unrotated-u[8].xy)/u[8].zw;

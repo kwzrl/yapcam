@@ -1,5 +1,6 @@
 import XCTest
 import Metal
+import ImageIO
 @testable import YapcamRender
 
 final class CursorCompositorTests: XCTestCase {
@@ -106,6 +107,60 @@ final class CursorCompositorTests: XCTestCase {
             let standard = try render(c)
             c.cursorVariants = [style.shapeID: .alternate]
             XCTAssertNotEqual(try render(c),standard)
+        }
+    }
+
+    /// Circle (the default for new projects) eases a two-tone ring out of the click point and briefly presses
+    /// the cursor; both must read on light and dark content. Set YAPCAM_CLICK_FRAMES_DIR to save the frames as PNGs.
+    func testCircleClickRingAndPressReadOnLightAndDarkOnHost() throws {
+        let device=try requireRenderDevice()
+        let fixture=URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Fixtures/synthetic/basic.yapcam")
+        let queue=try XCTUnwrap(device.makeCommandQueue())
+        let (w,h)=(360,240)
+        let target=try XCTUnwrap(device.makeTexture(descriptor: .texture2DDescriptor(pixelFormat: .bgra8Unorm_srgb,width: w,height: h,mipmapped: false)))
+        let out=ProcessInfo.processInfo.environment["YAPCAM_CLICK_FRAMES_DIR"].map { URL(fileURLWithPath: $0) }
+        if let out { try FileManager.default.createDirectory(at: out,withIntermediateDirectories: true) }
+        func render(gray: Float,ms: Double) throws -> [UInt8] {
+            var configuration=RenderConfiguration()
+            configuration.cursorSetID="classic"; configuration.cursorStyle = .arrow
+            configuration.cursorClickEffect = .circle; configuration.cursorClickDurationNs=400_000_000
+            let source=TestSource(package: fixture,configuration: configuration) { _ in
+                var frame=YcFrame(); frame.canvas_w=UInt32(w/2); frame.canvas_h=UInt32(h/2)
+                frame.background_color=(gray,gray,gray,1)
+                frame.cursor_visible=1; frame.cursor_opacity=1; frame.cursor_scale=1.5
+                frame.cursor_x=90; frame.cursor_y=60; frame.click_x=90; frame.click_y=60
+                frame.click_progress=ms<400 ? Float(ms/400) : -1
+                return frame
+            }
+            let cb=try XCTUnwrap(queue.makeCommandBuffer())
+            try FrameCompositor(device: device,project: source).encode(source.frame(atNs: 0),to: target,in: cb)
+            cb.commit(); cb.waitUntilCompleted()
+            XCTAssertEqual(cb.status,.completed,cb.error?.localizedDescription ?? "")
+            var bytes=[UInt8](repeating: 0,count: w*h*4)
+            target.getBytes(&bytes,bytesPerRow: w*4,from: MTLRegionMake2D(0,0,w,h),mipmapLevel: 0)
+            if let out {
+                let provider=try XCTUnwrap(CGDataProvider(data: Data(bytes) as CFData))
+                let image=try XCTUnwrap(CGImage(width: w,height: h,bitsPerComponent: 8,bitsPerPixel: 32,bytesPerRow: w*4,space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue|CGBitmapInfo.byteOrder32Little.rawValue),provider: provider,decode: nil,shouldInterpolate: false,intent: .defaultIntent))
+                let url=out.appendingPathComponent("click-\(gray>0.5 ? "light" : "dark")-\(Int(ms))ms.png")
+                let destination=try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL,"public.png" as CFString,1,nil))
+                CGImageDestinationAddImage(destination,image,nil); XCTAssertTrue(CGImageDestinationFinalize(destination))
+            }
+            return bytes
+        }
+        func differing(_ a: [UInt8],_ b: [UInt8],rows: Range<Int>? = nil) -> Int {
+            var n=0
+            for y in rows ?? 0..<h { for x in 0..<w { let i=(y*w+x)*4; if (0..<3).map({ abs(Int(a[i+$0])-Int(b[i+$0])) }).max()!>12 { n+=1 } } }
+            return n
+        }
+        for gray: Float in [0.08,0.94] {
+            let idle=try render(gray: gray,ms: 400)
+            let frames=try [0.0,100,250,350].map { try render(gray: gray,ms: $0) }
+            // Ring and press are clearly visible mid-flight on either background.
+            XCTAssertGreaterThan(differing(frames[1],idle),200,"ring/press must be visible at +100 ms (gray \(gray))")
+            XCTAssertGreaterThan(differing(frames[2],idle),100,"ring must still read at +250 ms (gray \(gray))")
+            // It fades out instead of popping: later frames differ less from idle than the peak.
+            XCTAssertLessThan(differing(frames[3],idle),differing(frames[1],idle))
         }
     }
 }

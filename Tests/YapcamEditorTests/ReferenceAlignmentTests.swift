@@ -431,7 +431,7 @@ import YapcamCore
             #expect(m.number("canvas.radius") == 16 && m.number("canvas.motion_blur") == 1 && m.number("canvas.background.blur") == 0)
             #expect(m.usesPaddingRatio && abs(m.number("canvas.padding_ratio") - 0.10) < 1e-9)
             #expect(abs(min(g.dest.minX, g.dest.minY) - 0.10 * min(g.canvasWidth, g.canvasHeight)) < 1.5)          // 108 px padding on the constraining axis (content is centered on the other)
-            #expect(m.string("cursor.set_id") == "original" && m.string("cursor.click_effect") == "none")
+            #expect(m.string("cursor.set_id") == "original" && m.string("cursor.click_effect") == "ring")
             #expect(m.number("cursor.smoothing") == (m.defaultsRevision >= 4 ? 1 : 0))                       // revision 4: smooth cursor at full strength (BS-1)
             #expect(m.springValues(screen: true) == (70, 30, 3))                                            // 0.11.0: calmer zoom spring (#18)
             #expect(m.springValues(screen: false) == (250, 55, 3))                                          // and the softer cursor

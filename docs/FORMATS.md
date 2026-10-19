@@ -855,7 +855,7 @@ reset values on open. Save/reopen and snapshots keep the selected mode.
 | cursor.style / shape / logical_size | `recorded` / null / `regular` | unchanged; set_id selects captured, touch or authored artwork |
 | cursor.size / size_points | multiplier1 / null | stored multiplier1 remains inactive; 48 logical points on our 32pt authored canvas |
 | cursor.smoothing / speed_preset | 0.15 / `custom` | 0 / `none` |
-| cursor.click_effect | `ring` | `none` |
+| cursor.click_effect | `ring` | `ring` (eased ring + cursor press; was `none` before rc2) |
 | cursor.physics_version / motion_blur | 0 / 0 | 1 / 1 |
 | zoom_settings.physics_version | 0 | 1 |
 | zoom_settings.spring (stiffness,damping,mass,overshoot) | (250,28,1,false) | (125,12,1.5,false) |
