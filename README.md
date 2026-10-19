@@ -15,7 +15,7 @@ The app is signed with a Developer ID and notarized by Apple. Each release lists
 2. Start Yapcam. It walks you through the macOS permissions it needs, one per page, starting with Screen Recording.
 3. Pick a display, window or area in the toolbar and press record. Stop, and the editor opens.
 
-New versions appear on [GitHub Releases](https://github.com/kwzrl/yapcam/releases). There is no automatic update check yet: download the new DMG and replace the app in Applications. Your projects stay where they are.
+Yapcam checks for updates when it starts (Sparkle, signed updates, no system profile sent). When one is available, the toolbar shows **Update**; you can also use **Yapcam ▸ Check for Updates…** and turn the automatic check off in Settings. Every version is also on [GitHub Releases](https://github.com/kwzrl/yapcam/releases). Your projects stay where they are.
 
 ## What it does
 
@@ -28,7 +28,7 @@ New versions appear on [GitHub Releases](https://github.com/kwzrl/yapcam/release
 
 ## Known limitations
 
-See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md). In short: Apple Silicon and macOS 15+ only, no automatic updates, no cloud sharing links.
+See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md). In short: Apple Silicon and macOS 15+ only, no cloud sharing links.
 
 ## Support
 
