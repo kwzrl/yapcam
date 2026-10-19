@@ -12,6 +12,11 @@ pub(crate) fn has_mouse_data(events: &[Vec<Event>]) -> bool {
         .flatten()
         .any(|e| matches!(e.kind.as_str(), "move" | "down" | "up" | "cursor"))
 }
+/// Clicks within this distance (normalized content coordinates) of a zoom's target extend it.
+const CLUSTER_RADIUS: f64 = 0.25;
+/// An automatic zoom never runs longer than this; a longer run of clicks becomes several zooms.
+const MAX_ZOOM_NS: i64 = 8_000_000_000;
+
 pub fn generate_zooms(
     p: &mut ProjectData,
     context: &Project,
@@ -76,9 +81,15 @@ pub fn generate_zooms(
             continue;
         }
         if let Some(last) = clusters.last_mut() {
-            if start.saturating_sub(last.1) <= 2_500_000_000 {
+            // A click far from the zoomed spot, or one that would stretch the zoom past the cap, starts a new zoom.
+            let near = (target[0] - last.2[0]).hypot(target[1] - last.2[1]) <= CLUSTER_RADIUS;
+            if start.saturating_sub(last.1) <= 2_500_000_000 && near && end - last.0 <= MAX_ZOOM_NS {
                 last.1 = last.1.max(end);
                 continue;
+            }
+            // The previous zoom hands over where the next one starts; zooms never overlap.
+            if last.1 > start {
+                last.1 = start.max(last.0 + 1);
             }
         }
         clusters.push((start, end, target));
@@ -430,7 +441,7 @@ mod tests {
         .into_iter()
         .enumerate()
         .map(|(i, t)| {
-            serde_json::from_value(json!({"t":t,"type":"down","x":if i%2==0 {0} else {320},"y":0}))
+            serde_json::from_value(json!({"t":t,"type":"down","x":if i%2==0 {0} else {10},"y":0}))
                 .unwrap()
         })
         .collect();
@@ -453,8 +464,10 @@ mod tests {
             .collect();
         assert_eq!(
             bounds,
+            // 1.0s and 6.3s sit exactly at the merge gap, but together they would run 8.1s: the cap splits them.
             [
-                (700_000_000, 8_800_000_000),
+                (700_000_000, 3_500_000_000),
+                (6_000_000_000, 8_800_000_000),
                 (11_300_000_001, 14_100_000_001),
                 (28_600_000_000, 29_200_000_000)
             ]
@@ -472,10 +485,71 @@ mod tests {
         p.undo().unwrap();
         assert_eq!(p.data, before);
         p.redo().unwrap();
-        assert_eq!(p.data.zooms.len(), 3);
+        assert_eq!(p.data.zooms.len(), 4);
         p.events.iter_mut().for_each(Vec::clear);
         p.apply(&json!({"op":"add_zoom","tl_start_ns":0,"tl_end_ns":1_000_000_000,"mode":"auto","target":[0.5,0.5],"scale":2,"ease_in_ns":0,"ease_out_ns":0})).unwrap();
         assert_eq!(p.data.zooms.last().unwrap().mode, "manual");
+    }
+    fn auto_zoom_bounds(events: Vec<Value>) -> Vec<(i64, i64, [f64; 2])> {
+        let f = Fixture::new();
+        let mut p = Project::create(&f.0).unwrap();
+        p.data.autosave = false;
+        p.session.segments[0].duration_ns = 60_000_000_000;
+        p.session.segments[1].src_start_ns = 60_000_000_000;
+        p.data.timeline.clips = vec![Clip {
+            id: "long".into(),
+            src_start_ns: 0,
+            src_end_ns: 60_000_000_000,
+            speed: 1.0,
+            settings: Default::default(),
+        }];
+        p.events[0] = events.into_iter().map(|e| serde_json::from_value(e).unwrap()).collect();
+        p.events[1].clear();
+        p.input = p.events.iter().map(|e| crate::input::InputCache::new(e)).collect();
+        p.apply(&json!({"op":"auto_zooms"})).unwrap();
+        p.data.zooms.iter().map(|z| (z.tl_start_ns, z.tl_end_ns, z.target)).collect()
+    }
+    #[test]
+    fn far_clicks_start_a_new_zoom_and_zooms_never_overlap() {
+        let s = 1_000_000_000_i64;
+        let w = Fixture::new();
+        let width = Project::create(&w.0).unwrap().session.source.content_rect_points[2];
+        // Near clicks merge; a click across the content starts its own zoom and the first hands over.
+        let z = auto_zoom_bounds(vec![
+            json!({"t":s,"type":"down","x":0,"y":0,"button":"left"}),
+            json!({"t":2*s,"type":"down","x":width*0.1,"y":0,"button":"left"}),
+            json!({"t":3*s,"type":"down","x":width,"y":0,"button":"left"}),
+        ]);
+        assert_eq!(z.len(), 2);
+        assert_eq!((z[0].0, z[0].1), (700_000_000, 2_700_000_000));
+        assert_eq!((z[1].0, z[1].1), (2_700_000_000, 5_500_000_000));
+        assert_eq!(z[1].2, [1.0, 0.0]);
+    }
+    #[test]
+    fn a_long_run_of_clicks_becomes_zooms_of_at_most_eight_seconds() {
+        let s = 1_000_000_000_i64;
+        let z = auto_zoom_bounds((1..=25).map(|i| json!({"t":i*s,"type":"down","x":0,"y":0})).collect());
+        assert!(z.len() >= 3);
+        assert!(z.iter().all(|(a, b, _)| b - a <= 8 * s && b > a));
+        assert!(z.windows(2).all(|w| w[0].1 <= w[1].0));
+    }
+    #[test]
+    fn right_and_other_clicks_do_not_zoom() {
+        let s = 1_000_000_000_i64;
+        assert!(auto_zoom_bounds(vec![
+            json!({"t":s,"type":"down","x":0,"y":0,"button":"right"}),
+            json!({"t":10*s,"type":"down","x":0,"y":0,"button":"other"}),
+        ])
+        .is_empty());
+        // Left clicks and recordings from before the button was captured still zoom.
+        assert_eq!(
+            auto_zoom_bounds(vec![
+                json!({"t":s,"type":"down","x":0,"y":0,"button":"left"}),
+                json!({"t":10*s,"type":"down","x":0,"y":0}),
+            ])
+            .len(),
+            2
+        );
     }
     #[test]
     fn windowed_candidates_keep_prior_coordinates_and_repeat_on_each_clip() {

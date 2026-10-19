@@ -44,7 +44,10 @@ impl InputCache {
                     cursors.push((e.t, id));
                 }
             }
-            if e.kind == "down" {
+            // Auto zoom follows primary clicks; a right click opens a menu, not a place to zoom to.
+            // Recordings from before the button was captured count every click.
+            let primary = e.details.get("button").and_then(|b| b.as_str()).is_none_or(|b| b == "left");
+            if e.kind == "down" && primary {
                 click_has_position.push(has_position);
                 clicks.push(Point {
                     t: e.t,
