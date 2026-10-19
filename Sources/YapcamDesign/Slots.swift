@@ -76,13 +76,15 @@ public struct SlotButton: View {
     var image: NSImage?
     /// Something new behind a closed slot (agent activity in a collapsed chat): the hover brightness stays on.
     var attention: Bool
+    /// Live input level 0...1 (the microphone): the glyph fills from the bottom, red when it clips.
+    var level: Float?
     let action: () -> Void
     @State private var hover = false
 
     public init(symbol: String, label: String, help: String = "", active: Bool, dim: Bool = false, enabled: Bool = true,
-                compact: Bool = false, image: NSImage? = nil, attention: Bool = false, action: @escaping () -> Void) {
+                compact: Bool = false, image: NSImage? = nil, attention: Bool = false, level: Float? = nil, action: @escaping () -> Void) {
         self.symbol = symbol; self.label = label; self.help = help; self.active = active; self.dim = dim
-        self.enabled = enabled; self.compact = compact; self.image = image; self.attention = attention; self.action = action
+        self.enabled = enabled; self.compact = compact; self.image = image; self.attention = attention; self.level = level; self.action = action
     }
 
     public var body: some View {
@@ -124,7 +126,24 @@ public struct SlotButton: View {
                 .overlay(shape.strokeBorder(Color.white.opacity(0.25), lineWidth: 0.5))
         } else {
             Image(systemName: symbol).font(.system(size: size, weight: .regular))
+                .overlay { if let level { LevelFill(symbol: symbol, size: size, level: level) } }
         }
+    }
+}
+
+/// The filled glyph, masked to the input level from the bottom.
+private struct LevelFill: View {
+    let symbol: String
+    let size: CGFloat
+    let level: Float
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        let l = CGFloat(min(max(level, 0), 1))
+        Image(systemName: symbol + ".fill").font(.system(size: size, weight: .regular))
+            .foregroundStyle(level > 0.9 ? Yap.record : Yap.title)
+            .mask(alignment: .bottom) { GeometryReader { g in Rectangle().frame(height: g.size.height * l).frame(maxHeight: .infinity, alignment: .bottom) } }
+            .animation(reduceMotion ? nil : .linear(duration: 0.08), value: level)
+            .accessibilityHidden(true)
     }
 }
 

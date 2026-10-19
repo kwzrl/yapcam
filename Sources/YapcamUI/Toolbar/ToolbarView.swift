@@ -91,9 +91,8 @@ struct ToolbarView: View {
 
             deviceButton(symbol: camLabelOn ? "video" : "video.slash", label: DeviceLabels.camera(name: cameraName), isOn: camOn, help: "Camera", menu: .camera)
                 .popover(isPresented: binding(.camera), arrowEdge: edge) { CameraPopover().environmentObject(settings).environmentObject(perms) }
-            deviceButton(symbol: micOn ? "mic" : "mic.slash", label: DeviceLabels.microphone(name: microphoneName), isOn: micOn, help: "Microphone", menu: .microphone)
-                // Below the label, clear of the mic glyph.
-                .overlay(alignment: .bottom) { if micOn { LevelMeter(level: devices.level, height: 2.5).frame(width: 30).padding(.bottom, 1).allowsHitTesting(false) } }
+            deviceButton(symbol: micOn ? "mic" : "mic.slash", label: DeviceLabels.microphone(name: microphoneName), isOn: micOn, help: "Microphone", menu: .microphone,
+                         level: micOn ? devices.level : nil)
                 .popover(isPresented: binding(.microphone), arrowEdge: edge) { MicrophonePopover().environmentObject(settings).environmentObject(perms) }
             deviceButton(symbol: settings.systemAudio ? "speaker.wave.2" : "speaker.slash",
                          label: settings.systemAudioChoice.buttonLabel(appCount: settings.systemAudioApps.count), isOn: settings.systemAudio,
@@ -176,8 +175,8 @@ struct ToolbarView: View {
     }
 
     /// A device button: icon + state text; a click opens the device menu.
-    private func deviceButton(symbol: String, label: String, isOn: Bool, help: String, menu: ToolbarPopover) -> some View {
-        ToolbarButton(symbol: symbol, label: label, help: help, active: open == menu, dim: !isOn, compact: vertical) { toggle(menu) }
+    private func deviceButton(symbol: String, label: String, isOn: Bool, help: String, menu: ToolbarPopover, level: Float? = nil) -> some View {
+        ToolbarButton(symbol: symbol, label: label, help: help, active: open == menu, dim: !isOn, compact: vertical, level: level) { toggle(menu) }
             .accessibilityLabel(help).accessibilityValue(label)
     }
 
