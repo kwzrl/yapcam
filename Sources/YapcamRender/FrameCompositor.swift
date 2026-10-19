@@ -472,19 +472,22 @@ public final class FrameCompositor: @unchecked Sendable {
         }
         if (u[9].y >= 0 && u[9].y <= 1 && u[9].w >= 0) {
             if (u[9].w < .5) {
-                // Circle: a soft ring eases out from the click point (ease-out cubic), thins as it grows
-                // and fades with a short fade-in, so nothing pops. A dark outer halo under a white core
-                // keeps it readable on light and dark content alike.
+                // Circle: a ring eases out from the click point (ease-out cubic), thins as it grows and
+                // fades with a short fade-in, so nothing pops. Two-tone like the cursor glyph: a near-black
+                // core stroke inside a thin white edge, so it reads on white documents and dark UIs alike.
                 float t=u[9].y, grow=1-pow(1-t,3.0);
                 float size=max(max(u[8].z,u[8].w),32.0);
-                float radius=mix(size*.12,size*.62,grow), width=mix(2.6,1.3,grow);
+                float radius=mix(size*.12,size*.62,grow), width=mix(3.0,1.6,grow);
                 float alpha=smoothstep(0.0,.08,t)*(1-smoothstep(.45,1.0,t));
                 float d=length(cursorPoint-u[10].xy), edge=abs(d-radius);
-                float halo=1-smoothstep(width,width+3.5,edge);
-                float core=1-smoothstep(width*.5,width*.5+1.2,edge);
+                float shadow=1-smoothstep(width*.5+1.0,width*.5+4.0,edge);
+                float rim=1-smoothstep(width*.5+1.0,width*.5+2.0,edge);
+                float core=1-smoothstep(width*.5,width*.5+.9,edge);
                 float fill=(1-smoothstep(radius-1.5,radius,d))*(1-grow);
-                result=over(result,float4(0,0,0,max(halo*.40,fill*.10)*alpha));
-                result=over(result,float4(1,1,1,max(core*.92,fill*.22)*alpha));
+                result=over(result,float4(0,0,0,max(shadow*.18,fill*.08)*alpha));
+                result=over(result,float4(1,1,1,rim*.95*alpha));
+                // Compositing is linear, so the dark stroke fades by sqrt to stay perceptually even on white.
+                result=over(result,float4(.102,.102,.102,core*sqrt(alpha)));
             } else {
                 float elapsed=u[9].y*u[10].w;
                 float cursorDiameter=max(max(u[8].z,u[8].w),32.0);
