@@ -9,7 +9,7 @@ import SwiftUI
     static let shared = ToolbarPanelController()
 
     private(set) var panel: ToolbarPanel!
-    private var hosting: NSHostingView<AnyView>!
+    private var hosting: ToolbarHostingView!
     private var bag = Set<AnyCancellable>()
     private let layout = ToolbarLayoutModel()
     private var isAdjusting = false
@@ -33,12 +33,14 @@ import SwiftUI
         p.delegate = self
         panel = p
 
-        hosting = NSHostingView(rootView: AnyView(
+        hosting = ToolbarHostingView(rootView: AnyView(
             ToolbarView(layout: layout)
                 .environmentObject(RecordingController.shared)
                 .environmentObject(AppSettings.shared)
                 .environmentObject(PermissionsModel.shared)))
         hosting.sizingOptions = [.intrinsicContentSize]
+        // A label that grows after show() (camera or mic switched on, another device) would otherwise clip the bar.
+        hosting.onSizeChange = { [weak self] in DispatchQueue.main.async { self?.refitIfResized() } }
         p.contentView = hosting
 
         RecordingController.shared.engine.registerExcluded(p)
@@ -113,6 +115,11 @@ import SwiftUI
         }
         clampToScreen()
         updateSide()
+    }
+
+    private func refitIfResized() {
+        guard panel.isVisible, !isAdjusting, hosting.intrinsicContentSize != panel.frame.size else { return }
+        refit()
     }
 
     /// Area recordings: the widget moves off the recorded rectangle (it is excluded from the capture either way).
@@ -197,6 +204,15 @@ import SwiftUI
     }
     /// Moves the toolbar by (dx, dy) points; used by VoiceOver actions and keyboard users.
     var move: (CGFloat, CGFloat) -> Void = { _, _ in }
+}
+
+/// Tells the controller when the SwiftUI content changes size, so the panel can refit.
+final class ToolbarHostingView: NSHostingView<AnyView> {
+    var onSizeChange: () -> Void = {}
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onSizeChange()
+    }
 }
 
 final class ToolbarPanel: NSPanel {

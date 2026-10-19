@@ -186,8 +186,8 @@ import YapcamDesign
                     CameraPreview(session: model.session)
                 }
             }
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 40, style: .continuous).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                 .padding(4)
                 .opacity(model.opacity)
                 .accessibilityLabel("Camera preview")

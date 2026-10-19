@@ -118,6 +118,7 @@ struct CameraPreview: NSViewRepresentable {
 
 struct LevelMeter: View {
     let level: Float
+    var height: CGFloat = 6
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { g in
@@ -127,7 +128,7 @@ struct LevelMeter: View {
                     .animation(reduceMotion ? nil : .linear(duration: 0.08), value: level)
             }
         }
-        .frame(height: 6)
+        .frame(height: height)
         .accessibilityElement()
         .accessibilityLabel("Input level")
         .accessibilityValue("\(Int(level * 100)) percent")
