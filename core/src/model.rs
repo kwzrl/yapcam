@@ -738,7 +738,8 @@ impl ProjectData {
         });
         data.camera.mirrored = false;
         data.camera.position = [1.0, 1.0];
-        data.camera.size = 0.5;
+        // 35 % of the canvas width: 50 % covered about half of a display recording.
+        data.camera.size = 0.35;
         data.camera.zoom_scale = 0.6;
         data.camera.layout_settings.aspect = Some(1.0);
         data.camera.layout_settings.corner_ratio = Some(0.15);
