@@ -27,3 +27,23 @@ import Testing
         #expect(OnboardingFlow.allSet { $0 != .accessibility })
     }
 }
+
+@MainActor @Suite struct Release907TrashTests {
+    // #22: deleting a recording only ever moves it to the Trash, complete.
+    @Test func trashMovesTheWholePackageToTheTrashAndNeverDeletesIt() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appending(path: "yapcam-trash-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let package = dir.appending(path: "Trash Test.yapcam", directoryHint: .isDirectory)
+        try fm.createDirectory(at: package.appending(path: "recording/seg-000"), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: package.appending(path: "project.json"))
+        try Data(repeating: 7, count: 4096).write(to: package.appending(path: "recording/seg-000/screen.mov"))
+        defer { try? fm.removeItem(at: dir) }
+
+        let trashed = try #require(try ProjectActions.trash(package))
+        defer { try? fm.removeItem(at: trashed) }
+        #expect(!fm.fileExists(atPath: package.path))
+        #expect(trashed.path.contains("/.Trash/"))
+        #expect(try Data(contentsOf: trashed.appending(path: "recording/seg-000/screen.mov")).count == 4096)
+        #expect(fm.fileExists(atPath: trashed.appending(path: "project.json").path))
+    }
+}

@@ -81,6 +81,9 @@ public enum EditorAppearance: String, CaseIterable, Sendable {
         guard let c = controllers[package.standardizedFileURL.path] else { return false }
         c.window?.close(); return true
     }
+    /// Set by the app: closes the editor, moves the package to the Trash (never deletes) and reports errors.
+    /// Without it the editor recycles the package itself.
+    public static var trashHandler: ((URL) -> Void)?
     /// Asks the editor showing `package` to confirm moving the recording to the Trash (File menu item of the app).
     @discardableResult
     public static func requestTrash(package: URL) -> Bool {

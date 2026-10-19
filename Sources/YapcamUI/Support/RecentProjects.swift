@@ -111,6 +111,7 @@ struct ProjectEntry: Identifiable, Equatable {
     }
 
     func trash(_ p: ProjectEntry) {
+        guard ProjectActions.confirmTrash(p.url) else { return }
         do { try ProjectActions.trash(p.url) } catch { RecordingController.shared.alert = AppAlert(title: "Could not move to Trash", error: error) }
         reload()
     }

@@ -71,9 +71,29 @@ import YapcamCore
         if EditorWindows.isOpen(package: package) { EditorWindows.close(package: package) }
     }
 
-    static func trash(_ url: URL) throws {
+    /// Moves the package to the Trash, never deletes it. Returns where it landed.
+    @discardableResult static func trash(_ url: URL) throws -> URL? {
         closeEditor(showing: url)
-        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        var trashed: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
+        return trashed as URL?
+    }
+
+    /// The same question the editor asks; Cancel is the default button.
+    static func confirmTrash(_ url: URL) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Move “\(url.deletingPathExtension().lastPathComponent)” to the Trash?"
+        alert.informativeText = "The recording and its edits will be moved to the Trash."
+        alert.addButton(withTitle: "Cancel")
+        let move = alert.addButton(withTitle: "Move to Trash")
+        move.hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    /// The editor's "Move to Trash…": its window closes (it saves), the package goes to the Trash, the Library opens.
+    static func trashFromEditor(_ url: URL) {
+        do { try trash(url); RecentProjectsWindow.shared.show() }
+        catch { RecordingController.shared.alert = AppAlert(title: "Could not move to Trash", error: error) }
     }
 
     static func duplicate(_ url: URL) throws -> URL {

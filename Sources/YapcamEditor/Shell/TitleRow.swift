@@ -55,6 +55,7 @@ struct EditorTitleRow: View {
         .confirmationDialog("Move “\(title)” to the Trash?", isPresented: $model.trashRequested, titleVisibility: .visible) {
             Button("Move to Trash", role: .destructive) {
                 guard let url = packageURL else { return }
+                if let handler = EditorWindows.trashHandler { handler(url); return }
                 // Close the window first (it saves), then trash, so nothing is written into a moved package.
                 // This document's own window (not whichever window happens to be key).
                 EditorWindows.close(package: url)

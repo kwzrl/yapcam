@@ -170,6 +170,7 @@ import YapcamEditor
 
     /// Editor's "Generate captions from speech" runs capture's on-device transcription.
     func installTranscriber() {
+        EditorWindows.trashHandler = { ProjectActions.trashFromEditor($0) }
         EditorWindows.transcriber = { package in
             try await TranscriptionWiring.transcribe(package: package, options: TranscriptionOptions(), using: TranscriptionWiring.live)
         }
