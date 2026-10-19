@@ -9,6 +9,8 @@ import YapcamDesign
 /// is excluded from recordings.
 @MainActor final class CameraPreviewPanel {
     static let shared = CameraPreviewPanel()
+    /// The bubble's side in points (was 168; 1.5x so it reads like the camera in the video).
+    static let side: CGFloat = 252
 
     /// Pure rule, unit-tested: when the preview is on screen.
     static func shouldShow(barVisible: Bool, phase: RecordingPhase, cameraID: String?, cameraAvailable: Bool,
@@ -23,7 +25,7 @@ import YapcamDesign
     static func opacity(for phase: RecordingPhase) -> Double { phase == .paused ? 0.45 : 1 }
 
     /// Where the user left the panel on this display, if that spot is still on a screen.
-    static func savedOrigin(_ stored: [Double]?, screens: [CGRect], size: CGFloat = 168) -> CGPoint? {
+    static func savedOrigin(_ stored: [Double]?, screens: [CGRect], size: CGFloat = side) -> CGPoint? {
         guard let stored, stored.count == 2 else { return nil }
         let p = CGPoint(x: stored[0], y: stored[1])
         return screens.contains { $0.intersects(CGRect(origin: p, size: CGSize(width: size, height: size))) } ? p : nil
@@ -115,7 +117,7 @@ import YapcamDesign
 
     private func ensurePanel() {
         if panel == nil {
-            let p = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 168, height: 168), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            let p = NSPanel(contentRect: CGRect(x: 0, y: 0, width: Self.side, height: Self.side), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = true; p.level = .floating
             p.isMovableByWindowBackground = true; p.isReleasedWhenClosed = false; p.hidesOnDeactivate = false
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -139,9 +141,9 @@ import YapcamDesign
     /// Above the bar when there is room, else below it.
     private func place() {
         guard let panel, let bar = Optional(ToolbarPanelController.shared.panel.frame) else { return }
-        var origin = CGPoint(x: bar.midX - 84, y: bar.maxY + 12)
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: bar.midX, y: bar.midY)) }), origin.y + 168 > screen.visibleFrame.maxY {
-            origin.y = bar.minY - 168 - 12
+        var origin = CGPoint(x: bar.midX - Self.side / 2, y: bar.maxY + 12)
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(CGPoint(x: bar.midX, y: bar.midY)) }), origin.y + Self.side > screen.visibleFrame.maxY {
+            origin.y = bar.minY - Self.side - 12
         }
         if !panel.isVisible {
             let key = "cameraPreviewOrigin"
@@ -190,8 +192,8 @@ import YapcamDesign
                     CameraPreview(session: model.session, mirrored: model.mirrored)
                 }
             }
-                .clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 40, style: .continuous).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 60, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 60, style: .continuous).strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
                 .padding(4)
                 .opacity(model.opacity)
                 .accessibilityLabel("Camera preview")
