@@ -5,7 +5,8 @@ set -euo pipefail
 APP="$1"; ID="$2"; ENT="${3:-}"; TS="${4:---timestamp=none}"
 # Hardened runtime only with a Developer ID: its library validation needs a Team ID, which the local
 # self-signed dev identity (and ad-hoc "-") does not have, so Sparkle would fail to load in dev builds.
-RT=(); [[ "$ID" == "Developer ID Application:"* ]] && RT=(-o runtime)
+# The release script passes a certificate hash and sets YAPCAM_SIGN_RUNTIME=1.
+RT=(); [[ "$ID" == "Developer ID Application:"* || "${YAPCAM_SIGN_RUNTIME:-}" == 1 ]] && RT=(-o runtime)
 SP="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
 if [[ -d "$SP" ]]; then
   # Order from Sparkle's documentation for non-sandboxed apps; the Downloader keeps its own entitlements.

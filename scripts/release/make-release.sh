@@ -178,18 +178,9 @@ cp "$ROOT/docs/THIRD_PARTY_NOTICES.md" "$APP/Contents/Resources/THIRD_PARTY_NOTI
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$PLIST"
 plutil -lint "$PLIST" "$ROOT/scripts/release/Yapcam.entitlements"
 
-# Sign leaf Mach-Os, then containing bundles in depth order, then the main app.
-# No --deep signing. Helpers/libraries get no new resource-access entitlements.
-while IFS= read -r -d '' path; do
-    [[ "$path" != "$APP/Contents/MacOS/Yapcam" ]] || continue
-    if [[ "$(/usr/bin/file -b "$path")" == *Mach-O* ]]; then
-        codesign --force --options runtime "$TIMESTAMP" --sign "$SIGNING_HASH" "$path"
-    fi
-done < <(find "$APP/Contents" -type f -print0)
-while IFS= read -r -d '' path; do
-    codesign --force --options runtime "$TIMESTAMP" --sign "$SIGNING_HASH" "$path"
-done < <(find "$APP/Contents" -depth -type d \( -name '*.framework' -o -name '*.app' -o -name '*.xpc' -o -name '*.appex' -o -name '*.bundle' \) -print0)
-codesign --force --options runtime "$TIMESTAMP" --entitlements "$ROOT/scripts/release/Yapcam.entitlements" --sign "$SIGNING_HASH" "$APP"
+# Sign inside out without --deep: Sparkle's helpers in the order Sparkle documents (the Downloader keeps its
+# entitlements), then the framework, then the app with its entitlements (scripts/sign-app.sh).
+YAPCAM_SIGN_RUNTIME=1 "$ROOT/scripts/sign-app.sh" "$APP" "$SIGNING_HASH" "$ROOT/scripts/release/Yapcam.entitlements" "$TIMESTAMP"
 codesign --verify --strict --verbose=2 "$APP"
 DETAILS="$(codesign -dvv "$APP" 2>&1)"
 printf '%s\n' "$DETAILS"
