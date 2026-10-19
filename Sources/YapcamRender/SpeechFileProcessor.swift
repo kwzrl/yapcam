@@ -61,15 +61,10 @@ public extension SpeechEnhancer {
     /// Offline, streamed mono/stereo processing to lossless 48kHz Float32 CAF/WAV.
     /// Keeps file-local sample positions, including gaps; never overwrites input or destination.
     /// Native compressed decoders may be unavailable under restricted execution: explicit error.
-    // @_optimize(none) on the async coordinators (I/O only, the DSP is in the synchronous processFile): their
-    // optimised coroutine split produced different machine code from run to run and broke bit-reproducible
-    // release builds even with one codegen thread.
-    @_optimize(none)
     static func processFile(_ source: URL,to destination: URL,settings: SpeechEnhancementSettings = .init(),progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> SpeechEnhancementReport {
         guard let report=try await prepareMicrophoneFile(source,to: destination,settings: settings,mono: false,progress: progress) else { throw RenderError.verification("Speech processing did not return a report") }
         return report
     }
-    @_optimize(none)
     internal static func prepareMicrophoneFile(_ source: URL,to destination: URL,settings: SpeechEnhancementSettings?,mono: Bool,progress: @escaping @Sendable (Double) -> Void) async throws -> SpeechEnhancementReport? {
         try settings?.validate(); try Task.checkCancellation()
         guard source.isFileURL,destination.isFileURL,["caf","wav"].contains(destination.pathExtension.lowercased()) else { throw RenderError.invalidSettings("Speech output must be a local CAF or WAV file") }
@@ -94,7 +89,6 @@ public extension SpeechEnhancer {
         let context=SpeechSourceTrack(asset: asset,track: track,channels: channels,endFrame: end.value)
         return try await processSource(context,to: destination,settings: settings,mono: mono,progress: progress)
     }
-    @_optimize(none)
     private static func processSource(_ context: SpeechSourceTrack,to destination: URL,settings: SpeechEnhancementSettings?,mono: Bool,progress: @escaping @Sendable (Double) -> Void) async throws -> SpeechEnhancementReport? {
         let cancellation=SpeechReadCancellation()
         let task=Task.detached(priority: .userInitiated) {
