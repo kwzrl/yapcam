@@ -153,9 +153,29 @@ final class CursorCompositorTests: XCTestCase {
             for y in rows ?? 0..<h { for x in 0..<w { let i=(y*w+x)*4; if (0..<3).map({ abs(Int(a[i+$0])-Int(b[i+$0])) }).max()!>12 { n+=1 } } }
             return n
         }
-        for gray: Float in [0.08,0.94] {
+        // WCAG relative luminance of an sRGB BGRA pixel, and the best ring-to-background contrast ratio.
+        func luminance(_ p: [UInt8],_ i: Int) -> Double {
+            func lin(_ v: UInt8) -> Double { let c=Double(v)/255; return c<=0.04045 ? c/12.92 : pow((c+0.055)/1.055,2.4) }
+            return 0.2126*lin(p[i+2])+0.7152*lin(p[i+1])+0.0722*lin(p[i])
+        }
+        func ringContrast(_ p: [UInt8]) -> Double {
+            let background=luminance(p,0)
+            var best=1.0
+            // Left of the click point only (x < 170 px), so the cursor glyph never counts as ring.
+            for y in 0..<h { for x in 0..<170 {
+                let l=luminance(p,(y*w+x)*4)
+                best=max(best,(max(l,background)+0.05)/(min(l,background)+0.05))
+            } }
+            return best
+        }
+        for gray: Float in [18.0/255,242.0/255] {
             let idle=try render(gray: gray,ms: 400)
             let frames=try [0.0,100,250,350].map { try render(gray: gray,ms: $0) }
+            for (index,ms) in [(1,100),(2,250)] {
+                let ratio=ringContrast(frames[index])
+                print(String(format: "Click ring contrast on #%02X%02X%02X at +%d ms: %.2f:1",frames[index][2],frames[index][1],frames[index][0],ms,ratio))
+                XCTAssertGreaterThanOrEqual(ratio,3,"ring must reach WCAG 3:1 at +\(ms) ms (gray \(gray))")
+            }
             // Ring and press are clearly visible mid-flight on either background.
             XCTAssertGreaterThan(differing(frames[1],idle),200,"ring/press must be visible at +100 ms (gray \(gray))")
             XCTAssertGreaterThan(differing(frames[2],idle),100,"ring must still read at +250 ms (gray \(gray))")
