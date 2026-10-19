@@ -8,9 +8,10 @@ struct SpringPreset: Identifiable, Equatable {
     let stiffness: Double, damping: Double, mass: Double
     static let screen = [
         SpringPreset(id: "focused", title: "Focused", hint: "Settles fast, easy to read", stiffness: 250, damping: 40, mass: 2.25),
-        SpringPreset(id: "smooth", title: "Smooth", hint: "Fluid, longer glide", stiffness: 170, damping: 50, mass: 3)]
+        // 0.11.0 defaults for new projects (#18), so a new project shows "Smooth" as selected.
+        SpringPreset(id: "smooth", title: "Smooth", hint: "Fluid, longer glide", stiffness: 70, damping: 30, mass: 3)]
     static let cursor = [
-        SpringPreset(id: "smooth", title: "Smooth", hint: "Gentle cursor glide", stiffness: 470, damping: 70, mass: 3),
+        SpringPreset(id: "smooth", title: "Smooth", hint: "Gentle cursor glide", stiffness: 250, damping: 55, mass: 3),
         SpringPreset(id: "medium", title: "Medium", hint: "Balanced", stiffness: 340, damping: 60, mass: 3),
         SpringPreset(id: "rapid", title: "Rapid", hint: "Snappy, little smoothing", stiffness: 530, damping: 40, mass: 1)]
 }
@@ -111,7 +112,9 @@ struct AnimationPresets: View {
     private func choose(_ id: String, screen: Bool, presets: [SpringPreset]) {
         if !screen { model.chooseCursorAnimation(id); return }
         guard let p = presets.first(where: { $0.id == id }) else { return }
-        model.setSpring(screen: true, stiffness: p.stiffness, damping: p.damping, mass: p.mass, preset: p.id)
+        // Core's named "smooth" style keeps the older 170/50/3 for existing projects; the new Smooth is stored as
+        // its own values ("custom") so core uses exactly these.
+        model.setSpring(screen: true, stiffness: p.stiffness, damping: p.damping, mass: p.mass, preset: p.id == "smooth" ? nil : p.id)
     }
 }
 

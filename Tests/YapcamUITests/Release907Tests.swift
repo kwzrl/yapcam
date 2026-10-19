@@ -61,3 +61,14 @@ import Testing
         r.found("0.11.3"); r.noUpdate(); #expect(!r.shows)
     }
 }
+
+@MainActor @Suite struct RC2DeviceDefaultsTests {
+    // RC2 (1): a new user records with the system camera and microphone once access is granted.
+    @Test func onboardingPicksTheSystemDefaultOnlyWhenNothingIsSelected() {
+        #expect(DeviceDefaults.pick(current: nil, onboarding: true, granted: true, systemDefault: "cam") == "cam")
+        #expect(DeviceDefaults.pick(current: nil, onboarding: true, granted: false, systemDefault: "cam") == nil)
+        #expect(DeviceDefaults.pick(current: "other", onboarding: true, granted: true, systemDefault: "cam") == "other")
+        // After onboarding a missing device is a choice ("Don't record camera") and stays.
+        #expect(DeviceDefaults.pick(current: nil, onboarding: false, granted: true, systemDefault: "cam") == nil)
+    }
+}

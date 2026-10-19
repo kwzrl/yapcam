@@ -182,8 +182,9 @@ import YapcamCore
 
 @MainActor @Suite struct AnimationPresetTests {
     @Test func presetsUseTheReferenceValues() {
-        #expect(SpringPreset.screen.map { [$0.stiffness, $0.damping, $0.mass] } == [[250, 40, 2.25], [170, 50, 3]])
-        #expect(SpringPreset.cursor.map { [$0.stiffness, $0.damping, $0.mass] } == [[470, 70, 3], [340, 60, 3], [530, 40, 1]])
+        // 0.11.0: "Smooth" is the new-project default (#18): zoom 70/30/3, cursor 250/55/3.
+        #expect(SpringPreset.screen.map { [$0.stiffness, $0.damping, $0.mass] } == [[250, 40, 2.25], [70, 30, 3]])
+        #expect(SpringPreset.cursor.map { [$0.stiffness, $0.damping, $0.mass] } == [[250, 55, 3], [340, 60, 3], [530, 40, 1]])
     }
     @Test func cursorSectionAndAnimationsShareOnePreset() {      // BS-2
         let m = EditorModel(project: FakeProject(), player: FakePlayer())
@@ -433,6 +434,8 @@ import YapcamCore
             #expect(m.string("cursor.set_id") == "original" && m.string("cursor.click_effect") == "none")
             #expect(m.number("cursor.smoothing") == (m.defaultsRevision >= 4 ? 1 : 0))                       // revision 4: smooth cursor at full strength (BS-1)
             #expect(m.springValues(screen: true) == (70, 30, 3))                                            // 0.11.0: calmer zoom spring (#18)
+            #expect(m.springValues(screen: false) == (250, 55, 3))                                          // and the softer cursor
+            #expect(m.activePreset(screen: true) == "smooth" && m.activePreset(screen: false) == "smooth")   // shown as "Smooth"
         } else {
             #expect(m.string("canvas.aspect") == "16:9" && g.canvasWidth == 1920 && g.canvasHeight == 1080)
             #expect(m.number("canvas.radius") == 18 && m.number("canvas.motion_blur") == 0 && !m.usesPaddingRatio && m.number("canvas.padding") == 48)

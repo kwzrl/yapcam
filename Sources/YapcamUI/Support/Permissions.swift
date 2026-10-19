@@ -61,6 +61,26 @@ enum AppPermission: String, CaseIterable, Identifiable {
 
 enum AppPermissionState { case granted, denied, notDetermined }
 
+/// First run: once camera or microphone access is granted, the system's default device is selected, so a new user
+/// records with camera and microphone without opening the toolbar menus. Only during onboarding and only while
+/// nothing is selected, so an existing "Don't record camera" choice stays.
+@MainActor enum DeviceDefaults {
+    static func pick(current: String?, onboarding: Bool, granted: Bool, systemDefault: String?) -> String? {
+        guard onboarding, granted, current == nil else { return current }
+        return systemDefault
+    }
+    static func apply(granted: (AppPermission) -> Bool) {
+        let s = AppSettings.shared, onboarding = !s.hasCompletedOnboarding
+        guard onboarding else { return }
+        let cam = pick(current: s.cameraID, onboarding: onboarding, granted: granted(.camera),
+                       systemDefault: AVCaptureDevice.default(for: .video)?.uniqueID)
+        if cam != s.cameraID { s.cameraID = cam }
+        let mic = pick(current: s.microphoneID, onboarding: onboarding, granted: granted(.microphone),
+                       systemDefault: AVCaptureDevice.default(for: .audio)?.uniqueID)
+        if mic != s.microphoneID { s.microphoneID = mic }
+    }
+}
+
 @MainActor final class PermissionsModel: ObservableObject {
     static let shared = PermissionsModel()
     @Published private(set) var states: [AppPermission: AppPermissionState] = [:]
@@ -83,6 +103,7 @@ enum AppPermissionState { case granted, denied, notDetermined }
         s[.accessibility] = AXIsProcessTrusted() ? .granted : .denied
         s[.inputMonitoring] = CGPreflightListenEventAccess() ? .granted : .denied
         if s != states { states = s }
+        DeviceDefaults.apply(granted: { s[$0] == .granted })
     }
 
     private static func map(_ st: AVAuthorizationStatus) -> AppPermissionState {
