@@ -128,8 +128,10 @@ import YapcamEditor
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if RecordingController.shared.isRecording { RecordingController.shared.confirmFinish(); return false }
+        // Dock click returns to where the user was: an open editor (AppKit fronts it), else the toolbar. Never both.
+        if EditorWindows.openCount > 0 { return true }
         ToolbarPanelController.shared.show()
-        return true
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
