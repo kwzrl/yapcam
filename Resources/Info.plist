@@ -66,6 +66,8 @@
 	<string>cwxeSlRq/Xw2W8ZAnElUft9OZ5GYBxl9UsmeP9d3DIE=</string>
 	<key>SUEnableSystemProfiling</key>
 	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
 	<key>NSCameraUsageDescription</key>

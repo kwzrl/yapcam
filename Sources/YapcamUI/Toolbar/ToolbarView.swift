@@ -195,7 +195,7 @@ struct ToolbarView: View {
             ToolbarButton(symbol: "arrow.down.circle", label: "Update",
                           help: "Yapcam \(updates.waitingVersion ?? "") is available", active: false, compact: vertical) { updates.checkForUpdates() }
             ToolbarButton(symbol: "xmark", label: "Hide", help: "Hide this reminder", active: false, dim: true, compact: vertical) {
-                updates.reminderHidden = true
+                updates.hideReminder()
             }
         }
     }

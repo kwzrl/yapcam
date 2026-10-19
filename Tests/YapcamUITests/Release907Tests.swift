@@ -47,3 +47,17 @@ import Testing
         #expect(fm.fileExists(atPath: trashed.appending(path: "project.json").path))
     }
 }
+
+@Suite struct Release907UpdateReminderTests {
+    // #25: any known update shows on the toolbar until it is installed, hidden or gone.
+    @Test func reminderFollowsChecksHideAndInstall() {
+        var r = UpdateReminder()
+        #expect(!r.shows)
+        r.found("0.11.1"); #expect(r.shows && r.version == "0.11.1")
+        r.hide(); #expect(!r.shows)
+        r.found("0.11.1"); #expect(!r.shows)          // the same version stays hidden
+        r.found("0.11.2"); #expect(r.shows)           // a newer one shows again
+        r.installing(); #expect(!r.shows && r.version == nil)
+        r.found("0.11.3"); r.noUpdate(); #expect(!r.shows)
+    }
+}
