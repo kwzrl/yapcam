@@ -66,7 +66,7 @@ import YapcamDesign
         @Published var session: AVCaptureSession?
         @Published var opacity = 1.0
         @Published var fromRecording = false
-        @Published var mirrored = AppSettings.shared.mirrorCamera
+        @Published var mirrored = true
         @Published var unavailable: String?
         let displayLayer = AVSampleBufferDisplayLayer()
     }
