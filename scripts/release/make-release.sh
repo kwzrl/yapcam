@@ -104,7 +104,9 @@ for mapping in "$YAPCAM_RELEASE_SWIFT_SCRATCH=/yapcam/build" "$scratch_real=/yap
             -Xswiftc -debug-prefix-map -Xswiftc "$mapping"
             -Xcc "-ffile-prefix-map=$mapping" -Xcc "-fdebug-prefix-map=$mapping")
 done
-exec /usr/bin/swift "$@" "${flags[@]}" -Xswiftc -prefix-serialized-debugging-options \
+# One WMO codegen thread (0 breaks SwiftPM linking): multi-threaded codegen produced three different
+# YapcamRender variants (register allocation, ±100 bytes) on the 8 GB M1.
+exec /usr/bin/swift "$@" "${flags[@]}" -Xswiftc -prefix-serialized-debugging-options -Xswiftc -num-threads -Xswiftc 1 \
     -Xlinker -reproducible -Xlinker -oso_prefix -Xlinker "$YAPCAM_RELEASE_SWIFT_SCRATCH/"
 SWIFT
 chmod +x "$RUN/bin/swift"
