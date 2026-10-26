@@ -81,7 +81,7 @@ import AppKit
             item("Select All", #selector(NSText.selectAll(_:)), "a", target: nil),
             .separator(),
             item("Split at Playhead", #selector(AppDelegate.editSplit), "b"),
-            item("Add Zoom at Playhead", #selector(AppDelegate.editAddZoom), "z", mods: [.command, .option]),
+            item("Add Zoom at Playhead", #selector(AppDelegate.editAddZoom), "z", mods: [.command, .option, .shift]),
             item("Command Palette…", #selector(AppDelegate.editPalette), "k"),
         ])
         let presets = NSMenuItem(title: "Presets", action: nil, keyEquivalent: "")
