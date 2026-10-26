@@ -221,6 +221,12 @@ import YapcamRender
 
     /// The user's quick export settings (Settings → Quick export) plus the experimental variable-frame-rate switch.
     /// "1080p MP4 · 30 fps · Social · with audio": the widget's "Will export" line.
+    /// The widget's one line: format, size, frame rate (the full summary stays in the tooltip).
+    static func shortSummary(_ e: ExportSettings) -> String {
+        let s = e.closestValidPreset(for: .file)
+        return [s.format.rawValue.uppercased(), ExportSettings.heightTitle(s.outputHeight), "\(s.fps) fps"].joined(separator: " · ")
+    }
+
     static func summary(_ e: ExportSettings) -> String {
         var parts = [e.summary(for: .file)]
         if e.format != .gif { parts.append(e.includeAudio ? "with audio" : "no audio") }
@@ -443,7 +449,8 @@ struct QuickExportWidgetView: View {
                 .clipShape(RoundedRectangle(cornerRadius: Yap.concentric(radius, inset: inset), style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     TitleField(model: model, locked: isWorking)
-                    Text(QuickExport.summary(settings.quickExport)).technical().lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text(QuickExport.shortSummary(settings.quickExport)).technical().lineLimit(1)
+                        .help(QuickExport.summary(settings.quickExport))
                     status
                 }
                 .padding(.top, 2)
@@ -495,7 +502,7 @@ struct QuickExportWidgetView: View {
                 Label(m, systemImage: "checkmark").font(Yap.Font.caption).foregroundStyle(Yap.label).lineLimit(1)
                 if let u = export.lastOutput { Button("Show in Finder") { FinderReveal.show(u) }.buttonStyle(.plain).font(Yap.Font.caption).foregroundStyle(Yap.body) }
             }
-        case .failed(let m): Label(m, systemImage: "exclamationmark.triangle").font(Yap.Font.caption).foregroundStyle(Yap.technical).lineLimit(2)
+        case .failed(let m): Label(m, systemImage: "exclamationmark.triangle").font(Yap.Font.caption).foregroundStyle(Yap.label).lineLimit(2)
         case .idle: Text("Ready to edit or export").font(Yap.Font.caption).foregroundStyle(Yap.caption).lineLimit(1)
         }
     }

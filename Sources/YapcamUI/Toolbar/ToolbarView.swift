@@ -90,13 +90,13 @@ struct ToolbarView: View {
 
             separator
 
-            deviceButton(symbol: camLabelOn ? "video" : "video.slash", label: DeviceLabels.camera(name: cameraName), isOn: camOn, help: "Camera", menu: .camera)
+            deviceButton(symbol: camLabelOn ? "video" : "video.slash", label: DeviceLabels.camera(name: cameraName), short: "Camera", isOn: camOn, help: "Camera", menu: .camera)
                 .popover(isPresented: binding(.camera), arrowEdge: edge) { CameraPopover().environmentObject(settings).environmentObject(perms) }
-            deviceButton(symbol: micOn ? "mic" : "mic.slash", label: DeviceLabels.microphone(name: microphoneName), isOn: micOn, help: "Microphone", menu: .microphone,
+            deviceButton(symbol: micOn ? "mic" : "mic.slash", label: DeviceLabels.microphone(name: microphoneName), short: "Mic", isOn: micOn, help: "Microphone", menu: .microphone,
                          level: micOn ? devices.level : nil)
                 .popover(isPresented: binding(.microphone), arrowEdge: edge) { MicrophonePopover().environmentObject(settings).environmentObject(perms) }
             deviceButton(symbol: settings.systemAudio ? "speaker.wave.2" : "speaker.slash",
-                         label: settings.systemAudioChoice.buttonLabel(appCount: settings.systemAudioApps.count), isOn: settings.systemAudio,
+                         label: settings.systemAudioChoice.buttonLabel(appCount: settings.systemAudioApps.count), short: "Audio", isOn: settings.systemAudio,
                          help: "System audio", menu: .audio)
                 .popover(isPresented: binding(.audio), arrowEdge: edge) { SystemAudioPopover().environmentObject(settings) }
 
@@ -177,8 +177,9 @@ struct ToolbarView: View {
     }
 
     /// A device button: icon + state text; a click opens the device menu.
-    private func deviceButton(symbol: String, label: String, isOn: Bool, help: String, menu: ToolbarPopover, level: Float? = nil) -> some View {
-        ToolbarButton(symbol: symbol, label: label, help: help, active: open == menu, dim: !isOn, compact: vertical, level: level) { toggle(menu) }
+    /// Off, the slot shows only the device kind (`short`); slash and dimming already say it is off.
+    private func deviceButton(symbol: String, label: String, short: String, isOn: Bool, help: String, menu: ToolbarPopover, level: Float? = nil) -> some View {
+        ToolbarButton(symbol: symbol, label: isOn ? label : short, help: help, active: open == menu, dim: !isOn, compact: vertical, level: level) { toggle(menu) }
             .accessibilityLabel(help).accessibilityValue(label)
     }
 
@@ -259,7 +260,7 @@ struct ToolbarView: View {
             .accessibilityLabel("Stop recording")
             .accessibilityHint("Stops and saves the recording")
             if !rec.warnings.isEmpty || rec.lowDisk {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Yap.technical)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Yap.label)
                     .help((rec.warnings + (rec.lowDisk ? ["Low disk space: recording may stop soon."] : [])).joined(separator: "\n"))
             }
             Hairline(axis: vertical ? .horizontal : .vertical).frame(width: vertical ? 28 : nil, height: vertical ? nil : 28)

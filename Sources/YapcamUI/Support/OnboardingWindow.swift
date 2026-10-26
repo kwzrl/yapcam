@@ -223,7 +223,7 @@ struct OnboardingView: View {
 private struct Connected: View {
     let title: String
     var body: some View {
-        Label("Connected", systemImage: "checkmark.circle.fill").font(Yap.Font.label).foregroundStyle(Color.green)
+        Label("Connected", systemImage: "checkmark.circle.fill").font(Yap.Font.label).foregroundStyle(Yap.title)
             .frame(height: 32)
             .accessibilityLabel("\(title): connected")
     }
@@ -249,7 +249,7 @@ private struct ReadyRow: View {
             Text(permission == .screen ? "Screen & system audio" : permission.title).font(Yap.Font.label).foregroundStyle(Yap.label)
             Spacer(minLength: 8)
             if granted {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.green)
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Yap.title)
                     .accessibilityLabel("\(permission.title): connected")
             } else {
                 Button("Set up", action: fix).buttonStyle(CapsuleButtonStyle(.secondary, height: 26))

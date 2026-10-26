@@ -2,6 +2,7 @@ import AppKit
 import YapcamCapture
 import SwiftUI
 import YapcamCore
+import YapcamDesign
 
 enum RecordingPhase: Equatable {
     case idle
@@ -586,22 +587,24 @@ struct GetReadyCard: View {
     var body: some View {
         HStack(spacing: 16) {
             ZStack {
-                Circle().stroke(Color.primary.opacity(0.15), lineWidth: 5)
-                Circle().trim(from: 0, to: rec.countdownProgress).stroke(Color.red, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                Circle().stroke(Yap.recess, lineWidth: 5)
+                Circle().trim(from: 0, to: rec.countdownProgress).stroke(Yap.record, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 if case .countdown(let n) = rec.phase, n < 9 {
-                    Text("\(n)").font(.system(size: 22, weight: .semibold, design: .rounded).monospacedDigit())
+                    Text("\(n)").font(.system(size: 22, weight: .semibold).monospacedDigit()).foregroundStyle(Yap.title)
                 }
             }
             .frame(width: 56, height: 56)
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 8) {
-                Text("Get ready").font(.system(size: 15, weight: .semibold))
-                Text("Recording will start soon.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("Get ready").font(Yap.Font.title(15)).foregroundStyle(Yap.title)
+                Text("Recording will start soon.").font(Yap.Font.body).foregroundStyle(Yap.body)
                 HStack(spacing: 8) {
-                    Button("Continue", action: skip).keyboardShortcut(.defaultAction)
+                    Button("Start now", action: skip).keyboardShortcut(.defaultAction)
+                        .buttonStyle(CapsuleButtonStyle(.primary, height: 28))
                     Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
-                }.controlSize(.small)
+                        .buttonStyle(CapsuleButtonStyle(.secondary, height: 28))
+                }
             }
             Spacer(minLength: 0)
         }

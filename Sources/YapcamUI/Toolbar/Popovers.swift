@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import YapcamDesign
 
 struct PopoverHeader: View {
     let title: String
@@ -190,9 +191,9 @@ struct AfterRecordingPopover: View {
                 SelectableRow(selected: settings.afterRecording == a) { settings.afterRecording = a } content: { Text(a.title) }
             }
             Divider()
-            Toggle("Create zooms automatically", isOn: $settings.createAutoZooms)
-            Toggle("Show quick export widget", isOn: $settings.showQuickExportWidget)
-            Text("Quick export makes a 1080p MP4 with audio. The widget offers Copy, Save and Edit instead of opening the editor.")
+            SwitchRow("Create zooms automatically", isOn: $settings.createAutoZooms)
+            SwitchRow("Show quick export widget", isOn: $settings.showQuickExportWidget)
+            Text("Quick export: \(QuickExport.shortSummary(settings.quickExport)), set in Settings. The widget offers Copy, Save and Edit instead of opening the editor.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14).frame(width: 290)
