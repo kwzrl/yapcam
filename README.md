@@ -1,8 +1,24 @@
-<img src="docs/assets/yapcam-icon.png" width="128" alt="Yapcam icon">
+<p align="center">
+  <img src="docs/assets/yapcam-icon.png" width="112" alt="Yapcam icon">
+</p>
 
-# Yapcam
+<h1 align="center">Yapcam</h1>
 
-A native macOS app for recording your screen, camera and audio and editing the result locally. Apple Silicon, no account, no cloud, no watermark. Apache 2.0.
+<p align="center">
+  Free, open source screen recorder and editor for Mac.<br>
+  Records your screen, camera and audio. Zooms in where you click, smooths the cursor, exports MP4, MOV or GIF.<br>
+  Local, no account, no watermark. Apache 2.0.
+</p>
+
+<p align="center">
+  <a href="https://github.com/kwzrl/yapcam/releases/latest/download/Yapcam.dmg"><b>Download for Mac</b></a>
+  ·
+  <a href="https://yapcam.app/?utm_source=github&utm_medium=readme&utm_campaign=readme-01">yapcam.app</a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/yapcam-demo.gif" width="900" alt="A spreadsheet recording: Yapcam zooms in on the clicked menu and follows the cursor">
+</p>
 
 ## Download
 
