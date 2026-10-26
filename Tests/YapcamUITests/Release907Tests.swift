@@ -72,3 +72,11 @@ import Testing
         #expect(DeviceDefaults.pick(current: nil, onboarding: false, granted: true, systemDefault: "cam") == nil)
     }
 }
+
+@MainActor @Suite struct DevelopmentUpdateTests {
+    @Test func developmentBundleCannotStartProductionUpdater() {
+        #expect(!Updates.allowsUpdates(info: ["YapcamDevelopmentBuild": true]))
+        #expect(Updates.allowsUpdates(info: [:]))
+        #expect(Updates.allowsUpdates(info: ["YapcamDevelopmentBuild": false]))
+    }
+}

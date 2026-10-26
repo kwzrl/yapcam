@@ -1,6 +1,8 @@
 # Build output
 .build/
+build.noindex/
 build/
+build.noindex/
 dist/
 DerivedData/
 *.xcuserstate
