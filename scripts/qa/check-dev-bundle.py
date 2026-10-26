@@ -22,3 +22,9 @@ with tempfile.TemporaryDirectory() as tmp:
             assert data['YapcamDevelopmentBuild'] and not data['SUEnableAutomaticChecks']
             assert data['CFBundleExecutable'] == plistlib.loads(original)['CFBundleExecutable']
 print('PASS: isolated development identity; release plist byte-identical')
+
+helper = root / 'Vendor/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater'
+assert helper.is_file(), 'Vendored Sparkle Updater.app must survive a clean checkout'
+tracked = subprocess.check_output(['git', '-C', str(root), 'ls-files', str(helper.relative_to(root))], text=True)
+assert tracked.strip(), 'Sparkle Updater must be tracked, not just present locally'
+print('PASS: required Sparkle updater helper is tracked')

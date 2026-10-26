@@ -1,6 +1,5 @@
 # Build output
 .build/
-build.noindex/
 build/
 build.noindex/
 dist/
@@ -10,6 +9,8 @@ xcuserdata/
 target/
 *.dSYM/
 *.app/
+# Sparkle ships this helper as source-controlled vendor content.
+!Vendor/**/Updater.app/
 
 # Local recordings, projects and exports — never commit real captures
 *.mov
