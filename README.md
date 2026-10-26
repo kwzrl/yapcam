@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/yapcam-demo.gif" width="760" alt="A spreadsheet recording: Yapcam zooms in on the clicked menu and follows the cursor">
+  <img src="docs/assets/yapcam-demo.gif" width="900" alt="A spreadsheet recording: Yapcam zooms in on the clicked menu and follows the cursor">
 </p>
 
 ## Download
