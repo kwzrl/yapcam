@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory() as tmp:
             assert data['CFBundleIdentifier'] == 'mov.yapcam.Yapcam'
         else:
             assert data['CFBundleIdentifier'] == 'mov.yapcam.Yapcam.dev'
+            assert data['CFBundleShortVersionString'] == (root / 'VERSION').read_text().strip()
             assert data['CFBundleName'] == data['CFBundleDisplayName'] == 'Yapcam Dev'
             assert data['YapcamDevelopmentBuild'] and not data['SUEnableAutomaticChecks']
             assert data['CFBundleExecutable'] == plistlib.loads(original)['CFBundleExecutable']

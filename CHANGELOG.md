@@ -3,6 +3,8 @@
 ## 0.11.1 — unreleased QA candidate
 
 - Development builds use the separate `mov.yapcam.Yapcam.dev` identity, the name Yapcam Dev, and `build.noindex/`. Production updates are disabled in development bundles; release packaging retains its existing identity and path.
+- Include the previously untracked Sparkle updater helper so fresh checkouts can complete packaging.
+- Development bundle version metadata follows VERSION and the local commit count.
 - The finish-recording confirmation no longer promises to open the editor when another post-recording action is selected.
 - Add Zoom at Playhead uses Shift-Option-Command-Z, avoiding the default Option-Command-Z shortcut for Open Last Recording. The editor single-key Z action is unchanged.
 
