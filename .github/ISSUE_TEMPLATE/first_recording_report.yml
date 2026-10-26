@@ -1,0 +1,55 @@
+name: First recording report
+description: How your first recording and export went
+body:
+  - type: markdown
+    attributes:
+      value: This is voluntary and public. No account details or contact information needed.
+  - type: input
+    id: version
+    attributes:
+      label: Yapcam version
+      description: Yapcam ▸ About Yapcam (e.g. 0.11.0 (937))
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS
+      placeholder: "MacBook Air M2, macOS 15.6"
+    validations:
+      required: true
+  - type: dropdown
+    id: recording
+    attributes:
+      label: First recording
+      options:
+        - Worked
+        - Failed
+        - Not tried yet
+    validations:
+      required: true
+  - type: dropdown
+    id: export
+    attributes:
+      label: First export
+      description: Could you play the exported file?
+      options:
+        - Worked
+        - Failed
+        - Not tried yet
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup or permissions
+      description: Any step or permission message that was confusing?
+  - type: textarea
+    id: improve
+    attributes:
+      label: What should we improve first?
+  - type: textarea
+    id: day7
+    attributes:
+      label: Optional, after seven days
+      description: Did you use Yapcam again? What for, or what got in the way? You can edit this issue any time. There is no automatic follow-up.
