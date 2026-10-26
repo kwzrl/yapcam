@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/kwzrl/yapcam/releases/latest/download/Yapcam.dmg"><b>Download for Mac</b></a>
   ·
-  <a href="https://yapcam.app/?utm_source=github&utm_medium=readme">yapcam.app</a>
+  <a href="https://yapcam.app/?utm_source=github&utm_medium=readme&utm_campaign=readme-01">yapcam.app</a>
 </p>
 
 <p align="center">
