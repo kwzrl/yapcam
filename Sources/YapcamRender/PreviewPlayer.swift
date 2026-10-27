@@ -75,6 +75,8 @@ struct PreviewAudioStartupDiagnostics: Encodable {
     private var redrawRevision = 0
     private var idleTask: Task<Void,Never>?
     weak var view: MTKView?
+    /// Diagnostics hook: called on the main actor with the timeline time of each preview frame the GPU finished.
+    public var onFrameDrawn: (@MainActor (Int64) -> Void)?
 
     public init(project: any RenderProjectSource,speechEnhancement: SpeechEnhancementSettings? = nil,
                 reuseVideoSeekReader: Bool = true,hardwareDecodingEnabled: Bool = true) throws {
@@ -329,7 +331,7 @@ struct PreviewAudioStartupDiagnostics: Encodable {
     }
     private func drawFinished(ns: Int64,revision: Int,error: String?) {
         if let error { self.error = error; dropped += 1; submissions.failed += 1; pause() }
-        else { frameCount += 1 }
+        else { frameCount += 1; onFrameDrawn?(ns) }
         let now = ProcessInfo.processInfo.systemUptime
         if let start = metricStart, now-lastMetricUpdate >= 0.5 {
             metrics = PreviewMetrics(renderedFrames: frameCount,droppedFrames: dropped,elapsedSeconds: now-start)
