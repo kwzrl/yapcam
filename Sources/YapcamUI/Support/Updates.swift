@@ -29,8 +29,13 @@ struct UpdateReminder: Equatable {
     /// Hidden test switch: `defaults write mov.yapcam.Yapcam YapcamUpdateFeedOverride http://127.0.0.1:8765/appcast-test.xml`.
     static let feedOverrideKey = "YapcamUpdateFeedOverride"
 
+    /// Development bundles must never install the production app over themselves.
+    static func allowsUpdates(info: [String: Any]) -> Bool {
+        !(info["YapcamDevelopmentBuild"] as? Bool ?? false)
+    }
+
     func start() {
-        guard controller == nil else { return }
+        guard controller == nil, Self.allowsUpdates(info: Bundle.main.infoDictionary ?? [:]) else { return }
         let c = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: self)
         controller = c
         if c.updater.automaticallyChecksForUpdates { c.updater.checkForUpdatesInBackground() }

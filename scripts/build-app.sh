@@ -1,9 +1,11 @@
 #!/bin/zsh
-# Builds build/Yapcam.app and signs it with a stable local identity so macOS
+# Builds build.noindex/Yapcam Dev.app (debug) or build/Yapcam.app (release).
+# Signs with a stable local identity so macOS
 # privacy permissions survive rebuilds. Usage: scripts/build-app.sh [debug|release]
 set -euo pipefail
 
 CONFIG="${1:-debug}"
+case "$CONFIG" in debug|release) ;; *) echo "Usage: $0 [debug|release]" >&2; exit 2 ;; esac
 ROOT="${0:A:h:h}"
 IDENTITY="${YAPCAM_SIGN_IDENTITY:-Yapcam Dev Signing}"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
@@ -23,12 +25,14 @@ done
 swift build -j 2 -c "$CONFIG" --product Yapcam
 
 APP="$ROOT/build/Yapcam.app"
+if [[ "$CONFIG" == debug ]]; then APP="$ROOT/build.noindex/Yapcam Dev.app"; fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Yapcam"
 # Sparkle (vendored) travels in Contents/Frameworks; the binary's rpath points there.
 rm -rf "$APP/Contents/Frameworks"; mkdir -p "$APP/Contents/Frameworks"
 ditto "$BIN_DIR/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+"$ROOT/scripts/configure-bundle.sh" "$CONFIG" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 xcrun actool "$ROOT/Resources/Accent.xcassets" --compile "$APP/Contents/Resources" --platform macosx --minimum-deployment-target 15.0
 # Third-party notices travel with the app (Help menu and About open this file). Plain text so any viewer shows it.

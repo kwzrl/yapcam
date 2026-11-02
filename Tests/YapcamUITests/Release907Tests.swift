@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import YapcamUI
@@ -70,5 +71,26 @@ import Testing
         #expect(DeviceDefaults.pick(current: "other", onboarding: true, granted: true, systemDefault: "cam") == "other")
         // After onboarding a missing device is a choice ("Don't record camera") and stays.
         #expect(DeviceDefaults.pick(current: nil, onboarding: false, granted: true, systemDefault: "cam") == nil)
+    }
+}
+
+@MainActor @Suite struct DevelopmentUpdateTests {
+    @Test func developmentBundleCannotStartProductionUpdater() {
+        #expect(!Updates.allowsUpdates(info: ["YapcamDevelopmentBuild": true]))
+        #expect(Updates.allowsUpdates(info: [:]))
+        #expect(Updates.allowsUpdates(info: ["YapcamDevelopmentBuild": false]))
+    }
+}
+
+@MainActor @Suite struct HotfixShortcutTests {
+    @Test func addZoomDoesNotShadowOpenLastDefault() throws {
+        _ = NSApplication.shared
+        let menu = MainMenu.build(target: AppDelegate())
+        let edit = try #require(menu.items.first { $0.title == "Edit" }?.submenu)
+        let add = try #require(edit.items.first { $0.title == "Add Zoom at Playhead" })
+        let open = try #require(HotkeyAction.openLast.defaultCombo?.menuKey)
+        #expect(add.keyEquivalent == "z")
+        #expect(add.keyEquivalentModifierMask == [.command, .option, .shift])
+        #expect(add.keyEquivalent != open.key || add.keyEquivalentModifierMask != open.flags)
     }
 }

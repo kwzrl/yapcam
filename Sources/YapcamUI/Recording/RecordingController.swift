@@ -440,7 +440,7 @@ enum RecordingPhase: Equatable {
         guard isRecording else { return }
         if Self.autoConfirm { Probe.log("auto-confirmed: Finish recording?"); stop(); return }
         let a = NSAlert()
-        a.messageText = "Finish recording?"; a.informativeText = "The recording is saved and opens in the editor."
+        a.messageText = "Finish recording?"; a.informativeText = "The recording will be saved."
         a.addButton(withTitle: "Finish"); a.addButton(withTitle: "Keep Recording")
         a.layout(); engine.registerExcluded(a.window); defer { engine.unregisterExcluded(a.window) }
         if a.runModal() == .alertFirstButtonReturn { stop() }

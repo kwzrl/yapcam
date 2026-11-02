@@ -244,7 +244,7 @@ public struct EditorCommands: Commands {
         CommandMenu("Edit Timeline") {
             Button("Split at Playhead") { model?.splitAtPlayhead() }.keyboardShortcut("b").disabled(model == nil)
             Button("Command Palette…") { model?.paletteVisible = true }.keyboardShortcut("k").disabled(model == nil)
-            Button("Add Zoom at Playhead") { model?.addZoomAtPlayhead() }.keyboardShortcut("z", modifiers: [.command, .option]).disabled(model == nil)
+            Button("Add Zoom at Playhead") { model?.addZoomAtPlayhead() }.keyboardShortcut("z", modifiers: [.command, .option, .shift]).disabled(model == nil)
         }
     }
 }
